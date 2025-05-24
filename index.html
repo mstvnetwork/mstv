@@ -31,18 +31,25 @@
       margin: 0;
       padding: 0;
     }
-    .title {
-      font-size: 3em;
-      text-align: center;
-      margin-top: 20px;
-      animation: pop 1.5s ease-in-out infinite alternate;
-      color: #0ff;
-      text-shadow: 0 0 20px #0ff;
-    }
-    @keyframes pop {
-      0% { transform: scale(1); }
-      100% { transform: scale(1.05); }
-    }
+    .title-wrapper {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.title {
+  font-size: 3em;
+  display: inline-block;
+  color: #0ff;
+  text-shadow: 0 0 20px #0ff;
+  animation: pop 1.5s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes pop {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.05); }
+}
+
     .scrolling-text-container {
       overflow: hidden;
       white-space: nowrap;
@@ -180,6 +187,47 @@
       height: 100%;
       border: none;
     }
+    /* Ensures video and iframe players match aspect ratio and styling */
+.media-player {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 16 / 9;
+  display: block;
+  border: none;
+  object-fit: cover;
+  pointer-events: none; /* disables interaction */
+}
+
+#player-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.media-player-container {
+  position: relative;
+  width: 90%;
+  max-width: 960px;
+  aspect-ratio: 16 / 9;
+  margin: 20px auto;
+  border: 5px double #0ff;
+  background: #000;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+/* Hide default video controls (for safety across browsers) */
+.media-player::-webkit-media-controls {
+  display: none !important;
+}
+
+.media-player::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+
+
     .overlay-top-left {
       position: absolute;
       top: 5px;
@@ -247,25 +295,65 @@
       text-decoration: underline;
     }
     footer {
-      background: #222;
-      padding: 20px;
-      text-align: center;
-      margin-top: 40px;
-      font-size: 0.9em;
-      color: #ccc;
-    }
-    footer h3 {
-      color: #0ff;
-      margin-bottom: 10px;
-    }
-    footer p {
-      margin: 6px 0;
-      line-height: 1.4;
-    }
+  background: #222;
+  padding: 20px;
+  text-align: center;
+  margin-top: 40px;
+  font-size: 0.9em;
+  color: #ccc;
+}
+
+@media (min-width: 768px) {
+  footer {
+    font-size: 0.75em; /* smaller size for larger screens / desktop mode */
+  }
+}
+footer h3 {
+  background: linear-gradient(90deg, #0ff, #08f, #0ff);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 10px #0ff;
+  font-weight: bold;
+  font-size: 1.2em;
+  margin-bottom: 10px;
+  animation: shimmer 3s infinite linear;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -100%;
+  }
+  100% {
+    background-position: 200%;
+  }
+}
+
+
+    footer p.copyright {
+  animation: glowText 2s ease-in-out infinite alternate;
+  font-weight: bold;
+  color: #0ff;
+  text-shadow: 0 0 5px #0ff, 0 0 10px #0ff, 0 0 20px #0ff;
+}
+
+@keyframes glowText {
+  0% {
+    color: #0ff;
+    text-shadow: 0 0 5px #0ff, 0 0 10px #0ff;
+  }
+  100% {
+    color: #08f;
+    text-shadow: 0 0 10px #08f, 0 0 20px #08f;
+  }
+}
+
   </style>
 </head>
 <body>
-  <div class="title">MSTV NETWORK</div>
+  <div class="title-wrapper">
+  <span class="title">MSTV NETWORK</span>
+</div>
+
 
   <div class="scrolling-text-container">
     <div class="scrolling-text">
@@ -323,14 +411,14 @@
 
   <footer>
     <h3>About Us</h3>
-    <p>MSTV NETWORK is your premier live streaming service offering diverse channels from news to entertainment.</p>
+    <p>MSTV Network is a non-profit platform offering free access to live TV channels, including entertainment, music, news, and more. We provide high-quality streaming to viewers worldwide, ensuring a diverse and engaging experience. Our mission is to make content from the Indian subcontinent accessible to everyone, fostering cultural exchange through free, reliable, and uninterrupted TV streaming.</p>
     <h3>Disclaimer</h3>
-    <p>All content is provided by their respective owners. We do not host any content ourselves.</p>
+    <p>MSTV Network provides access to publicly available channels from various sources on the internet for informational and entertainment purposes only. We do not control or guarantee the accuracy, availability, or legality of the content streamed. All content is provided "as is," and MSTV Network is not liable for any errors, interruptions, or damages arising from the use of our services. By using MSTV Network, you agree to comply with all applicable laws. For more details, please refer to our Terms of Service and Privacy Policy.</p>
     <h3>Terms of Service</h3>
-    <p>Use this service at your own discretion. We are not liable for any misuse.</p>
-    <p>&copy; 2025 MSTV NETWORK. All rights reserved.</p>
-  </footer>
+    <p>By using MSTV Network, you agree to comply with our terms of services...</p>
+    <p class="copyright">&copy; 2025 MSTV NETWORK. All rights reserved.</p>
 
+  </footer>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
   <script>
     // CHANNEL DATA: Add streams here easily
@@ -443,60 +531,74 @@
       channelLogos.style.display = 'flex';
     }
 
-    function playStream(url) {
-      loading.style.display = 'block';
-      playerWrapper.innerHTML = '';
-      channelLogos.style.display = 'none';
+   function playStream(url) {
+  loading.style.display = 'block';
+  playerWrapper.innerHTML = '';
+  channelLogos.style.display = 'none';
 
-      const streamType = detectStreamType(url);
+  const streamType = detectStreamType(url);
 
-      if (streamType === 'hls') {
-        const video = document.createElement('video');
-        video.autoplay = true;
+  if (streamType === 'hls') {
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = false;
+    video.controls = false;
+    video.playsInline = true;
+    video.className = 'media-player';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
+    video.setAttribute('muted', '');
+    video.setAttribute('controls', 'false');
+    video.style.pointerEvents = 'none'; // disables any interaction
+    playerWrapper.appendChild(video);
+
+    if (Hls.isSupported()) {
+      const hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.muted = false;
-        video.playsInline = true;
-        video.controls = false;
-        video.className = 'media-player';
-        playerWrapper.appendChild(video);
-
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hls.loadSource(url);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(err => {
+          console.warn("Autoplay error:", err);
+          loading.innerText = "Click to start stream";
+          loading.style.cursor = "pointer";
+          loading.onclick = () => {
             video.play();
             loading.style.display = 'none';
-          });
-          hls.on(Hls.Events.ERROR, () => {
-            loading.innerText = 'Error loading stream.';
-          });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = url;
-          video.addEventListener('loadedmetadata', () => {
-            video.play();
-            loading.style.display = 'none';
-          });
-        } else {
-          loading.innerText = 'HLS not supported in this browser.';
-        }
-      } else {
-        const iframe = document.createElement('iframe');
-        iframe.className = "media-player";
-        iframe.allow = "autoplay; encrypted-media";
-        iframe.allowFullscreen = true;
-
-        if (streamType === 'youtube') {
-          iframe.src = `https://www.youtube.com/embed/${getYouTubeId(url)}?autoplay=1&mute=0&enablejsapi=1`;
-        } else if (streamType === 'twitch') {
-          iframe.src = `https://player.twitch.tv/?channel=${getTwitchChannel(url)}&parent=${location.hostname}&autoplay=true&muted=false`;
-        } else {
-          iframe.src = url;
-        }
-
-        playerWrapper.appendChild(iframe);
+          };
+        });
         loading.style.display = 'none';
-      }
+      });
+      hls.on(Hls.Events.ERROR, function (event, data) {
+        console.error("HLS.js error:", data);
+        loading.innerText = 'Error loading stream.';
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.addEventListener('loadedmetadata', () => {
+        video.play();
+        loading.style.display = 'none';
+      });
+    } else {
+      loading.innerText = 'HLS not supported in this browser.';
     }
+  } else {
+    const iframe = document.createElement('iframe');
+    iframe.className = "media-player";
+    iframe.allow = "autoplay; encrypted-media";
+    iframe.allowFullscreen = false;
+    iframe.frameBorder = "0";
+
+    if (streamType === 'youtube') {
+      iframe.src = `https://www.youtube.com/embed/${getYouTubeId(url)}?autoplay=1&mute=0&controls=0&fs=0`;
+    } else {
+      iframe.src = url;
+    }
+
+    playerWrapper.appendChild(iframe);
+    loading.style.display = 'none';
+  }
+}
 
     function detectStreamType(url) {
       if (url.includes("youtube.com") || url.includes("youtu.be")) return "youtube";

@@ -2,51 +2,300 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MSTV Network</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MSTV NETWORK</title>
   <style>
-    body { background: #000; color: #fff; font-family: sans-serif; margin: 0; padding: 0; }
-    select, .player-container, footer { width: 100%; padding: 1em; }
-    .player-container { position: relative; text-align: center; }
-    .live-stamp { position: absolute; top: 10px; left: 10px; background: red; padding: 5px; z-index: 2; font-weight: bold; }
-    .loading-indicator { color: #fff; background: #111; padding: 5px; display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 3; }
-    .logo-overlay { position: absolute; top: 10px; right: 10px; width: 60px; z-index: 2; }
-    video, iframe { width: 100%; height: 360px; background: #000; border: none; z-index: 1; }
-    #placeholder-image { width: 100%; height: 360px; object-fit: cover; display: block; }
-    .facebook-follow img { width: 30px; vertical-align: middle; }
-    .facebook-follow { text-align: center; margin: 1em 0; }
-    footer { background: #111; color: #ccc; }
-    .footer-section { display: flex; flex-wrap: wrap; }
-    .footer-column { flex: 1 1 300px; padding: 1em; }
-    .footer-column h2, h3, h4 { color: #fff; }
-    .copyright { text-align: center; padding: 1em; background: #000; color: #888; font-size: 14px; }
+    /* Reset and basics */
+    body, html {
+      margin: 0; padding: 0; height: 100%;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #000;
+      color: #fff;
+      overflow-x: hidden;
+      position: relative;
+    }
+
+    /* Fireworks background canvas */
+    #fireworks-canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      pointer-events: none;
+      z-index: -1;
+      background: black;
+    }
+
+    /* Container for page */
+    .page-wrapper {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      text-align: center;
+    }
+
+    /* Static 3D Title */
+    h1.title {
+      font-size: 3.5em;
+      color: #ffcc00;
+      text-shadow:
+        1px 1px 0 #b38600,
+        2px 2px 2px #664d00,
+        0 0 10px #ffd700,
+        0 0 20px #ffec8b;
+      transform: translateZ(20px);
+      margin-bottom: 5px;
+      font-weight: 900;
+      user-select: none;
+    }
+
+    /* 3D Golden Scrolling Text */
+    .scrolling-text {
+      overflow: hidden;
+      white-space: nowrap;
+      padding: 12px 0;
+      margin: 0 0 30px 0;
+      background: rgba(0, 0, 0, 0.1);
+      border-top: 2px solid #b8860b;
+      border-bottom: 2px solid #b8860b;
+      perspective: 800px;
+      user-select: none;
+    }
+
+    .scrolling-content {
+      display: inline-block;
+      padding-left: 100%;
+      animation: scroll-text 15s linear infinite;
+      font-size: 1.5em;
+      font-weight: 700;
+      color: #ffd700;
+      text-shadow:
+        1px 1px 0 #a67c00,
+        2px 2px 5px #ffec8b,
+        0 0 10px #ffd700,
+        0 0 20px #ffc107;
+      transform-style: preserve-3d;
+    }
+
+    @keyframes scroll-text {
+      0% {
+        transform: translateX(0%);
+      }
+      100% {
+        transform: translateX(-100%);
+      }
+    }
+
+    /* Player container with 16:9 aspect ratio and glowing border */
+    .player-container {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      box-shadow:
+        0 0 15px 3px #ffd700,
+        0 0 30px 10px #ffcc00 inset;
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 0 auto 40px auto;
+    }
+
+    /* Live stamp on top left */
+    .live-stamp {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(255, 204, 0, 0.85);
+      color: black;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 4px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      user-select: none;
+      z-index: 10;
+      box-shadow: 0 0 10px #ffd700;
+    }
+
+    /* Loading indicator */
+    #loading {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0,0,0,0.7);
+      padding: 15px 25px;
+      border-radius: 6px;
+      font-weight: 700;
+      display: none;
+      z-index: 20;
+      user-select: none;
+      box-shadow: 0 0 12px #ffcc00;
+    }
+
+    /* Logo overlay */
+    .logo-overlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 80px;
+      opacity: 0.85;
+      pointer-events: none;
+      user-select: none;
+      z-index: 5;
+    }
+
+    /* Video and iframe players fill container */
+    #video-player, #media-player {
+      width: 100%;
+      height: 100%;
+      display: none;
+      background: black;
+      border: none;
+      border-radius: 8px;
+      user-select: none;
+    }
+
+    /* Placeholder image */
+    #placeholder-image {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      border-radius: 8px;
+      user-select: none;
+    }
+
+    /* Facebook follow button */
+    .facebook-follow {
+      margin: 20px 0;
+    }
+
+    .facebook-follow a {
+      text-decoration: none;
+      color: #3b5998;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.2em;
+    }
+
+    .facebook-follow img {
+      width: 24px;
+      height: 24px;
+      filter: drop-shadow(0 0 1px #3b5998);
+      user-select: none;
+    }
+
+    /* Footer styling */
+    footer {
+      background: #111;
+      color: #ccc;
+      padding: 25px 15px;
+      user-select: none;
+    }
+
+    .footer-section {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      max-width: 900px;
+      margin: 0 auto 20px auto;
+      gap: 20px;
+    }
+
+    .footer-column {
+      flex: 1 1 300px;
+      min-width: 280px;
+      text-align: left;
+    }
+
+    footer h2 {
+      color: #ffd700;
+      font-size: 1.6em;
+      margin-bottom: 12px;
+      text-shadow:
+        0 0 6px #ffcc00;
+    }
+
+    footer h3, footer h4 {
+      margin-top: 20px;
+      color: #ffdd55;
+      font-weight: 700;
+    }
+
+    footer p {
+      line-height: 1.5;
+      font-size: 1em;
+      color: #ddd;
+    }
+
+    .copyright {
+      text-align: center;
+      font-weight: 700;
+      font-size: 1.1em;
+      color: #ffd700;
+      text-shadow:
+        0 0 6px #ffcc00,
+        0 0 20px #ffc107,
+        0 0 40px #ffd700;
+      padding-bottom: 20px;
+      user-select: none;
+    }
+
+    /* Channel select styling */
+    #channel-select {
+      width: 100%;
+      max-width: 900px;
+      font-size: 1.2em;
+      padding: 10px;
+      border-radius: 6px;
+      border: 2px solid #ffd700;
+      background: #000;
+      color: #ffd700;
+      box-shadow: 0 0 10px #ffcc00 inset;
+      margin-bottom: 30px;
+      user-select: none;
+    }
+
   </style>
 </head>
 <body>
 
-  <div>
-    <select id="channel-select">
-      <option value="">-- Select Channel --</option>
+  <!-- Fireworks canvas -->
+  <canvas id="fireworks-canvas"></canvas>
+
+  <div class="page-wrapper">
+    <h1 class="title">MSTV NETWORK</h1>
+
+    <div class="scrolling-text" aria-label="Scrolling news ticker">
+      <div class="scrolling-content">
+        MSTV NETWORK - Enjoy Free Streaming 24/7! Stay tuned for updates and new channels every week! &nbsp; 🔥🎉✨
+      </div>
+    </div>
+
+    <select id="channel-select" aria-label="Select Channel">
+      <option value="" disabled selected>Select a channel</option>
       <option value="https://desiplaylive.akamaized.net/ptnr-yupptv/v1/manifest/611d79b11b77e2f571934fd80ca1413453772ac7/vglive-sk-660691/4cf68f50-0c5e-47a6-96e3-b78797a2b6fe/1.m3u8">MSTV DESI PLAY</option>
       <option value="https://dreyfus.securitytactics.com/colorshindi.html">COLORS TV (ONLY ANDROID)</option>
       <option value="https://www.youtube.com/embed/jBroLf5iS_U?si=ykCNbagFhsztwgW1&autoplay=1">AAJ TAK HD</option>
       <option value="https://player.twitch.tv/?channel=aiodigital&parent=mstvnet.netlify.app">CINEMA (WAIT 1 MINUTE TO LOAD)</option>
     </select>
-  </div>
 
-  <div class="player-container" id="player-container">
-    <div class="live-stamp">MSTV NETWORK</div>
-    <div class="loading-indicator" id="loading">Loading stream...</div>
-    <img src="/logo.png" class="logo-overlay" alt="MSTV Logo" />
-    <iframe id="media-player" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
-    <video id="video-player" autoplay muted playsinline></video>
-    <img id="placeholder-image" src="Design-Studio-2025-01-22 (1).png" alt="Stream Placeholder" />
+    <div class="player-container" id="player-container" role="region" aria-label="Media Player">
+      <div class="live-stamp">MSTV NETWORK</div>
+      <div class="loading-indicator" id="loading">Loading stream...</div>
+      <img src="/logo.png" class="logo-overlay" alt="MSTV Logo" />
+      <iframe id="media-player" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation" title="Media player iframe"></iframe>
+      <video id="video-player" autoplay muted playsinline controls></video>
+      <img id="placeholder-image" src="Design-Studio-2025-01-22 (1).png" alt="Stream Placeholder" />
+    </div>
   </div>
 
   <div class="facebook-follow">
-    <a href="https://www.facebook.com/share/19RQ8cbYCv/" target="_blank">
+    <a href="https://www.facebook.com/share/19RQ8cbYCv/" target="_blank" rel="noopener noreferrer">
       <img src="https://upload.wikimedia.org/wikipedia/commons/5/51/Facebook_f_logo_%282019%29.svg" alt="Facebook Icon" />
-      Click & follow us
+      Click &amp; follow us
     </a>
   </div>
 
@@ -54,10 +303,14 @@
     <div class="footer-section">
       <div class="footer-column">
         <h2>About MSTV</h2>
-        <p>MSTV Network is a non-profit platform offering free access to live TV channels, including entertainment, music, news, and more...</p>
+        <p>
+          MSTV Network is a non-profit platform offering free access to live TV channels, including entertainment, music, news, and more. We provide high-quality streaming to viewers worldwide, ensuring a diverse and engaging experience. Our mission is to make content from the Indian subcontinent accessible to everyone, fostering cultural exchange through free, reliable, and uninterrupted TV streaming.
+        </p>
         <h3>Disclaimer</h3>
-        <p>MSTV Network provides access to publicly available channels for informational and entertainment purposes only...</p>
-        <h4>Terms of Services</h4>
+        <p>
+          MSTV Network provides access to publicly available channels from various sources on the internet for informational and entertainment purposes only. We do not control or guarantee the accuracy, availability, or legality of the content streamed. All content is provided "as is," and MSTV Network is not liable for any errors, interruptions, or damages arising from the use of our services. By using MSTV Network, you agree to comply with all applicable laws. For more details, please refer to our Terms of Service and Privacy Policy.
+        </p>
+        <h4>Terms of services</h4>
         <p>By using MSTV Network, you agree to comply with our terms of service...</p>
       </div>
       <div class="footer-column">
@@ -68,10 +321,127 @@
     <div class="copyright">&copy; 2025 MSTV INDIA. All rights reserved.</div>
   </footer>
 
-  <!-- ✅ Load hls.js library -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
   <script>
+    // Fireworks animation script - denser, colorful, faster
+    (() => {
+      const canvas = document.getElementById('fireworks-canvas');
+      const ctx = canvas.getContext('2d');
+      let width, height;
+
+      function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
+        canvas.height = height;
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      // Particle class for fireworks
+      class Particle {
+        constructor(x, y, color, angle, speed, decay) {
+          this.x = x;
+          this.y = y;
+          this.color = color;
+          this.angle = angle;
+          this.speed = speed;
+          this.decay = decay;
+          this.alpha = 1;
+          this.radius = 2 + Math.random() * 2;
+          this.gravity = 0.02;
+        }
+        update() {
+          this.speed *= this.decay;
+          this.x += Math.cos(this.angle) * this.speed;
+          this.y += Math.sin(this.angle) * this.speed + this.gravity;
+          this.alpha -= 0.015;
+        }
+        draw() {
+          if (this.alpha <= 0) return;
+          ctx.save();
+          ctx.globalAlpha = this.alpha;
+          ctx.beginPath();
+          ctx.fillStyle = this.color;
+          ctx.shadowColor = this.color;
+          ctx.shadowBlur = 8;
+          ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      // Firework class
+      class Firework {
+        constructor() {
+          this.x = Math.random() * width;
+          this.y = height + 10;
+          this.targetY = Math.random() * height / 2;
+          this.color = `hsl(${Math.random() * 360}, 100%, 60%)`;
+          this.speed = 7 + Math.random() * 3;
+          this.particles = [];
+          this.exploded = false;
+        }
+        update() {
+          if (!this.exploded) {
+            this.y -= this.speed;
+            if (this.y <= this.targetY) {
+              this.explode();
+              this.exploded = true;
+            }
+          }
+          this.particles.forEach(p => p.update());
+          this.particles = this.particles.filter(p => p.alpha > 0);
+        }
+        explode() {
+          const count = 40 + Math.floor(Math.random() * 40); // more particles
+          for (let i = 0; i < count; i++) {
+            const angle = (Math.PI * 2 * i) / count;
+            const speed = 2 + Math.random() * 4;
+            const decay = 0.93 + Math.random() * 0.04;
+            this.particles.push(new Particle(this.x, this.y, this.color, angle, speed, decay));
+          }
+        }
+        draw() {
+          if (!this.exploded) {
+            ctx.save();
+            ctx.fillStyle = this.color;
+            ctx.shadowColor = this.color;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+          }
+          this.particles.forEach(p => p.draw());
+        }
+      }
+
+      let fireworks = [];
+      let lastLaunch = 0;
+      const launchInterval = 250; // faster launches
+
+      function animate(time = 0) {
+        ctx.clearRect(0, 0, width, height);
+
+        if (time - lastLaunch > launchInterval) {
+          fireworks.push(new Firework());
+          lastLaunch = time;
+        }
+
+        fireworks.forEach(fw => {
+          fw.update();
+          fw.draw();
+        });
+
+        fireworks = fireworks.filter(fw => fw.particles.length > 0);
+
+        requestAnimationFrame(animate);
+      }
+
+      animate();
+    })();
+
+    // Channel select and player logic
     const select = document.getElementById('channel-select');
     const videoPlayer = document.getElementById('video-player');
     const iframePlayer = document.getElementById('media-player');
@@ -84,9 +454,10 @@
 
     select.addEventListener('change', () => {
       const url = select.value;
+      if (!url) return;
+
       showLoading(true);
 
-      // Reset players
       videoPlayer.pause();
       videoPlayer.removeAttribute('src');
       videoPlayer.load();
@@ -101,34 +472,17 @@
         iframePlayer.onload = () => showLoading(false);
         videoPlayer.style.display = 'none';
       } else {
-        iframePlayer.style.display = 'none';
         videoPlayer.style.display = 'block';
-
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hls.loadSource(url);
-          hls.attachMedia(videoPlayer);
-          hls.on(Hls.Events.MANIFEST_PARSED, function () {
-            videoPlayer.muted = false;
-            videoPlayer.play();
-            showLoading(false);
-          });
-        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-          videoPlayer.src = url;
-          videoPlayer.addEventListener('loadedmetadata', () => {
-            videoPlayer.play();
-            showLoading(false);
-          });
-        } else {
-          alert("Your browser does not support HLS video streaming.");
-          showLoading(false);
-        }
+        videoPlayer.src = url;
+        videoPlayer.muted = false;
+        videoPlayer.autoplay = true;
+        videoPlayer.play().then(() => showLoading(false)).catch(() => showLoading(false));
+        iframePlayer.style.display = 'none';
       }
     });
 
     videoPlayer.addEventListener('contextmenu', e => e.preventDefault());
 
-    // Initial hiding
     videoPlayer.style.display = 'none';
     iframePlayer.style.display = 'none';
   </script>

@@ -151,8 +151,6 @@ select:hover {
     box-shadow: 0 5px 15px rgba(0, 0, 0, 0.6); /* Prominent, soft shadow for depth */
     animation: none; /* Remove any pulsing animation */
 
-    /* Attempt to hide some native video player overlays if they appear on hover/click */
-    /* Note: This is not guaranteed for all browsers or iframe content */
     cursor: default; /* Remove pointer cursor */
 }
 
@@ -168,38 +166,25 @@ select:hover {
     pointer-events: auto; /* Allow clicks to player for play/pause */
 }
 
-/* NEW: Styles for the placeholder video container and click blocker */
-.placeholder-overlay-container {
-    position: absolute; /* Positioned relative to .player-container */
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1; /* Below loading indicator, above actual player when not active */
-    display: block; /* Initially visible */
-    overflow: hidden; /* Ensures contained elements don't spill */
+/* NEW: Styles for the text placeholder */
+.text-placeholder {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.6em; /* Similar to loading indicator */
+    color: #FFD700; /* Golden Yellow */
+    background: rgba(0, 0, 0, 0.85); /* Similar dark background */
+    padding: 20px 40px;
+    border-radius: 10px;
+    text-align: center;
+    border: none;
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.5); /* Golden yellow shadow */
+    animation: pulseLight 1.5s infinite alternate; /* Re-use existing animation */
+    z-index: 5; /* Below loading indicator, above actual player */
+    display: none; /* Will be set to 'block' by JS initially */
 }
 
-#placeholder-video-iframe {
-    position: absolute; /* Fill its parent container */
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    user-select: none;
-    pointer-events: none; /* Crucial: make the iframe itself non-interactive so the blocker works */
-}
-
-.placeholder-click-blocker {
-    position: absolute; /* Cover the iframe */
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 2; /* Make sure it's above the iframe */
-    background: transparent; /* Completely invisible */
-    cursor: default; /* Change cursor to default to indicate no interaction */
-}
 
 /* Quality Feature Labels Container */
 .quality-features {
@@ -456,35 +441,10 @@ footer {
 <iframe id="media-player" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
 <video id="video-player" autoplay muted playsinline></video>
 
-<div id="placeholder-video-container" class="placeholder-overlay-container">
-    <iframe
-        id="placeholder-video-iframe"
-        title="vimeo-player"
-        <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
-        frameborder="0"
-        allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen
-    ></iframe>
-    <div class="placeholder-click-blocker"></div>
+<div id="text-placeholder" class="text-placeholder">
+    Select channel to play
 </div>
-<div id="player-wrapper">
-    <!-- Placeholder video on load -->
-   <video
-  id="placeholder-video"
-  class="media-player"
-  muted
-  autoplay
-  loop
-  playsinline
-  preload="auto"
-  poster="https://via.placeholder.com/960x540?text=Loading+Video"
->
-  <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm" type="video/webm" />
-  <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4" />
-  Your browser does not support the video tag.
-</video>
 
-</div>
 </div>
 
 <div class="quality-features">
@@ -531,8 +491,8 @@ Follow us on Facebook
 const select = document.getElementById('channel-select');
 const videoPlayer = document.getElementById('video-player');
 const iframePlayer = document.getElementById('media-player');
-// UPDATED: Reference the new placeholder container div
-const placeholder = document.getElementById('placeholder-video-container'); // Points to the new container
+// UPDATED: Reference the new text placeholder div
+const textPlaceholder = document.getElementById('text-placeholder'); // Renamed for clarity
 const loading = document.getElementById('loading');
 
 function showLoading(show) {
@@ -547,8 +507,8 @@ select.addEventListener('change', () => {
     videoPlayer.removeAttribute('src');
     videoPlayer.load();
     iframePlayer.src = '';
-    // Hide the entire placeholder container when a channel is selected
-    placeholder.style.display = 'none';
+    // Hide the text placeholder when a channel is selected
+    textPlaceholder.style.display = 'none';
 
     const isIframe = url.includes('.html') || url.includes('https://www.youtube.com/embed/iGrH1tC8LdI?si=pF6SBdHDNTBK_0rn&autoplay=1') || url.includes('embed') || url.includes('twitch.tv');
 
@@ -569,10 +529,11 @@ select.addEventListener('change', () => {
 
 videoPlayer.addEventListener('contextmenu', e => e.preventDefault());
 
-// Ensure video player and iframe are hidden initially, and placeholder video container is visible
+// Ensure video player and iframe are hidden initially, and text placeholder is visible
 videoPlayer.style.display = 'none';
 iframePlayer.style.display = 'none';
-placeholder.style.display = 'block'; // Ensure it's visible on page load
+loading.style.display = 'none'; // Ensure loading is hidden initially
+textPlaceholder.style.display = 'block'; // Show the text placeholder on page load
 
 </script>
 </body>

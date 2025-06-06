@@ -168,16 +168,37 @@ select:hover {
     pointer-events: auto; /* Allow clicks to player for play/pause */
 }
 
-/* Styling for the new video placeholder */
-#placeholder-video {
-    position: absolute;
+/* NEW: Styles for the placeholder video container and click blocker */
+.placeholder-overlay-container {
+    position: absolute; /* Positioned relative to .player-container */
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    object-fit: cover; /* This makes the video fill the container, cropping if necessary */
-    z-index: 1; /* Below loading indicator, above iframe/video player when active */
-    display: block; /* Ensure it's visible by default */
+    z-index: 1; /* Below loading indicator, above actual player when not active */
+    display: block; /* Initially visible */
+    overflow: hidden; /* Ensures contained elements don't spill */
+}
+
+#placeholder-video-iframe {
+    position: absolute; /* Fill its parent container */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+    pointer-events: none; /* Crucial: make the iframe itself non-interactive so the blocker works */
+}
+
+.placeholder-click-blocker {
+    position: absolute; /* Cover the iframe */
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2; /* Make sure it's above the iframe */
+    background: transparent; /* Completely invisible */
+    cursor: default; /* Change cursor to default to indicate no interaction */
 }
 
 /* Quality Feature Labels Container */
@@ -434,23 +455,28 @@ footer {
 <img src="/logo.png" class="logo-overlay" alt="MSTV Logo" />
 <iframe id="media-player" allow="autoplay; encrypted-media" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
 <video id="video-player" autoplay muted playsinline></video>
-<iframe
-    id="placeholder-video"
-    src="https://www.youtube.com/embed/xFehu6LwKLc?si=eFy8ON27rue3njUj"
-    frameborder="0"
-    allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
-    allowfullscreen
-></iframe>
+
+<div id="placeholder-video-container" class="placeholder-overlay-container">
+    <iframe
+        id="placeholder-video-iframe"
+        src="https://www.youtube.com/embed/YOUR_YOUTUBE_VIDEO_ID_HERE?autoplay=1&mute=1&loop=1&playlist=YOUR_YOUTUBE_VIDEO_ID_HERE&controls=0&fs=0&modestbranding=1&rel=0&iv_load_policy=3"
+        frameborder="0"
+        allow="autoplay; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen
+    ></iframe>
+    <div class="placeholder-click-blocker"></div>
+</div>
+
 </div>
 
 <div class="quality-features">
     <span class="quality-item">
         <img src="logo.img/images.png" alt="Dolby Digital Logo" class="quality-logo" onerror="console.error('Failed to load Dolby logo from relative path: ' + this.src);">
-        
+        Dolby Digital Sound
     </span>
     <span class="quality-item">
         <img src="logo.img/images (1).jpeg" alt="HD Quality Logo" class="quality-logo" onerror="console.error('Failed to load HD logo from relative path: ' + this.src);">
-        
+        Crystal Clear Picture & Sound
     </span>
 </div>
 
@@ -487,8 +513,8 @@ Follow us on Facebook
 const select = document.getElementById('channel-select');
 const videoPlayer = document.getElementById('video-player');
 const iframePlayer = document.getElementById('media-player');
-// UPDATED: Reference the new video placeholder
-const placeholder = document.getElementById('placeholder-video');
+// UPDATED: Reference the new placeholder container div
+const placeholder = document.getElementById('placeholder-video-container'); // Points to the new container
 const loading = document.getElementById('loading');
 
 function showLoading(show) {
@@ -503,7 +529,7 @@ select.addEventListener('change', () => {
     videoPlayer.removeAttribute('src');
     videoPlayer.load();
     iframePlayer.src = '';
-    // Hide the video placeholder when a channel is selected
+    // Hide the entire placeholder container when a channel is selected
     placeholder.style.display = 'none';
 
     const isIframe = url.includes('.html') || url.includes('https://www.youtube.com/embed/iGrH1tC8LdI?si=pF6SBdHDNTBK_0rn&autoplay=1') || url.includes('embed') || url.includes('twitch.tv');
@@ -525,7 +551,7 @@ select.addEventListener('change', () => {
 
 videoPlayer.addEventListener('contextmenu', e => e.preventDefault());
 
-// Ensure video player and iframe are hidden initially, and placeholder video is visible
+// Ensure video player and iframe are hidden initially, and placeholder video container is visible
 videoPlayer.style.display = 'none';
 iframePlayer.style.display = 'none';
 placeholder.style.display = 'block'; // Ensure it's visible on page load

@@ -229,6 +229,7 @@
         }
         .player-container video::-ms-fill-lower,
         .player-container video::-ms-fill-upper,
+        .player-container video::-ms-thumb {
             display: none !important;
         }
 
@@ -257,8 +258,6 @@
             visibility: hidden;
             pointer-events: none;
         }
-
-        /* Removed .unmute-button.hidden as JS now directly controls styles */
 
         .unmute-button:hover {
             background: rgba(0, 0, 0, 0.9);
@@ -655,15 +654,21 @@
         // isVisible: boolean, should the button be shown?
         // isMuted: boolean, relevant only if a video is playing, indicates if the video is currently muted.
         // showPlayText: boolean, if true, button text will be "Play", otherwise "Unmute"/"Mute".
-        function setUnmuteButtonState(isVisible, isMuted, showPlayText = false) {
+        // isIframe: boolean, true if the current player is an iframe, changes button text/icon.
+        function setUnmuteButtonState(isVisible, isMuted, showPlayText = false, isIframe = false) {
             unmuteButton.style.display = isVisible ? 'flex' : 'none';
             unmuteButton.style.opacity = isVisible ? '1' : '0';
             unmuteButton.style.visibility = isVisible ? 'visible' : 'hidden';
             unmuteButton.style.pointerEvents = isVisible ? 'auto' : 'none';
 
             if (isVisible) {
-                speakerIcon.textContent = isMuted ? '🔇' : '🔊';
-                unmuteText.textContent = showPlayText ? 'Play' : (isMuted ? 'Unmute' : 'Mute');
+                if (isIframe) {
+                    speakerIcon.textContent = '👆'; // Pointer icon for iframe interaction
+                    unmuteText.textContent = 'Click on Player to Unmute'; // Specific message for iframes
+                } else { // For <video> element (HLS)
+                    speakerIcon.textContent = isMuted ? '🔇' : '🔊';
+                    unmuteText.textContent = showPlayText ? 'Play' : (isMuted ? 'Unmute' : 'Mute');
+                }
             }
         }
 
@@ -679,9 +684,8 @@
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') { // Only interact if video player is active (HLS/MP4)
+            if (videoPlayer.style.display === 'block') { // Logic for <video> (HLS/MP4)
                 if (videoPlayer.paused) {
-                    // If paused, try to play and unmute
                     videoPlayer.play().then(() => {
                         videoPlayer.muted = false; // Explicitly unmute after successful play
                         setUnmuteButtonState(false, false); // Hide the button
@@ -689,47 +693,58 @@
                     }).catch(e => {
                         console.error("Manual play failed:", e);
                         // Play failed (e.g., browser policy). Keep button visible, perhaps change text back to "Play"
-                        setUnmuteButtonState(true, videoPlayer.muted, true);
+                        setUnmuteButtonState(true, videoPlayer.muted, true, false); // isIframe = false
                         setPlayerScrollingText(false);
                     });
                 } else {
                     // If playing, clicking toggles mute
                     videoPlayer.muted = !videoPlayer.muted;
-                    setUnmuteButtonState(true, videoPlayer.muted); // Update based on new mute state
+                    setUnmuteButtonState(true, videoPlayer.muted, false, false); // isIframe = false
                 }
+            } else if (iframePlayer.style.display === 'block') { // Logic for <iframe> (YouTube/Twitch/etc.)
+                // For iframes, our button cannot directly unmute the stream.
+                // It serves as an interaction hint. Hide it after click, as user should interact with iframe.
+                setUnmuteButtonState(false, false); // Hide the button.
+                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
             }
-            // For iframes (YouTube/Twitch/etc.), the unmute button is not controlled by our JS.
-            // User interaction on the iframe itself is needed for unmuting due to browser policies.
         });
 
         // Event listener for when the video volume changes (e.g., mute/unmute by user interaction on video controls)
         videoPlayer.addEventListener('volumechange', () => {
-            if (videoPlayer.style.display === 'block' && !videoPlayer.paused) { // Only update if video is visible and playing
-                setUnmuteButtonState(true, videoPlayer.muted); // Show button, update icon based on mute state
+            // Only update if video player is active (not iframe)
+            if (videoPlayer.style.display === 'block' && !videoPlayer.paused) {
+                setUnmuteButtonState(true, videoPlayer.muted, false, false); // Show button, update icon based on mute state. isIframe = false.
             }
         });
 
         // Event listener for when the video starts playing
         videoPlayer.addEventListener('playing', () => {
-            setUnmuteButtonState(false, videoPlayer.muted); // Hide button when playing
-            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+            // Only hide button if video player is active (not iframe)
+            if (videoPlayer.style.display === 'block') {
+                setUnmuteButtonState(false, videoPlayer.muted, false, false); // Hide button when playing. isIframe = false.
+                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+            }
         });
 
         // Event listener for when the video pauses
         videoPlayer.addEventListener('pause', () => {
+            // Only show button if video player is active (not iframe)
             if (videoPlayer.style.display === 'block') {
-                setUnmuteButtonState(true, videoPlayer.muted, true); // Show button and set text to 'Play'
+                setUnmuteButtonState(true, videoPlayer.muted, true, false); // Show button and set text to 'Play'. isIframe = false.
                 setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
             }
         });
 
         // Event listener for video can play (ready to play)
         videoPlayer.addEventListener('canplay', () => {
-            showLoading(false);
-            if (videoPlayer.muted || videoPlayer.paused) {
-                setUnmuteButtonState(true, videoPlayer.muted, videoPlayer.paused); // Show unmute/play button if muted or paused
-            } else {
-                setUnmuteButtonState(false, false); // Hide if already playing and unmuted
+            // Only manage for video player
+            if (videoPlayer.style.display === 'block') {
+                showLoading(false);
+                if (videoPlayer.muted || videoPlayer.paused) {
+                    setUnmuteButtonState(true, videoPlayer.muted, videoPlayer.paused, false); // Show unmute/play button if muted or paused. isIframe = false.
+                } else {
+                    setUnmuteButtonState(false, false, false, false); // Hide if already playing and unmuted. isIframe = false.
+                }
             }
         });
 
@@ -741,7 +756,7 @@
             placeholder.style.display = 'block';
             videoPlayer.style.display = 'none';
             iframePlayer.style.display = 'none';
-            setUnmuteButtonState(false, true);
+            setUnmuteButtonState(false, true, false, false); // isIframe = false
             setPlayerScrollingText(false);
             if (hlsInstance) {
                 hlsInstance.destroy();
@@ -753,7 +768,7 @@
         function loadChannel(channelUrl) {
             showLoading(true);
             placeholder.style.display = 'none';
-            setUnmuteButtonState(false, true); // Hide unmute button initially
+            setUnmuteButtonState(false, true, false); // Hide unmute button initially (generic false for isIframe)
 
             // Stop any existing HLS stream
             if (hlsInstance) {
@@ -788,8 +803,8 @@
                         videoPlayer.muted = true; // IMPORTANT: Start muted for autoplay to work
                         videoPlayer.play().catch(e => {
                             console.warn("Autoplay was prevented (HLS):", e);
-                            setUnmuteButtonState(true, true, true); // Show play/unmute button if autoplay fails
-                            setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
+                            setUnmuteButtonState(true, true, true, false); // Pass isIframe = false
+                            setPlayerScrollingText(false);
                         });
                         showLoading(false);
                     });
@@ -818,7 +833,7 @@
                     videoPlayer.muted = true;
                     videoPlayer.play().catch(e => {
                         console.warn("Autoplay was prevented (native HLS):", e);
-                        setUnmuteButtonState(true, true, true);
+                        setUnmuteButtonState(true, true, true, false); // Pass isIframe = false
                         setPlayerScrollingText(false);
                     });
                     showLoading(false);
@@ -831,31 +846,32 @@
                 }
             }
             // Check for YouTube (your specific googleusercontent.com proxy URLs)
-            // For these, we cannot reliably add autoplay/mute parameters from the parent page.
-            // The embed itself needs to handle autoplay/mute.
+            // For iframes, our button cannot directly unmute. It will guide the user to click the player.
             else if (channelUrl.includes('youtube.com/embed/') || channelUrl.includes('https://www.youtube.com/embed/sFUExLiEC-I?autoplay=1&mute=1&enablejsapi=1&playsinline=1') || channelUrl.includes('youtu.be/')) {
                 iframePlayer.src = channelUrl;
                 iframePlayer.style.display = 'block';
                 showLoading(false);
-                setUnmuteButtonState(false, true); // Hide unmute button for iframes
+                // Show the button, indicating it's for iframe interaction
+                setUnmuteButtonState(true, true, true, true); // Pass isIframe = true
                 setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
             // Check for Twitch embed URL
-            // Your sample Twitch URL already includes autoplay=true&muted=true, which is recommended.
-            // Unmuting will require interaction with the Twitch player controls.
+            // Twitch URLs often include autoplay and muted params. Our button serves as interaction guide.
             else if (channelUrl.includes('player.twitch.tv/')) {
                 iframePlayer.src = channelUrl; // Assuming the URL already contains necessary autoplay/mute params
                 iframePlayer.style.display = 'block';
                 showLoading(false);
-                setUnmuteButtonState(false, true); // Hide unmute button for iframes
+                // Show the button, indicating it's for iframe interaction
+                setUnmuteButtonState(true, true, true, true); // Pass isIframe = true
                 setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
-            // Assume it's a generic iframeable URL (like the .html files)
+            // Assume it's a generic iframeable URL
             else {
                 iframePlayer.src = channelUrl;
                 iframePlayer.style.display = 'block';
                 showLoading(false);
-                setUnmuteButtonState(false, true); // Hide unmute button for iframes
+                // Show the button, indicating it's for iframe interaction
+                setUnmuteButtonState(true, true, true, true); // Pass isIframe = true
                 setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
         }
@@ -929,7 +945,7 @@
                 videoPlayer.style.display = 'none';
                 iframePlayer.style.display = 'none';
                 showLoading(false);
-                setUnmuteButtonState(false, true);
+                setUnmuteButtonState(false, true, false); // Hide unmute button. isIframe = false.
                 setPlayerScrollingText(false);
                 if (hlsInstance) {
                     hlsInstance.destroy();
@@ -963,8 +979,6 @@
             if (select.value) {
                 loadChannel(select.value); // Try to load the pre-selected channel
             }
-            // If no channel is pre-selected and videoPlayer is the default, handle its autoplay attempt.
-            // This case is largely covered by loadChannel() if a channel is loaded by default config.
         });
 
     </script>

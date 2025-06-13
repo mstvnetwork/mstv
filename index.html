@@ -717,7 +717,6 @@
             }
         });
 
-
         // Function to fetch the config file
         async function fetchAndApplyConfig() {
             try {
@@ -780,161 +779,205 @@
                     if (contactPhone && newConfigData.contactPhone) {
                         contactPhone.textContent = 'Phone: ' + newConfigData.contactPhone;
                     }
-
-                    // Copyright Text
-                    const copyrightDiv = document.getElementById('copyright-text');
-                    if (copyrightDiv && newConfigData.copyrightText) {
-                        copyrightDiv.textContent = newConfigData.copyrightText;
+                    const copyrightText = document.getElementById('copyright-text');
+                    if (copyrightText && newConfigData.copyrightText) {
+                        copyrightText.textContent = newConfigData.copyrightText;
                     }
 
-                    // --- End Apply changes ---
-                } else {
-                    console.log("Config not changed.");
+                    // Trigger channel load if a channel was previously selected and is still valid
+                    if (select.value) {
+                        loadChannel(select.value);
+                    } else {
+                        // If no channel is selected or the previous one is invalid, ensure players are hidden
+                        // and placeholder is shown
+                        placeholder.style.display = 'block';
+                        videoPlayer.style.display = 'none';
+                        iframePlayer.style.display = 'none';
+                        showLoading(false);
+                        setUnmuteButtonState(false, true); // Hide unmute button if no channel selected
+                        setPlayerScrollingText(false);
+                    }
                 }
             } catch (error) {
                 console.error("Error fetching or parsing config.json:", error);
             }
         }
 
-        // Call fetchAndApplyConfig immediately when the page loads
-        document.addEventListener('DOMContentLoaded', fetchAndApplyConfig);
-
-        // Set up polling: fetch and apply config every 30 seconds
-        setInterval(fetchAndApplyConfig, 30000); // 30000 milliseconds = 30 seconds
-
-        select.addEventListener('change', () => {
-            const url = select.value;
-            const channelName = select.options[select.selectedIndex].text;
+        // Function to load and play the selected channel
+        function loadChannel(channelUrl) {
             showLoading(true);
-            setPlayerScrollingText(false); // Hide scrolling text initially for any change
-            setUnmuteButtonState(false, true); // Hide unmute button initially
+            placeholder.style.display = 'none';
+            setPlayerScrollingText(false); // Hide scrolling text while loading new channel
 
-            // Stop current playback
-            videoPlayer.pause();
+            // Reset player states
+            videoPlayer.style.display = 'none';
+            iframePlayer.style.display = 'none';
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
             }
-            videoPlayer.removeAttribute('src'); // Clear the source
-            videoPlayer.load(); // Reload the video element to clear state
+            videoPlayer.removeAttribute('src');
+            iframePlayer.removeAttribute('src');
 
-            iframePlayer.src = ''; // Clear iframe source
-            placeholder.style.display = 'none'; // Hide placeholder as we try to play
+            if (!channelUrl) {
+                // If no channel selected, show placeholder and hide everything else
+                placeholder.style.display = 'block';
+                showLoading(false);
+                setUnmuteButtonState(false, true); // Hide unmute button
+                return;
+            }
 
-            const isM3U8 = url.includes('.m3u8');
-            const isIframe = url.includes('https://www.youtube.com/embed/fB6Z4q01uFU?si=Kz23yTT5MeuNAE-l&autoplay=1&controls=0') || url.includes('youtube-nocookie.com/embed') || url.includes('twitch.tv') || url.includes('.html') || url.includes('embed');
-
-            // Determine the text for the player scroll based on userDefinedPlayerScrollMessage
-            const scrollMessage = userDefinedPlayerScrollMessage || `Now Playing: ${channelName}`;
-
-            if (isM3U8) {
+            if (channelUrl.includes('.m3u8')) {
+                // HLS.js for M3U8 streams
                 if (Hls.isSupported()) {
-                    videoPlayer.style.display = 'block';
-                    iframePlayer.style.display = 'none';
-
                     hlsInstance = new Hls();
-                    hlsInstance.loadSource(url);
+                    hlsInstance.loadSource(channelUrl);
                     hlsInstance.attachMedia(videoPlayer);
+                    videoPlayer.style.display = 'block';
+
+                    // Explicitly set video to muted on load
+                    videoPlayer.muted = true;
+                    // Show unmute button and indicate it's muted or needs play
+                    setUnmuteButtonState(true, true, true); // Show with 'Play' text initially
+
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true; // Ensure it starts muted
-                        videoPlayer.autoplay = true; // Attempt autoplay muted
                         videoPlayer.play().then(() => {
+                            // Autoplay successful, check mute state
+                            if (!videoPlayer.muted) {
+                                setUnmuteButtonState(false, false); // Hide if unmuted and playing
+                                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                            } else {
+                                // Still muted, keep button visible but update icon/text if needed
+                                setUnmuteButtonState(true, true);
+                            }
                             showLoading(false);
-                            setUnmuteButtonState(false, videoPlayer.muted); // Hide button if autoplay succeeds
-                            setPlayerScrollingText(true, scrollMessage);
-                        }).catch(e => {
-                            console.warn("Autoplay blocked for HLS, user interaction required:", e);
+                        }).catch(error => {
+                            console.warn("Autoplay was prevented for HLS stream:", error);
+                            // Autoplay failed, keep unmute button visible and show 'Play' text
+                            setUnmuteButtonState(true, true, true);
                             showLoading(false);
-                            placeholder.style.display = 'block'; // Show placeholder if autoplay fails
-                            setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text, as it's muted and paused
-                            setPlayerScrollingText(false); // Hide scrolling text until played
+                            setPlayerScrollingText(false);
                         });
                     });
-                    hlsInstance.on(Hls.Events.ERROR, function (event, data) {
+
+                    hlsInstance.on(Hls.Events.ERROR, function(event, data) {
                         console.error('HLS.js error:', data);
-                        if (data.fatal) {
-                            switch(data.type) {
-                                case Hls.ErrorTypes.NETWORK_ERROR:
-                                    console.error('fatal network error encountered, try to recover');
-                                    hlsInstance.startLoad();
-                                    break;
-                                case Hls.ErrorTypes.MEDIA_ERROR:
-                                    console.error('fatal media error encountered, try to recover');
-                                    hlsInstance.recoverMediaError();
-                                    break;
-                                default:
-                                    hlsInstance.destroy();
-                                    showLoading(false);
-                                    alert("Stream error: " + data.details + ". Please try another channel.");
-                                    placeholder.style.display = 'block';
-                                    setUnmuteButtonState(false, true); // This line keeps it hidden on fatal stream errors
-                                    setPlayerScrollingText(false);
-                                    break;
-                            }
-                        }
+                        showLoading(false);
+                        // Optionally display an error message to the user
+                        setUnmuteButtonState(false, true); // Hide unmute button on error
+                        setPlayerScrollingText(false);
                     });
 
-                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) { // Native HLS support for Safari/iOS
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native HLS support (Safari, iOS)
+                    videoPlayer.src = channelUrl;
                     videoPlayer.style.display = 'block';
-                    iframePlayer.style.display = 'none';
-                    videoPlayer.src = url;
-                    videoPlayer.muted = true; // Ensure it starts muted
-                    videoPlayer.autoplay = true; // Attempt autoplay muted
+                    videoPlayer.muted = true;
+                    setUnmuteButtonState(true, true, true); // Show with 'Play' text initially
                     videoPlayer.play().then(() => {
+                        if (!videoPlayer.muted) {
+                            setUnmuteButtonState(false, false);
+                            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                        } else {
+                            setUnmuteButtonState(true, true);
+                        }
                         showLoading(false);
-                        setUnmuteButtonState(false, videoPlayer.muted);
-                        setPlayerScrollingText(true, scrollMessage);
-                    }).catch(e => {
-                        console.warn("Autoplay blocked for Native HLS, user interaction required:", e);
+                    }).catch(error => {
+                        console.warn("Autoplay was prevented for native HLS stream:", error);
+                        setUnmuteButtonState(true, true, true);
                         showLoading(false);
-                        placeholder.style.display = 'block';
-                        setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text
                         setPlayerScrollingText(false);
                     });
                 } else {
-                    alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
+                    console.error("HLS is not supported on this browser.");
+                    alert("Your browser does not support HLS streaming.");
                     showLoading(false);
-                    placeholder.style.display = 'block';
-                    setUnmuteButtonState(false, true);
+                    setUnmuteButtonState(false, true); // Hide unmute button
                     setPlayerScrollingText(false);
                 }
-            } else if (isIframe) {
-                iframePlayer.style.display = 'block';
-                videoPlayer.style.display = 'none';
-                setUnmuteButtonState(false, true); // Always hide unmute button for iframes as we can't control iframe audio
-
-                iframePlayer.src = url;
-
-                iframePlayer.onload = () => {
-                    showLoading(false);
-                    setPlayerScrollingText(true, scrollMessage);
-                };
-                iframePlayer.onerror = () => {
-                    console.error("Iframe failed to load.");
-                    showLoading(false);
-                    alert("The embedded content could not be loaded. It might be blocked or unavailable.");
-                    placeholder.style.display = 'block';
-                    setPlayerScrollingText(false);
-                };
-            } else { // Direct video (e.g., mp4)
+            } else if (channelUrl.includes('.mp4') || channelUrl.includes('.webm') || channelUrl.includes('.ogg')) {
+                // Direct video files (MP4, WebM, Ogg)
+                videoPlayer.src = channelUrl;
                 videoPlayer.style.display = 'block';
-                iframePlayer.style.display = 'none';
-                videoPlayer.src = url;
-                videoPlayer.muted = true; // Ensure it starts muted
-                videoPlayer.autoplay = true; // Attempt autoplay muted
+                videoPlayer.muted = true; // Always start muted
+                setUnmuteButtonState(true, true, true); // Show with 'Play' text initially
+
                 videoPlayer.play().then(() => {
+                    // Autoplay successful, check mute state
+                    if (!videoPlayer.muted) {
+                        setUnmuteButtonState(false, false); // Hide if unmuted and playing
+                        setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                    } else {
+                        // Still muted, keep button visible
+                        setUnmuteButtonState(true, true);
+                    }
                     showLoading(false);
-                    setUnmuteButtonState(false, videoPlayer.muted); // Hide button if autoplay succeeds
-                    setPlayerScrollingText(true, scrollMessage);
-                }).catch((error) => {
-                    console.warn("Autoplay blocked for direct video, user interaction required:", error);
+                }).catch(error => {
+                    console.warn("Autoplay was prevented for MP4 stream:", error);
+                    // Autoplay failed, keep unmute button visible and show 'Play' text
+                    setUnmuteButtonState(true, true, true);
                     showLoading(false);
-                    placeholder.style.display = 'block'; // Show placeholder if autoplay fails
-                    setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text, as it's muted and paused
-                    setPlayerScrollingText(false); // Hide scrolling text until played
+                    setPlayerScrollingText(false);
                 });
+
+            } else if (channelUrl.includes('embed-free.php')) {
+                // External embed (iframe)
+                iframePlayer.src = channelUrl;
+                iframePlayer.style.display = 'block';
+                showLoading(false); // Can't reliably detect iframe load, hide loading immediately
+                setUnmuteButtonState(false, true); // Hide unmute button for iframes as we can't control their audio
+                setPlayerScrollingText(false); // Hide scrolling text as we can't reliably know iframe playback state
+            } else {
+                console.error("Unsupported channel format:", channelUrl);
+                alert("This channel format is not supported.");
+                showLoading(false);
+                setUnmuteButtonState(false, true); // Hide unmute button
+                setPlayerScrollingText(false);
+            }
+        }
+
+        // Event listener for channel selection change
+        select.addEventListener('change', (event) => {
+            loadChannel(event.target.value);
+        });
+
+        // Initial load of config and channel
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndApplyConfig().then(() => {
+                // After config is loaded and channels are populated,
+                // if there's a pre-selected channel (e.g., from a refresh), load it.
+                // Otherwise, the initial state should be placeholder + hidden players + hidden unmute button.
+                if (select.value) {
+                    loadChannel(select.value);
+                } else {
+                    placeholder.style.display = 'block';
+                    videoPlayer.style.display = 'none';
+                    iframePlayer.style.display = 'none';
+                    showLoading(false);
+                    setUnmuteButtonState(false, true); // Ensure unmute button is hidden initially
+                    setPlayerScrollingText(false);
+                }
+            });
+        });
+
+        // Add a check for visibility of the unmute button,
+        // and hide it if the video is truly playing and unmuted
+        videoPlayer.addEventListener('timeupdate', () => {
+            // Only hide if the video is playing and not muted
+            if (!videoPlayer.paused && !videoPlayer.ended && !videoPlayer.muted && videoPlayer.currentTime > 0) {
+                setUnmuteButtonState(false, false);
             }
         });
+
+        // Ensure button appears if video is paused (e.g., user interaction)
+        videoPlayer.addEventListener('pause', () => {
+            if (videoPlayer.style.display === 'block') { // Only if the video player is actually active
+                setUnmuteButtonState(true, videoPlayer.muted, true); // Show 'Play' text
+            }
+        });
+
+        // Initial setup for the unmute button on page load before any channel is selected
+        setUnmuteButtonState(false, true); // Initially hidden and muted state assumed
     </script>
 </body>
 </html>

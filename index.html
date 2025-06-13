@@ -709,42 +709,51 @@
             }
         });
 
-        // Event listener for when the video volume changes (e.g., mute/unmute by user interaction on video controls)
-        videoPlayer.addEventListener('volumechange', () => {
-            // Only update if video player is active (not iframe)
-            if (videoPlayer.style.display === 'block' && !videoPlayer.paused) {
-                setUnmuteButtonState(true, videoPlayer.muted, false, false); // Show button, update icon based on mute state. isIframe = false.
-            }
-        });
-
         // Event listener for when the video starts playing
         videoPlayer.addEventListener('playing', () => {
-            // Only hide button if video player is active (not iframe)
-            if (videoPlayer.style.display === 'block') {
-                setUnmuteButtonState(false, videoPlayer.muted, false, false); // Hide button when playing. isIframe = false.
+            if (videoPlayer.style.display === 'block') { // Only manage if video player is active
+                if (videoPlayer.muted) {
+                    // Video is playing but still muted, show unmute button
+                    setUnmuteButtonState(true, true, false, false); // isMuted = true, showPlayText = false (it's playing)
+                } else {
+                    // Video is playing and unmuted, hide button
+                    setUnmuteButtonState(false, false, false, false);
+                }
                 setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
             }
         });
 
         // Event listener for when the video pauses
         videoPlayer.addEventListener('pause', () => {
-            // Only show button if video player is active (not iframe)
             if (videoPlayer.style.display === 'block') {
-                setUnmuteButtonState(true, videoPlayer.muted, true, false); // Show button and set text to 'Play'. isIframe = false.
+                // Video is paused, always show the play/unmute button
+                setUnmuteButtonState(true, videoPlayer.muted, true, false); // showPlayText = true
                 setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
             }
         });
 
         // Event listener for video can play (ready to play)
         videoPlayer.addEventListener('canplay', () => {
-            // Only manage for video player
             if (videoPlayer.style.display === 'block') {
                 showLoading(false);
+                // Check current state after canplay. If muted or paused, show the button.
                 if (videoPlayer.muted || videoPlayer.paused) {
-                    setUnmuteButtonState(true, videoPlayer.muted, videoPlayer.paused, false); // Show unmute/play button if muted or paused. isIframe = false.
+                    setUnmuteButtonState(true, videoPlayer.muted, videoPlayer.paused, false); // showPlayText if paused
                 } else {
-                    setUnmuteButtonState(false, false, false, false); // Hide if already playing and unmuted. isIframe = false.
+                    // If it's already playing and unmuted (which is the user's issue), hide button
+                    setUnmuteButtonState(false, false, false, false);
                 }
+            }
+        });
+
+        // Event listener for when the video volume changes (e.g., mute/unmute by user interaction on video controls)
+        videoPlayer.addEventListener('volumechange', () => {
+            if (videoPlayer.style.display === 'block' && !videoPlayer.paused) {
+                // If video is playing and volume changes, update button state based on new muted state
+                setUnmuteButtonState(true, videoPlayer.muted, false, false); // showPlayText = false (it's playing)
+            } else if (videoPlayer.style.display === 'block' && videoPlayer.paused) {
+                // If paused, just update the muted icon, keep showPlayText = true
+                setUnmuteButtonState(true, videoPlayer.muted, true, false);
             }
         });
 
@@ -800,10 +809,19 @@
                     hlsInstance.loadSource(channelUrl);
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true; // IMPORTANT: Start muted for autoplay to work
-                        videoPlayer.play().catch(e => {
+                        videoPlayer.muted = true; // IMPORTANT: Set to true for muted autoplay
+                        videoPlayer.play().then(() => {
+                            // After successful play attempt, check if still muted.
+                            // If videoPlayer.muted is false here, it means the browser somehow unmuted it.
+                            if (videoPlayer.muted) {
+                                setUnmuteButtonState(true, true, false, false); // Show unmute button as it's muted and playing
+                            } else {
+                                setUnmuteButtonState(false, false, false, false); // Already unmuted (unexpected but reflects state)
+                            }
+                            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
+                        }).catch(e => {
                             console.warn("Autoplay was prevented (HLS):", e);
-                            setUnmuteButtonState(true, true, true, false); // Pass isIframe = false
+                            setUnmuteButtonState(true, true, true, false); // Show play/unmute button if autoplay fails
                             setPlayerScrollingText(false);
                         });
                         showLoading(false);
@@ -830,10 +848,18 @@
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
                     // Native HLS support (Safari, iOS) - still starts muted
                     videoPlayer.src = channelUrl;
-                    videoPlayer.muted = true;
-                    videoPlayer.play().catch(e => {
+                    videoPlayer.muted = true; // IMPORTANT: Set to true for muted autoplay
+                    videoPlayer.play().then(() => {
+                        // After successful play attempt, check if still muted
+                        if (videoPlayer.muted) {
+                            setUnmuteButtonState(true, true, false, false); // Show unmute button
+                        } else {
+                            setUnmuteButtonState(false, false, false, false); // Already unmuted
+                        }
+                        setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
+                    }).catch(e => {
                         console.warn("Autoplay was prevented (native HLS):", e);
-                        setUnmuteButtonState(true, true, true, false); // Pass isIframe = false
+                        setUnmuteButtonState(true, true, true, false);
                         setPlayerScrollingText(false);
                     });
                     showLoading(false);

@@ -106,7 +106,7 @@
             padding-left: 100%;
             animation: scroll-text 15s linear infinite;
             font-size: 1.3em;
-            color: red;
+            color: #00ffe7;
         }
 
         @keyframes scroll-text {
@@ -215,14 +215,16 @@
             height: 100%;
         }
 
+        /* These styles attempt to hide native video controls. */
+        /* Note: Browser support for hiding all controls entirely might be limited or require custom controls. */
         .player-container video::-webkit-media-controls-timeline,
         .player-container video::-webkit-media-controls-current-time-display,
         .player-container video::-webkit-media-controls-time-remaining-display,
         .player-container video::-webkit-media-controls-enclosure {
             display: none !important;
         }
-        .player-container video::--moz-range-track,
-        .player-container video::--moz-range-thumb {
+        .player-container video::-moz-range-track,
+        .player-container video::-moz-range-thumb {
             display: none !important;
         }
         .player-container video::-ms-fill-lower,
@@ -558,7 +560,7 @@
     </div>
 
     <div class="scrolling-text">
-        <div class="scrolling-content">Maintaince work,please wait!</div>
+        <div class="scrolling-content">Welcome to MSTV India - Refresh the webpage to auto-tune channels!</div>
     </div>
 
     <div class="featured-partners">
@@ -575,7 +577,7 @@
 
     <div class="player-container" id="player-container">
         <iframe id="media-player" allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
-        <video id="video-player" autoplay muted playsinline controlsList="nodownload nofullscreen noremote playback" disablePictureInPicture></video>
+        <video id="video-player" autoplay muted playsinline controlsList="nodownload nofullscreen noremote" disablePictureInPicture></video>
         <img id="placeholder-image" src="Design-Studio-2025-01-22 (1).png" alt="Stream Placeholder" />
 
         <div class="live-stamp">MSTV NETWORK</div>
@@ -632,6 +634,7 @@
         const loading = document.getElementById('loading');
         const unmuteButton = document.getElementById('unmute-button');
         const speakerIcon = document.getElementById('speaker-icon');
+        const unmuteText = unmuteButton.querySelector('.unmute-text'); // Get the text span
         const playerScrollText = document.getElementById('player-scroll-text');
         const playerScrollContent = document.getElementById('player-scroll-content');
 
@@ -644,8 +647,6 @@
         // *** IMPORTANT: Path to your config.json file ***
         // This assumes config.json is in the same directory as index.html
         const CONFIG_URL = "/config.json";
-        // If it was in a subfolder called 'mstv', it would be "/mstv/config.json"
-        // But your 404 error indicated it's likely at the root.
 
         let currentConfigData = null; // To store the current configuration
         let hlsInstance = null; // Keep hlsInstance for HLS.js management
@@ -654,28 +655,65 @@
             loading.style.display = show ? 'block' : 'none';
         }
 
-        // Modified updateSpeakerIcon function
-        function updateSpeakerIcon() {
-            if (videoPlayer.muted) {
-                speakerIcon.textContent = '🔇';
-                unmuteButton.classList.remove('hidden'); // Show the button when muted
-            } else {
-                unmuteButton.classList.add('hidden'); // Hide the button completely when unmuted
+        // Helper function to manage the unmute button's state (visibility, icon, text)
+        function setUnmuteButtonState(isVisible, isMuted, showPlayText = false) {
+            unmuteButton.classList.toggle('hidden', !isVisible);
+            if (isVisible) {
+                speakerIcon.textContent = isMuted ? '🔇' : '🔊';
+                unmuteText.textContent = showPlayText ? 'Play' : (isMuted ? 'Unmute' : 'Mute');
             }
         }
 
         function setPlayerScrollingText(show, text = "") {
             playerScrollText.style.display = show ? 'block' : 'none';
-            playerScrollContent.textContent = text; // This sets the content
+            playerScrollContent.textContent = text;
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') {
+            // If the video is paused, clicking the button should try to play it first
+            if (videoPlayer.style.display === 'block' && videoPlayer.paused) {
+                videoPlayer.play().then(() => {
+                    // Successfully played (and likely unmuted if browser allows)
+                    videoPlayer.muted = false; // Explicitly unmute after play
+                    setUnmuteButtonState(false, false); // Hide the button as it's now playing
+                    setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                }).catch(e => {
+                    // Play failed again (e.g., still blocked by browser, or user denied, or some other error)
+                    console.error("Manual play failed:", e);
+                    // Keep button visible, perhaps change text back to "Play" to encourage retry
+                    setUnmuteButtonState(true, videoPlayer.muted, true);
+                    setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
+                });
+            }
+            // If the video is playing (or trying to play), clicking the button toggles mute
+            else if (videoPlayer.style.display === 'block') {
                 videoPlayer.muted = !videoPlayer.muted;
+                setUnmuteButtonState(true, videoPlayer.muted); // Update based on new mute state
             }
         });
 
-        videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
+        // Event listener for when the video volume changes (e.g., mute/unmute)
+        videoPlayer.addEventListener('volumechange', () => {
+            if (videoPlayer.style.display === 'block') {
+                // If video is paused, show 'Play' text. Otherwise, show 'Unmute'/'Mute' based on muted state.
+                setUnmuteButtonState(true, videoPlayer.muted, videoPlayer.paused);
+            }
+        });
+
+        // Event listener for when the video starts playing
+        videoPlayer.addEventListener('playing', () => {
+            setUnmuteButtonState(false, videoPlayer.muted); // Hide button when playing
+            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+        });
+
+        // Event listener for when the video pauses
+        videoPlayer.addEventListener('pause', () => {
+            if (videoPlayer.style.display === 'block') {
+                setUnmuteButtonState(true, videoPlayer.muted, true); // Show and set text to 'Play'
+                setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
+            }
+        });
+
 
         // Function to fetch the config file
         async function fetchAndApplyConfig() {
@@ -687,7 +725,7 @@
                 }
                 const newConfigData = await response.json();
 
-                // Check if the new config is different from the current one
+                // Check if the new config is different from the current one to avoid unnecessary updates
                 if (JSON.stringify(newConfigData) !== JSON.stringify(currentConfigData)) {
                     console.log("Configuration updated! Applying changes...");
                     currentConfigData = newConfigData; // Update the current config
@@ -766,26 +804,25 @@
             const channelName = select.options[select.selectedIndex].text;
             showLoading(true);
             setPlayerScrollingText(false); // Hide scrolling text initially for any change
-            unmuteButton.classList.add('hidden'); // Hide unmute button on channel change (before potential show)
+            setUnmuteButtonState(false, true); // Hide unmute button initially
 
-
+            // Stop current playback
             videoPlayer.pause();
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
             }
-            videoPlayer.removeAttribute('src');
-            videoPlayer.load();
+            videoPlayer.removeAttribute('src'); // Clear the source
+            videoPlayer.load(); // Reload the video element to clear state
 
-            iframePlayer.src = '';
-            placeholder.style.display = 'none';
+            iframePlayer.src = ''; // Clear iframe source
+            placeholder.style.display = 'none'; // Hide placeholder as we try to play
 
             const isM3U8 = url.includes('.m3u8');
             const isIframe = url.includes('https://www.youtube.com/embed/fB6Z4q01uFU?si=Kz23yTT5MeuNAE-l&autoplay=1&controls=0') || url.includes('youtube-nocookie.com/embed') || url.includes('twitch.tv') || url.includes('.html') || url.includes('embed');
 
             // Determine the text for the player scroll based on userDefinedPlayerScrollMessage
             const scrollMessage = userDefinedPlayerScrollMessage || `Now Playing: ${channelName}`;
-
 
             if (isM3U8) {
                 if (Hls.isSupported()) {
@@ -797,18 +834,17 @@
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
                         videoPlayer.muted = true; // Ensure it starts muted
-                        videoPlayer.autoplay = true;
+                        videoPlayer.autoplay = true; // Attempt autoplay muted
                         videoPlayer.play().then(() => {
                             showLoading(false);
-                            updateSpeakerIcon(); // Show if still muted, hide if unmuted
-                            setPlayerScrollingText(true, scrollMessage); // Using the determined scroll message
+                            setUnmuteButtonState(false, videoPlayer.muted); // Hide button if autoplay succeeds
+                            setPlayerScrollingText(true, scrollMessage);
                         }).catch(e => {
-                            console.error("Video playback failed (HLS):", e);
-                            alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
+                            console.warn("Autoplay blocked for HLS, user interaction required:", e);
                             showLoading(false);
-                            unmuteButton.classList.add('hidden'); // Hide on error
-                            placeholder.style.display = 'block';
-                            setPlayerScrollingText(false);
+                            placeholder.style.display = 'block'; // Show placeholder if autoplay fails
+                            setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text, as it's muted and paused
+                            setPlayerScrollingText(false); // Hide scrolling text until played
                         });
                     });
                     hlsInstance.on(Hls.Events.ERROR, function (event, data) {
@@ -828,48 +864,47 @@
                                     showLoading(false);
                                     alert("Stream error: " + data.details + ". Please try another channel.");
                                     placeholder.style.display = 'block';
-                                    unmuteButton.classList.add('hidden'); // Hide on error
+                                    setUnmuteButtonState(false, true); // Hide button on error
                                     setPlayerScrollingText(false);
                                     break;
                             }
                         }
                     });
 
-                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) { // Native HLS support for Safari/iOS
                     videoPlayer.style.display = 'block';
                     iframePlayer.style.display = 'none';
                     videoPlayer.src = url;
                     videoPlayer.muted = true; // Ensure it starts muted
-                    videoPlayer.autoplay = true;
+                    videoPlayer.autoplay = true; // Attempt autoplay muted
                     videoPlayer.play().then(() => {
                         showLoading(false);
-                        updateSpeakerIcon(); // Show if still muted, hide if unmuted
-                        setPlayerScrollingText(true, scrollMessage); // Using the determined scroll message
+                        setUnmuteButtonState(false, videoPlayer.muted);
+                        setPlayerScrollingText(true, scrollMessage);
                     }).catch(e => {
-                        console.error("Video playback failed (Native HLS):", e);
-                        alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
+                        console.warn("Autoplay blocked for Native HLS, user interaction required:", e);
                         showLoading(false);
-                        unmuteButton.classList.add('hidden'); // Hide on error
                         placeholder.style.display = 'block';
+                        setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text
                         setPlayerScrollingText(false);
                     });
                 } else {
                     alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
                     showLoading(false);
                     placeholder.style.display = 'block';
-                    unmuteButton.classList.add('hidden'); // Hide if HLS not supported
+                    setUnmuteButtonState(false, true);
                     setPlayerScrollingText(false);
                 }
             } else if (isIframe) {
                 iframePlayer.style.display = 'block';
                 videoPlayer.style.display = 'none';
-                unmuteButton.classList.add('hidden'); // Always hide unmute button for iframes
+                setUnmuteButtonState(false, true); // Always hide unmute button for iframes as we can't control iframe audio
 
                 iframePlayer.src = url;
 
                 iframePlayer.onload = () => {
                     showLoading(false);
-                    setPlayerScrollingText(true, scrollMessage); // Using the determined scroll message
+                    setPlayerScrollingText(true, scrollMessage);
                 };
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
@@ -883,18 +918,17 @@
                 iframePlayer.style.display = 'none';
                 videoPlayer.src = url;
                 videoPlayer.muted = true; // Ensure it starts muted
-                videoPlayer.autoplay = true;
+                videoPlayer.autoplay = true; // Attempt autoplay muted
                 videoPlayer.play().then(() => {
                     showLoading(false);
-                    updateSpeakerIcon(); // Show if still muted, hide if unmuted
-                    setPlayerScrollingText(true, scrollMessage); // Using the determined scroll message
+                    setUnmuteButtonState(false, videoPlayer.muted); // Hide button if autoplay succeeds
+                    setPlayerScrollingText(true, scrollMessage);
                 }).catch((error) => {
-                    console.error("Video playback failed (direct video):", error);
+                    console.warn("Autoplay blocked for direct video, user interaction required:", error);
                     showLoading(false);
-                    alert("Playback failed. This video format might not be supported or autoplay is blocked.");
-                    placeholder.style.display = 'block';
-                    unmuteButton.classList.add('hidden'); // Hide on error
-                    setPlayerScrollingText(false);
+                    placeholder.style.display = 'block'; // Show placeholder if autoplay fails
+                    setUnmuteButtonState(true, true, true); // Show unmute button with "Play" text, as it's muted and paused
+                    setPlayerScrollingText(false); // Hide scrolling text until played
                 });
             }
         });

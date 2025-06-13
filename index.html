@@ -229,7 +229,6 @@
         }
         .player-container video::-ms-fill-lower,
         .player-container video::-ms-fill-upper,
-        .player-container video::-ms-thumb {
             display: none !important;
         }
 
@@ -643,7 +642,6 @@
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
         // *** IMPORTANT: This is the correct path to your config.json file ***
-        // It's in the 'assets' folder based on your GitHub repo.
         const CONFIG_URL = "/assets/config.json";
 
         let currentConfigData = null; // To store the current configuration
@@ -681,8 +679,9 @@
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') { // Only interact if video player is active
+            if (videoPlayer.style.display === 'block') { // Only interact if video player is active (HLS/MP4)
                 if (videoPlayer.paused) {
+                    // If paused, try to play and unmute
                     videoPlayer.play().then(() => {
                         videoPlayer.muted = false; // Explicitly unmute after successful play
                         setUnmuteButtonState(false, false); // Hide the button
@@ -699,7 +698,8 @@
                     setUnmuteButtonState(true, videoPlayer.muted); // Update based on new mute state
                 }
             }
-            // For iframes, the unmute button is not shown, so this listener won't apply.
+            // For iframes (YouTube/Twitch/etc.), the unmute button is not controlled by our JS.
+            // User interaction on the iframe itself is needed for unmuting due to browser policies.
         });
 
         // Event listener for when the video volume changes (e.g., mute/unmute by user interaction on video controls)
@@ -776,16 +776,18 @@
 
             const selectedChannelName = select.options[select.selectedIndex].textContent;
             
-            // Check for HLS (.m3u8)
+            // Check for M3U8 (HLS) streams
             if (channelUrl.includes('.m3u8')) {
+                // For HLS, we start muted to allow autoplay due to browser policies.
+                // The user will need to click the "Unmute" button to enable sound.
                 if (Hls.isSupported()) {
                     hlsInstance = new Hls();
                     hlsInstance.loadSource(channelUrl);
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true; // Start muted to comply with autoplay policies
+                        videoPlayer.muted = true; // IMPORTANT: Start muted for autoplay to work
                         videoPlayer.play().catch(e => {
-                            console.warn("Autoplay was prevented:", e);
+                            console.warn("Autoplay was prevented (HLS):", e);
                             setUnmuteButtonState(true, true, true); // Show play/unmute button if autoplay fails
                             setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
                         });
@@ -795,7 +797,6 @@
                         console.error('HLS.js error!', data);
                         if (data.fatal) {
                             alert('Fatal HLS.js error. Trying to recover...');
-                            // Attempt to recover or provide fallback
                             switch (data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
                                     hlsInstance.startLoad();
@@ -812,7 +813,7 @@
                     });
                     videoPlayer.style.display = 'block';
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari, iOS)
+                    // Native HLS support (Safari, iOS) - still starts muted
                     videoPlayer.src = channelUrl;
                     videoPlayer.muted = true;
                     videoPlayer.play().catch(e => {
@@ -829,21 +830,25 @@
                     setPlayerScrollingText(false);
                 }
             }
-            // Check for YouTube embed URL (Updated from previous checks to be more robust)
+            // Check for YouTube (your specific googleusercontent.com proxy URLs)
+            // For these, we cannot reliably add autoplay/mute parameters from the parent page.
+            // The embed itself needs to handle autoplay/mute.
             else if (channelUrl.includes('youtube.com/embed/') || channelUrl.includes('https://www.youtube.com/embed/sFUExLiEC-I?autoplay=1&mute=1&enablejsapi=1&playsinline=1') || channelUrl.includes('youtu.be/')) {
                 iframePlayer.src = channelUrl;
                 iframePlayer.style.display = 'block';
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button for iframes
-                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`); // Show scrolling text for iframes
+                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
             // Check for Twitch embed URL
+            // Your sample Twitch URL already includes autoplay=true&muted=true, which is recommended.
+            // Unmuting will require interaction with the Twitch player controls.
             else if (channelUrl.includes('player.twitch.tv/')) {
-                iframePlayer.src = channelUrl;
+                iframePlayer.src = channelUrl; // Assuming the URL already contains necessary autoplay/mute params
                 iframePlayer.style.display = 'block';
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button for iframes
-                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`); // Show scrolling text for iframes
+                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
             // Assume it's a generic iframeable URL (like the .html files)
             else {
@@ -851,7 +856,7 @@
                 iframePlayer.style.display = 'block';
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button for iframes
-                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`); // Show scrolling text for iframes
+                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
             }
         }
 
@@ -952,20 +957,14 @@
         });
 
         // Initial attempt to play to handle autoplay policies on load
-        // This won't work without user interaction, but it's good practice.
-        // The unmute button will appear if autoplay is blocked.
+        // This will attempt to autoplay the initially selected channel (if any), muted.
+        // The unmute button will appear if sound requires user interaction.
         window.addEventListener('load', () => {
-            // Check if there's a default channel selected on load
             if (select.value) {
                 loadChannel(select.value); // Try to load the pre-selected channel
-            } else if (videoPlayer.style.display === 'block') { // Only try if video player is the default and no specific channel was pre-selected
-                videoPlayer.muted = true; // Always start muted
-                videoPlayer.play().catch(e => {
-                    console.warn("Autoplay was prevented on page load:", e);
-                    setUnmuteButtonState(true, true, true); // Show unmute/play button
-                    setPlayerScrollingText(false); // Hide scrolling text if video isn't playing
-                });
             }
+            // If no channel is pre-selected and videoPlayer is the default, handle its autoplay attempt.
+            // This case is largely covered by loadChannel() if a channel is loaded by default config.
         });
 
     </script>

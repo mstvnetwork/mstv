@@ -642,8 +642,8 @@
         const userDefinedPlayerScrollMessage = "";
         // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-        // *** IMPORTANT CHANGE HERE: Path to your config.json file ***
-        // It's in the 'assets' folder based on your GitHub repo screenshot.
+        // *** IMPORTANT: This is the correct path to your config.json file ***
+        // It's in the 'assets' folder based on your GitHub repo.
         const CONFIG_URL = "/assets/config.json";
 
         let currentConfigData = null; // To store the current configuration
@@ -852,6 +852,64 @@
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button for iframes
                 setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`); // Show scrolling text for iframes
+            }
+        }
+
+        // --- Configuration Fetching and Application ---
+        async function fetchAndApplyConfig() {
+            try {
+                const response = await fetch(CONFIG_URL);
+                if (!response.ok) {
+                    console.error(`Failed to fetch config.json: ${response.status} ${response.statusText}`);
+                    // Fallback or display error message to user
+                    return;
+                }
+                const newConfigData = await response.json();
+                currentConfigData = newConfigData; // Store the fetched config
+
+                // 1. Update Channel Selector
+                const currentSelectedValue = select.value;
+                select.innerHTML = '<option value="">👉📺📺📺</option>'; // Clears existing options
+                if (currentConfigData.channels && Array.isArray(currentConfigData.channels)) {
+                    currentConfigData.channels.forEach(channel => {
+                        const option = document.createElement('option');
+                        option.value = channel.url;
+                        option.textContent = channel.name;
+                        select.appendChild(option);
+                    });
+                }
+                // Attempt to re-select previously chosen channel or default
+                if (currentSelectedValue && Array.isArray(currentConfigData.channels) && currentConfigData.channels.some(c => c.url === currentSelectedValue)) {
+                    select.value = currentSelectedValue;
+                    loadChannel(currentSelectedValue);
+                } else if (currentConfigData.channels && currentConfigData.channels.length > 0) {
+                    // Auto-select the first channel if no previous selection or previous is invalid
+                    select.value = currentConfigData.channels[0].url;
+                    loadChannel(currentConfigData.channels[0].url);
+                }
+
+                // 2. Update Scrolling Text
+                document.querySelector('.scrolling-content').textContent = currentConfigData.scrollingText || "Welcome to MSTV Network!";
+
+                // 3. Update Footer About MSTV
+                document.getElementById('about-mstv-text').textContent = currentConfigData.footerAboutMSTV || "";
+
+                // 4. Update Footer Disclaimer
+                document.getElementById('disclaimer-text').textContent = currentConfigData.footerDisclaimer || "";
+                
+                // 5. Update Footer Terms of Service
+                document.getElementById('terms-of-service-text').textContent = currentConfigData.footerTermsOfService || "";
+
+                // 6. Update Contact Info
+                document.getElementById('contact-email').textContent = `Email: ${currentConfigData.contactEmail || "info@example.com"}`;
+                document.getElementById('contact-phone').textContent = `Phone: ${currentConfigData.contactPhone || "+1 (000) 000-0000"}`;
+
+                // 7. Update Copyright Text
+                document.getElementById('copyright-text').textContent = currentConfigData.copyrightText || "© 2024 Your Company. All rights reserved.";
+
+            } catch (error) {
+                console.error("Error fetching or parsing config.json:", error);
+                alert("Could not load website configuration. Please try again later.");
             }
         }
 

@@ -106,7 +106,7 @@
             padding-left: 100%;
             animation: scroll-text 15s linear infinite;
             font-size: 1.3em;
-            color:red;
+            color: #00ffe7;
         }
 
         @keyframes scroll-text {
@@ -807,7 +807,11 @@
         function loadChannel(channelUrl) {
             showLoading(true);
             placeholder.style.display = 'none';
-            setPlayerScrollingText(false); // Hide scrolling text while loading new channel
+            // IMPORTANT CHANGE: Set player scrolling text when channel is selected,
+            // then it will be adjusted by playback events for video, or remain for iframe.
+            const selectedChannelName = select.options[select.selectedIndex].textContent;
+            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${selectedChannelName}`);
+
 
             // Reset player states
             videoPlayer.style.display = 'none';
@@ -824,6 +828,7 @@
                 placeholder.style.display = 'block';
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button
+                setPlayerScrollingText(false); // Hide scrolling text if no channel is playing
                 return;
             }
 
@@ -845,7 +850,7 @@
                             // Autoplay successful, check mute state
                             if (!videoPlayer.muted) {
                                 setUnmuteButtonState(false, false); // Hide if unmuted and playing
-                                setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                                // Player scrolling text already set, no need to re-set it here if playing.
                             } else {
                                 // Still muted, keep button visible but update icon/text if needed
                                 setUnmuteButtonState(true, true);
@@ -856,7 +861,7 @@
                             // Autoplay failed, keep unmute button visible and show 'Play' text
                             setUnmuteButtonState(true, true, true);
                             showLoading(false);
-                            setPlayerScrollingText(false);
+                            // Player scrolling text should stay visible, as it's "now playing"
                         });
                     });
 
@@ -865,7 +870,7 @@
                         showLoading(false);
                         // Optionally display an error message to the user
                         setUnmuteButtonState(false, true); // Hide unmute button on error
-                        setPlayerScrollingText(false);
+                        setPlayerScrollingText(false); // Hide scrolling text if there's an error
                     });
 
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
@@ -877,7 +882,7 @@
                     videoPlayer.play().then(() => {
                         if (!videoPlayer.muted) {
                             setUnmuteButtonState(false, false);
-                            setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                            // Player scrolling text already set
                         } else {
                             setUnmuteButtonState(true, true);
                         }
@@ -886,14 +891,14 @@
                         console.warn("Autoplay was prevented for native HLS stream:", error);
                         setUnmuteButtonState(true, true, true);
                         showLoading(false);
-                        setPlayerScrollingText(false);
+                        // Player scrolling text should stay visible
                     });
                 } else {
                     console.error("HLS is not supported on this browser.");
                     alert("Your browser does not support HLS streaming.");
                     showLoading(false);
                     setUnmuteButtonState(false, true); // Hide unmute button
-                    setPlayerScrollingText(false);
+                    setPlayerScrollingText(false); // Hide scrolling text if not supported
                 }
             } else if (channelUrl.includes('.mp4') || channelUrl.includes('.webm') || channelUrl.includes('.ogg')) {
                 // Direct video files (MP4, WebM, Ogg)
@@ -906,7 +911,7 @@
                     // Autoplay successful, check mute state
                     if (!videoPlayer.muted) {
                         setUnmuteButtonState(false, false); // Hide if unmuted and playing
-                        setPlayerScrollingText(true, userDefinedPlayerScrollMessage || `Now Playing: ${select.options[select.selectedIndex].text}`);
+                        // Player scrolling text already set
                     } else {
                         // Still muted, keep button visible
                         setUnmuteButtonState(true, true);
@@ -917,7 +922,7 @@
                     // Autoplay failed, keep unmute button visible and show 'Play' text
                     setUnmuteButtonState(true, true, true);
                     showLoading(false);
-                    setPlayerScrollingText(false);
+                    // Player scrolling text should stay visible
                 });
 
             } else if (channelUrl.includes('embed-free.php')) {
@@ -926,13 +931,13 @@
                 iframePlayer.style.display = 'block';
                 showLoading(false); // Can't reliably detect iframe load, hide loading immediately
                 setUnmuteButtonState(false, true); // Hide unmute button for iframes as we can't control their audio
-                setPlayerScrollingText(false); // Hide scrolling text as we can't reliably know iframe playback state
+                // IMPORTANT: Player scrolling text remains visible for iframes
             } else {
                 console.error("Unsupported channel format:", channelUrl);
                 alert("This channel format is not supported.");
                 showLoading(false);
                 setUnmuteButtonState(false, true); // Hide unmute button
-                setPlayerScrollingText(false);
+                setPlayerScrollingText(false); // Hide scrolling text if unsupported
             }
         }
 

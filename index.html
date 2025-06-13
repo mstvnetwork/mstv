@@ -441,13 +441,7 @@
     <div class="channel-selection">
         <select id="channel-select">
             <option value="">👉📺📺📺</option>
-            <option value="https://desiplaylive.akamaized.net/ptnr-yupptv/v1/manifest/611d79b11b77e2f571934fd80ca1413453772ac7/vglive-sk-660691/4cf68f50-0c5e-47a6-96e3-b78797a2b6fe/1.m3u8">MSTV DESI PLAY</option>
-            <option value="https://player.twitch.tv/?channel=aiodigital&parent=mstvnet.netlify.app">CINEMA (WAIT 1 MINUTE TO LOAD)</option>
-            <option value="https://www.youtube.com/embed/videoseries?list=PL_J1S9fG0_Pz_D_k1n_s6g_h_1f_2f_3f&autoplay=1&mute=0">ZEE NEWS (YouTube Embed)</option>
-            <option value="https://dreyfus.securitytactics.com/colorshindi.html ">COLORS TV (ONLY ANDROID)</option>
-            <option value="https://dreyfus.securitytactics.com/zeecinema.html">ZEE CINEMA (ONLY ANDROID)</option>
-            <option value="https://enz.gdplayertv.to/embed/astro-cricket/">ASTRO CRICKET (ONLY ANDROID)</option>
-        </select>
+            </select>
     </div>
 
     <div class="player-container" id="player-container">
@@ -508,6 +502,7 @@
         const speakerIcon = document.getElementById('speaker-icon');
 
         let hlsInstance = null;
+        let channelsData = []; // Store fetched channels data
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
@@ -533,8 +528,7 @@
         // Listen for volume changes on the video player (e.g., if user mutes via native controls)
         videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
 
-        select.addEventListener('change', () => {
-            const url = select.value;
+        function playChannel(channel) {
             showLoading(true);
 
             // Stop any currently playing video/iframe
@@ -554,15 +548,11 @@
             placeholder.style.display = 'none';
             unmuteButton.style.display = 'none'; // Hide unmute button initially for all types
 
-            const isM3U8 = url.includes('.m3u8');
-            // Updated iframe detection to be more robust, including YouTube embed paths
-            const isIframe = url.includes('player.twitch.tv') || url.includes('youtube.com/embed') || url.includes('.html') || url.includes('embed/');
-
-            if (isM3U8) {
+            if (channel.type === 'hls') {
                 if (Hls.isSupported()) {
                     videoPlayer.style.display = 'block';
                     hlsInstance = new Hls();
-                    hlsInstance.loadSource(url);
+                    hlsInstance.loadSource(channel.url);
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
                         videoPlayer.muted = true; // Start muted
@@ -604,7 +594,7 @@
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
                     // Native HLS support (Safari/iOS)
                     videoPlayer.style.display = 'block';
-                    videoPlayer.src = url;
+                    videoPlayer.src = channel.url;
                     videoPlayer.muted = true; // Start muted
                     videoPlayer.autoplay = true;
                     videoPlayer.play().then(() => {
@@ -622,11 +612,9 @@
                     showLoading(false);
                     placeholder.style.display = 'block';
                 }
-            } else if (isIframe) {
+            } else if (channel.type === 'iframe') {
                 iframePlayer.style.display = 'block';
-                // For iframes, we usually don't control mute status directly,
-                // and the unmute button is not relevant. YouTube embeds often respect autoplay=1&mute=0.
-                iframePlayer.src = url;
+                iframePlayer.src = channel.url;
                 unmuteButton.style.display = 'none'; // Ensure unmute button is hidden for iframes
 
                 iframePlayer.onload = () => {
@@ -639,9 +627,9 @@
                     placeholder.style.display = 'block';
                 };
             } else {
-                // Direct video (non-HLS, non-iframe)
+                // Fallback for direct video (non-HLS, non-iframe, if any)
                 videoPlayer.style.display = 'block';
-                videoPlayer.src = url;
+                videoPlayer.src = channel.url;
                 videoPlayer.muted = true; // Start muted
                 videoPlayer.autoplay = true;
                 videoPlayer.play().then(() => {
@@ -655,6 +643,67 @@
                     unmuteButton.style.display = 'none';
                 });
             }
+        }
+
+        // Function to fetch and populate channels
+        async function fetchAndPopulateChannels() {
+            try {
+                // Add a cache-busting parameter to ensure fresh data
+                const response = await fetch('channels.json?' + new Date().getTime());
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                channelsData = data; // Store the fetched data
+
+                // Clear existing options, but keep the initial placeholder
+                select.innerHTML = '<option value="">👉📺📺📺</option>';
+
+                channelsData.forEach((channel, index) => {
+                    const option = document.createElement('option');
+                    // Store the index of the channel in the value, or the URL itself if preferred
+                    // Using index allows retrieving the full channel object from channelsData
+                    option.value = index; // Store index for easy lookup
+                    option.textContent = channel.name;
+                    select.appendChild(option);
+                });
+
+                console.log('Channels loaded:', channelsData);
+
+            } catch (error) {
+                console.error('Failed to fetch channels:', error);
+                alert('Failed to load channels. Please try refreshing the page or check your internet connection.');
+            }
+        }
+
+        // Event listener for channel selection
+        select.addEventListener('change', () => {
+            const selectedIndex = select.value;
+            if (selectedIndex === "") {
+                // User selected the initial placeholder option
+                videoPlayer.pause();
+                if (hlsInstance) {
+                    hlsInstance.destroy();
+                    hlsInstance = null;
+                }
+                videoPlayer.removeAttribute('src');
+                iframePlayer.src = '';
+                videoPlayer.style.display = 'none';
+                iframePlayer.style.display = 'none';
+                placeholder.style.display = 'block';
+                unmuteButton.style.display = 'none';
+                showLoading(false);
+                return;
+            }
+            const selectedChannel = channelsData[selectedIndex];
+            if (selectedChannel) {
+                playChannel(selectedChannel);
+            } else {
+                console.error("Selected channel not found:", selectedIndex);
+                alert("Selected channel not found. Please try again.");
+                showLoading(false);
+                placeholder.style.display = 'block';
+            }
         });
 
         // Prevent right-click context menu on players
@@ -666,6 +715,14 @@
         iframePlayer.style.display = 'none';
         placeholder.style.display = 'block'; // Ensure placeholder is visible on load
         unmuteButton.style.display = 'none'; // Ensure unmute button is hidden on load
+
+        // Fetch channels on page load
+        fetchAndPopulateChannels();
+
+        // Optional: Periodically refresh channels list (e.g., every 5 minutes)
+        // This makes sure new channels or changes in channels.json are reflected
+        // without a full page refresh. Adjust the interval as needed.
+        // setInterval(fetchAndPopulateChannels, 5 * 60 * 1000); // 5 minutes
     </script>
 </body>
 </html>

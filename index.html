@@ -111,10 +111,14 @@
             padding: 0 5vw;
         }
 
+        /* CSS Adjustment for better centering on desktop */
         .channel-selection {
-            text-align: center;
+            /* Removed text-align as flexbox will handle centering */
             margin-bottom: 3vh;
             padding: 0 5vw;
+            display: flex; /* Make it a flex container */
+            justify-content: center; /* Center items horizontally */
+            align-items: center; /* Center items vertically (if height allows) */
         }
 
         select {
@@ -130,7 +134,7 @@
             box-shadow: 0 0 10px #0ff;
             width: 100%;
             max-width: 400px;
-            margin: 0 auto;
+            /* margin: 0 auto; - Can keep this, but flexbox on parent makes it less critical */
             display: block;
         }
 
@@ -527,7 +531,7 @@
         const unmuteButton = document.getElementById('unmute-button');
         const speakerIcon = document.getElementById('speaker-icon');
 
-        // NEW: Elements for live updates
+        // Elements for live updates
         const statusMessage = document.getElementById('statusMessage');
         const rawDataDisplay = document.getElementById('rawDataDisplay');
 
@@ -601,7 +605,7 @@
                             updateSpeakerIcon(); // Show unmute button since it's muted
                         }).catch(e => {
                             console.error("Video playback failed (HLS):", e);
-                            alert("Playback failed. This stream might not be available or your device has autoplay restrictions. Please click to unmute if needed.");
+                            // alert("Playback failed. This stream might not be available or your device has autoplay restrictions. Please click to unmute if needed.");
                             showLoading(false);
                             placeholder.style.display = 'block';
                             unmuteButton.style.display = 'none'; // Ensure button is hidden on error
@@ -622,7 +626,7 @@
                                 default:
                                     hlsInstance.destroy();
                                     showLoading(false);
-                                    alert("Stream error: " + data.details + ". Please try another channel.");
+                                    // alert("Stream error: " + data.details + ". Please try another channel.");
                                     placeholder.style.display = 'block';
                                     unmuteButton.style.display = 'none';
                                     break;
@@ -641,13 +645,13 @@
                         updateSpeakerIcon(); // Show unmute button since it's muted
                     }).catch(e => {
                         console.error("Video playback failed (Native HLS):", e);
-                        alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
+                        // alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
                         showLoading(false);
                         placeholder.style.display = 'block';
                         unmuteButton.style.display = 'none';
                     });
                 } else {
-                    alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
+                    // alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
                     showLoading(false);
                     placeholder.style.display = 'block';
                 }
@@ -662,7 +666,7 @@
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
                     showLoading(false);
-                    alert("The embedded content could not be loaded. It might be blocked or unavailable.");
+                    // alert("The embedded content could not be loaded. It might be blocked or unavailable.");
                     placeholder.style.display = 'block';
                 };
             } else {
@@ -677,7 +681,7 @@
                 }).catch((error) => {
                     console.error("Video playback failed (direct video):", error);
                     showLoading(false);
-                    alert("Playback failed. This video format might not be supported or autoplay is blocked.");
+                    // alert("Playback failed. This video format might not be supported or autoplay is blocked.");
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none';
                 });
@@ -689,6 +693,9 @@
          * @param {Array} data - The array of channel objects.
          */
         function updateChannelDropdown(data) {
+            // Store the currently selected value if any
+            const currentSelectedValue = select.value;
+
             // Clear existing options, but keep the initial placeholder
             select.innerHTML = '<option value="">👉📺📺📺</option>';
 
@@ -699,6 +706,22 @@
                 select.appendChild(option);
             });
             console.log('Channel dropdown updated.');
+
+            // Attempt to re-select the previously selected channel, or the first valid one
+            if (currentSelectedValue !== "") {
+                const reselectIndex = parseInt(currentSelectedValue, 10);
+                if (!isNaN(reselectIndex) && reselectIndex < data.length) {
+                    select.value = reselectIndex;
+                    // Re-play the channel if it was previously playing
+                    // However, it's safer not to autoplay on update unless explicitly desired,
+                    // as it could interrupt user experience.
+                    // If you want it to restart, call playChannel(channelsData[reselectIndex]);
+                } else {
+                    // If the previously selected channel index is no longer valid (e.g., deleted)
+                    // Reset to placeholder or first valid channel
+                    select.value = ""; // Reset to placeholder
+                }
+            }
         }
 
         /**
@@ -761,7 +784,7 @@
                 playChannel(selectedChannel);
             } else {
                 console.error("Selected channel not found:", selectedIndex);
-                alert("Selected channel not found. Please try again.");
+                // alert("Selected channel not found. Please try again.");
                 showLoading(false);
                 placeholder.style.display = 'block';
             }

@@ -76,6 +76,23 @@
             100% { text-shadow: 0 0 20px #00ffe7, 0 0 30px #0ff; }
         }
 
+        /* NEW: Viewer count display styling */
+        .viewer-count-display {
+            text-align: center;
+            font-size: 1.2em;
+            color: red; /* Yellow glow */
+            margin-top: 10px;
+            margin-bottom: 20px; /* Add some space below it */
+            text-shadow: 0 0 5px #ffcc00, 0 0 10px rgba(255, 204, 0, 0.4);
+            animation: pulseViewerCount 1.5s infinite alternate; /* Subtle pulse animation */
+        }
+
+        @keyframes pulseViewerCount {
+            0% { transform: scale(1); opacity: 0.9; }
+            100% { transform: scale(1.02); opacity: 1; }
+        }
+
+
         .scrolling-text {
             overflow: hidden;
             white-space: nowrap;
@@ -116,9 +133,9 @@
             /* Removed text-align as flexbox will handle centering */
             margin-bottom: 3vh;
             padding: 0 5vw;
-            display: flex; /* Make it a flex container */
+            display: flex;         /* Make it a flex container */
             justify-content: center; /* Center items horizontally */
-            align-items: center; /* Center items vertically (if height allows) */
+            align-items: center;   /* Center items vertically (if height allows) */
         }
 
         select {
@@ -455,6 +472,11 @@
 <body>
     <div class="title-3d">MSTV INDIA</div>
 
+    <!-- NEW: Live Viewer Count Display -->
+    <div id="viewerCountDisplay" class="viewer-count-display">
+        Live Viewers: <span id="viewerNumber">Loading...</span>
+    </div>
+
     <div class="scrolling-text">
         <div class="scrolling-content">Welcome to MSTV India - Refresh the webpage to auto-tune channels!</div>
     </div>
@@ -535,17 +557,23 @@
         const statusMessage = document.getElementById('statusMessage');
         const rawDataDisplay = document.getElementById('rawDataDisplay');
 
+        // NEW: Viewer count elements
+        const viewerNumberSpan = document.getElementById('viewerNumber');
+
         let hlsInstance = null;
         let channelsData = []; // Store fetched channels data
         let lastKnownJsonContent = null; // Stores the last fetched JSON string for comparison
 
         // --- Configuration for Live Updates ---
-        // IMPORTANT: If 'channels.json' is in your GitHub repo root, this path is correct.
-        // If it's in a subfolder, e.g., 'data/channels.json', adjust this path.
-        // For a full raw GitHub URL (if hosted elsewhere):
-        // 'https://raw.githubusercontent.com/your-username/your-repo/main/channels.json'
         const githubJsonUrl = 'channels.json'; // Assuming channels.json is in the same directory
         const pollingInterval = 5000; // Check for updates every 5 seconds (5000 milliseconds)
+
+        // --- Configuration for Viewer Count ---
+        let currentViewerCount = 500; // Initial viewer count
+        const minViewerCount = 300;   // Minimum possible viewers
+        const maxViewerCount = 800;   // Maximum possible viewers
+        const fluctuationRange = 50;  // Max +/- fluctuation per update
+        const viewerUpdateInterval = 3000; // Update viewer count every 3 seconds
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
@@ -760,6 +788,26 @@
             }
         }
 
+        /**
+         * Updates the simulated viewer count.
+         */
+        function updateViewerCount() {
+            // Generate a random fluctuation
+            const fluctuation = Math.floor(Math.random() * (2 * fluctuationRange + 1)) - fluctuationRange;
+            let newCount = currentViewerCount + fluctuation;
+
+            // Ensure the count stays within min/max bounds
+            newCount = Math.max(minViewerCount, Math.min(maxViewerCount, newCount));
+
+            // Apply a slight bias towards the mean to keep it from drifting too far
+            const bias = (maxViewerCount + minViewerCount) / 2;
+            newCount = Math.round(newCount * 0.9 + bias * 0.1); // 90% current, 10% towards mean
+
+            currentViewerCount = newCount;
+            viewerNumberSpan.textContent = currentViewerCount.toLocaleString(); // Format with commas
+        }
+
+
         // Event listener for channel selection
         select.addEventListener('change', () => {
             const selectedIndex = select.value;
@@ -801,11 +849,15 @@
         unmuteButton.style.display = 'none'; // Ensure unmute button is hidden on load
         rawDataDisplay.style.display = 'none'; // Initially hide raw data display
 
-        // Initial check and start polling for channel updates
+        // Initial checks and start polling
         document.addEventListener('DOMContentLoaded', () => {
-            console.log('DOM fully loaded and parsed. Starting initial channel check.');
-            checkAndPopulateChannels(); // Perform an initial check immediately
-            setInterval(checkAndPopulateChannels, pollingInterval); // Then, set up polling
+            console.log('DOM fully loaded and parsed. Starting initial channel check and viewer count.');
+            checkAndPopulateChannels(); // Initial channel data fetch
+            setInterval(checkAndPopulateChannels, pollingInterval); // Start polling for channel updates
+
+            // Initialize and start fluctuating viewer count
+            updateViewerCount(); // Set initial count
+            setInterval(updateViewerCount, viewerUpdateInterval); // Start fluctuating
         });
     </script>
 </body>

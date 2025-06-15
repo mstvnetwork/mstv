@@ -42,21 +42,13 @@
 
   gtag('config', 'G-HJFN0N9L63');
 </script>
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-HJFN0N9L63"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'G-HJFN0N9L63');
-</script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" integrity="sha512-1ycn6IcaQQ40/MKBW2W4Rhis/DbILU74C1vSrLJxCq57o941Ym01SwNsOMqvEbFlcgUa6xLiPY/NS5R+E6ztJQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 
-
+    <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
     <title>MSTV INDIA</title>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -211,14 +203,28 @@
             100% { border-color: #FF00FF; box-shadow: 0 0 20px #FF00FF; }
         }
 
-        .player-container iframe,
-        .player-container video,
+        /* Update these to manage visibility by JS instead of display:none/block */
+        .player-container .vjs-tech,
+        .player-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Hide the original video player if Video.js is managing it */
+        #video-player {
+            display: none !important; /* Managed by Video.js */
+        }
+
         #placeholder-image {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            object-fit: cover; /* Ensure image covers the area */
         }
 
         .unmute-button {
@@ -556,8 +562,11 @@
     </div>
 
     <div class="player-container" id="player-container">
-        <iframe id="media-player" allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
-        <video id="video-player" autoplay muted playsinline controlsList="nodownload nofullscreen noremote playback" disablePictureInPicture></video>
+        <video id="video-player" class="video-js vjs-default-skin vjs-big-play-button" controls preload="auto" width="100%" height="100%"
+            data-setup='{"autoplay": true, "muted": true, "liveui": true, "responsive": true, "fluid": true, "controlBar": {"liveDisplay": true}}'>
+        </video>
+        <iframe id="media-iframe-player" allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
+        
         <img id="placeholder-image" src="Design-Studio-2025-01-22 (1).png" alt="Stream Placeholder" />
         
         <div class="live-stamp">MSTV NETWORK</div>
@@ -603,10 +612,13 @@
         <div class="copyright">© 2025 MSTV INDIA. All rights reserved.</div>
     </footer>
 
+    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+    <script src="https://unpkg.com/@videojs/http-streaming@3.9.0/dist/videojs-http-streaming.min.js"></script>
+
     <script>
         const select = document.getElementById('channel-select');
-        const videoPlayer = document.getElementById('video-player');
-        const iframePlayer = document.getElementById('media-player');
+        const videoElement = document.getElementById('video-player'); // This is the <video> element
+        const iframePlayer = document.getElementById('media-iframe-player'); // This is the <iframe> element
         const placeholder = document.getElementById('placeholder-image');
         const loading = document.getElementById('loading');
         const unmuteButton = document.getElementById('unmute-button');
@@ -615,7 +627,7 @@
         const viewerCountDisplay = document.getElementById('viewerCountDisplay');
         const currentViewerCountSpan = document.getElementById('currentViewerCount');
 
-        let hlsInstance = null;
+        let videoJsPlayer = null; // Variable to hold the Video.js player instance
         let channelsData = [];
         let lastKnownJsonContent = null;
 
@@ -628,12 +640,41 @@
         const fluctuationAmount = 50;
         const updateInterval = 2000;
 
+        // Initialize Video.js player once
+        function initializeVideoJs() {
+            if (!videoJsPlayer) {
+                videoJsPlayer = videojs(videoElement);
+                videoJsPlayer.ready(function() {
+                    console.log('Video.js player is ready!');
+                    this.muted(true); // Start muted
+                    this.play().catch(e => console.warn("Initial autoplay muted failed, user interaction likely needed:", e));
+                    this.on('loadeddata', () => showLoading(false));
+                    this.on('waiting', () => showLoading(true));
+                    this.on('playing', () => showLoading(false));
+                    this.on('error', (e) => {
+                        console.error('Video.js error:', this.error());
+                        showLoading(false);
+                        placeholder.style.display = 'block';
+                        unmuteButton.style.display = 'none';
+                        // Handle specific error types for better user feedback
+                        const error = this.error();
+                        if (error && error.code === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED
+                            alert("This video format is not supported or the stream is unavailable.");
+                        }
+                    });
+                    this.on('volumechange', updateSpeakerIcon);
+                });
+            }
+        }
+
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
+            // Also hide placeholder when loading
+            placeholder.style.display = show ? 'none' : placeholder.style.display;
         }
 
         function updateSpeakerIcon() {
-            if (videoPlayer.muted) {
+            if (videoJsPlayer && videoJsPlayer.muted()) {
                 speakerIcon.textContent = '🔇';
                 unmuteButton.style.display = 'flex';
             } else {
@@ -643,96 +684,69 @@
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') {
-                videoPlayer.muted = false;
+            if (videoJsPlayer) {
+                videoJsPlayer.muted(false);
+                videoJsPlayer.play().catch(e => console.error("Unmute play failed:", e));
                 updateSpeakerIcon();
             }
         });
 
-        videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
+        function resetPlayers() {
+            if (videoJsPlayer) {
+                videoJsPlayer.reset(); // Resets the player to its original state
+                videoJsPlayer.pause();
+                videoJsPlayer.removeChild('Hls'); // Clean up HLS.js if it was used via Video.js
+                videoElement.style.display = 'none'; // Hide Video.js player container
+            }
+            iframePlayer.src = '';
+            iframePlayer.style.display = 'none';
+            placeholder.style.display = 'block'; // Show placeholder by default
+            unmuteButton.style.display = 'none';
+            showLoading(false);
+        }
 
         function playChannel(channel) {
+            resetPlayers(); // Always reset before playing a new channel
             showLoading(true);
 
-            videoPlayer.pause();
-            if (hlsInstance) {
-                hlsInstance.destroy();
-                hlsInstance = null;
-            }
-            videoPlayer.removeAttribute('src');
-            videoPlayer.load();
+            if (channel.type === 'hls' || channel.type === 'mp4') {
+                videoElement.style.display = 'block'; // Show Video.js player
+                const isHLS = channel.type === 'hls';
 
-            iframePlayer.src = '';
+                const source = {
+                    src: channel.url,
+                    type: isHLS ? 'application/x-mpegURL' : 'video/mp4'
+                };
 
-            videoPlayer.style.display = 'none';
-            iframePlayer.style.display = 'none';
-            placeholder.style.display = 'none';
-            unmuteButton.style.display = 'none';
+                // Add quality options if available for MP4 or HLS (via HLS.js built-in)
+                if (channel.qualities && channel.qualities.length > 0) {
+                    // Video.js can be extended with quality pickers.
+                    // For HLS, hls.js (via Video.js plugin) handles adaptive streaming.
+                    // For MP4, it's more complex, requiring multiple sources or a plugin.
+                    // This is a placeholder for where you might integrate a quality selector UI.
+                    console.log('Available qualities:', channel.qualities);
+                }
 
-            if (channel.type === 'hls') {
-                if (Hls.isSupported()) {
-                    videoPlayer.style.display = 'block';
-                    hlsInstance = new Hls();
-                    hlsInstance.loadSource(channel.url);
-                    hlsInstance.attachMedia(videoPlayer);
-                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true;
-                        videoPlayer.autoplay = true;
-                        videoPlayer.play().then(() => {
-                            showLoading(false);
-                            updateSpeakerIcon();
-                        }).catch(e => {
-                            console.error("Video playback failed (HLS):", e);
-                            showLoading(false);
-                            placeholder.style.display = 'block';
-                            unmuteButton.style.display = 'none';
-                        });
-                    });
-                    hlsInstance.on(Hls.Events.ERROR, function (event, data) {
-                        console.error('HLS.js error:', data);
-                        if (data.fatal) {
-                            switch(data.type) {
-                                case Hls.ErrorTypes.NETWORK_ERROR:
-                                    console.error('Fatal network error encountered, try to recover');
-                                    hlsInstance.startLoad();
-                                    break;
-                                case Hls.ErrorTypes.MEDIA_ERROR:
-                                    console.error('Fatal media error encountered, try to recover');
-                                    hlsInstance.recoverMediaError();
-                                    break;
-                                default:
-                                    hlsInstance.destroy();
-                                    showLoading(false);
-                                    placeholder.style.display = 'block';
-                                    unmuteButton.style.display = 'none';
-                                    break;
-                            }
-                        }
-                    });
-
-                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    videoPlayer.style.display = 'block';
-                    videoPlayer.src = channel.url;
-                    videoPlayer.muted = true;
-                    videoPlayer.autoplay = true;
-                    videoPlayer.play().then(() => {
-                        showLoading(false);
-                        updateSpeakerIcon();
-                    }).catch(e => {
-                        console.error("Video playback failed (Native HLS):", e);
-                        showLoading(false);
-                        placeholder.style.display = 'block';
-                        unmuteButton.style.display = 'none';
-                    });
-                } else {
+                videoJsPlayer.src(source);
+                videoJsPlayer.muted(true);
+                videoJsPlayer.autoplay(true);
+                
+                videoJsPlayer.play().then(() => {
+                    showLoading(false);
+                    updateSpeakerIcon();
+                }).catch(e => {
+                    console.error("Video playback failed (Video.js):", e);
                     showLoading(false);
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none';
-                }
-            } else if (channel.type === 'iframe') {
+                });
+
+            } else if (channel.type === 'iframe' || channel.type === 'youtube') {
                 iframePlayer.style.display = 'block';
+                // For YouTube, if you want full API control, load the YouTube IFrame API and use it.
+                // For direct iframe embeds (like some live streams), just set src.
                 iframePlayer.src = channel.url;
-                unmuteButton.style.display = 'none';
+                unmuteButton.style.display = 'none'; // Iframe content manages its own audio
 
                 iframePlayer.onload = () => {
                     showLoading(false);
@@ -744,19 +758,10 @@
                     unmuteButton.style.display = 'none';
                 };
             } else {
-                videoPlayer.style.display = 'block';
-                videoPlayer.src = channel.url;
-                videoPlayer.muted = true;
-                videoPlayer.autoplay = true;
-                videoPlayer.play().then(() => {
-                    showLoading(false);
-                    updateSpeakerIcon();
-                }).catch((error) => {
-                    console.error("Video playback failed (direct video):", error);
-                    showLoading(false);
-                    placeholder.style.display = 'block';
-                    unmuteButton.style.display = 'none';
-                });
+                console.warn('Unknown channel type:', channel.type);
+                showLoading(false);
+                placeholder.style.display = 'block';
+                unmuteButton.style.display = 'none';
             }
         }
 
@@ -778,18 +783,12 @@
                     select.value = reselectIndex;
                     playChannel(channelsData[reselectIndex]);
                 } else {
+                    // If previously selected channel is no longer available, reset
                     select.value = "";
-                    videoPlayer.pause();
-                    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-                    videoPlayer.removeAttribute('src');
-                    iframePlayer.src = '';
-                    videoPlayer.style.display = 'none';
-                    iframePlayer.style.display = 'none';
-                    placeholder.style.display = 'block';
-                    unmuteButton.style.display = 'none';
+                    resetPlayers();
                 }
             } else {
-                 unmuteButton.style.display = 'none';
+                 resetPlayers(); // Start with placeholder if nothing selected
             }
         }
 
@@ -821,54 +820,30 @@
             let change = Math.floor(Math.random() * (2 * fluctuationAmount + 1)) - fluctuationAmount;
             currentViewers += change;
 
-            if (currentViewers < minViewers) {
-                currentViewers = minViewers + Math.abs(change);
-            } else if (currentViewers > maxViewers) {
-                currentViewers = maxViewers - Math.abs(change);
-            }
+            // Ensure viewer count stays within bounds
+            if (currentViewers < minViewers) currentViewers = minViewers;
+            if (currentViewers > maxViewers) currentViewers = maxViewers;
+
             currentViewerCountSpan.textContent = currentViewers.toLocaleString();
         }
 
-        select.addEventListener('change', () => {
-            const selectedIndex = select.value;
-            if (selectedIndex === "") {
-                videoPlayer.pause();
-                if (hlsInstance) {
-                    hlsInstance.destroy();
-                    hlsInstance = null;
-                }
-                videoPlayer.removeAttribute('src');
-                iframePlayer.src = '';
-                videoPlayer.style.display = 'none';
-                iframePlayer.style.display = 'none';
-                placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none';
+        // Event listener for channel selection
+        select.addEventListener('change', (event) => {
+            const selectedIndex = parseInt(event.target.value, 10);
+            if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < channelsData.length) {
+                playChannel(channelsData[selectedIndex]);
             } else {
-                const selectedChannel = channelsData[selectedIndex];
-                if (selectedChannel) {
-                    playChannel(selectedChannel);
-                }
+                resetPlayers(); // If "Select Channel" is chosen
             }
         });
 
+        // Initialize everything on page load
         document.addEventListener('DOMContentLoaded', () => {
+            initializeVideoJs(); // Initialize Video.js
             checkAndPopulateChannels();
-
-            unmuteButton.style.display = 'none';
-
             setInterval(checkAndPopulateChannels, pollingInterval);
-
-            updateViewerCount();
             setInterval(updateViewerCount, updateInterval);
-
-            if (channelsData.length > 0) {
-                setTimeout(() => {
-                    select.value = 0;
-                    playChannel(channelsData[0]);
-                }, 100);
-            } else {
-                placeholder.style.display = 'block';
-            }
+            updateViewerCount(); // Initial update
         });
     </script>
 </body>

@@ -51,7 +51,6 @@
     <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
     <title>MSTV INDIA</title>
 
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 
     <style>
@@ -203,19 +202,14 @@
             100% { border-color: #FF00FF; box-shadow: 0 0 20px #FF00FF; }
         }
 
-        /* Update these to manage visibility by JS instead of display:none/block */
-        .player-container .vjs-tech,
-        .player-container iframe {
+        /* Ensure Video.js player and iframe fill the container */
+        .player-container .video-js,
+        .player-container #media-iframe-player {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-        }
-
-        /* Hide the original video player if Video.js is managing it */
-        #video-player {
-            display: none !important; /* Managed by Video.js */
         }
 
         #placeholder-image {
@@ -617,8 +611,8 @@
 
     <script>
         const select = document.getElementById('channel-select');
-        const videoElement = document.getElementById('video-player'); // This is the <video> element
-        const iframePlayer = document.getElementById('media-iframe-player'); // This is the <iframe> element
+        const videoElement = document.getElementById('video-player');
+        const iframePlayer = document.getElementById('media-iframe-player');
         const placeholder = document.getElementById('placeholder-image');
         const loading = document.getElementById('loading');
         const unmuteButton = document.getElementById('unmute-button');
@@ -627,7 +621,7 @@
         const viewerCountDisplay = document.getElementById('viewerCountDisplay');
         const currentViewerCountSpan = document.getElementById('currentViewerCount');
 
-        let videoJsPlayer = null; // Variable to hold the Video.js player instance
+        let videoJsPlayer = null;
         let channelsData = [];
         let lastKnownJsonContent = null;
 
@@ -643,34 +637,55 @@
         // Initialize Video.js player once
         function initializeVideoJs() {
             if (!videoJsPlayer) {
-                videoJsPlayer = videojs(videoElement);
-                videoJsPlayer.ready(function() {
+                videoJsPlayer = videojs(videoElement, {
+                    autoplay: true, // Let's set this in options for direct control
+                    muted: true,
+                    liveui: true,
+                    responsive: true,
+                    fluid: true,
+                    controls: true, // Ensure controls are visible for user interaction
+                    controlBar: {
+                        liveDisplay: true,
+                    }
+                }, function() {
                     console.log('Video.js player is ready!');
-                    this.muted(true); // Start muted
-                    this.play().catch(e => console.warn("Initial autoplay muted failed, user interaction likely needed:", e));
-                    this.on('loadeddata', () => showLoading(false));
-                    this.on('waiting', () => showLoading(true));
-                    this.on('playing', () => showLoading(false));
+                    this.on('loadeddata', () => {
+                        console.log('Video.js: loadeddata event - Hiding loading indicator.');
+                        showLoading(false);
+                    });
+                    this.on('waiting', () => {
+                        console.log('Video.js: waiting event - Showing loading indicator.');
+                        showLoading(true);
+                    });
+                    this.on('playing', () => {
+                        console.log('Video.js: playing event - Hiding loading indicator.');
+                        showLoading(false);
+                    });
                     this.on('error', (e) => {
                         console.error('Video.js error:', this.error());
                         showLoading(false);
                         placeholder.style.display = 'block';
+                        videoElement.style.display = 'none'; // Hide player on error
+                        iframePlayer.style.display = 'none'; // Ensure iframe is also hidden
                         unmuteButton.style.display = 'none';
-                        // Handle specific error types for better user feedback
                         const error = this.error();
                         if (error && error.code === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED
-                            alert("This video format is not supported or the stream is unavailable.");
+                            alert("This video format is not supported or the stream is unavailable. Please try another channel.");
+                        } else {
+                            alert("An error occurred during video playback. Please try again.");
                         }
                     });
                     this.on('volumechange', updateSpeakerIcon);
+                    // Ensure initial mute state is reflected
+                    updateSpeakerIcon();
                 });
             }
         }
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
-            // Also hide placeholder when loading
-            placeholder.style.display = show ? 'none' : placeholder.style.display;
+            // Always hide placeholder when loading or playing
+            placeholder.style.display = 'none';
         }
 
         function updateSpeakerIcon() {
@@ -686,88 +701,92 @@
         unmuteButton.addEventListener('click', () => {
             if (videoJsPlayer) {
                 videoJsPlayer.muted(false);
-                videoJsPlayer.play().catch(e => console.error("Unmute play failed:", e));
+                // Attempt to play after unmuting, as some browsers require it
+                videoJsPlayer.play().catch(e => console.warn("Unmute and play failed, user interaction may be required:", e));
                 updateSpeakerIcon();
             }
         });
 
         function resetPlayers() {
-            if (videoJsPlayer) {
-                videoJsPlayer.reset(); // Resets the player to its original state
-                videoJsPlayer.pause();
-                videoJsPlayer.removeChild('Hls'); // Clean up HLS.js if it was used via Video.js
-                videoElement.style.display = 'none'; // Hide Video.js player container
-            }
-            iframePlayer.src = '';
+            console.log('Resetting players...');
+            showLoading(true); // Show loading while resetting/switching
+
+            // Hide all player types initially
+            videoElement.style.display = 'none';
             iframePlayer.style.display = 'none';
-            placeholder.style.display = 'block'; // Show placeholder by default
-            unmuteButton.style.display = 'none';
-            showLoading(false);
+            placeholder.style.display = 'none'; // Will be shown if nothing plays or on error
+
+            // Stop and dispose Video.js player if it exists
+            if (videoJsPlayer) {
+                videoJsPlayer.pause();
+                videoJsPlayer.reset(); // Clear current source and data
+                console.log('Video.js player reset.');
+            }
+
+            // Clear iframe source
+            iframePlayer.src = 'about:blank'; // Use about:blank to clear content without navigation issues
+            unmuteButton.style.display = 'none'; // Hide unmute button until a video player is active
         }
 
         function playChannel(channel) {
             resetPlayers(); // Always reset before playing a new channel
-            showLoading(true);
+            console.log('Attempting to play channel:', channel.name, 'Type:', channel.type, 'URL:', channel.url);
 
             if (channel.type === 'hls' || channel.type === 'mp4') {
                 videoElement.style.display = 'block'; // Show Video.js player
-                const isHLS = channel.type === 'hls';
-
+                
                 const source = {
                     src: channel.url,
-                    type: isHLS ? 'application/x-mpegURL' : 'video/mp4'
+                    type: channel.type === 'hls' ? 'application/x-mpegURL' : 'video/mp4'
                 };
 
-                // Add quality options if available for MP4 or HLS (via HLS.js built-in)
-                if (channel.qualities && channel.qualities.length > 0) {
-                    // Video.js can be extended with quality pickers.
-                    // For HLS, hls.js (via Video.js plugin) handles adaptive streaming.
-                    // For MP4, it's more complex, requiring multiple sources or a plugin.
-                    // This is a placeholder for where you might integrate a quality selector UI.
-                    console.log('Available qualities:', channel.qualities);
-                }
-
                 videoJsPlayer.src(source);
-                videoJsPlayer.muted(true);
-                videoJsPlayer.autoplay(true);
+                videoJsPlayer.muted(true); // Always start muted
+                // Autoplay is set in data-setup and initializeVideoJs, no need to set again here
                 
+                // Attempt to play. This promise can reject if autoplay is blocked.
                 videoJsPlayer.play().then(() => {
-                    showLoading(false);
-                    updateSpeakerIcon();
+                    console.log('Video.js play initiated successfully.');
+                    // Loading indicator will be hidden by loadeddata/playing events
+                    // Speaker icon will be updated by volumechange event
                 }).catch(e => {
-                    console.error("Video playback failed (Video.js):", e);
-                    showLoading(false);
-                    placeholder.style.display = 'block';
-                    unmuteButton.style.display = 'none';
+                    console.warn("Video.js initial play failed, likely autoplay blocked or network issue:", e);
+                    // If autoplay is blocked, prompt user to unmute/play
+                    showLoading(false); // Hide loading as it's not a loading issue
+                    placeholder.style.display = 'block'; // Show placeholder if playback fails
+                    videoElement.style.display = 'none'; // Hide Video.js player
+                    unmuteButton.style.display = 'flex'; // Show unmute button to prompt interaction
+                    speakerIcon.textContent = '🔇'; // Ensure icon shows muted
+                    alert("Video playback requires user interaction. Please click the play button or unmute the player.");
                 });
 
             } else if (channel.type === 'iframe' || channel.type === 'youtube') {
                 iframePlayer.style.display = 'block';
-                // For YouTube, if you want full API control, load the YouTube IFrame API and use it.
-                // For direct iframe embeds (like some live streams), just set src.
                 iframePlayer.src = channel.url;
                 unmuteButton.style.display = 'none'; // Iframe content manages its own audio
 
                 iframePlayer.onload = () => {
+                    console.log('Iframe loaded successfully.');
                     showLoading(false);
                 };
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
                     showLoading(false);
                     placeholder.style.display = 'block';
-                    unmuteButton.style.display = 'none';
+                    iframePlayer.style.display = 'none'; // Hide iframe on error
+                    alert("This embedded content could not be loaded. It might be blocked or unavailable.");
                 };
             } else {
-                console.warn('Unknown channel type:', channel.type);
+                console.warn('Unknown channel type or URL is missing for channel:', channel);
                 showLoading(false);
                 placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none';
+                alert("No playable source found for this channel.");
             }
         }
 
         function updateChannelDropdown(data) {
             const currentSelectedValue = select.value;
-            select.innerHTML = '<option value="">👉📺📺📺</option>';
+            select.innerHTML = '<option value="">👉📺📺📺</option>'; // Always include the default option
 
             data.forEach((channel, index) => {
                 const option = document.createElement('option');
@@ -775,26 +794,33 @@
                 option.textContent = channel.name;
                 select.appendChild(option);
             });
-            console.log('Channel dropdown updated.');
+            console.log('Channel dropdown updated with', data.length, 'channels.');
 
+            // Attempt to re-select previous channel if it still exists
             if (currentSelectedValue !== "") {
                 const reselectIndex = parseInt(currentSelectedValue, 10);
-                if (!isNaN(reselectIndex) && reselectIndex < data.length) {
+                if (!isNaN(reselectIndex) && reselectIndex >= 0 && reselectIndex < data.length) {
+                    console.log('Attempting to re-select channel:', data[reselectIndex].name);
                     select.value = reselectIndex;
                     playChannel(channelsData[reselectIndex]);
                 } else {
-                    // If previously selected channel is no longer available, reset
-                    select.value = "";
+                    console.warn('Previously selected channel index invalid or not found. Resetting player and dropdown.');
+                    select.value = ""; // Reset dropdown to default
                     resetPlayers();
+                    placeholder.style.display = 'block'; // Show placeholder
                 }
             } else {
-                 resetPlayers(); // Start with placeholder if nothing selected
+                // If no channel was previously selected, or if dropdown was reset, show placeholder
+                console.log('No channel previously selected or dropdown reset. Showing placeholder.');
+                resetPlayers();
+                placeholder.style.display = 'block';
             }
         }
 
         async function checkAndPopulateChannels() {
             try {
                 const urlWithCacheBuster = `${githubJsonUrl}?cacheBuster=${new Date().getTime()}`;
+                console.log('Fetching channels data from:', urlWithCacheBuster);
                 const response = await fetch(urlWithCacheBuster);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -803,7 +829,7 @@
                 const currentJsonString = JSON.stringify(data);
 
                 if (lastKnownJsonContent === null || currentJsonString !== lastKnownJsonContent) {
-                    console.log('channels.json data changed! Updating webpage...');
+                    console.log('channels.json data changed or first load. Updating webpage...');
                     channelsData = data;
                     updateChannelDropdown(channelsData);
                     lastKnownJsonContent = currentJsonString;
@@ -813,6 +839,10 @@
 
             } catch (error) {
                 console.error('Failed to fetch or process channels data:', error);
+                // If channel data fetching fails, ensure player is reset to placeholder
+                resetPlayers();
+                placeholder.style.display = 'block';
+                alert("Failed to load channel list. Please check your internet connection and try refreshing the page.");
             }
         }
 
@@ -829,21 +859,31 @@
 
         // Event listener for channel selection
         select.addEventListener('change', (event) => {
-            const selectedIndex = parseInt(event.target.value, 10);
-            if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < channelsData.length) {
-                playChannel(channelsData[selectedIndex]);
+            const selectedValue = event.target.value;
+            if (selectedValue === "") {
+                console.log('Dropdown reset to default option (no channel selected).');
+                resetPlayers();
+                placeholder.style.display = 'block'; // Show placeholder when nothing is selected
             } else {
-                resetPlayers(); // If "Select Channel" is chosen
+                const selectedIndex = parseInt(selectedValue, 10);
+                if (!isNaN(selectedIndex) && selectedIndex >= 0 && selectedIndex < channelsData.length) {
+                    playChannel(channelsData[selectedIndex]);
+                } else {
+                    console.error('Invalid channel selected from dropdown:', selectedIndex);
+                    resetPlayers();
+                    placeholder.style.display = 'block';
+                    alert("Selected channel is invalid or no longer available.");
+                }
             }
         });
 
         // Initialize everything on page load
         document.addEventListener('DOMContentLoaded', () => {
             initializeVideoJs(); // Initialize Video.js
-            checkAndPopulateChannels();
-            setInterval(checkAndPopulateChannels, pollingInterval);
-            setInterval(updateViewerCount, updateInterval);
-            updateViewerCount(); // Initial update
+            checkAndPopulateChannels(); // Initial load of channels and player state
+            setInterval(checkAndPopulateChannels, pollingInterval); // Periodically check for updates
+            setInterval(updateViewerCount, updateInterval); // Update viewer count
+            updateViewerCount(); // Initial update of viewer count
         });
     </script>
 </body>

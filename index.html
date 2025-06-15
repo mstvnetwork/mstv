@@ -638,12 +638,12 @@
         function initializeVideoJs() {
             if (!videoJsPlayer) {
                 videoJsPlayer = videojs(videoElement, {
-                    autoplay: true, // Let's set this in options for direct control
+                    autoplay: true, 
                     muted: true,
                     liveui: true,
                     responsive: true,
                     fluid: true,
-                    controls: true, // Ensure controls are visible for user interaction
+                    controls: true, 
                     controlBar: {
                         liveDisplay: true,
                     },
@@ -655,23 +655,42 @@
                             startLevel: 0, 
 
                             // The target amount of wall clock time (in seconds) that may be buffered ahead of the current time.
-                            // Lower for live streams to reduce initial wait and keep latency low.
-                            maxBufferLength: 10, // seconds
+                            // Increased slightly for more stability, decreased from default for live.
+                            maxBufferLength: 12, // seconds (Adjusted from 10 to 12 for slightly more buffer)
 
                             // The absolute maximum amount of wall clock time that may be buffered ahead.
-                            // Prevents excessive buffering and memory usage for long live streams.
-                            maxMaxBufferLength: 25, // seconds
+                            // Provides a cap, allowing for a healthy buffer without excessive latency.
+                            maxMaxBufferLength: 30, // seconds (Adjusted from 25 to 30 for slightly more buffer)
 
                             // Defines how many seconds away from the live edge the player attempts to stay.
-                            // A slightly adjusted value (e.g., 6-8s) can give stability for live content.
-                            liveSyncDuration: 6, // seconds
+                            // A value like 6-8s is common for balanced live latency and stability.
+                            liveSyncDuration: 7, // seconds (Adjusted from 6 to 7)
                             
                             // Maximum acceptable latency for live streams. If exceeding, player tries to catch up.
-                            // A tighter value can make player more responsive to falling behind.
-                            liveMaxLatencyDuration: 12, // seconds
+                            // Gives the player a bit more room to recover from network hiccups before pausing.
+                            liveMaxLatencyDuration: 15, // seconds (Adjusted from 12 to 15)
 
-                            // Attempt to prefetch the first fragment. Can slightly improve startup time.
-                            startFragPrefetch: true,
+                            // Minimum bitrate (in bits per second) that HLS.js will try to maintain.
+                            // If the network drops below this, it will proactively switch to a lower quality.
+                            // Set to 100kbps (100,000 bps) as a floor. Adjust based on your lowest stream quality.
+                            minAutoBitrate: 100000, 
+
+                            // Number of retries for fragment loading before giving up.
+                            // Increased to 6 from a typical default of 3 to tolerate more transient network issues.
+                            fragLoadingMaxRetry: 6,
+
+                            // Delay (in ms) before retrying a failed fragment load.
+                            // Increased to 1500ms to give the network more time to recover between retries.
+                            fragLoadingRetryDelay: 1500,
+
+                            // Set to true if your HLS stream truly supports Low-Latency HLS (LL-HLS) features.
+                            // Only enable if your source encoder is generating LL-HLS compatible streams (e.g., CMAF).
+                            // Otherwise, keep it false as it can cause issues if not supported by the stream.
+                            // lowLatencyMode: false, // Set to true ONLY if your streams are LL-HLS!
+                            
+                            // Keep false unless you need to limit quality based on player's pixel size.
+                            // Usually, you want ABR to select based on bandwidth, not just visible size.
+                            capLevelToPlayerSize: false, 
 
                             // Uncomment for verbose HLS.js debugging in the console (useful for diagnosing)
                             // debug: true, 
@@ -773,7 +792,6 @@
 
                 videoJsPlayer.src(source);
                 videoJsPlayer.muted(true); // Always start muted
-                // Autoplay is set in data-setup and initializeVideoJs, no need to set again here
                 
                 // Attempt to play. This promise can reject if autoplay is blocked.
                 videoJsPlayer.play().then(() => {

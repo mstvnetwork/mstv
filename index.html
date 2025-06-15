@@ -8,12 +8,12 @@
     <meta name="keywords" content="live TV, MSTV Network, free TV, live channels, streaming, music, bollywood, saga music">
     <meta name="robots" content="index, follow">
     <meta property="og:title" content="MSTV Network">
-    <meta property="og:description" content="Stream live TV channels including music, movies, and more on MSTV Network.">
+    <meta property="og:description" content="Stream live TV channels including music, movies and more on MSTV Network.">
     <meta property="og:image" content="https://raw.githubusercontent.com/mstvnetwork/mstv2/refs/heads/main/Design-Studio-2025-01-20%20(2).png">
     <meta property="og:url" content="https://mstvnet.netlify.app/">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="MSTV Network">
-    <meta name="twitter:description" content="Stream live TV channels including music, movies, and more on MSTV Network.">
+    <meta name="twitter:description" content="Stream live TV channels including music, movies and more on MSTV Network.">
     <meta name="twitter:image" content="https://raw.githubusercontent.com/mstvnetwork/mstv2/refs/heads/main/Design-Studio-2025-01-20%20(2).png">
     <meta name="twitter:url" content="https://mstvnet.netlify.app/">
 
@@ -74,6 +74,17 @@
             0% { text-shadow: 0 0 10px #00ffe7, 0 0 20px #0ff; }
             100% { text-shadow: 0 0 20px #00ffe7, 0 0 30px #0ff; }
         }
+
+        /* NEW: Viewer Count Styling */
+        .viewer-count {
+            text-align: center;
+            font-size: 1.5em; /* Slightly smaller than main title */
+            color: #f7ff00; /* Yellowish glow */
+            text-shadow: 0 0 8px #f7ff00, 0 0 15px rgba(247, 255, 0, 0.5);
+            margin-top: 10px; /* Space below title */
+            font-weight: 600;
+        }
+
 
         .scrolling-text {
             overflow: hidden;
@@ -397,9 +408,6 @@
             letter-spacing: 0.03em;
         }
 
-        /* Styles for new status and raw data displays */
-        /* Removed as per request: .status-display-container, #statusMessage, #rawDataDisplay */
-
         @media (max-width: 768px) {
             .footer-section {
                 flex-direction: column;
@@ -423,6 +431,8 @@
 </head>
 <body>
     <div class="title-3d">MSTV INDIA</div>
+
+    <div id="viewer-count" class="viewer-count"></div>
 
     <div class="scrolling-text">
         <div class="scrolling-content">Welcome to MSTV India - Refresh the webpage to auto-tune channels!</div>
@@ -491,20 +501,19 @@
         const loading = document.getElementById('loading');
         const unmuteButton = document.getElementById('unmute-button');
         const speakerIcon = document.getElementById('speaker-icon');
-
-        // Removed: statusMessage and rawDataDisplay as per request
+        const viewerCountElement = document.getElementById('viewer-count'); // NEW: Viewer count element
 
         let hlsInstance = null;
-        let channelsData = []; // Store fetched channels data
-        // Removed: lastKnownJsonContent as it's only for the update message logic
+        let channelsData = []; 
+        const githubJsonUrl = 'channels.json';
+        const pollingInterval = 5000;
 
-        // --- Configuration for Live Updates ---
-        // IMPORTANT: If 'channels.json' is in your GitHub repo root, this path is correct.
-        // If it's in a subfolder, e.g., 'data/channels.json', adjust this path.
-        // For a full raw GitHub URL (if hosted elsewhere):
-        // 'https://raw.githubusercontent.com/your-username/your-repo/main/channels.json'
-        const githubJsonUrl = 'channels.json'; // Assuming channels.json is in the same directory
-        const pollingInterval = 5000; // Check for updates every 5 seconds (5000 milliseconds)
+        // NEW: Viewer count variables
+        let currentViewerCount = 0;
+        const minViewers = 500;
+        const maxViewers = 5000;
+        const animationDuration = 2000; // 2 seconds for animation
+        const updateInterval = 5000; // Update viewer count every 5 seconds
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
@@ -521,34 +530,31 @@
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') { // Only interact if video player is active
-                videoPlayer.muted = false; // Unmute the video
-                updateSpeakerIcon(); // Update the icon and hide the button
+            if (videoPlayer.style.display === 'block') {
+                videoPlayer.muted = false;
+                updateSpeakerIcon();
             }
         });
 
-        // Listen for volume changes on the video player (e.g., if user mutes via native controls)
         videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
 
         function playChannel(channel) {
             showLoading(true);
 
-            // Stop any currently playing video/iframe
             videoPlayer.pause();
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
             }
             videoPlayer.removeAttribute('src');
-            videoPlayer.load(); // This is crucial to stop loading for direct video elements
+            videoPlayer.load();
 
-            iframePlayer.src = ''; // Clear iframe src
+            iframePlayer.src = '';
 
-            // Hide everything by default, then show what's needed
             videoPlayer.style.display = 'none';
             iframePlayer.style.display = 'none';
             placeholder.style.display = 'none';
-            unmuteButton.style.display = 'none'; // Hide unmute button initially for all types
+            unmuteButton.style.display = 'none';
 
             if (channel.type === 'hls') {
                 if (Hls.isSupported()) {
@@ -557,17 +563,16 @@
                     hlsInstance.loadSource(channel.url);
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true; // Start muted
+                        videoPlayer.muted = true;
                         videoPlayer.autoplay = true;
                         videoPlayer.play().then(() => {
                             showLoading(false);
-                            updateSpeakerIcon(); // Show unmute button since it's muted
+                            updateSpeakerIcon();
                         }).catch(e => {
                             console.error("Video playback failed (HLS):", e);
-                            // alert("Playback failed. This stream might not be available or your device has autoplay restrictions. Please click to unmute if needed.");
                             showLoading(false);
                             placeholder.style.display = 'block';
-                            unmuteButton.style.display = 'none'; // Ensure button is hidden on error
+                            unmuteButton.style.display = 'none';
                         });
                     });
                     hlsInstance.on(Hls.Events.ERROR, function (event, data) {
@@ -585,7 +590,6 @@
                                 default:
                                     hlsInstance.destroy();
                                     showLoading(false);
-                                    // alert("Stream error: " + data.details + ". Please try another channel.");
                                     placeholder.style.display = 'block';
                                     unmuteButton.style.display = 'none';
                                     break;
@@ -594,30 +598,27 @@
                     });
 
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari/iOS)
                     videoPlayer.style.display = 'block';
                     videoPlayer.src = channel.url;
-                    videoPlayer.muted = true; // Start muted
+                    videoPlayer.muted = true;
                     videoPlayer.autoplay = true;
                     videoPlayer.play().then(() => {
                         showLoading(false);
-                        updateSpeakerIcon(); // Show unmute button since it's muted
+                        updateSpeakerIcon();
                     }).catch(e => {
                         console.error("Video playback failed (Native HLS):", e);
-                        // alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
                         showLoading(false);
                         placeholder.style.display = 'block';
                         unmuteButton.style.display = 'none';
                     });
                 } else {
-                    // alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
                     showLoading(false);
                     placeholder.style.display = 'block';
                 }
             } else if (channel.type === 'iframe') {
                 iframePlayer.style.display = 'block';
                 iframePlayer.src = channel.url;
-                unmuteButton.style.display = 'none'; // Ensure unmute button is hidden for iframes
+                unmuteButton.style.display = 'none';
 
                 iframePlayer.onload = () => {
                     showLoading(false);
@@ -625,73 +626,50 @@
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
                     showLoading(false);
-                    // alert("The embedded content could not be loaded. It might be blocked or unavailable.");
                     placeholder.style.display = 'block';
                 };
             } else {
-                // Fallback for direct video (non-HLS, non-iframe, if any)
                 videoPlayer.style.display = 'block';
                 videoPlayer.src = channel.url;
-                videoPlayer.muted = true; // Start muted
+                videoPlayer.muted = true;
                 videoPlayer.autoplay = true;
                 videoPlayer.play().then(() => {
                     showLoading(false);
-                    updateSpeakerIcon(); // Show unmute button since it's muted
+                    updateSpeakerIcon();
                 }).catch((error) => {
                     console.error("Video playback failed (direct video):", error);
                     showLoading(false);
-                    // alert("Playback failed. This video format might not be supported or autoplay is blocked.");
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none';
                 });
             }
         }
 
-        /**
-         * Populates the channel dropdown with data.
-         * @param {Array} data - The array of channel objects.
-         */
         function updateChannelDropdown(data) {
-            // Store the currently selected value if any
             const currentSelectedValue = select.value;
-
-            // Clear existing options, but keep the initial placeholder
             select.innerHTML = '<option value="">👉📺📺📺</option>';
 
             data.forEach((channel, index) => {
                 const option = document.createElement('option');
-                option.value = index; // Store index for easy lookup
+                option.value = index;
                 option.textContent = channel.name;
                 select.appendChild(option);
             });
             console.log('Channel dropdown updated.');
 
-            // Attempt to re-select the previously selected channel, or the first valid one
             if (currentSelectedValue !== "") {
                 const reselectIndex = parseInt(currentSelectedValue, 10);
                 if (!isNaN(reselectIndex) && reselectIndex < data.length) {
                     select.value = reselectIndex;
-                    // Re-play the channel if it was previously playing
-                    // However, it's safer not to autoplay on update unless explicitly desired,
-                    // as it could interrupt user experience.
-                    // If you want it to restart, call playChannel(channelsData[reselectIndex]);
                 } else {
-                    // If the previously selected channel index is no longer valid (e.g., deleted)
-                    // Reset to placeholder or first valid channel
-                    select.value = ""; // Reset to placeholder
+                    select.value = "";
                 }
             }
         }
 
-        /**
-         * Fetches the channels.json data, and populates the dropdown.
-         * The update checking logic (comparing lastKnownJsonContent) is removed.
-         */
         async function fetchAndPopulateChannels() {
             try {
-                // Add a cache-busting parameter to ensure fresh data from GitHub
                 const urlWithCacheBuster = `${githubJsonUrl}?cacheBuster=${new Date().getTime()}`;
-                
                 const response = await fetch(urlWithCacheBuster);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -699,20 +677,17 @@
                 const data = await response.json();
                 
                 console.log('Fetching channels.json data.');
-                channelsData = data; // Update the global channelsData
-                updateChannelDropdown(channelsData); // Re-populate dropdown with new data
+                channelsData = data;
+                updateChannelDropdown(channelsData);
 
             } catch (error) {
                 console.error('Failed to fetch or process channels data:', error);
-                // alert('Failed to load channels. Please try refreshing the page or check your internet connection.');
             }
         }
 
-        // Event listener for channel selection
         select.addEventListener('change', () => {
             const selectedIndex = select.value;
             if (selectedIndex === "") {
-                // User selected the initial placeholder option
                 videoPlayer.pause();
                 if (hlsInstance) {
                     hlsInstance.destroy();
@@ -733,15 +708,49 @@
             }
         });
 
+        // NEW: Viewer Countdown Functions
+        function getRandomViewerCount(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function animateViewerCount(start, end, duration) {
+            let startTime = null;
+
+            function step(currentTime) {
+                if (!startTime) startTime = currentTime;
+                const progress = (currentTime - startTime) / duration;
+
+                const easedProgress = 0.5 - Math.cos(progress * Math.PI) / 2; // Smooth easing function
+
+                const animatedValue = Math.floor(start + (end - start) * easedProgress);
+                viewerCountElement.textContent = `👁️ ${animatedValue.toLocaleString()} Viewers Live`;
+
+                if (progress < 1) {
+                    requestAnimationFrame(step);
+                } else {
+                    viewerCountElement.textContent = `👁️ ${end.toLocaleString()} Viewers Live`;
+                    currentViewerCount = end; // Ensure the final value is set
+                }
+            }
+            requestAnimationFrame(step);
+        }
+
+        function updateAndAnimateViewerCount() {
+            const newViewerCount = getRandomViewerCount(minViewers, maxViewers);
+            animateViewerCount(currentViewerCount, newViewerCount, animationDuration);
+        }
+
         // Initial load of channels
         document.addEventListener('DOMContentLoaded', () => {
             fetchAndPopulateChannels();
-            // Start the polling interval to regularly check for updates, if desired.
-            // If you want to completely remove "live updates", you can remove the following line:
             setInterval(fetchAndPopulateChannels, pollingInterval);
+
+            // NEW: Initialize and start the viewer count animation
+            currentViewerCount = getRandomViewerCount(minViewers, maxViewers); // Set initial random count
+            viewerCountElement.textContent = `👁️ ${currentViewerCount.toLocaleString()} Viewers Live`; // Display immediately
+            setInterval(updateAndAnimateViewerCount, updateInterval); // Start regular updates
         });
 
-        // Set initial state of speaker icon
         updateSpeakerIcon();
 
     </script>

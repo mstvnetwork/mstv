@@ -228,7 +228,7 @@
             border-radius: 50%;
             width: 50px;
             height: 50px;
-            display: flex;
+            display: flex; /* Kept display:flex but will be overridden by JS */
             justify-content: center;
             align-items: center;
             cursor: pointer;
@@ -237,6 +237,8 @@
             color: #fff;
             box-shadow: 0 0 10px rgba(0, 255, 231, 0.5);
             transition: background 0.3s ease, border-color 0.3s ease;
+            /* IMPORTANT: Default to hidden in CSS for better control via JS */
+            display: none;
         }
 
         .unmute-button:hover {
@@ -442,12 +444,6 @@
             letter-spacing: 0.03em;
         }
 
-        /* REMOVED: Styles for status-display-container and its children */
-        /* .status-display-container { ... } */
-        /* #statusMessage { ... } */
-        /* #rawDataDisplay { ... } */
-
-
         @media (max-width: 768px) {
             .footer-section {
                 flex-direction: column;
@@ -559,82 +555,70 @@
         const loading = document.getElementById('loading');
         const unmuteButton = document.getElementById('unmute-button');
         const speakerIcon = document.getElementById('speaker-icon');
-        const liveViewCounter = document.getElementById('live-view-counter'); // NEW: Get the counter element
-
-        // REMOVED: statusMessage and rawDataDisplay as they are no longer needed
-        // const statusMessage = document.getElementById('statusMessage');
-        // const rawDataDisplay = document.getElementById('rawDataDisplay');
+        const liveViewCounter = document.getElementById('live-view-counter');
 
         let hlsInstance = null;
-        let channelsData = []; // Store fetched channels data
-        let lastKnownJsonContent = null; // Stores the last fetched JSON string for comparison
+        let channelsData = [];
+        let lastKnownJsonContent = null;
 
-        // --- Configuration for Live Updates ---
-        // IMPORTANT: If 'channels.json' is in your GitHub repo root, this path is correct.
-        // If it's in a subfolder, e.g., 'data/channels.json', adjust this path.
-        // For a full raw GitHub URL (if hosted elsewhere):
-        // 'https://raw.githubusercontent.com/your-username/your-repo/main/channels.json'
-        const githubJsonUrl = 'channels.json'; // Assuming channels.json is in the same directory
-        const pollingInterval = 5000; // Check for updates every 5 seconds (5000 milliseconds)
+        const githubJsonUrl = 'channels.json';
+        const pollingInterval = 5000;
 
         // NEW: Live View Counter Logic
         function updateLiveViewCounter() {
-            // Generate a random number between 500 and 5000
             const min = 500;
             const max = 5000;
             const count = Math.floor(Math.random() * (max - min + 1)) + min;
-            liveViewCounter.textContent = count.toLocaleString(); // Format with commas
+            liveViewCounter.textContent = count.toLocaleString();
         }
 
-        // Update the counter every 2-5 seconds for fluctuation
         setInterval(updateLiveViewCounter, Math.random() * (5000 - 2000) + 2000);
-        // Initial update
         updateLiveViewCounter();
-
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';
         }
 
         function updateSpeakerIcon() {
-            if (videoPlayer.muted) {
+            // Only show the unmute button if the video player is currently active AND muted
+            if (videoPlayer.style.display === 'block' && videoPlayer.muted) {
                 speakerIcon.textContent = '🔇';
-                unmuteButton.style.display = 'flex'; // Show the button when muted
+                unmuteButton.style.display = 'flex';
             } else {
-                speakerIcon.textContent = '🔊';
-                unmuteButton.style.display = 'none'; // Hide the button when unmuted
+                speakerIcon.textContent = '🔊'; // Still update icon in case it's shown for some reason
+                unmuteButton.style.display = 'none'; // Explicitly hide when not muted or not video player
             }
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') { // Only interact if video player is active
-                videoPlayer.muted = false; // Unmute the video
-                updateSpeakerIcon(); // Update the icon and hide the button
+            if (videoPlayer.style.display === 'block') {
+                videoPlayer.muted = false;
+                updateSpeakerIcon();
             }
         });
 
-        // Listen for volume changes on the video player (e.g., if user mutes via native controls)
         videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
+        // Also listen for 'play' event to make sure button is shown if video starts muted
+        videoPlayer.addEventListener('play', updateSpeakerIcon);
+
 
         function playChannel(channel) {
             showLoading(true);
 
-            // Stop any currently playing video/iframe
             videoPlayer.pause();
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
             }
             videoPlayer.removeAttribute('src');
-            videoPlayer.load(); // This is crucial to stop loading for direct video elements
+            videoPlayer.load();
 
-            iframePlayer.src = ''; // Clear iframe src
+            iframePlayer.src = '';
 
-            // Hide everything by default, then show what's needed
             videoPlayer.style.display = 'none';
             iframePlayer.style.display = 'none';
             placeholder.style.display = 'none';
-            unmuteButton.style.display = 'none'; // Hide unmute button initially for all types
+            unmuteButton.style.display = 'none'; // IMPORTANT: Always hide first when changing channels
 
             if (channel.type === 'hls') {
                 if (Hls.isSupported()) {
@@ -643,17 +627,17 @@
                     hlsInstance.loadSource(channel.url);
                     hlsInstance.attachMedia(videoPlayer);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
-                        videoPlayer.muted = true; // Start muted
+                        videoPlayer.muted = true;
                         videoPlayer.autoplay = true;
                         videoPlayer.play().then(() => {
                             showLoading(false);
-                            updateSpeakerIcon(); // Show unmute button since it's muted
+                            // Only call updateSpeakerIcon AFTER successful play and if it's a video type
+                            updateSpeakerIcon();
                         }).catch(e => {
                             console.error("Video playback failed (HLS):", e);
-                            // alert("Playback failed. This stream might not be available or your device has autoplay restrictions. Please click to unmute if needed.");
                             showLoading(false);
                             placeholder.style.display = 'block';
-                            unmuteButton.style.display = 'none'; // Ensure button is hidden on error
+                            unmuteButton.style.display = 'none'; // Hide on error
                         });
                     });
                     hlsInstance.on(Hls.Events.ERROR, function (event, data) {
@@ -661,49 +645,49 @@
                         if (data.fatal) {
                             switch(data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
-                                    console.error('Fatal network error encountered, try to recover');
-                                    hlsInstance.startLoad();
-                                    break;
                                 case Hls.ErrorTypes.MEDIA_ERROR:
-                                    console.error('Fatal media error encountered, try to recover');
-                                    hlsInstance.recoverMediaError();
+                                    // Try recovery, but ensure button is hidden if it completely fails
+                                    showLoading(false); // Hide loading on fatal error attempt
+                                    unmuteButton.style.display = 'none'; // Hide on error
+                                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                                        hlsInstance.startLoad();
+                                    } else {
+                                        hlsInstance.recoverMediaError();
+                                    }
                                     break;
                                 default:
                                     hlsInstance.destroy();
                                     showLoading(false);
-                                    // alert("Stream error: " + data.details + ". Please try another channel.");
                                     placeholder.style.display = 'block';
-                                    unmuteButton.style.display = 'none';
+                                    unmuteButton.style.display = 'none'; // Hide on error
                                     break;
                             }
                         }
                     });
 
                 } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    // Native HLS support (Safari/iOS)
                     videoPlayer.style.display = 'block';
                     videoPlayer.src = channel.url;
-                    videoPlayer.muted = true; // Start muted
+                    videoPlayer.muted = true;
                     videoPlayer.autoplay = true;
                     videoPlayer.play().then(() => {
                         showLoading(false);
-                        updateSpeakerIcon(); // Show unmute button since it's muted
+                        updateSpeakerIcon();
                     }).catch(e => {
                         console.error("Video playback failed (Native HLS):", e);
-                        // alert("Playback failed. This stream might not be available or your device has autoplay restrictions.");
                         showLoading(false);
                         placeholder.style.display = 'block';
-                        unmuteButton.style.display = 'none';
+                        unmuteButton.style.display = 'none'; // Hide on error
                     });
                 } else {
-                    // alert('Your browser does not support HLS streaming. Please try another browser (e.g., Safari on iOS/macOS or Chrome on Android).');
                     showLoading(false);
                     placeholder.style.display = 'block';
+                    unmuteButton.style.display = 'none'; // Hide if browser doesn't support
                 }
             } else if (channel.type === 'iframe') {
                 iframePlayer.style.display = 'block';
                 iframePlayer.src = channel.url;
-                unmuteButton.style.display = 'none'; // Ensure unmute button is hidden for iframes
+                unmuteButton.style.display = 'none'; // Always hide for iframes
 
                 iframePlayer.onload = () => {
                     showLoading(false);
@@ -711,74 +695,50 @@
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
                     showLoading(false);
-                    // alert("The embedded content could not be loaded. It might be blocked or unavailable.");
                     placeholder.style.display = 'block';
+                    unmuteButton.style.display = 'none'; // Hide on error
                 };
             } else {
                 // Fallback for direct video (non-HLS, non-iframe, if any)
                 videoPlayer.style.display = 'block';
                 videoPlayer.src = channel.url;
-                videoPlayer.muted = true; // Start muted
+                videoPlayer.muted = true;
                 videoPlayer.autoplay = true;
                 videoPlayer.play().then(() => {
                     showLoading(false);
-                    updateSpeakerIcon(); // Show unmute button since it's muted
+                    updateSpeakerIcon();
                 }).catch((error) => {
                     console.error("Video playback failed (direct video):", error);
                     showLoading(false);
-                    // alert("Playback failed. This video format might not be supported or autoplay is blocked.");
                     placeholder.style.display = 'block';
-                    unmuteButton.style.display = 'none';
+                    unmuteButton.style.display = 'none'; // Hide on error
                 });
             }
         }
 
-        /**
-         * Populates the channel dropdown with data.
-         * @param {Array} data - The array of channel objects.
-         */
         function updateChannelDropdown(data) {
-            // Store the currently selected value if any
             const currentSelectedValue = select.value;
-
-            // Clear existing options, but keep the initial placeholder
             select.innerHTML = '<option value="">👉📺📺📺</option>';
-
             data.forEach((channel, index) => {
                 const option = document.createElement('option');
-                option.value = index; // Store index for easy lookup
+                option.value = index;
                 option.textContent = channel.name;
                 select.appendChild(option);
             });
             console.log('Channel dropdown updated.');
-
-            // Attempt to re-select the previously selected channel, or the first valid one
             if (currentSelectedValue !== "") {
                 const reselectIndex = parseInt(currentSelectedValue, 10);
                 if (!isNaN(reselectIndex) && reselectIndex < data.length) {
                     select.value = reselectIndex;
-                    // Re-play the channel if it was previously playing
-                    // However, it's safer not to autoplay on update unless explicitly desired,
-                    // as it could interrupt user experience.
-                    // If you want it to restart, call playChannel(channelsData[reselectIndex]);
                 } else {
-                    // If the previously selected channel index is no longer valid (e.g., deleted)
-                    // Reset to placeholder or first valid channel
-                    select.value = ""; // Reset to placeholder
+                    select.value = "";
                 }
             }
         }
 
-        /**
-         * Fetches the channels.json data, checks for updates, and populates the dropdown.
-         */
         async function checkAndPopulateChannels() {
             try {
-                // Add a cache-busting parameter to ensure fresh data from GitHub
                 const urlWithCacheBuster = `${githubJsonUrl}?cacheBuster=${new Date().getTime()}`;
-                // REMOVED: statusMessage update here
-                // statusMessage.textContent = 'Fetching latest channels data...';
-
                 const response = await fetch(urlWithCacheBuster);
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -786,35 +746,22 @@
                 const data = await response.json();
                 const currentJsonString = JSON.stringify(data);
 
-                // Only update if content has changed or if it's the first load
                 if (lastKnownJsonContent === null || currentJsonString !== lastKnownJsonContent) {
                     console.log('channels.json data changed! Updating webpage...');
-                    channelsData = data; // Update the global channelsData
-                    updateChannelDropdown(channelsData); // Re-populate dropdown with new data
-                    // REMOVED: rawDataDisplay update
-                    // rawDataDisplay.textContent = currentJsonString; // Display raw data for debugging
-                    // REMOVED: statusMessage update
-                    // statusMessage.textContent = `Channels updated at ${new Date().toLocaleTimeString()}`;
-                    lastKnownJsonContent = currentJsonString; // Store the new content
+                    channelsData = data;
+                    updateChannelDropdown(channelsData);
+                    lastKnownJsonContent = currentJsonString;
                 } else {
                     console.log('No new changes detected in channels.json.');
-                    // REMOVED: statusMessage update
-                    // statusMessage.textContent = `No new updates. Last checked at ${new Date().toLocaleTimeString()}`;
                 }
-
             } catch (error) {
                 console.error('Failed to fetch or process channels data:', error);
-                // REMOVED: statusMessage update
-                // statusMessage.textContent = `Error loading channels: ${error.message}.`;
-                // alert('Failed to load channels. Please try refreshing the page or check your internet connection.');
             }
         }
 
-        // Event listener for channel selection
         select.addEventListener('change', () => {
             const selectedIndex = select.value;
             if (selectedIndex === "") {
-                // User selected the initial placeholder option
                 videoPlayer.pause();
                 if (hlsInstance) {
                     hlsInstance.destroy();
@@ -825,7 +772,7 @@
                 videoPlayer.style.display = 'none';
                 iframePlayer.style.display = 'none';
                 placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none';
+                unmuteButton.style.display = 'none'; // Explicitly hide when placeholder is selected
                 showLoading(false);
                 return;
             }
@@ -834,18 +781,17 @@
                 playChannel(selectedChannel);
             } else {
                 console.error('Selected channel data not found.');
-                // Fallback to placeholder or an error message if channel data is missing
                 placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none';
+                unmuteButton.style.display = 'none'; // Hide if channel data is missing
                 showLoading(false);
             }
         });
 
-        // Initial load and set up polling
         document.addEventListener('DOMContentLoaded', () => {
-            checkAndPopulateChannels(); // Initial fetch
-            setInterval(checkAndPopulateChannels, pollingInterval); // Set up polling
-            updateSpeakerIcon(); // Set initial speaker icon state
+            checkAndPopulateChannels();
+            setInterval(checkAndPopulateChannels, pollingInterval);
+            // DO NOT call updateSpeakerIcon() here, let playChannel manage its visibility
+            unmuteButton.style.display = 'none'; // Ensure it's hidden on initial load
         });
     </script>
 </body>

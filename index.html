@@ -564,16 +564,49 @@
         const githubJsonUrl = 'channels.json';
         const pollingInterval = 5000;
 
-        // NEW: Live View Counter Logic
-        function updateLiveViewCounter() {
-            const min = 500;
-            const max = 5000;
-            const count = Math.floor(Math.random() * (max - min + 1)) + min;
-            liveViewCounter.textContent = count.toLocaleString();
+        // Live Viewer Count Variables
+        let currentViewerCount;
+        const minViewers = 500; // Minimum possible viewers
+        const maxViewers = 1500; // Maximum possible viewers
+        const maxFluctuation = 10; // Max number of viewers to add/subtract in one step
+        let viewerCountIntervalId; // To store the interval ID for clearing
+
+        function initializeViewerCount() {
+            // Start with a random number within the range
+            currentViewerCount = Math.floor(Math.random() * (maxViewers - minViewers + 1)) + minViewers;
+            liveViewCounter.textContent = currentViewerCount.toLocaleString();
         }
 
-        setInterval(updateLiveViewCounter, Math.random() * (5000 - 2000) + 2000);
-        updateLiveViewCounter();
+        function updateLiveViewCounter() {
+            // Randomly decide to increase or decrease, or stay
+            let change = Math.random() < 0.5 ? 1 : -1; // 50% chance to go up/down
+            
+            // Introduce a small random fluctuation amount
+            let fluctuationAmount = Math.floor(Math.random() * (maxFluctuation + 1));
+            
+            let newCount = currentViewerCount + (change * fluctuationAmount);
+
+            // Ensure the count stays within min and max bounds
+            newCount = Math.max(minViewers, Math.min(maxViewers, newCount));
+
+            // Small chance to jump a bit more significantly if "stuck"
+            if (Math.random() < 0.05) { // 5% chance of a larger jump
+                newCount = Math.floor(Math.random() * (maxViewers - minViewers + 1)) + minViewers;
+            }
+
+            currentViewerCount = newCount;
+            liveViewCounter.textContent = currentViewerCount.toLocaleString();
+
+            // Clear the existing interval and set a new one with a slightly varied time
+            clearInterval(viewerCountIntervalId);
+            const nextInterval = Math.random() * (5000 - 2000) + 2000; // Random interval between 2-5 seconds
+            viewerCountIntervalId = setInterval(updateLiveViewCounter, nextInterval);
+        }
+
+        // Initialize and start the viewer count
+        initializeViewerCount();
+        viewerCountIntervalId = setInterval(updateLiveViewCounter, Math.random() * (5000 - 2000) + 2000);
+
 
         function showLoading(show) {
             loading.style.display = show ? 'block' : 'none';

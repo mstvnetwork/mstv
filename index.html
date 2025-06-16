@@ -290,7 +290,7 @@
     </div>
 
     <footer>
-        <p>&copy; 2024 MSTV Net. All rights reserved.</p>
+        <p>© 2024 MSTV Net. All rights reserved.</p>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -340,7 +340,8 @@
             } else if (iframePlayer.style.display === 'block' && youtubePlayer) {
                 // For YouTube, check its mute status
                 // YouTube API returns 1 for muted, 0 for unmuted.
-                if (youtubePlayer.isMuted() == 1) {
+                // Make sure player is ready before calling isMuted()
+                if (youtubePlayer.getPlayerState() !== -1 && youtubePlayer.isMuted() == 1) { 
                     speakerIcon.textContent = '🔇';
                     unmuteButton.style.display = 'flex';
                 } else {
@@ -362,30 +363,29 @@
             updateSpeakerIcon();
         });
 
+        // Event listeners for video player to update mute button state
         videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
-        videoPlayer.addEventListener('play', updateSpeakerIcon); // Update when video starts playing
-        videoPlayer.addEventListener('pause', updateSpeakerIcon); // Update when video is paused (if applicable)
+        videoPlayer.addEventListener('play', updateSpeakerIcon); 
+        videoPlayer.addEventListener('pause', updateSpeakerIcon); 
 
         // --- YouTube Player API Initialization ---
+        // This function MUST be globally accessible and named onYouTubeIframeAPIReady
+        // It's called automatically by the YouTube API script when it loads.
         function onYouTubeIframeAPIReady() {
-            // This function is called automatically by the YouTube API script
             console.log("YouTube Iframe API is ready.");
-            // We won't create the player here, but later when a YouTube URL is selected
+            // No need to create player here, it will be created when a YouTube video is selected.
         }
 
         function createYouTubePlayer(videoId, mute = true) {
-            // The `iframePlayer` element MUST be visible and mounted in the DOM
-            // before creating a YouTube Player instance.
+            // Ensure iframePlayer is visible and videoPlayer is hidden before creating YouTube player
             videoPlayer.style.display = 'none';
-            iframePlayer.style.display = 'block'; // Make sure iframe is visible
+            iframePlayer.style.display = 'block'; 
 
             if (youtubePlayer) {
                 youtubePlayer.destroy(); // Destroy existing player if any
                 youtubePlayer = null;
             }
 
-            // The iframe's src attribute might be empty or a previous video.
-            // When YT.Player is initialized, it replaces the iframe's content.
             youtubePlayer = new YT.Player('media-player', { // 'media-player' is the ID of your iframe
                 videoId: videoId,
                 playerVars: {
@@ -408,10 +408,21 @@
 
         function onPlayerReady(event) {
             console.log("YouTube player ready.");
-            // On Safari, a user gesture might still be required for actual play
-            event.target.playVideo();
-            showLoading(false);
-            updateSpeakerIcon();
+            // Attempt to play, but respect browser autoplay policies.
+            event.target.playVideo().then(() => {
+                showLoading(false);
+                updateSpeakerIcon();
+            }).catch(error => {
+                console.warn("YouTube playVideo failed (likely autoplay blocked):", error);
+                // If autoplay is blocked, player might still be muted.
+                // Keep loading indicator if it's still buffering/not playing.
+                // The 'unmute' button will be visible if muted.
+                if (youtubePlayer && youtubePlayer.isMuted() == 1) {
+                    updateSpeakerIcon(); // Make sure unmute button is visible
+                } else {
+                    showLoading(false); // If not muted, and not playing, something else is wrong.
+                }
+            });
         }
 
         function onPlayerStateChange(event) {
@@ -420,7 +431,7 @@
                 playNextInSequence();
             } else if (event.data === YT.PlayerState.PLAYING) {
                 showLoading(false);
-                updateSpeakerIcon();
+                updateSpeakerIcon(); // Update speaker icon if unmuted manually
             } else if (event.data === YT.PlayerState.BUFFERING) {
                 showLoading(true);
             }
@@ -442,6 +453,8 @@
         function playNextInSequence() {
             if (!currentPlayingChannel || !currentPlayingChannel.urls || currentPlayingChannel.urls.length === 0) {
                 console.log("No sequential playlist or end of current channel.");
+                // If a non-sequential iframe channel ends, this can prevent continuous loop.
+                // For live iframes, they don't typically 'end'.
                 return;
             }
 
@@ -494,11 +507,11 @@
                             showLoading(false);
                             updateSpeakerIcon();
                         }).catch(e => {
-                            console.error("Video playback failed (HLS):", e);
+                            console.error("Video playback failed (HLS, likely autoplay blocked):", e);
                             showLoading(false);
                             placeholder.style.display = 'block';
-                            unmuteButton.style.display = 'none';
-                            playNextInSequence(); // Try next on failure
+                            unmuteButton.style.display = 'none'; // Ensure button hidden if no play is possible
+                            // Don't play next on autoplay failure, user needs to interact
                         });
                     });
                     hlsInstance.on(Hls.Events.ERROR, function (event, data) {
@@ -507,7 +520,8 @@
                             switch(data.type) {
                                 case Hls.ErrorTypes.NETWORK_ERROR:
                                     console.error('Fatal network error encountered, trying to recover');
-                                    hlsInstance.startLoad();
+                                    //hlsInstance.startLoad(); // Re-enable if you want aggressive recovery
+                                    playNextInSequence(); // Try next on network error
                                     break;
                                 case Hls.ErrorTypes.MEDIA_ERROR:
                                     console.error('Fatal media error encountered, trying to recover');
@@ -518,7 +532,7 @@
                                     showLoading(false);
                                     placeholder.style.display = 'block';
                                     unmuteButton.style.display = 'none';
-                                    playNextInSequence(); // Try next on fatal error
+                                    playNextInSequence(); // Try next on other fatal errors
                                     break;
                             }
                         }
@@ -532,20 +546,19 @@
                         showLoading(false);
                         updateSpeakerIcon();
                     }).catch(e => {
-                        console.error("Video playback failed (Native HLS):", e);
+                        console.error("Video playback failed (Native HLS, likely autoplay blocked):", e);
                         showLoading(false);
                         placeholder.style.display = 'block';
                         unmuteButton.style.display = 'none';
-                        playNextInSequence(); // Try next on failure
+                        // Don't play next on autoplay failure, user needs to interact
                     });
-                    // Attach event listener for 'ended' to trigger playNextInSequence for native HLS as well
                     // The 'ended' listener is already globally defined at the top.
                 } else {
                     console.error("HLS not supported by browser.");
                     showLoading(false);
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none';
-                    playNextInSequence(); // Try next if HLS not supported
+                    playNextInSequence(); // Try next if HLS not supported at all
                 }
             } else if (mediaItem.type === 'mp4') {
                 videoPlayer.style.display = 'block';
@@ -556,13 +569,12 @@
                     showLoading(false);
                     updateSpeakerIcon();
                 }).catch((error) => {
-                    console.error("Video playback failed (direct MP4):", error);
+                    console.error("Video playback failed (direct MP4, likely autoplay blocked):", error);
                     showLoading(false);
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none';
-                    playNextInSequence(); // Try next on failure
+                    // Don't play next on autoplay failure, user needs to interact
                 });
-                // Attach event listener for 'ended' to trigger playNextInSequence for MP4 as well
                 // The 'ended' listener is already globally defined at the top.
             } else if (mediaItem.type === 'youtube') {
                 // Extract YouTube Video ID from the embed URL
@@ -579,10 +591,6 @@
                     playNextInSequence(); // Try next on invalid URL
                 }
             } else if (mediaItem.type === 'iframe') { // For generic iframes, not YouTube API controlled
-                // Important: for general iframes that are *not* YouTube,
-                // there's no standard 'ended' event. If they are not live streams,
-                // they might just stay on the last frame. You might need
-                // to implement a timer or a manual "next" button if it's not a live feed.
                 iframePlayer.style.display = 'block';
                 iframePlayer.src = mediaItem.url;
                 unmuteButton.style.display = 'none'; // Unmute button not applicable for generic iframes
@@ -591,6 +599,7 @@
                     showLoading(false);
                     // No 'ended' event for generic iframes unless the content inside it controls it.
                     // For live streams, it's continuous.
+                    // If it's not a live stream and needs to advance, you'll need custom logic (e.g., a timer).
                 };
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");

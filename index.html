@@ -731,8 +731,52 @@
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none'; // Hide on error
                 };
+            } else if (channel.type === 'playlist') { // New condition for playlist type
+                iframePlayer.style.display = 'block';
+                let embedUrl = '';
+                try {
+                    const urlObj = new URL(channel.url);
+                    let playlistId = urlObj.searchParams.get('list');
+                    let videoId = urlObj.searchParams.get('v');
+                    
+                    // Handle youtube.com/embed/VIDEO_ID or youtube.com/watch?v=VIDEO_ID
+                    if (!videoId && urlObj.pathname.includes('/embed/')) {
+                        videoId = urlObj.pathname.split('/embed/')[1];
+                        if (videoId && videoId.includes('?')) videoId = videoId.split('?')[0]; // Remove query params
+                    } else if (!videoId && urlObj.pathname.includes('/watch')) {
+                        videoId = urlObj.searchParams.get('v');
+                    }
+
+                    if (playlistId) {
+                        embedUrl = `https://www.youtube.com/embed/videoseries?list=${playlistId}&autoplay=1&mute=1&controls=1&showinfo=0&rel=0&iv_load_policy=3`;
+                    } else if (videoId) {
+                        embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=1&showinfo=0&rel=0&iv_load_policy=3`;
+                    }
+                } catch (e) {
+                    console.error("Error parsing YouTube playlist URL, attempting direct iframe embed:", e);
+                    embedUrl = channel.url; // Fallback in case of URL parsing error
+                }
+                
+                if (embedUrl) {
+                    iframePlayer.src = embedUrl;
+                    iframePlayer.onload = () => {
+                        showLoading(false);
+                    };
+                    iframePlayer.onerror = () => {
+                        console.error("YouTube playlist iframe failed to load.");
+                        showLoading(false);
+                        placeholder.style.display = 'block';
+                        unmuteButton.style.display = 'none'; // Hide on error
+                    };
+                } else {
+                    console.error("Could not construct a valid YouTube embed URL for:", channel.url);
+                    showLoading(false);
+                    placeholder.style.display = 'block';
+                    unmuteButton.style.display = 'none';
+                }
+                unmuteButton.style.display = 'none'; // Always hide for iframes
             } else {
-                // Fallback for direct video (non-HLS, non-iframe, if any)
+                // Fallback for direct video (non-HLS, non-iframe, non-playlist, if any)
                 videoPlayer.style.display = 'block';
                 videoPlayer.src = channel.url;
                 videoPlayer.muted = true;
@@ -801,31 +845,22 @@
                     hlsInstance = null;
                 }
                 videoPlayer.removeAttribute('src');
+                videoPlayer.load();
                 iframePlayer.src = '';
+
                 videoPlayer.style.display = 'none';
                 iframePlayer.style.display = 'none';
                 placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none'; // Explicitly hide when placeholder is selected
                 showLoading(false);
-                return;
-            }
-            const selectedChannel = channelsData[selectedIndex];
-            if (selectedChannel) {
-                playChannel(selectedChannel);
+                unmuteButton.style.display = 'none';
             } else {
-                console.error('Selected channel data not found.');
-                placeholder.style.display = 'block';
-                unmuteButton.style.display = 'none'; // Hide if channel data is missing
-                showLoading(false);
+                playChannel(channelsData[selectedIndex]);
             }
         });
 
-        document.addEventListener('DOMContentLoaded', () => {
-            checkAndPopulateChannels();
-            setInterval(checkAndPopulateChannels, pollingInterval);
-            // DO NOT call updateSpeakerIcon() here, let playChannel manage its visibility
-            unmuteButton.style.display = 'none'; // Ensure it's hidden on initial load
-        });
+        // Initial load and set interval for updates
+        checkAndPopulateChannels();
+        setInterval(checkAndPopulateChannels, pollingInterval);
     </script>
 </body>
 </html>

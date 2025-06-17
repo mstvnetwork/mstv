@@ -59,7 +59,7 @@
             font-family: 'Poppins', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #fff;
             width: 100%;
-            min-height: 10vh;
+            min-height: 100vh;
             overflow-x: hidden;
         }
 
@@ -570,34 +570,41 @@
         let playerMutedByCode = true; 
 
         // Promise to ensure YouTube API is loaded before trying to create player
-        let youtubeAPILoadedPromise;
+        let youtubeAPILoadedPromise; // This will hold the promise for API readiness
 
         // Function to load the YouTube IFrame Player API
         function loadYouTubeAPI() {
             if (youtubeAPILoadedPromise) {
-                return youtubeAPILoadedPromise;
+                return youtubeAPILoadedPromise; // Return existing promise if already initiated
             }
 
             youtubeAPILoadedPromise = new Promise((resolve) => {
-                // Check if API is already loaded
+                // Check if API is already loaded in case this function is called multiple times
                 if (window.YT && window.YT.Player) {
+                    console.log("YouTube API already loaded, resolving promise.");
                     resolve();
                     return;
                 }
 
+                // If not loaded, create and append the script
                 var tag = document.createElement('script');
-                // CORRECT YOUTUBE API URL
-                tag.src = "https://www.youtube.com/iframe_api"; 
+                // *** CRITICAL CORRECTION HERE: USE THE OFFICIAL YOUTUBE API URL ***
+                tag.src = "http://www.youtube.com/iframe_api"; 
                 var firstScriptTag = document.getElementsByTagName('script')[0];
                 firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
+                // This global function will be called by the YouTube API script when it finishes loading
                 window.onYouTubeIframeAPIReady = function() {
-                    console.log("YouTube IFrame API is ready!");
-                    resolve();
+                    console.log("YouTube IFrame API (onYouTubeIframeAPIReady) is ready!");
+                    resolve(); // Resolve the promise when API is ready
                 };
             });
             return youtubeAPILoadedPromise;
         }
+
+        // --- Call loadYouTubeAPI once at the start, don't wait for channel selection ---
+        // This ensures the API starts loading as soon as the page loads.
+        loadYouTubeAPI();
 
 
         // Live Viewer Count Variables
@@ -641,7 +648,7 @@
         }
 
         function updateSpeakerIcon() {
-            if (videoPlayer.style.display === 'block') {
+            if (videoPlayer.style.display === 'block') { // HLS video player
                 if (videoPlayer.muted) {
                     speakerIcon.textContent = '🔇';
                     unmuteButton.style.display = 'flex';
@@ -650,25 +657,32 @@
                     unmuteButton.style.display = 'none';
                 }
             } 
-            else if (iframePlayer.style.display === 'block' && youtubePlayer && playerReady) {
-                if (youtubePlayer.isMuted()) {
+            else if (iframePlayer.style.display === 'block' && youtubePlayer && playerReady) { // YouTube player
+                try {
+                    if (youtubePlayer.isMuted()) {
+                        speakerIcon.textContent = '🔇';
+                        unmuteButton.style.display = 'flex';
+                    } else {
+                        speakerIcon.textContent = '🔊';
+                        unmuteButton.style.display = 'none';
+                    }
+                } catch (e) {
+                    console.warn("Could not query YouTube player mute state:", e.message);
+                    // If player isn't fully ready yet, default to showing mute icon
                     speakerIcon.textContent = '🔇';
                     unmuteButton.style.display = 'flex';
-                } else {
-                    speakerIcon.textContent = '🔊';
-                    unmuteButton.style.display = 'none';
                 }
             } 
-            else {
+            else { // Placeholder or no player active
                 unmuteButton.style.display = 'none';
             }
         }
 
         unmuteButton.addEventListener('click', () => {
-            if (videoPlayer.style.display === 'block') {
+            if (videoPlayer.style.display === 'block') { // HLS video player
                 videoPlayer.muted = false;
                 updateSpeakerIcon();
-            } else if (iframePlayer.style.display === 'block' && youtubePlayer && playerReady) {
+            } else if (iframePlayer.style.display === 'block' && youtubePlayer && playerReady) { // YouTube player
                 if (youtubePlayer.isMuted()) {
                     youtubePlayer.unMute();
                     playerMutedByCode = false; 
@@ -686,8 +700,9 @@
         videoPlayer.addEventListener('play', updateSpeakerIcon);
 
 
-        async function playChannel(channel) { // Added async keyword
+        async function playChannel(channel) { 
             showLoading(true);
+            console.log(`Attempting to play channel: ${channel.name} (Type: ${channel.type})`);
 
             // Clean up previous players
             videoPlayer.pause();
@@ -700,6 +715,7 @@
 
             // Destroy YouTube player if it exists
             if (youtubePlayer) {
+                console.log("Destroying existing YouTube player.");
                 youtubePlayer.destroy();
                 youtubePlayer = null;
                 playerReady = false;
@@ -707,6 +723,7 @@
             }
             iframePlayer.src = ''; 
 
+            // Ensure iframePlayer ID is reset for non-YouTube channels or before re-use
             iframePlayer.id = 'media-player'; 
 
             videoPlayer.style.display = 'none';
@@ -715,8 +732,8 @@
             unmuteButton.style.display = 'none'; 
 
             if (channel.type === 'hls') {
+                videoPlayer.style.display = 'block';
                 if (Hls.isSupported()) {
-                    videoPlayer.style.display = 'block';
                     hlsInstance = new Hls();
                     hlsInstance.loadSource(channel.url);
                     hlsInstance.attachMedia(videoPlayer);
@@ -739,15 +756,14 @@
                             showLoading(false);
                             unmuteButton.style.display = 'none';
                             if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                                hlsInstance.startLoad();
+                                hlsInstance.startLoad(); // Attempt to retry network error
                             } else {
-                                hlsInstance.recoverMediaError();
+                                hlsInstance.recoverMediaError(); // Attempt to recover other media errors
                             }
                         }
                     });
 
-                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-                    videoPlayer.style.display = 'block';
+                } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) { // Native HLS support
                     videoPlayer.src = channel.url;
                     videoPlayer.muted = true; 
                     videoPlayer.autoplay = true;
@@ -761,17 +777,19 @@
                         unmuteButton.style.display = 'none'; 
                     });
                 } else {
+                    console.error("HLS not supported on this browser.");
                     showLoading(false);
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none'; 
                 }
-            } else if (channel.type === 'iframe') {
+            } else if (channel.type === 'iframe') { // Generic iframe
                 iframePlayer.style.display = 'block';
                 iframePlayer.src = channel.url;
                 unmuteButton.style.display = 'none'; 
 
                 iframePlayer.onload = () => {
                     showLoading(false);
+                    console.log(`Iframe loaded for channel: ${channel.name}`);
                 };
                 iframePlayer.onerror = () => {
                     console.error("Iframe failed to load.");
@@ -779,9 +797,9 @@
                     placeholder.style.display = 'block';
                     unmuteButton.style.display = 'none'; 
                 };
-            } else if (channel.type === 'playlist') { 
+            } else if (channel.type === 'playlist') { // YouTube Playlist/Video
                 iframePlayer.style.display = 'block';
-                iframePlayer.id = 'youtube-player-iframe'; 
+                iframePlayer.id = 'youtube-player-iframe'; // Set ID for YouTube API
 
                 let videoIdOrPlaylistId = '';
                 let isPlaylist = false;
@@ -793,9 +811,11 @@
                     if (playlistId) {
                         videoIdOrPlaylistId = playlistId;
                         isPlaylist = true;
+                        console.log(`Extracted YouTube Playlist ID: ${videoIdOrPlaylistId}`);
                     } else if (videoId) {
                         videoIdOrPlaylistId = videoId;
                         isPlaylist = false;
+                        console.log(`Extracted YouTube Video ID: ${videoIdOrPlaylistId}`);
                     } else if (urlObj.pathname.includes('/embed/')) { 
                         const pathParts = urlObj.pathname.split('/embed/');
                         if (pathParts.length > 1) {
@@ -803,9 +823,11 @@
                             if (embedContent.startsWith('videoseries?list=')) { 
                                 videoIdOrPlaylistId = embedContent.replace('videoseries?list=', '');
                                 isPlaylist = true;
+                                console.log(`Extracted YouTube Embed Playlist ID: ${videoIdOrPlaylistId}`);
                             } else { 
                                 videoIdOrPlaylistId = embedContent.split('?')[0]; 
                                 isPlaylist = false;
+                                console.log(`Extracted YouTube Embed Video ID: ${videoIdOrPlaylistId}`);
                             }
                         }
                     }
@@ -825,35 +847,46 @@
                     return;
                 }
                 
-                // Wait for the YouTube API to be ready
-                await loadYouTubeAPI(); // Await the promise
+                // *** IMPORTANT: AWAIT THE YOUTUBE API TO BE LOADED ***
+                console.log("Waiting for YouTube API to load...");
+                await youtubeAPILoadedPromise; // Wait here until the API is guaranteed to be ready
+                console.log("YouTube API is now loaded and ready to create player.");
 
                 if (youtubePlayer) { 
-                    youtubePlayer.destroy();
+                    youtubePlayer.destroy(); // Destroy previous instance if it still exists
                     youtubePlayer = null;
                 }
-                youtubePlayer = new YT.Player('youtube-player-iframe', {
-                    videoId: isPlaylist ? undefined : videoIdOrPlaylistId,
-                    playerVars: {
-                        'autoplay': 1,
-                        'controls': 0, 
-                        'showinfo': 0,
-                        'rel': 0,
-                        'iv_load_policy': 3,
-                        'enablejsapi': 1, 
-                        'mute': 1, 
-                        'listType': isPlaylist ? 'playlist' : undefined,
-                        'list': isPlaylist ? videoIdOrPlaylistId : undefined,
-                        'origin': window.location.origin // Crucial for security and preventing some errors
-                    },
-                    events: {
-                        'onReady': onPlayerReady,
-                        'onStateChange': onPlayerStateChange,
-                        'onError': onPlayerError
-                    }
-                });
+                
+                try {
+                    youtubePlayer = new YT.Player('youtube-player-iframe', {
+                        videoId: isPlaylist ? undefined : videoIdOrPlaylistId,
+                        playerVars: {
+                            'autoplay': 1,
+                            'controls': 0, 
+                            'showinfo': 0,
+                            'rel': 0,
+                            'iv_load_policy': 3,
+                            'enablejsapi': 1, 
+                            'mute': 1, 
+                            'listType': isPlaylist ? 'playlist' : undefined,
+                            'list': isPlaylist ? videoIdOrPlaylistId : undefined,
+                            'origin': window.location.origin // Crucial for security and API functionality
+                        },
+                        events: {
+                            'onReady': onPlayerReady,
+                            'onStateChange': onPlayerStateChange,
+                            'onError': onPlayerError
+                        }
+                    });
+                    console.log("YouTube Player object created successfully.");
+                } catch (error) {
+                    console.error("Failed to create YouTube Player:", error);
+                    showLoading(false);
+                    placeholder.style.display = 'block';
+                    unmuteButton.style.display = 'none';
+                }
 
-            } else {
+            } else { // Fallback for direct video (not HLS, iframe, or YouTube)
                 videoPlayer.style.display = 'block';
                 videoPlayer.src = channel.url;
                 videoPlayer.muted = true; 
@@ -873,9 +906,10 @@
         // YouTube API Event Handlers
         function onPlayerReady(event) {
             playerReady = true;
-            console.log("YouTube player ready.");
+            console.log("YouTube player 'onReady' event fired.");
             event.target.playVideo(); 
 
+            // Initial mute state check
             if (event.target.isMuted()) {
                 playerMutedByCode = true;
             } else {
@@ -886,7 +920,7 @@
         }
 
         function onPlayerStateChange(event) {
-            console.log("YouTube player state changed:", event.data);
+            console.log("YouTube player 'onStateChange' event:", event.data);
             if (event.data === YT.PlayerState.PLAYING || event.data === YT.PlayerState.BUFFERING) {
                 updateSpeakerIcon();
             } else if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED) {
@@ -898,10 +932,27 @@
         }
 
         function onPlayerError(event) {
-            console.error("YouTube player error:", event.data);
+            console.error("YouTube player 'onError' event:", event.data);
+            let errorMessage = "An unknown YouTube player error occurred.";
+            switch(event.data) {
+                case 2:
+                    errorMessage = "The YouTube video ID or playlist ID is invalid or not found.";
+                    break;
+                case 100:
+                    errorMessage = "The YouTube video requested does not exist.";
+                    break;
+                case 101:
+                case 150:
+                    errorMessage = "The owner of the requested YouTube video does not allow it to be played in embedded players.";
+                    break;
+            }
+            console.error("YouTube Player Error:", errorMessage);
+            alert(`Youtubeback Error: ${errorMessage}\nPlease try another channel or refresh.`);
+            
             showLoading(false);
             placeholder.style.display = 'block';
             unmuteButton.style.display = 'none';
+            // Reset iframe ID back to default to avoid targeting issues
             if (iframePlayer.id === 'youtube-player-iframe') {
                 iframePlayer.id = 'media-player';
             }
@@ -921,9 +972,15 @@
                 const reselectIndex = parseInt(currentSelectedValue, 10);
                 if (!isNaN(reselectIndex) && reselectIndex < data.length) {
                     select.value = reselectIndex;
+                    // Attempt to re-play the previously selected channel after refresh/update
+                    // This will only work if the channel is still in the list and its index is the same.
+                    playChannel(channelsData[reselectIndex]);
                 } else {
                     select.value = "";
+                    placeholder.style.display = 'block'; // Show placeholder if previous selection is invalid
                 }
+            } else {
+                placeholder.style.display = 'block'; // Show placeholder if no channel was selected
             }
         }
 
@@ -947,12 +1004,14 @@
                 }
             } catch (error) {
                 console.error('Failed to fetch or process channels data:', error);
+                alert("Failed to load channel list. Please check your internet connection or try again later.");
             }
         }
 
         select.addEventListener('change', () => {
             const selectedIndex = select.value;
             if (selectedIndex === "") {
+                console.log("Channel selection reset. Clearing players.");
                 videoPlayer.pause();
                 if (hlsInstance) {
                     hlsInstance.destroy();
@@ -966,11 +1025,11 @@
                 videoPlayer.removeAttribute('src');
                 videoPlayer.load();
                 iframePlayer.src = '';
-                iframePlayer.id = 'media-player'; 
+                iframePlayer.id = 'media-player'; // Reset iframe ID
 
                 videoPlayer.style.display = 'none';
                 iframePlayer.style.display = 'none';
-                placeholder.style.display = 'block';
+                placeholder.style.display = 'block'; // Show placeholder
                 showLoading(false);
                 unmuteButton.style.display = 'none';
             } else {

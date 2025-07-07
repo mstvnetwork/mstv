@@ -348,170 +348,175 @@
 
   <!-- Main logic -->
   <script>
-    const select        = document.getElementById('channel-select');
-    const videoPlayer   = document.getElementById('video-player');
-    const iframePlayer  = document.getElementById('media-player');
-    const placeholder   = document.getElementById('placeholder-image');
-    const loading       = document.getElementById('loading');
-    const unmuteButton  = document.getElementById('unmute-button');
-    const speakerIcon   = document.getElementById('speaker-icon');
+  const select        = document.getElementById('channel-select');
+  const videoPlayer   = document.getElementById('video-player');
+  const iframePlayer  = document.getElementById('media-player');
+  const placeholder   = document.getElementById('placeholder-image');
+  const loading       = document.getElementById('loading');
+  const unmuteButton  = document.getElementById('unmute-button');
+  const speakerIcon   = document.getElementById('speaker-icon');
+  const liveStamp     = document.querySelector('.live-stamp');
 
-    let hlsInstance = null;
-    let channelsData = [];
-    let lastKnownJsonContent = null;
+  let hlsInstance = null;
+  let channelsData = [];
+  let lastKnownJsonContent = null;
 
-    const githubJsonUrl   = 'channels.json';  // Adjust if file is elsewhere
-    const pollingInterval = 5000;             // 5 s live‑update polling
+  const githubJsonUrl   = 'channels.json';
+  const pollingInterval = 5000;
 
-    function showLoading(show) {
-      loading.style.display = show ? 'block' : 'none';
+  function showLoading(show) {
+    loading.style.display = show ? 'block' : 'none';
+  }
+
+  function updateSpeakerIcon() {
+    speakerIcon.textContent = videoPlayer.muted ? '🔇' : '🔊';
+    unmuteButton.style.display = videoPlayer.muted ? 'flex' : 'none';
+  }
+
+  unmuteButton.addEventListener('click', () => {
+    if (videoPlayer.style.display === 'block') {
+      videoPlayer.muted = false;
+      updateSpeakerIcon();
     }
-    function updateSpeakerIcon() {
-      speakerIcon.textContent = videoPlayer.muted ? '🔇' : '🔊';
-      unmuteButton.style.display = videoPlayer.muted ? 'flex' : 'none';
-    }
-    unmuteButton.addEventListener('click', () => {
-      if (videoPlayer.style.display === 'block') {
-        videoPlayer.muted = false;
-        updateSpeakerIcon();
-      }
-    });
-    videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
+  });
 
-    function playChannel(channel) {
-      showLoading(true);
+  videoPlayer.addEventListener('volumechange', updateSpeakerIcon);
 
-      /* Stop anything already playing */
-      videoPlayer.pause();
-      if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-      videoPlayer.removeAttribute('src');
-      videoPlayer.load();
-      iframePlayer.src = '';
+  function playChannel(channel) {
+    showLoading(true);
 
-      /* Hide everything, then enable the right element */
-      videoPlayer.style.display = 'none';
-      iframePlayer.style.display = 'none';
-      placeholder.style.display = 'none';
-      unmuteButton.style.display = 'none';
+    videoPlayer.pause();
+    if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+    videoPlayer.removeAttribute('src');
+    videoPlayer.load();
+    iframePlayer.src = '';
 
-      if (channel.type === 'hls') {
-        if (Hls.isSupported()) {
-          videoPlayer.style.display = 'block';
-          hlsInstance = new Hls();
-          hlsInstance.loadSource(channel.url);
-          hlsInstance.attachMedia(videoPlayer);
-          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-            videoPlayer.muted = true;
-            videoPlayer.autoplay = true;
-            videoPlayer.play().then(() => {
-              showLoading(false);
-              updateSpeakerIcon();
-            }).catch(() => {
-              showLoading(false);
-              placeholder.style.display = 'block';
-            });
-          });
-        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-          videoPlayer.style.display = 'block';
-          videoPlayer.src = channel.url;
-          videoPlayer.muted = true;
+    videoPlayer.style.display = 'none';
+    iframePlayer.style.display = 'none';
+    placeholder.style.display = 'none';
+    unmuteButton.style.display = 'none';
+    liveStamp.style.opacity = '1';
+
+    if (channel.type === 'hls') {
+      liveStamp.style.opacity = '0.5';  // transparent live tag
+
+      if (Hls.isSupported()) {
+        videoPlayer.style.display = 'block';
+        hlsInstance = new Hls();
+        hlsInstance.loadSource(channel.url);
+        hlsInstance.attachMedia(videoPlayer);
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          videoPlayer.muted = false; // auto-unmute
           videoPlayer.autoplay = true;
           videoPlayer.play().then(() => {
             showLoading(false);
-            updateSpeakerIcon();
+            unmuteButton.style.display = 'none'; // hide icon
           }).catch(() => {
             showLoading(false);
             placeholder.style.display = 'block';
           });
-        } else {
-          showLoading(false);
-          placeholder.style.display = 'block';
-        }
-
-      } else if (channel.type === 'iframe') {
-        iframePlayer.style.display = 'block';
-        iframePlayer.src = channel.url;
-        iframePlayer.onload  = () => showLoading(false);
-        iframePlayer.onerror = () => {
-          showLoading(false);
-          placeholder.style.display = 'block';
-        };
-
-      } else { /* direct video or other */
+        });
+      } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         videoPlayer.style.display = 'block';
         videoPlayer.src = channel.url;
-        videoPlayer.muted = true;
+        videoPlayer.muted = false;
         videoPlayer.autoplay = true;
         videoPlayer.play().then(() => {
           showLoading(false);
-          updateSpeakerIcon();
+          unmuteButton.style.display = 'none'; // hide icon
         }).catch(() => {
           showLoading(false);
           placeholder.style.display = 'block';
         });
-      }
-    }
-
-    function updateChannelDropdown(data) {
-      const prev = select.value;
-      select.innerHTML = '<option value="">👉📺📺📺</option>';
-      data.forEach((ch, i) => {
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = ch.name;
-        select.appendChild(opt);
-      });
-      if (prev && prev < data.length) select.value = prev;
-    }
-
-    async function checkAndPopulateChannels() {
-      try {
-        const res = await fetch(`${githubJsonUrl}?cb=${Date.now()}`);
-        if (!res.ok) throw new Error(res.statusText);
-        const data = await res.json();
-        const asString = JSON.stringify(data);
-
-        if (lastKnownJsonContent === null || asString !== lastKnownJsonContent) {
-          channelsData = data;
-          updateChannelDropdown(channelsData);
-          lastKnownJsonContent = asString;
-        }
-      } catch (err) { console.error('Channel load error:', err); }
-    }
-
-    /* Selection handler */
-    select.addEventListener('change', () => {
-      const idx = select.value;
-      if (idx === '') {
-        /* Reset to placeholder */
-        videoPlayer.pause();
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-        videoPlayer.removeAttribute('src');
-        iframePlayer.src = '';
-        videoPlayer.style.display = 'none';
-        iframePlayer.style.display = 'none';
-        placeholder.style.display = 'block';
-        unmuteButton.style.display = 'none';
+      } else {
         showLoading(false);
-      } else if (channelsData[idx]) {
-        playChannel(channelsData[idx]);
+        placeholder.style.display = 'block';
       }
+
+    } else if (channel.type === 'iframe') {
+      liveStamp.style.opacity = '1';
+      iframePlayer.style.display = 'block';
+      iframePlayer.src = channel.url;
+      iframePlayer.onload  = () => showLoading(false);
+      iframePlayer.onerror = () => {
+        showLoading(false);
+        placeholder.style.display = 'block';
+      };
+
+    } else {
+      liveStamp.style.opacity = '1';
+      videoPlayer.style.display = 'block';
+      videoPlayer.src = channel.url;
+      videoPlayer.muted = true;
+      videoPlayer.autoplay = true;
+      videoPlayer.play().then(() => {
+        showLoading(false);
+        updateSpeakerIcon();
+      }).catch(() => {
+        showLoading(false);
+        placeholder.style.display = 'block';
+      });
+    }
+  }
+
+  function updateChannelDropdown(data) {
+    const prev = select.value;
+    select.innerHTML = '<option value="">👉📺📺📺</option>';
+    data.forEach((ch, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = ch.name;
+      select.appendChild(opt);
     });
+    if (prev && prev < data.length) select.value = prev;
+  }
 
-    /* Misc protections */
-    videoPlayer.addEventListener('contextmenu', e => e.preventDefault());
-    iframePlayer.addEventListener('contextmenu', e => e.preventDefault());
+  async function checkAndPopulateChannels() {
+    try {
+      const res = await fetch(`${githubJsonUrl}?cb=${Date.now()}`);
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      const asString = JSON.stringify(data);
 
-    /* Initial display state */
-    videoPlayer.style.display = 'none';
-    iframePlayer.style.display = 'none';
-    placeholder.style.display = 'block';
-    unmuteButton.style.display = 'none';
+      if (lastKnownJsonContent === null || asString !== lastKnownJsonContent) {
+        channelsData = data;
+        updateChannelDropdown(channelsData);
+        lastKnownJsonContent = asString;
+      }
+    } catch (err) { console.error('Channel load error:', err); }
+  }
 
-    document.addEventListener('DOMContentLoaded', () => {
-      checkAndPopulateChannels();
-      setInterval(checkAndPopulateChannels, pollingInterval);
-    });
-  </script>
+  select.addEventListener('change', () => {
+    const idx = select.value;
+    if (idx === '') {
+      videoPlayer.pause();
+      if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+      videoPlayer.removeAttribute('src');
+      iframePlayer.src = '';
+      videoPlayer.style.display = 'none';
+      iframePlayer.style.display = 'none';
+      placeholder.style.display = 'block';
+      unmuteButton.style.display = 'none';
+      liveStamp.style.opacity = '1';
+      showLoading(false);
+    } else if (channelsData[idx]) {
+      playChannel(channelsData[idx]);
+    }
+  });
+
+  videoPlayer.addEventListener('contextmenu', e => e.preventDefault());
+  iframePlayer.addEventListener('contextmenu', e => e.preventDefault());
+
+  videoPlayer.style.display = 'none';
+  iframePlayer.style.display = 'none';
+  placeholder.style.display = 'block';
+  unmuteButton.style.display = 'none';
+
+  document.addEventListener('DOMContentLoaded', () => {
+    checkAndPopulateChannels();
+    setInterval(checkAndPopulateChannels, pollingInterval);
+  });
+</script>
+
 </body>
 </html>

@@ -365,53 +365,50 @@
       iframePlayer.src = '';
       iframePlayer.style.display = 'none';
     }
-function playChannel(channel) {
-  showLoading(true);
-  placeholder.style.display = 'none';
-  stopAllPlayback();
 
-  if (!channel || !channel.url) {
-    placeholder.style.display = 'block';
-    showLoading(false);
-    return;
-  }
+    function playChannel(channel) {
+      showLoading(true);
+      placeholder.style.display = 'none';
+      stopAllPlayback();
 
-  if (channel.type === 'hls') {
-    // Show video player with controls (seek bar enabled)
-    videoPlayer.style.display = 'block';
-    videoPlayer.setAttribute('controls', 'controls'); // Show controls
-    videoPlayer.muted = false;
-    videoPlayer.volume = 1;
+      if (!channel || !channel.url) {
+        placeholder.style.display = 'block';
+        showLoading(false);
+        return;
+      }
 
-    if (Hls.isSupported()) {
-      hlsInstance = new Hls();
-      hlsInstance.loadSource(channel.url);
-      hlsInstance.attachMedia(videoPlayer);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-        videoPlayer.play();
-        showLoading(false);
-      });
-    } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-      videoPlayer.src = channel.url;
-      videoPlayer.play().then(() => {
-        showLoading(false);
-      }).catch(() => {
-        placeholder.style.display = 'block';
-        showLoading(false);
-      });
-    } else {
-      placeholder.style.display = 'block';
-      showLoading(false);
-    }
-  } else if (channel.type === 'iframe') {
-    // Show iframe only, hide video controls
-    iframePlayer.src = channel.url;
-    iframePlayer.style.display = 'block';
-    videoPlayer.removeAttribute('controls'); // Hide controls for iframe case
-    showLoading(false);
-  }
-}
-
+      if (channel.type === 'hls') {
+        if (Hls.isSupported()) {
+          videoPlayer.style.display = 'block';
+          videoPlayer.muted = false;
+          videoPlayer.volume = 1;
+          hlsInstance = new Hls();
+          hlsInstance.loadSource(channel.url);
+          hlsInstance.attachMedia(videoPlayer);
+          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+            videoPlayer.play();
+            showLoading(false);
+          });
+        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+          videoPlayer.src = channel.url;
+          videoPlayer.style.display = 'block';
+          videoPlayer.muted = false;
+          videoPlayer.play().then(() => {
+            showLoading(false);
+          }).catch(() => {
+            placeholder.style.display = 'block';
+            showLoading(false);
+          });
+        } else {
+          placeholder.style.display = 'block';
+          showLoading(false);
+        }
+      } else if (channel.type === 'iframe') {
+        iframePlayer.src = channel.url;
+        iframePlayer.style.display = 'block';
+        showLoading(false);
+      }
+    }
 
     async function fetchChannelsJson() {
       try {

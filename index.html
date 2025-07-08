@@ -67,51 +67,28 @@
       100% { text-shadow: 0 0 20px #00ffe7, 0 0 30px #0ff; }
     }
 
-   
-    /* Scrolling text + logos combined container */
-    .scrolling-container {
-      width: 100%;
+    .scrolling-text {
       overflow: hidden;
+      white-space: nowrap;
+      padding: 12px 0;
+      margin: 20px 0;
       background: rgba(255, 255, 255, 0.05);
       border-top: 2px solid #00ffe7;
       border-bottom: 2px solid #00ffe7;
-      padding: 12px 0;
-      box-sizing: border-box;
     }
 
     .scrolling-content {
-      display: inline-flex;
-      align-items: center;
-      gap: 30px;
+      display: inline-block;
       padding-left: 100%;
-      white-space: nowrap;
-      animation: scroll-text-logos 30s linear infinite;
+      animation: scroll-text 15s linear infinite;
       font-size: 1.3em;
       color: #00ffe7;
-      font-weight: 600;
     }
 
-    .inline-logo {
-      height: 40px;
-      vertical-align: middle;
-      filter: brightness(0.8);
-      transition: filter 0.3s ease;
+    @keyframes scroll-text {
+      0% { transform: translateX(0%); }
+      100% { transform: translateX(-100%); }
     }
-
-    .inline-logo:hover {
-      filter: brightness(1);
-    }
-
-    @keyframes scroll-text-logos {
-      0% {
-        transform: translateX(0%);
-      }
-      100% {
-        transform: translateX(-100%);
-      }
-    }
-
-
 
     .channel-selector-text {
       text-align: center;
@@ -308,21 +285,12 @@
 </head>
 <body>
   <div class="title-3d">MSTV INDIA</div>
-  <!-- Combined scrolling text + logos -->
-  <div class="scrolling-container">
-    <div class="scrolling-content">
-      Welcome to MSTV India
-      <img src="logo.img/images.png" alt="Partner Logo 1" class="inline-logo" />
-      - Refresh the webpage to auto-tune channels!
-      <img src="logo.img/images (3).jpeg" alt="Partner Logo 3" class="inline-logo" />
-      Enjoy our partners.
-      <!-- Duplicate logos and text here if you want a longer continuous scroll -->
-      <img src="logo.img/images.png" alt="Partner Logo 1" class="inline-logo" />
-      &nbsp;&nbsp; MSTV brings you the best &nbsp;&nbsp;
-      <img src="logo.img/images (3).jpeg" alt="Partner Logo 3" class="inline-logo" />
-    </div>
+
+  <div class="scrolling-text">
+    <div class="scrolling-content">Welcome to MSTV India - Refresh the webpage to auto-tune channels!</div>
   </div>
- <div class="channel-selector-text">Select Channel</div>
+
+  <div class="channel-selector-text">Select Channel</div>
   <div class="channel-selection">
     <select id="channel-select">
       <option value="">👉📺📺📺</option>
@@ -369,7 +337,7 @@
     <div class="copyright">© 2025 MSTV INDIA. All rights reserved.</div>
   </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
   const select = document.getElementById('channel-select');
   const videoPlayer = document.getElementById('video-player');
@@ -380,6 +348,11 @@
   let hlsInstance = null;
   let channelsData = [];
   let lastKnownJsonContent = null;
+
+  // Show placeholder image by default
+  placeholder.style.display = 'block';
+  videoPlayer.style.display = 'none';
+  iframePlayer.style.display = 'none';
 
   function showLoading(show) {
     loading.style.display = show ? 'block' : 'none';
@@ -412,7 +385,7 @@
     if (channel.type === 'hls') {
       if (Hls.isSupported()) {
         videoPlayer.style.display = 'block';
-        videoPlayer.controls = false; // Hide seek bar and controls
+        videoPlayer.controls = false;
         videoPlayer.muted = false;
         videoPlayer.volume = 1;
         hlsInstance = new Hls();
@@ -440,7 +413,6 @@
     } else if (channel.type === 'iframe') {
       let url = channel.url;
 
-      // Format YouTube URLs to embed and remove UI
       if (url.includes("youtube.com") || url.includes("youtu.be")) {
         if (!url.includes("embed")) {
           const videoId = url.includes("youtu.be")
@@ -478,10 +450,8 @@
           select.appendChild(option);
         });
 
-        const lastSelected = localStorage.getItem('lastChannelIndex');
-        const indexToPlay = lastSelected && channelsData[lastSelected] ? lastSelected : 0;
-        select.value = indexToPlay;
-        playChannel(channelsData[indexToPlay]);
+        // ❌ Do NOT auto-play any channel on load — wait for user selection
+        select.value = "";
       }
     } catch (e) {
       console.error('Error fetching channels.json:', e);
@@ -502,7 +472,5 @@
   fetchChannelsJson();
   setInterval(fetchChannelsJson, 5000);
 </script>
-
-
 </body>
 </html>

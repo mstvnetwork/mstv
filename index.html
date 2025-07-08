@@ -336,121 +336,122 @@
     </div>
     <div class="copyright">© 2025 MSTV INDIA. All rights reserved.</div>
   </footer>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script>
+  const select = document.getElementById('channel-select');
+  const videoPlayer = document.getElementById('video-player');
+  const iframePlayer = document.getElementById('media-player');
+  const placeholder = document.getElementById('placeholder-image');
+  const loading = document.getElementById('loading');
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <script>
-    const select = document.getElementById('channel-select');
-    const videoPlayer = document.getElementById('video-player');
-    const iframePlayer = document.getElementById('media-player');
-    const placeholder = document.getElementById('placeholder-image');
-    const loading = document.getElementById('loading');
+  let hlsInstance = null;
+  let channelsData = [];
+  let lastKnownJsonContent = null;
 
-    let hlsInstance = null;
-    let channelsData = [];
-    let lastKnownJsonContent = null;
+  function showLoading(show) {
+    loading.style.display = show ? 'block' : 'none';
+  }
 
-    function showLoading(show) {
-      loading.style.display = show ? 'block' : 'none';
-    }
+  function stopAllPlayback() {
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
+    videoPlayer.pause();
+    videoPlayer.removeAttribute('src');
+    videoPlayer.load();
+    videoPlayer.style.display = 'none';
+    iframePlayer.src = '';
+    iframePlayer.style.display = 'none';
+  }
 
-    function stopAllPlayback() {
-      if (hlsInstance) {
-        hlsInstance.destroy();
-        hlsInstance = null;
-      }
-      videoPlayer.pause();
-      videoPlayer.removeAttribute('src');
-      videoPlayer.load();
-      videoPlayer.style.display = 'none';
-      iframePlayer.src = '';
-      iframePlayer.style.display = 'none';
-    }
+  function playChannel(channel) {
+    showLoading(true);
+    placeholder.style.display = 'none';
+    stopAllPlayback();
 
-    function playChannel(channel) {
-      showLoading(true);
-      placeholder.style.display = 'none';
-      stopAllPlayback();
+    if (!channel || !channel.url) {
+      placeholder.style.display = 'block';
+      showLoading(false);
+      return;
+    }
 
-      if (!channel || !channel.url) {
-        placeholder.style.display = 'block';
-        showLoading(false);
-        return;
-      }
+    if (channel.type === 'hls') {
+      if (Hls.isSupported()) {
+        videoPlayer.style.display = 'block';
+        videoPlayer.controls = false; // Hide seek bar and native controls
+        videoPlayer.muted = false;
+        videoPlayer.volume = 1;
+        hlsInstance = new Hls();
+        hlsInstance.loadSource(channel.url);
+        hlsInstance.attachMedia(videoPlayer);
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+          videoPlayer.play();
+          showLoading(false);
+        });
+      } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        videoPlayer.src = channel.url;
+        videoPlayer.style.display = 'block';
+        videoPlayer.controls = false; // Hide seek bar here too
+        videoPlayer.muted = false;
+        videoPlayer.play().then(() => {
+          showLoading(false);
+        }).catch(() => {
+          placeholder.style.display = 'block';
+          showLoading(false);
+        });
+      } else {
+        placeholder.style.display = 'block';
+        showLoading(false);
+      }
+    } else if (channel.type === 'iframe') {
+      iframePlayer.src = channel.url;
+      iframePlayer.style.display = 'block';
+      showLoading(false);
+    }
+  }
 
-      if (channel.type === 'hls') {
-        if (Hls.isSupported()) {
-          videoPlayer.style.display = 'block';
-          videoPlayer.muted = false;
-          videoPlayer.volume = 1;
-          hlsInstance = new Hls();
-          hlsInstance.loadSource(channel.url);
-          hlsInstance.attachMedia(videoPlayer);
-          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-            videoPlayer.play();
-            showLoading(false);
-          });
-        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-          videoPlayer.src = channel.url;
-          videoPlayer.style.display = 'block';
-          videoPlayer.muted = false;
-          videoPlayer.play().then(() => {
-            showLoading(false);
-          }).catch(() => {
-            placeholder.style.display = 'block';
-            showLoading(false);
-          });
-        } else {
-          placeholder.style.display = 'block';
-          showLoading(false);
-        }
-      } else if (channel.type === 'iframe') {
-        iframePlayer.src = channel.url;
-        iframePlayer.style.display = 'block';
-        showLoading(false);
-      }
-    }
+  async function fetchChannelsJson() {
+    try {
+      const response = await fetch('channels.json?t=' + Date.now());
+      if (!response.ok) throw new Error('Fetch failed');
+      const json = await response.json();
+      const jsonString = JSON.stringify(json);
 
-    async function fetchChannelsJson() {
-      try {
-        const response = await fetch('channels.json?t=' + Date.now());
-        if (!response.ok) throw new Error('Fetch failed');
-        const json = await response.json();
-        const jsonString = JSON.stringify(json);
+      if (lastKnownJsonContent !== jsonString) {
+        lastKnownJsonContent = jsonString;
+        channelsData = json;
+        select.innerHTML = '<option value="">👉📺📺📺</option>';
+        channelsData.forEach((channel, index) => {
+          const option = document.createElement('option');
+          option.value = index;
+          option.textContent = channel.name;
+          select.appendChild(option);
+        });
 
-        if (lastKnownJsonContent !== jsonString) {
-          lastKnownJsonContent = jsonString;
-          channelsData = json;
-          select.innerHTML = '<option value="">👉📺📺📺</option>';
-          channelsData.forEach((channel, index) => {
-            const option = document.createElement('option');
-            option.value = index;
-            option.textContent = channel.name;
-            select.appendChild(option);
-          });
+        const lastSelected = localStorage.getItem('lastChannelIndex');
+        const indexToPlay = lastSelected && channelsData[lastSelected] ? lastSelected : 0;
+        select.value = indexToPlay;
+        playChannel(channelsData[indexToPlay]);
+      }
+    } catch (e) {
+      console.error('Error fetching channels.json:', e);
+    }
+  }
 
-          const lastSelected = localStorage.getItem('lastChannelIndex');
-          const indexToPlay = lastSelected && channelsData[lastSelected] ? lastSelected : 0;
-          select.value = indexToPlay;
-          playChannel(channelsData[indexToPlay]);
-        }
-      } catch (e) {
-        console.error('Error fetching channels.json:', e);
-      }
-    }
+  select.addEventListener('change', () => {
+    const index = select.value;
+    if (index === '') {
+      playChannel(null);
+      localStorage.removeItem('lastChannelIndex');
+    } else {
+      localStorage.setItem('lastChannelIndex', index);
+      playChannel(channelsData[index]);
+    }
+  });
 
-    select.addEventListener('change', () => {
-      const index = select.value;
-      if (index === '') {
-        playChannel(null);
-        localStorage.removeItem('lastChannelIndex');
-      } else {
-        localStorage.setItem('lastChannelIndex', index);
-        playChannel(channelsData[index]);
-      }
-    });
-
-    fetchChannelsJson();
-    setInterval(fetchChannelsJson, 5000);
-  </script>
+  fetchChannelsJson();
+  setInterval(fetchChannelsJson, 5000);
+</script>
 </body>
 </html>

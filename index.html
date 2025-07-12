@@ -193,6 +193,7 @@
       border-radius: 4px; /* Slightly less rounded */
       z-index: 10;
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3); /* Subtle shadow */
+      display: none; /* Hidden by default */
     }
 
     /* Loading Indicator - Clean and central */
@@ -398,7 +399,6 @@
 
  <div class="scrolling-container">
   <div class="scrolling-content">
-    <!-- Existing text -->
     🌍 MSTV NETWORK – Your Gateway to Free Live TV! Music, Movies, Drama & More, Anytime, Anywhere!
     50+ Free Channels, 24/7 Entertainment, Zero Subscription, 100% Fun!
     Watch Live Channels for Free! No Signup. No Ads. Just Pure Entertainment."
@@ -415,9 +415,9 @@
 
   <div class="player-container" id="player-container">
     <iframe id="media-player" allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
-    <video id="video-player" autoplay playsinline controlsList="nodownload nofullscreen noremote" disablePictureInPicture></video>
+    <video id="video-player" autoplay playsinline></video>
     <img id="placeholder-image" src="Design-Studio-2025-01-22 (1).png" alt="Stream Placeholder" />
-    <div class="live-stamp">MSTV NETWORK</div>
+    <div class="live-stamp" id="live-stamp">MSTV NETWORK</div>
     <div class="loading-indicator" id="loading">Loading stream...</div>
     <img src="/logo.png" class="logo-overlay" alt="MSTV Logo" />
   </div>
@@ -460,6 +460,7 @@
   const iframePlayer = document.getElementById('media-player');
   const placeholder = document.getElementById('placeholder-image');
   const loading = document.getElementById('loading');
+  const liveStamp = document.getElementById('live-stamp'); // Get the live stamp element
 
   let hlsInstance = null;
   let channelsData = [];
@@ -469,6 +470,7 @@
   placeholder.style.display = 'block';
   videoPlayer.style.display = 'none';
   iframePlayer.style.display = 'none';
+  liveStamp.style.display = 'none'; // Ensure live stamp is hidden by default
 
   function showLoading(show) {
     loading.style.display = show ? 'block' : 'none';
@@ -485,6 +487,7 @@
     videoPlayer.style.display = 'none';
     iframePlayer.src = '';
     iframePlayer.style.display = 'none';
+    liveStamp.style.display = 'none'; // Hide live stamp when stopping playback
   }
 
   function playChannel(channel) {
@@ -501,7 +504,7 @@
     if (channel.type === 'hls') {
       if (Hls.isSupported()) {
         videoPlayer.style.display = 'block';
-        videoPlayer.controls = false;
+        // videoPlayer.controls = false; // Already removed from HTML
         videoPlayer.muted = false;
         videoPlayer.volume = 1;
         hlsInstance = new Hls();
@@ -514,7 +517,7 @@
       } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
         videoPlayer.src = channel.url;
         videoPlayer.style.display = 'block';
-        videoPlayer.controls = false;
+        // videoPlayer.controls = false; // Already removed from HTML
         videoPlayer.muted = false;
         videoPlayer.play().then(() => {
           showLoading(false);
@@ -526,6 +529,7 @@
         placeholder.style.display = 'block';
         showLoading(false);
       }
+      liveStamp.style.display = 'none'; // Hide live stamp for HLS channels
     } else if (channel.type === 'iframe') {
       let url = channel.url;
 
@@ -539,12 +543,22 @@
           }
         }
         const separator = url.includes("?") ? "&" : "?";
-        url += `${separator}controls=0&modestbranding=1&rel=0&fs=0&disablekb=1&showinfo=0`;
+        // Ensure controls=0 is always present for YouTube iframes
+        if (!url.includes("controls=0")) {
+            url += `${separator}controls=0`;
+        }
+        // Remove other control-related parameters if they exist
+        url = url.replace(/&modestbranding=1/g, '');
+        url = url.replace(/&rel=0/g, '');
+        url = url.replace(/&fs=0/g, '');
+        url = url.replace(/&disablekb=1/g, '');
+        url = url.replace(/&showinfo=0/g, '');
       }
 
       iframePlayer.src = url;
       iframePlayer.style.display = 'block';
       showLoading(false);
+      liveStamp.style.display = 'block'; // Show live stamp for iframe channels
     }
   }
 

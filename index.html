@@ -538,6 +538,7 @@
   let channelsData = [];
   let lastKnownJsonContent = null;
   let currentChannelType = ''; // To keep track of the active player type
+  let isCurrentIframeYoutube = false; // Flag to track if the current iframe is YouTube
 
   // SVG icons for mute and unmute (base64 encoded for direct use in src)
   const muteSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNNCAxOHYtMTJoM2wxMy0xM3YxNWwtMTMuMDYzIDEyLjk4Mi0yLjkzNy0yLjk4MnoibS0zLTExdjE0aDR2LTRoMnY0aDE2di0xNGgtMTZ2NGgtMnYtNHoiLz48L3N2Zz4='; // Speaker with cross
@@ -575,6 +576,7 @@
     liveStamp.style.display = 'none';
     muteUnmuteButton.style.display = 'none'; // Hide button when no channel is playing
     placeholder.style.display = 'block'; // Show placeholder when stopping playback
+    isCurrentIframeYoutube = false; // Reset YouTube flag
   }
 
   function playChannel(channel) {
@@ -638,23 +640,62 @@
       liveStamp.style.display = 'none'; // Hide live stamp for HLS channels
     } else if (channel.type === 'iframe') {
       let url = channel.url;
+      isCurrentIframeYoutube = false; // Reset flag
 
-      // Robust check for YouTube URLs
-      const isYouTubeUrl = (url.includes("youtube.com/embed/") || url.includes("youtube.com/watch?v=")) && !url.includes("youtube.com/live_chat");
+      // Check if it's a YouTube URL (using broader checks for common YouTube domains)
+      const youtubeDomains = [
+          'youtube.com', 'youtu.be', 'youtube-nocookie.com',
+          // Assuming these are the actual domains from your provided channels.json
+          'googleusercontent.com/youtube.com/6', // Example from your input: youtube.com/embed/video_id
+          'googleusercontent.com/youtube.com/7', // Example from your input: youtube.com/watch?v=?v=video_id
+          'googleusercontent.com/youtube.com/0', // common embed
+          'googleusercontent.com/youtube.com/1', // common embed
+          'googleusercontent.com/youtube.com/12', // more embed variations
+          'googleusercontent.com/youtube.com/13' // more embed variations
+      ];
+      const isYouTube = youtubeDomains.some(domain => url.includes(domain));
 
-      if (isYouTubeUrl) {
+      if (isYouTube) {
+          isCurrentIframeYoutube = true;
           let videoId = '';
-          // Extract video ID from different YouTube URL formats
-          if (url.includes("youtube.com/watch?v=")) {
-              videoId = new URLSearchParams(new URL(url).search).get('v');
-          } else if (url.includes("youtube.com/embed/")) {
-              videoId = url.split("youtube.com/embed/")[1]?.split("?")[0];
+          // Robust way to extract video ID for various YouTube URL patterns
+          try {
+              const urlObj = new URL(url.startsWith('//') ? `https:${url}` : url); // Prepend https for URL parsing if missing
+              if (urlObj.hostname.includes('youtube.com') || urlObj.hostname.includes('youtube-nocookie.com')) {
+                  if (urlObj.pathname.includes('/embed/')) {
+                      videoId = urlObj.pathname.split('/embed/')[1]?.split('?')[0];
+                  } else if (urlObj.searchParams.has('v')) {
+                      videoId = urlObj.searchParams.get('v');
+                  } else if (urlObj.hostname.includes('youtu.be')) {
+                      videoId = urlObj.pathname.split('/')[1];
+                  }
+              } else if (urlObj.hostname.includes('googleusercontent.com')) {
+                  // For the specific googleusercontent.com YouTube proxies
+                  if (url.includes("googleusercontent.com/youtube.com/7")) {
+                      videoId = new URLSearchParams(urlObj.search).get('v');
+                  } else if (url.includes("googleusercontent.com/youtube.com/6")) {
+                      // This is a simpler split for the youtube.com/embed/VIDEO_ID format
+                      const parts = url.split("googleusercontent.com/youtube.com/6");
+                      if (parts.length > 1) {
+                        videoId = parts[1].split("?")[0];
+                      }
+                  } else if (url.includes("googleusercontent.com/youtube.com/0")) {
+                     videoId = urlObj.searchParams.get('v');
+                  }
+                  // Add more specific parsing for other googleusercontent.com variations if needed
+              }
+          } catch (e) {
+              console.error("Error parsing YouTube URL:", e);
+              videoId = null; // Mark as null if parsing fails
           }
 
           if (videoId) {
               // Construct a clean YouTube embed URL with autoplay and muted start
               // enablejsapi=1 is crucial for programmatic control via postMessage
               url = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&enablejsapi=1&modestbranding=1&rel=0&showinfo=0&fs=0`;
+          } else {
+              console.warn("Could not extract YouTube video ID from URL, using original URL:", channel.url);
+              // Fallback to original URL if ID extraction fails, but it might not work well
           }
       }
 
@@ -678,26 +719,26 @@
         });
       }
     } else if (currentChannelType === 'iframe') {
-      // For iframes, direct control is limited without their specific APIs.
-      // For YouTube, we can try to send a postMessage.
-      if (iframePlayer.src.includes("youtube.com/embed/")) {
-        const isMuted = muteText.textContent === 'Mute'; // Check current state of button text
-        const command = isMuted ? 'unMute' : 'mute'; // Determine command based on button text
+      if (isCurrentIframeYoutube) {
+        const isCurrentlyMuted = muteText.textContent === 'Unmute'; // Button says "Unmute" when player IS muted
+        const command = isCurrentlyMuted ? 'unMute' : 'mute'; // If player is muted, we want to unMute
 
-        // Send postMessage to YouTube iframe API
-        // Target origin '*' is used for simplicity, but for production, use 'https://www.youtube.com'
+        // YouTube IFrame Player API expects a specific message format
+        // Use https://www.youtube.com for the target origin for production to be more secure
         iframePlayer.contentWindow.postMessage(JSON.stringify({
           'event': 'command',
           'func': command
-        }), '*');
+        }), 'https://www.youtube.com');
 
-        updateMuteButtonState(!isMuted); // Optimistically update button state
+        updateMuteButtonState(!isCurrentlyMuted); // Toggle button state immediately
       } else {
-        // For other iframes, we cannot directly control their audio.
-        alert("Audio control for this channel is not available. Please check the player controls if available.");
+        // For other iframes (like stmify.com or netlify.app embeds), we cannot directly control their audio.
+        alert("Direct audio control for this channel is not available from this player. Please look for mute/volume controls within the video window if available.");
+        // We don't change the button state here as we haven't actually changed the audio.
       }
     }
   });
+
 
   async function fetchChannelsJson() {
     try {
@@ -718,9 +759,16 @@
           select.appendChild(option);
         });
 
-        // Ensure no channel is auto-played on fresh load/update, await user selection
-        select.value = "";
-        stopAllPlayback(); // Explicitly stop and show placeholder
+        // Check if there was a last selected channel and try to play it
+        const lastChannelIndex = localStorage.getItem('lastChannelIndex');
+        if (lastChannelIndex !== null && channelsData[lastChannelIndex]) {
+          select.value = lastChannelIndex;
+          playChannel(channelsData[lastChannelIndex]);
+        } else {
+          // No last channel or invalid, so stop and show placeholder
+          select.value = "";
+          stopAllPlayback();
+        }
       }
     } catch (e) {
       console.error('Error fetching channels.json:', e);

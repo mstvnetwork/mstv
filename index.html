@@ -33,14 +33,15 @@
             }
         }
     }
-    </script> <script async src="https://www.googletagmanager.com/gtag/js?id=G-6MHRH7TE5Y"></script>
+    </script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6MHRH7TE5Y"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
         function gtag(){ dataLayer.push(arguments); }
         gtag('js', new Date());
         gtag('config', 'G-6MHRH7TE5Y');
     </script>
-    <title>Your Page Title</title>
+    <title>MSTV Network - Free Live TV Channels</title>
     <style>
         /* Hulu-inspired base styles */
         body {
@@ -178,13 +179,46 @@
         /* Make iframe and video elements unresponsive to touch */
         .player-container iframe,
         .player-container video {
-            pointer-events: none; /* Prevents all mouse/touch events on the player */
+            pointer-events: none; /* Prevents all mouse/touch events on the player itself */
+        }
+
+        /* Mute/Unmute Button Styles */
+        .mute-button-container {
+            position: absolute;
+            bottom: 15px; /* Adjust position as needed */
+            left: 15px; /* Adjust position as needed */
+            z-index: 1000; /* Ensure it's above the player and other elements */
+            pointer-events: auto; /* Re-enable pointer events for the button */
+        }
+
+        .mute-button {
+            background-color: rgba(0, 0, 0, 0.6); /* Dark semi-transparent background */
+            color: #fff;
+            border: 1px solid #90EE90; /* Hulu green border */
+            border-radius: 5px;
+            padding: 8px 15px;
+            font-size: 1em;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+        }
+
+        .mute-button:hover {
+            background-color: rgba(0, 0, 0, 0.8);
+            transform: scale(1.05);
+        }
+
+        .mute-button img {
+            width: 20px;
+            height: 20px;
+            /* Filter to make SVG white on dark background */
+            filter: invert(100%) sepia(0%) saturate(7483%) hue-rotate(293deg) brightness(108%) contrast(106%);
         }
 
 
         /* Live Stamp - Clean and subtle */
-        /* Live Stamp - Clean and subtle */
-
         .live-stamp {
           position: absolute;
           top: 1.5vw;
@@ -194,11 +228,11 @@
           font-family: 'Poppins', sans-serif;
           font-weight: 700;
           font-size: clamp(14px, 1.5vw, 20px);  /* Responsive font size */
-          padding: 0.4vw 1.6vw;                /* ⬅️ Reduced top/bottom padding */
+          padding: 0.4vw 1.6vw;
           min-width: 120px;
-          min-height: 32px;                    /* ⬅️ Trimmed height */
+          min-height: 32px;
           max-width: 200px;
-          max-height: 48px;                    /* ⬅️ Capped max height */
+          max-height: 48px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -405,6 +439,19 @@
           .footer-column p {
             text-align: center;
           }
+
+          .mute-button-container {
+            bottom: 10px;
+            left: 10px;
+          }
+          .mute-button {
+            padding: 6px 12px;
+            font-size: 0.9em;
+          }
+          .mute-button img {
+            width: 18px;
+            height: 18px;
+          }
         }
     </style>
 </head>
@@ -435,6 +482,13 @@
     <div class="live-stamp" id="live-stamp">MSTV NETWORK</div>
     <div class="loading-indicator" id="loading">Loading stream...</div>
     <img src="/logo.png" class="logo-overlay" alt="MSTV Logo" />
+
+    <div class="mute-button-container">
+        <button id="mute-unmute-button" class="mute-button">
+            <img id="mute-icon" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNNCAxOHYtMTJoM2wxMy0xM3YxNWwtMTMuMDYzIDEyLjk4Mi0yLjkzNy0yLjk4MnoibS0zLTExdjE0aDR2LTRoMnY0aDE2di0xNGgtMTZ2NGgtMnYtNHoiLz48L3N2Zz4=" alt="Mute Icon"/>
+            <span id="mute-text">Unmute</span>
+        </button>
+    </div>
   </div>
 
   <div class="partner-logos">
@@ -475,17 +529,33 @@
   const iframePlayer = document.getElementById('media-player');
   const placeholder = document.getElementById('placeholder-image');
   const loading = document.getElementById('loading');
-  const liveStamp = document.getElementById('live-stamp'); // Get the live stamp element
+  const liveStamp = document.getElementById('live-stamp');
+  const muteUnmuteButton = document.getElementById('mute-unmute-button');
+  const muteIcon = document.getElementById('mute-icon');
+  const muteText = document.getElementById('mute-text');
 
   let hlsInstance = null;
   let channelsData = [];
   let lastKnownJsonContent = null;
+  let currentChannelType = ''; // To keep track of the active player type
 
-  // Show placeholder image by default
-  placeholder.style.display = 'block';
-  videoPlayer.style.display = 'none';
-  iframePlayer.style.display = 'none';
-  liveStamp.style.display = 'none'; // Ensure live stamp is hidden by default
+  // SVG icons for mute and unmute (base64 encoded for direct use in src)
+  const muteSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNNCAxOHYtMTJoM2wxMy0xM3YxNWwtMTMuMDYzIDEyLjk4Mi0yLjkzNy0yLjk4MnoibS0zLTExdjE0aDR2LTRoMnY0aDE2di0xNGgtMTZ2NGgtMnYtNHoiLz48L3N2Zz4='; // Speaker with cross
+  const unmuteSvg = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0Ij48cGF0aCBkPSJNMCAxMC42NjdzMC4wNTggMS45OTUgMS41NjMgMS45OTVoMy40Mzd2OS45OThsMTQuOTk5LTIwdi00LjA2OWgtMTcuOTk5Yy0xLjQxMSAwLTIuMDA1IDEuNDc4LTIuMDA1IDMuNTQ2djkuNTI1em0yMC04LjY2N3Y4LjAyN2wtNC00di0xLjY3MmMwLS40MDQtLjI0Ny0uNzE4LS42MTctLjkxNWwtNC4zODMtMy42MDV2LTUuODI1aDh6Ii8+PC9zdmc+'; // Speaker without cross
+
+  function updateMuteButtonState(isMuted) {
+    if (isMuted) {
+      muteIcon.src = muteSvg;
+      muteText.textContent = 'Unmute';
+    } else {
+      muteIcon.src = unmuteSvg;
+      muteText.textContent = 'Mute';
+    }
+  }
+
+  // Initial state of the button: assumed muted (as per autoplay policies), hidden until a channel plays
+  updateMuteButtonState(true);
+  muteUnmuteButton.style.display = 'none'; // Hide button initially
 
   function showLoading(show) {
     loading.style.display = show ? 'block' : 'none';
@@ -498,70 +568,93 @@
     }
     videoPlayer.pause();
     videoPlayer.removeAttribute('src');
-    videoPlayer.load();
+    videoPlayer.load(); // Required to clear any loaded media
     videoPlayer.style.display = 'none';
     iframePlayer.src = '';
     iframePlayer.style.display = 'none';
-    liveStamp.style.display = 'none'; // Hide live stamp when stopping playback
+    liveStamp.style.display = 'none';
+    muteUnmuteButton.style.display = 'none'; // Hide button when no channel is playing
+    placeholder.style.display = 'block'; // Show placeholder when stopping playback
   }
 
   function playChannel(channel) {
     showLoading(true);
-    placeholder.style.display = 'none';
-    stopAllPlayback();
+    stopAllPlayback(); // Stop any existing playback and hide placeholder
+    placeholder.style.display = 'none'; // Ensure placeholder is hidden after stopAllPlayback
 
     if (!channel || !channel.url) {
-      placeholder.style.display = 'block';
+      placeholder.style.display = 'block'; // Show placeholder if no channel selected
       showLoading(false);
       return;
     }
 
+    currentChannelType = channel.type; // Set current channel type
+    muteUnmuteButton.style.display = 'block'; // Show the mute/unmute button once a channel is selected
+
     if (channel.type === 'hls') {
       if (Hls.isSupported()) {
         videoPlayer.style.display = 'block';
-        videoPlayer.muted = false;
-        videoPlayer.volume = 1;
+        videoPlayer.muted = true; // Start muted to comply with autoplay policies
+        videoPlayer.volume = 1; // Set volume to 1, but keep muted
         hlsInstance = new Hls();
         hlsInstance.loadSource(channel.url);
         hlsInstance.attachMedia(videoPlayer);
         hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-          videoPlayer.play();
-          showLoading(false);
+          videoPlayer.play().then(() => {
+            showLoading(false);
+            updateMuteButtonState(videoPlayer.muted); // Update button state based on actual mute state
+          }).catch(error => {
+            console.warn("Autoplay prevented for HLS:", error);
+            showLoading(false);
+            updateMuteButtonState(videoPlayer.muted); // Still update button state even if autoplay failed
+          });
+        });
+        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+                console.error('HLS.js fatal error:', data.type, data.details);
+                alert(`Error loading HLS stream: ${data.details}. Please try another channel or refresh.`);
+                stopAllPlayback(); // Stop and show placeholder on fatal error
+            }
         });
       } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native HLS support for Safari
         videoPlayer.src = channel.url;
         videoPlayer.style.display = 'block';
-        videoPlayer.muted = false;
+        videoPlayer.muted = true; // Start muted
         videoPlayer.play().then(() => {
           showLoading(false);
-        }).catch(() => {
-          placeholder.style.display = 'block';
+          updateMuteButtonState(videoPlayer.muted);
+        }).catch(error => {
+          console.warn("Autoplay prevented for HLS (native):", error);
           showLoading(false);
+          updateMuteButtonState(videoPlayer.muted);
         });
       } else {
+        alert("Your browser does not support HLS video streams.");
         placeholder.style.display = 'block';
         showLoading(false);
+        muteUnmuteButton.style.display = 'none'; // Hide button if no player can be loaded
       }
       liveStamp.style.display = 'none'; // Hide live stamp for HLS channels
     } else if (channel.type === 'iframe') {
       let url = channel.url;
 
-      // Check if it's a YouTube URL (simplified for common formats)
-      const isYouTubeUrl = url.includes("youtube.com/watch") || url.includes("youtu.be/") || url.includes("youtube.com/embed/");
+      // Robust check for YouTube URLs
+      const isYouTubeUrl = (url.includes("youtube.com/embed/") || url.includes("youtube.com/watch?v=")) && !url.includes("youtube.com/live_chat");
 
       if (isYouTubeUrl) {
           let videoId = '';
+          // Extract video ID from different YouTube URL formats
           if (url.includes("youtube.com/watch?v=")) {
-              videoId = url.split("v=")[1]?.split("&")[0];
-          } else if (url.includes("youtu.be/")) {
-              videoId = url.split("youtu.be/")[1]?.split("?")[0];
+              videoId = new URLSearchParams(new URL(url).search).get('v');
           } else if (url.includes("youtube.com/embed/")) {
               videoId = url.split("youtube.com/embed/")[1]?.split("?")[0];
           }
 
           if (videoId) {
-              // Construct a clean embed URL with controls=0
-              url = `https://www.youtube.com/embed/${videoId}?autoplay=1&controls=0&disablekb=1&modestbranding=1&rel=0&showinfo=0&fs=0`;
+              // Construct a clean YouTube embed URL with autoplay and muted start
+              // enablejsapi=1 is crucial for programmatic control via postMessage
+              url = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&controls=0&enablejsapi=1&modestbranding=1&rel=0&showinfo=0&fs=0`;
           }
       }
 
@@ -569,20 +662,55 @@
       iframePlayer.style.display = 'block';
       showLoading(false);
       liveStamp.style.display = 'block'; // Show live stamp for iframe channels
+      updateMuteButtonState(true); // Assume iframe starts muted or needs user interaction to unmute
     }
   }
 
+  // Mute/Unmute functionality
+  muteUnmuteButton.addEventListener('click', () => {
+    if (currentChannelType === 'hls') {
+      videoPlayer.muted = !videoPlayer.muted;
+      updateMuteButtonState(videoPlayer.muted);
+      if (!videoPlayer.muted) {
+        // If unmuting, attempt to play (useful if autoplay was blocked by browser initially)
+        videoPlayer.play().catch(error => {
+          console.error("Error playing video after unmute:", error);
+        });
+      }
+    } else if (currentChannelType === 'iframe') {
+      // For iframes, direct control is limited without their specific APIs.
+      // For YouTube, we can try to send a postMessage.
+      if (iframePlayer.src.includes("youtube.com/embed/")) {
+        const isMuted = muteText.textContent === 'Mute'; // Check current state of button text
+        const command = isMuted ? 'unMute' : 'mute'; // Determine command based on button text
+
+        // Send postMessage to YouTube iframe API
+        // Target origin '*' is used for simplicity, but for production, use 'https://www.youtube.com'
+        iframePlayer.contentWindow.postMessage(JSON.stringify({
+          'event': 'command',
+          'func': command
+        }), '*');
+
+        updateMuteButtonState(!isMuted); // Optimistically update button state
+      } else {
+        // For other iframes, we cannot directly control their audio.
+        alert("Audio control for this channel is not available. Please check the player controls if available.");
+      }
+    }
+  });
+
   async function fetchChannelsJson() {
     try {
+      // Append a timestamp to prevent caching issues
       const response = await fetch('channels.json?t=' + Date.now());
-      if (!response.ok) throw new Error('Fetch failed');
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const json = await response.json();
       const jsonString = JSON.stringify(json);
 
       if (lastKnownJsonContent !== jsonString) {
         lastKnownJsonContent = jsonString;
         channelsData = json;
-        select.innerHTML = '<option value="">👉📺📺📺</option>';
+        select.innerHTML = '<option value="">👉📺📺📺</option>'; // Reset options
         channelsData.forEach((channel, index) => {
           const option = document.createElement('option');
           option.value = index;
@@ -590,27 +718,31 @@
           select.appendChild(option);
         });
 
-        // ❌ Do NOT auto-play any channel on load — wait for user selection
+        // Ensure no channel is auto-played on fresh load/update, await user selection
         select.value = "";
+        stopAllPlayback(); // Explicitly stop and show placeholder
       }
     } catch (e) {
       console.error('Error fetching channels.json:', e);
+      // Optionally alert user or show an error message on the page
     }
   }
 
   select.addEventListener('change', () => {
     const index = select.value;
     if (index === '') {
-      playChannel(null);
-      localStorage.removeItem('lastChannelIndex');
+      stopAllPlayback(); // Call stopAllPlayback to show placeholder and hide button
+      localStorage.removeItem('lastChannelIndex'); // Clear last selected channel
     } else {
-      localStorage.setItem('lastChannelIndex', index);
+      localStorage.setItem('lastChannelIndex', index); // Save selected channel
       playChannel(channelsData[index]);
     }
   });
 
-  fetchChannelsJson();
-  setInterval(fetchChannelsJson, 5000);
+  // Initial setup on page load
+  stopAllPlayback(); // Ensure everything is stopped and placeholder is visible
+  fetchChannelsJson(); // Fetch channels immediately
+  setInterval(fetchChannelsJson, 5000); // Poll for updates every 5 seconds
 </script>
 </body>
 </html>

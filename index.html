@@ -470,7 +470,7 @@
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-<script>
+
   const select = document.getElementById('channel-select');
   const videoPlayer = document.getElementById('video-player');
   const iframePlayer = document.getElementById('media-player');
@@ -617,6 +617,51 @@
 
   fetchChannelsJson();
   setInterval(fetchChannelsJson, 5000);
+<script>
+const namespace = 'mstvnetwork.github.io';  // GitHub Pages domain
+const viewKey = 'mstv-page-views';
+const interactionKey = 'mstv-user-interactions';
+
+// Page view count (session-based)
+const viewStorageKey = `${namespace}-${viewKey}-viewed`;
+if (!sessionStorage.getItem(viewStorageKey)) {
+  fetch(`https://api.countapi.xyz/hit/${namespace}/${viewKey}`)
+    .then(res => res.json())
+    .then(data => {
+      const el = document.getElementById('counter');
+      if (el) el.innerText = data.value;
+      sessionStorage.setItem(viewStorageKey, 'true');
+    });
+} else {
+  fetch(`https://api.countapi.xyz/get/${namespace}/${viewKey}`)
+    .then(res => res.json())
+    .then(data => {
+      const el = document.getElementById('counter');
+      if (el) el.innerText = data.value;
+    });
+}
+
+// Interaction logging
+function logInteraction() {
+  fetch(`https://api.countapi.xyz/hit/${namespace}/${interactionKey}`)
+    .then(res => res.json())
+    .then(data => {
+      console.log('Interaction count:', data.value);
+    });
+}
+
+// Log when user selects a new channel
+const channelSelect = document.getElementById('channel-select');
+if (channelSelect) {
+  channelSelect.addEventListener('change', logInteraction);
+}
+
+// Log when user scrolls to bottom
+window.addEventListener('scroll', () => {
+  if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 2) {
+    logInteraction();
+  }
+});
 </script>
 </body>
 </html>

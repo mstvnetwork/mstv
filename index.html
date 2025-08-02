@@ -479,42 +479,79 @@
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
-  (function () {
-    const badBrowsers = [
-      "SamsungBrowser",    // Samsung Internet
-      "FBAN", "FBAV",      // Facebook app
-      "Instagram",         // Instagram in-app browser
-      "Twitter",           // Twitter in-app browser
-      "MiuiBrowser",       // MIUI default browser
-      "Silk",              // Amazon Silk
-      "Opera Mini"         // Opera Mini
-    ];
+(function () {
+  const userAgent = navigator.userAgent || navigator.vendor || window.opera;
 
-    const ua = navigator.userAgent;
-    const isProblematic = badBrowsers.some(browser => ua.includes(browser));
+  const badBrowsers = [
+    "SamsungBrowser",
+    "FBAN", "FBAV",      // Facebook
+    "Instagram",
+    "Twitter",
+    "MiuiBrowser",
+    "Silk",
+    "Opera Mini",
+    "Snapchat",
+    "Pinterest",
+    "LinkedIn",
+    "DuckDuckGo",
+    "FB_IAB", "FBIOS",   // Facebook iOS
+    "CriOS",             // Chrome on iOS
+    "EdgiOS",            // Edge on iOS
+    "OPiOS",             // Opera on iOS
+    "GSA",               // Google Search App
+  ];
 
-    if (isProblematic) {
-      // Remove all page content
-      document.body.innerHTML = '';
+  // iOS WebView Detection (used by in-app browsers)
+  const isIOSWebView = (
+    /iPhone|iPad|iPod/.test(userAgent) &&
+    !/Safari/.test(userAgent)
+  );
 
-      // Show warning
-      const warning = document.createElement('div');
-      warning.id = 'warning-container';
-      warning.style.padding = '20px';
-      warning.style.background = 'red';
-      warning.style.color = 'white';
-      warning.style.textAlign = 'center';
-      warning.style.fontWeight = 'bold';
-      warning.innerHTML = `
-        ⚠️ To watch type https://mstvnet.netlify.app 
-        "ਤੁਹਾਡੇ ਮਨਪਸੰਦ ਚੈਨਲ ਦੇਖਣ ਲਈ" ਟਾਈਪ ਕਰੋ https://mstvnet.netlify.app <br>
-        To watch visit <span style="text-decoration:underline;">https://mstvnet.netlify.app</span>
-      `;
-      document.body.appendChild(warning);
-    }
-  })();
+  const isBadBrowser = badBrowsers.some(id => userAgent.includes(id)) || isIOSWebView;
 
- const select = document.getElementById('channel-select');
+  if (isBadBrowser) {
+    // Remove iframe or player container
+    const iframe = document.querySelector("iframe");
+    if (iframe) iframe.remove();
+
+    const player = document.getElementById("player");
+    if (player) player.innerHTML = "";
+
+    // Show red warning banner
+    const warning = document.createElement("div");
+    warning.style.position = "fixed";
+    warning.style.top = "0";
+    warning.style.left = "0";
+    warning.style.width = "100%";
+    warning.style.backgroundColor = "#ff0000";
+    warning.style.color = "white";
+    warning.style.fontWeight = "bold";
+    warning.style.textAlign = "center";
+    warning.style.padding = "10px";
+    warning.style.zIndex = "9999";
+    warning.textContent = "⚠️ Your browser doesn't support embedded video playback. Please watch directly on MSTV Network.";
+
+    // Show fallback button
+    const button = document.createElement("button");
+    button.textContent = "🎥 Watch on MSTV Network";
+    button.style.marginTop = "15px";
+    button.style.padding = "10px 20px";
+    button.style.fontSize = "16px";
+    button.style.border = "none";
+    button.style.borderRadius = "8px";
+    button.style.backgroundColor = "#ffffff";
+    button.style.color = "#000";
+    button.style.cursor = "pointer";
+    button.onclick = function () {
+      window.open("https://mstvnetwork.github.io/mstv1/", "_blank");
+    };
+
+    warning.appendChild(document.createElement("br"));
+    warning.appendChild(button);
+    document.body.prepend(warning);
+  }
+})();
+  const select = document.getElementById('channel-select');
   const videoPlayer = document.getElementById('video-player');
   const iframePlayer = document.getElementById('media-player');
   const placeholder = document.getElementById('placeholder-image');

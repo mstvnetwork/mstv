@@ -129,16 +129,12 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; borde
     <p class="copyright">&copy; 2026 MSTV Network. All rights reserved.</p>
   </div>
 </footer>
-
 <script defer src="https://cdn.jsdelivr.net/npm/hls.js@1.5.1/dist/hls.min.js"></script>
-
 <script defer>
 const select = document.getElementById('channel-select');
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
 const placeholder = document.getElementById('placeholder');
-const fullscreenBtn = document.getElementById('fullscreen-btn');
-const liveStamp = document.getElementById('live-stamp');
 
 let hls = null;
 let channels = [];
@@ -146,33 +142,33 @@ let lastJson = null;
 const JSON_URL = './channels.json';
 
 function stopPlayback(){
-  if (hls) { hls.destroy(); hls = null; }
+  if (hls) {
+    hls.destroy();
+    hls = null;
+  }
+
   video.pause();
+  video.removeAttribute('src');
+  video.load();
   video.style.display = 'none';
+
   iframe.src = '';
   iframe.style.display = 'none';
-  fullscreenBtn.style.display = 'none';
-  liveStamp.style.display = 'none';
 }
 
-async function playChannel(ch){
+function playChannel(ch){
   stopPlayback();
   placeholder.style.display = 'none';
 
-  if (!ch) {
+  if(!ch){
     placeholder.style.display = 'flex';
     return;
   }
 
-  // HLS STREAM
-  if (ch.type === 'hls') {
-
+  if(ch.type === 'hls'){
     video.style.display = 'block';
-    fullscreenBtn.style.display = 'block';
-    video.muted = false; // try unmuted autoplay
 
-    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-
+    if(typeof Hls !== 'undefined' && Hls.isSupported()){
       hls = new Hls({
         maxBufferLength: 10,
         enableWorker: true,
@@ -181,83 +177,48 @@ async function playChannel(ch){
 
       hls.loadSource(ch.url);
       hls.attachMedia(video);
-
-      hls.on(Hls.Events.MANIFEST_PARSED, async () => {
-        try {
-          await video.play();
-        } catch (e) {
-          video.muted = true;
-          video.play();
-        }
-        liveStamp.style.display = 'block';
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(()=>{});
       });
 
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
       video.src = ch.url;
-
-      try {
-        await video.play();
-      } catch (e) {
-        video.muted = true;
-        video.play();
-      }
-
-      liveStamp.style.display = 'block';
+      video.play().catch(()=>{});
     }
 
-  }
-
-  // IFRAME STREAM
-  else if (ch.type === 'iframe') {
-
+  } else if(ch.type === 'iframe'){
     iframe.src = ch.url;
     iframe.style.display = 'block';
-    liveStamp.style.display = 'block';
-
   }
 }
 
-// Custom HLS fullscreen
-fullscreenBtn.addEventListener('click', () => {
-  if (video.requestFullscreen) {
-    video.requestFullscreen();
-  } else if (video.webkitRequestFullscreen) {
-    video.webkitRequestFullscreen();
-  } else if (video.msRequestFullscreen) {
-    video.msRequestFullscreen();
-  }
-});
-
-// Fetch channels
 async function fetchChannels(){
-  try {
+  try{
     const resp = await fetch(JSON_URL + '?t=' + Date.now());
-    if (!resp.ok) throw new Error('Fetch failed');
+    if(!resp.ok) throw new Error('Fetch failed');
 
     const json = await resp.json();
     const str = JSON.stringify(json);
 
-    if (str !== lastJson) {
+    if(str !== lastJson){
       lastJson = str;
       channels = json;
 
       select.innerHTML = '<option value="">👉📺 Select Channel</option>';
 
-      channels.forEach((c, i) => {
-        const option = document.createElement('option');
-        option.value = i;
-        option.textContent = c.name;
-        select.appendChild(option);
+      channels.forEach((c,i)=>{
+        const o = document.createElement('option');
+        o.value = i;
+        o.textContent = c.name;
+        select.appendChild(o);
       });
     }
 
-  } catch (e) {
+  } catch(e){
     console.error(e);
   }
 }
 
-// Channel switch
 select.addEventListener('change', () => {
   const i = select.value;
   playChannel(i === '' ? null : channels[i]);
@@ -266,4 +227,5 @@ select.addEventListener('change', () => {
 fetchChannels();
 setInterval(fetchChannels, 15000);
 </script>
+</body>
 </html>

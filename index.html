@@ -39,7 +39,22 @@ select { width:100%; padding:0.8em; font-size:1.1em; border-radius:12px; border:
 select:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(0,255,160,0.3); }
 .player-container { position:relative; width:90%; max-width:900px; aspect-ratio:16/9; background:linear-gradient(135deg,#141618,#1A1D20); display:flex; align-items:center; justify-content:center; color:#90EE90; font-weight:bold; text-align:center; border-radius:15px; box-shadow:0 8px 25px rgba(0,255,160,0.2); overflow:hidden; margin-bottom:50px; }
 video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; border:none; border-radius:15px; display:none; }
-.live-stamp { position: absolute; top: 1.5vw; left: 1.5vw; background: #E50914; color: white; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: clamp(14px, 1.5vw, 20px); padding: 0.4vw 1.6vw; min-width: 120px; min-height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 0.6vw; z-index: 999; box-shadow: 0 0.5vw 1vw rgba(0, 0, 0, 0.4); letter-spacing: 0.1vw; }
+#live-stamp {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: #E50914;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 6px;
+  letter-spacing: 1px;
+  z-index: 30;
+  display: none;
+  box-shadow: 0 0 12px rgba(229,9,20,0.6);
+}
+
 #placeholder { width:100%; height:100%; display:flex; align-items:center; justify-content:center; font-size:1.8em; color:#90EE90; text-shadow:0 0 15px rgba(144,238,144,0.6); }
 #fullscreen-btn { position:absolute; bottom:15px; right:15px; padding:8px 12px; background:rgba(0,255,160,0.25); border:none; border-radius:8px; color:#0F1115; font-weight:bold; cursor:pointer; backdrop-filter:blur(4px); z-index:20; display:none; transition:all 0.2s ease; }
 .site-footer {
@@ -84,6 +99,7 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; borde
   <div id="placeholder">⬆️⬆️Click in box above to select channel</div>
   <video id="video-player" autoplay controls playsinline></video>
   <iframe id="iframe-player" allow="autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>
+ 
 </div>
    
   <iframe 
@@ -92,8 +108,8 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; borde
     allow="autoplay; fullscreen; encrypted-media; picture-in-picture" 
     allowfullscreen
   ></iframe>
-   <div class="live-stamp" id="live-stamp" style="display:none;">MSTV NETWORK</div>
-  <button id="fullscreen-btn">⛶ Fullscreen</button>
+   <div id="live-stamp">LIVE</div>
+   <button id="fullscreen-btn">⛶ Fullscreen</button>
 </div>
 <!-- Footer Section -->
 <footer class="site-footer">
@@ -107,12 +123,14 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; borde
 </footer>
 
 <script defer src="https://cdn.jsdelivr.net/npm/hls.js@1.5.1/dist/hls.min.js"></script>
+
 <script defer>
 const select = document.getElementById('channel-select');
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
 const placeholder = document.getElementById('placeholder');
 const fullscreenBtn = document.getElementById('fullscreen-btn');
+const liveStamp = document.getElementById('live-stamp');
 
 let hls = null;
 let channels = [];
@@ -120,70 +138,118 @@ let lastJson = null;
 const JSON_URL = './channels.json';
 
 function stopPlayback(){
-  if(hls){ hls.destroy(); hls = null; }
-  video.pause(); video.style.display='none';
-  iframe.src=''; iframe.style.display='none';
-  fullscreenBtn.style.display='none';
+  if (hls) { hls.destroy(); hls = null; }
+  video.pause();
+  video.style.display = 'none';
+  iframe.src = '';
+  iframe.style.display = 'none';
+  fullscreenBtn.style.display = 'none';
+  liveStamp.style.display = 'none';
 }
 
 async function playChannel(ch){
   stopPlayback();
-  placeholder.style.display='none';
-  if(!ch){ placeholder.style.display='flex'; return; }
+  placeholder.style.display = 'none';
 
-  if(ch.type === 'hls'){
-    video.style.display='block';
-    video.muted = false; // attempt autoplay unmuted
-    fullscreenBtn.style.display = 'block'; // show HLS fullscreen
+  if (!ch) {
+    placeholder.style.display = 'flex';
+    return;
+  }
 
-    if(typeof Hls !== 'undefined' && Hls.isSupported()){
-      hls = new Hls({ maxBufferLength: 10, enableWorker: true, lowLatencyMode: true });
+  // HLS STREAM
+  if (ch.type === 'hls') {
+
+    video.style.display = 'block';
+    fullscreenBtn.style.display = 'block';
+    video.muted = false; // try unmuted autoplay
+
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+
+      hls = new Hls({
+        maxBufferLength: 10,
+        enableWorker: true,
+        lowLatencyMode: true
+      });
+
       hls.loadSource(ch.url);
       hls.attachMedia(video);
+
       hls.on(Hls.Events.MANIFEST_PARSED, async () => {
-        try { await video.play(); }
-        catch(e){ video.muted = true; video.play(); }
+        try {
+          await video.play();
+        } catch (e) {
+          video.muted = true;
+          video.play();
+        }
+        liveStamp.style.display = 'block';
       });
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+
       video.src = ch.url;
-      try { await video.play(); }
-      catch(e){ video.muted = true; video.play(); }
+
+      try {
+        await video.play();
+      } catch (e) {
+        video.muted = true;
+        video.play();
+      }
+
+      liveStamp.style.display = 'block';
     }
 
-  } else if(ch.type === 'iframe'){
+  }
+
+  // IFRAME STREAM
+  else if (ch.type === 'iframe') {
+
     iframe.src = ch.url;
-    iframe.style.display='block';
-    fullscreenBtn.style.display='none'; // hide HLS fullscreen
+    iframe.style.display = 'block';
+    liveStamp.style.display = 'block';
+
   }
 }
 
-// HLS fullscreen button click
+// Custom HLS fullscreen
 fullscreenBtn.addEventListener('click', () => {
-  if(video.requestFullscreen){ video.requestFullscreen(); }
-  else if(video.webkitRequestFullscreen){ video.webkitRequestFullscreen(); }
-  else if(video.msRequestFullscreen){ video.msRequestFullscreen(); }
+  if (video.requestFullscreen) {
+    video.requestFullscreen();
+  } else if (video.webkitRequestFullscreen) {
+    video.webkitRequestFullscreen();
+  } else if (video.msRequestFullscreen) {
+    video.msRequestFullscreen();
+  }
 });
 
-// Fetch channels JSON and populate select
+// Fetch channels
 async function fetchChannels(){
-  try{
-    const resp = await fetch(JSON_URL+'?t='+Date.now());
-    if(!resp.ok) throw new Error('Fetch failed');
+  try {
+    const resp = await fetch(JSON_URL + '?t=' + Date.now());
+    if (!resp.ok) throw new Error('Fetch failed');
+
     const json = await resp.json();
     const str = JSON.stringify(json);
-    if(str !== lastJson){
+
+    if (str !== lastJson) {
       lastJson = str;
       channels = json;
+
       select.innerHTML = '<option value="">👉📺 Select Channel</option>';
-      channels.forEach((c,i) => {
-        const o = document.createElement('option');
-        o.value = i; o.textContent = c.name;
-        select.appendChild(o);
+
+      channels.forEach((c, i) => {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = c.name;
+        select.appendChild(option);
       });
     }
-  } catch(e){ console.error(e); }
+
+  } catch (e) {
+    console.error(e);
+  }
 }
 
+// Channel switch
 select.addEventListener('change', () => {
   const i = select.value;
   playChannel(i === '' ? null : channels[i]);
@@ -192,5 +258,4 @@ select.addEventListener('change', () => {
 fetchChannels();
 setInterval(fetchChannels, 15000);
 </script>
-</body>
 </html>

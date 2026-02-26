@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="referrer" content="no-referrer">
+
+    <meta charset="UTF-8">
+    <title>MSTV Network | Unified Player</title>
+    <script src="shaka.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
+        #stage { width: 100vw; height: 100vh; position: relative; display: flex; justify-content: center; align-items: center; }
+        video, iframe { width: 100%; height: 100%; border: none; display: none; }
+        #status-overlay { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 4px; font-size: 12px; z-index: 100; border-left: 3px solid #007bff; }
+    </style>
+</head>
+<body>
+
+    <div id="stage">
+        <div id="status-overlay">MSTV | Initializing...</div>
+        <video id="video" controls autoplay crossorigin="anonymous"></video>
+        <iframe id="external-frame" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
+    </div>
+
+    <script>
+const channels = {
+    "1": {
+        name: "Zee TV",
+        url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+        type: "shaka",
+        drm: { 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b' }
+    },
+    "2": {
+        name: "Willow Cricket 2",
+        url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
+        type: "hls"
+    },
+    "3": {
+        name: "Deewana HD",
+        // Fixed: Added the proxy + the full CNN stream URL
+        url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
+        type: "shaka",
+    },
+    "4": {
+        name: "Sky Sports",
+        // Fixed: Added the proxy + the full CNN stream URL
+        url: "https://nl1.rocketdns.info:25463/live/ALEX/sg5ng25ikf/2192.m3u8?token=HkNcWEBYFAkUUgsCA1UFVgFeUlYHAFEHWlFRUwpRVwIGWFUOUlVVAQUSH0ZAFRFRUwtoXlQaXgFTWAEdERBBVhc+XV0RChQABAgAVgJDTxZGD1pSEgJUH0ARWlURXxAGUFkNDAESGhFTSEcBQQ8CWG0CUkFZWwERWA9GXV9JEFwLPlBcXlFYVxQKEVQRTUFdQRYVDV5NCF9OQ1FYRxdTRwBDDhsEAQ8AFBwRB1wUDUBAHxUNEnkxEU5DVklHAFxADA5aGwkSWwBDCBFIEQgQa0ADRENCXQVeBxMRCxFVEB9HDFVBbFNZXVhVUBBaDg1HEFwVBAAIRh9ADFxfWhFdQToRXV0RChQEDgcCVwZDHg==",
+        type: "shaka",
+    },
+    
+    "5": {
+        name: "Zindgi Tv (Pak)",
+        url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
+        type: "hls"
+    }
+};
+
+
+
+    
+
+        let player;
+
+        async function initApp() {
+            if (typeof shaka === 'undefined') return alert("shaka.js not found!");
+
+            shaka.polyfill.installAll();
+            const video = document.getElementById('video');
+            player = new shaka.Player(video);
+
+            // Surity Headers for Zee TV
+            player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                request.headers['Origin'] = 'https://www.zee5.com';
+                request.headers['Referer'] = 'https://www.zee5.com';
+            });
+
+            // Read the number directly after the "?"
+            const query = window.location.search.substring(1);
+            const chId = query || "1"; 
+            
+            loadChannel(chId);
+        }
+
+                async function loadChannel(id) {
+            const ch = channels[id];
+            const status = document.getElementById('status-overlay');
+            const video = document.getElementById('video');
+            const iframe = document.getElementById('external-frame');
+
+            if (!ch) {
+                status.innerText = "Error: Channel " + id + " not found.";
+                return;
+            }
+
+            status.innerText = "MSTV | " + ch.name;
+
+            if (ch.type === "shaka") {
+                // --- SHAKA MODE (Zee TV / Bollywood) ---
+                iframe.style.display = "none";
+                iframe.src = "";
+                // Remove sandbox so Shaka has full power for DRM/EME
+                iframe.removeAttribute('sandbox'); 
+                video.style.display = "block";
+                
+                player.resetConfiguration();
+                if (ch.drm) {
+                    player.configure({ drm: { clearKeys: ch.drm } });
+                }
+
+                try {
+                    await player.load(ch.url);
+                } catch (e) { 
+                    status.innerText = "Playback Error: " + e.code; 
+                    console.error("Shaka Error:", e);
+                }
+            } else {
+                // --- IFRAME MODE (Star Sports) ---
+                video.style.display = "none";
+                player.unload(); // Stop Shaka background activity
+                
+                iframe.style.display = "block";
+                
+                // ANTI-REDIRECTION SANDBOX: 
+                // Blocks popups and top-level page jumps (redirects)
+                iframe.setAttribute('sandbox', 'allow-forms allow-scripts allow-same-origin allow-presentation');
+                
+                iframe.src = ch.url;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
+    </script>
+</body>
+</html>

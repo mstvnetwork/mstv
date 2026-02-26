@@ -2,110 +2,102 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <!-- CRITICAL: Prevents the browser from scaling out on rotation -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <style>
-        :root { --live-red: #ff0033; --glass: rgba(10, 10, 10, 0.9); }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        :root { --live-red: #ff0033; }
+        
+        /* LOCKS THE BACKGROUND: Prevents showing anything outside the player */
+        html, body { 
+            margin: 0; padding: 0; 
+            width: 100%; height: 100%; 
+            background: #000; 
+            overflow: hidden; /* Disables page scrolling */
+            position: fixed; /* Freezes the background layer */
+        }
 
+        /* FULL SCREEN VIEWPORT */
         .viewport {
-            width: 100%; max-width: 1000px; aspect-ratio: 16 / 9; 
-            overflow: hidden; position: relative;
-            background: #000; border-radius: 8px;
+            position: fixed; /* Stays locked to the screen corners */
+            top: 0; left: 0; 
+            width: 100vw; height: 100vh;
+            background: #000;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9999;
         }
 
+        /* IFRAME CROPPING: Tuned for 16:9 while hiding edges */
         #captureFrame {
-            position: absolute; width: 135%; height: 155%; 
-            top: -90px; left: -17%; border: none; z-index: 1;
-            opacity: 0; transition: opacity 1s ease;
+            position: absolute;
+            width: 130%; height: 130%; /* Oversize to hide source UI */
+            border: none;
+            opacity: 0;
+            transition: opacity 1s ease;
         }
 
-        /* MASTER OVERLAY */
+        /* SLEEK OVERLAY */
         #masterOverlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 100; cursor: pointer;
-            opacity: 0; transform: translateY(-10px);
-            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-            pointer-events: none;
+            background: rgba(0, 0, 0, 0.5); /* Slight dim to show video is loaded */
+            display: flex; flex-direction: column;
+            transition: opacity 0.5s ease;
         }
 
         .ticker-wrap {
-            width: 100%; background: var(--glass);
-            backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+            width: 100%; background: rgba(10, 10, 10, 0.9);
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
             color: #fff; white-space: nowrap; overflow: hidden;
-            padding: 18px 0; border-bottom: 2px solid var(--live-red);
+            padding: 15px 0; border-bottom: 2px solid var(--live-red);
         }
 
         .ticker-text {
-            display: inline-block;
-            padding-left: 100%;
-            animation: marquee 24s linear infinite;
-            font-family: 'Inter', system-ui, sans-serif;
-            font-size: 18px;
+            display: inline-block; padding-left: 100%;
+            animation: marquee 20s linear infinite;
+            font-family: sans-serif; font-size: 18px;
         }
-
-        .pulse-dot {
-            height: 12px; width: 12px; background-color: var(--live-red);
-            border-radius: 50%; display: inline-block; margin-right: 12px;
-            animation: pulse-red 1.5s infinite;
-        }
-
-        @keyframes pulse-red {
-            0% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 0, 51, 0.7); }
-            70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(255, 0, 51, 0); }
-            100% { transform: scale(0.9); box-shadow: 0 0 0 0 rgba(255, 0, 51, 0); }
-        }
-
-        .highlight { color: var(--live-red); font-weight: 900; text-decoration: underline; }
-        .separator { margin: 0 40px; opacity: 0.4; }
 
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-
-        .loaded { opacity: 1 !important; pointer-events: all !important; transform: translateY(0) !important; }
-        .vanish { opacity: 0 !important; transform: scale(1.05) !important; pointer-events: none !important; transition: 0.5s ease; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
     <div class="viewport">
-        <!-- TRIGGER: ondblclick instead of onclick -->
-      <!-- Reverted to onclick for instant penetration -->
-<div id="masterOverlay" onclick="removeOverlay()">
-
+        <div id="masterOverlay" onclick="removeOverlay()">
             <div class="ticker-wrap">
                 <div class="ticker-text">
-                    <span class="pulse-dot"></span>
-                    <span>DOUBLE CLICK ON <span class="highlight">COLORS TV HD</span> TO WATCH</span>
-                    <span class="separator">/</span>
-                    <span>देखने के लिए <span class="highlight">कलर्स टीवी एचडी</span> पर डबल क्लिक करें</span>
-                    <span class="separator">/</span>
-                    <span>HD STREAM READY: DOUBLE CLICK CHANNEL NAME</span>
-                    <span class="separator">/</span>
-                    <span>एचडी स्ट्रीम तैयार: चैनल के नाम पर डबल क्लिक करें</span>
+                    🔴 COLORS TV HD: CLICK ANYWHERE TO START WATCHING NOW — कलर्स टीवी एचडी: देखने के लिए कहीं भी क्लिक करें 🔴
                 </div>
             </div>
         </div>
 
-        <iframe id="captureFrame" src="https://tulnit.com/live/bollywood-colors/" scrolling="no" sandbox="allow-forms allow-scripts allow-same-origin"></iframe>
+        <iframe id="captureFrame" 
+                src="https://tulnit.com/live/bollywood-colors/" 
+                scrolling="no" 
+                sandbox="allow-forms allow-scripts allow-same-origin">
+        </iframe>
     </div>
 
     <script>
         const iframe = document.getElementById('captureFrame');
         const overlay = document.getElementById('masterOverlay');
 
+        // Reveal everything only when the content is ready
         iframe.addEventListener('load', function() {
             iframe.style.opacity = "1";
-            overlay.classList.add('loaded');
         });
 
-      function removeOverlay() {
-    const overlay = document.getElementById('masterOverlay');
-    // Disable interaction immediately so the click hits the iframe
-    overlay.style.pointerEvents = 'none';
-    overlay.classList.add('vanish');
-    
-    // Completely remove from DOM after the fade out
-    setTimeout(() => overlay.remove(), 500);
-}
+        function removeOverlay() {
+            overlay.classList.add('hidden');
+            // This ensures the first click passes through instantly
+            overlay.style.pointerEvents = 'none';
+        }
 
+        // AUTO-CORRECT ROTATION: Forces the browser to refocus on the player if rotated
+        window.addEventListener("orientationchange", function() {
+            window.scrollTo(0, 0);
+        });
     </script>
 
 </body>

@@ -1,55 +1,159 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Star Gold Test - MSTV</title>
-    <!-- Mux.js is absolutely required for HLS (.m3u8) support in Shaka -->
-    <script src="https://cdnjs.cloudflare.com"></script>
-    <script src="shaka.js"></script>
-    <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-        video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; }
-        #log { color: #00ffA0; margin-top: 10px; font-size: 14px; }
-    </style>
+<meta charset="UTF-8">
+<title>MSTV Player</title>
+
+<script src="shaka.js"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: sans-serif;
+    text-align: center;
+}
+
+video {
+    width: 100%;
+    max-width: 800px;
+    background: #111;
+    margin-top: 20px;
+}
+
+#log {
+    color: #00ffa0;
+    margin-top: 10px;
+    font-size: 14px;
+}
+
+#spinner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 18px;
+    color: #fff;
+}
+
+#player-wrapper {
+    position: relative;
+    display: inline-block;
+}
+</style>
 </head>
+
 <body>
-    <h2>TESTING: STAR GOLD</h2>
+
+<h2 id="channel-title">Loading Channel...</h2>
+
+<div id="player-wrapper">
     <video id="video" controls autoplay crossorigin="anonymous"></video>
-    <div id="log">Initializing Player...</div>
+    <div id="spinner">Loading stream...</div>
+</div>
 
-    <script>
-        // THE URL YOU ARE TESTING
-        const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+<div id="log">Initializing Player...</div>
 
-        async function startTest() {
-            const log = document.getElementById('log');
-            const video = document.getElementById('video');
+<script>
 
-            if (typeof shaka === 'undefined') {
-                log.innerText = "ERROR: shaka.js not found in this folder!";
-                return;
-            }
+// ========================
+// CHANNEL LIST
+// ========================
+const channels = {
+    1: {
+        name: "Zee TV",
+        url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+        type: "shaka",
+        drm: { 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b' }
+    },
+    2: {
+        name: "Willow Cricket 2",
+        url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
+        type: "hls"
+    },
+    3: {
+        name: "Deewana HD",
+        
+        url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
+        type: "hls",
+    },
+    
+     4: {
+        name: "Star Gold ",
+        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
+        type: "hls",
+    },
+    
+    5: {
+        name: "Zindgi Tv (Pak)",
+        url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
+        type: "hls"
+    }
+};
 
-            shaka.polyfill.installAll();
-            const player = new shaka.Player(video);
 
-            // Detailed logging
-            player.addEventListener('error', (event) => {
-                log.innerText = "PLAYBACK ERROR: Code " + event.detail.code;
-                console.error("Shaka Error Detail:", event.detail);
-            });
+// ========================
+// GET CHANNEL FROM URL
+// Example:
+// index.html?channel=1
+// ========================
+function getChannelFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("channel") || 1;
+}
 
-            try {
-                log.innerText = "Attempting to load: " + testUrl;
-                await player.load(testUrl);
-                log.innerText = "✅ STREAM LOADED SUCCESSFULLY";
-            } catch (e) {
-                log.innerText = "❌ LOAD FAILED: " + e.code;
-                console.error("Load Catch:", e);
-            }
-        }
+async function startPlayer() {
 
-        document.addEventListener('DOMContentLoaded', startTest);
-    </script>
+    const log = document.getElementById("log");
+    const video = document.getElementById("video");
+    const spinner = document.getElementById("spinner");
+    const title = document.getElementById("channel-title");
+
+    if (typeof shaka === "undefined") {
+        log.innerText = "ERROR: shaka.js not found!";
+        return;
+    }
+
+    shaka.polyfill.installAll();
+    const player = new shaka.Player(video);
+
+    // Show spinner when buffering
+    player.addEventListener("buffering", (event) => {
+        spinner.style.display = event.buffering ? "block" : "none";
+    });
+
+    // Hide spinner when video can play
+    video.addEventListener("canplay", () => {
+        spinner.style.display = "none";
+    });
+
+    // Error handling
+    player.addEventListener("error", (event) => {
+        log.innerText = "Playback Error: " + event.detail.code;
+        console.error(event.detail);
+    });
+
+    // Load selected channel
+    const channelId = getChannelFromUrl();
+    const selectedChannel = channels[channelId] || channels[1];
+
+    title.innerText = selectedChannel.name;
+    spinner.style.display = "block";
+    log.innerText = "Loading: " + selectedChannel.name;
+
+    try {
+        await player.load(selectedChannel.url);
+        log.innerText = "Stream loaded successfully";
+    } catch (e) {
+        log.innerText = "Load failed: " + e.code;
+        console.error(e);
+    }
+}
+
+document.addEventListener("DOMContentLoaded", startPlayer);
+
+</script>
+
 </body>
 </html>

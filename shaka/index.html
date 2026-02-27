@@ -4,9 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Player</title>
-    <!-- Shaka Player UI & Engine via CDN -->
+    <!-- 1. Mux.js MUST be loaded before Shaka for HLS to work -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    
+    <!-- 2. Shaka Player UI & Engine -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net">
-    <script defer src="https://cdn.jsdelivr.net"></script>
+    <script src="https://cdn.jsdelivr.net"></script>
+    
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
         .video-container { width: 100vw; height: 100vh; }
@@ -18,7 +22,6 @@
     </div>
 
     <script>
-        // YOUR CHANNEL DATA
         const channels = {
     "1": {
         name: "Zee TV",
@@ -57,45 +60,31 @@
 };
 
         async function initPlayer() {
-            // Safety check: ensure Shaka is loaded
-            if (typeof shaka === 'undefined') {
-                console.error("Shaka library not loaded yet. Retrying...");
-                setTimeout(initPlayer, 500);
-                return;
-            }
-
             const video = document.getElementById('video');
             const ui = video['ui'];
-            const controls = ui.getControls();
-            const player = controls.getPlayer();
+            const player = ui.getControls().getPlayer();
 
-            // Get ID (e.g. ?1)
+            // Link player to window for console debugging
+            window.player = player;
+
             const channelId = window.location.search.substring(1);
             const selected = channels[channelId];
 
             if (selected) {
-                // Configure ClearKey DRM for Channel 1
                 if (selected.drm) {
-                    player.configure({
-                        drm: { clearKeys: selected.drm }
-                    });
+                    player.configure({ drm: { clearKeys: selected.drm } });
                 }
 
                 try {
                     await player.load(selected.url);
-                    console.log("Playing: " + selected.name);
+                    console.log("Stream Loaded Successfully: " + selected.name);
                 } catch (e) {
-                    console.error("Error loading stream:", e.code, e);
+                    console.error("Critical Load Error:", e.code, e);
                 }
             }
         }
 
-        // Listen for Shaka UI to be ready
         document.addEventListener('shaka-ui-loaded', initPlayer);
-        // Fallback for some browsers
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.shaka) initPlayer();
-        });
     </script>
 </body>
 </html>

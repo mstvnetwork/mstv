@@ -2,46 +2,31 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <!-- CRITICAL: Prevents the browser from scaling out on rotation -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
     <style>
         :root { --live-red: #ff0033; }
         
-        /* LOCKS THE BACKGROUND: Prevents showing anything outside the player */
         html, body { 
-            margin: 0; padding: 0; 
-            width: 100%; height: 100%; 
-            background: #000; 
-            overflow: hidden; /* Disables page scrolling */
-            position: fixed; /* Freezes the background layer */
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            background: #000; overflow: hidden; position: fixed; 
         }
 
-        /* FULL SCREEN VIEWPORT */
         .viewport {
-            position: fixed; /* Stays locked to the screen corners */
-            top: 0; left: 0; 
-            width: 100vw; height: 100vh;
-            background: #000;
-            display: flex; align-items: center; justify-content: center;
-            z-index: 9999;
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: #000; display: flex; align-items: center; justify-content: center;
+            z-index: 10;
         }
 
-        /* IFRAME CROPPING: Tuned for 16:9 while hiding edges */
         #captureFrame {
-            position: absolute;
-            width: 130%; height: 130%; /* Oversize to hide source UI */
-            border: none;
-            opacity: 0;
-            transition: opacity 1s ease;
+            position: absolute; width: 130%; height: 130%; border: none;
+            opacity: 0; transition: opacity 1s ease; z-index: 1;
         }
 
-        /* SLEEK OVERLAY */
+        /* INITIAL TICKER OVERLAY */
         #masterOverlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 100; cursor: pointer;
-            background: rgba(0, 0, 0, 0.5); /* Slight dim to show video is loaded */
-            display: flex; flex-direction: column;
-            transition: opacity 0.5s ease;
+            z-index: 500; cursor: pointer; background: rgba(0, 0, 0, 0.4); 
+            display: flex; flex-direction: column; transition: opacity 0.5s ease;
         }
 
         .ticker-wrap {
@@ -59,45 +44,79 @@
 
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
         .hidden { display: none !important; }
+
+        /* THE HARD LOCK (SESSION EXPIRED) */
+        #safetyLock {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.95); /* Nearly black to hide video */
+            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            z-index: 999999; /* HIGHEST PRIORITY */
+            display: none; flex-direction: column;
+            align-items: center; justify-content: center;
+            color: white; font-family: sans-serif; text-align: center;
+            pointer-events: all !important; /* BLOCKS VIDEO INTERACTION */
+        }
+
+        .is-locked { display: flex !important; }
+
+        .refresh-btn {
+            margin-top: 25px; padding: 15px 40px;
+            background: var(--live-red); color: white;
+            border: 2px solid white; border-radius: 50px;
+            font-weight: bold; cursor: pointer; text-transform: uppercase;
+            box-shadow: 0 0 20px rgba(255, 0, 51, 0.5);
+        }
     </style>
 </head>
 <body>
 
     <div class="viewport">
+        <!-- 1. Initial Ticker -->
         <div id="masterOverlay" onclick="removeOverlay()">
             <div class="ticker-wrap">
                 <div class="ticker-text">
-                    🔴 COLORS TV HD: CLICK ANYWHERE TO START WATCHING NOW — कलर्स टीवी एचडी: देखने के लिए कहीं भी क्लिक करें 🔴
+                    🔴 COLORS TV HD: CLICK ANYWHERE TO WATCH — कलर्स टीवी एचडी: देखने के लिए कहीं भी क्लिक करें 🔴
                 </div>
             </div>
         </div>
 
-        <iframe id="captureFrame" 
-                src="https://tulnit.com/live/bollywood-colors/" 
-                scrolling="no" 
-                sandbox="allow-forms allow-scripts allow-same-origin">
-        </iframe>
+        <!-- 2. Video Player -->
+        <iframe id="captureFrame" src="https://tulnit.com/live/bollywood-colors/" scrolling="no" sandbox="allow-forms allow-scripts allow-same-origin"></iframe>
+
+        <!-- 3. Safety Lock (Visible after 120s) -->
+        <div id="safetyLock">
+            <h2 style="color: #ff0033; font-size: 28px; margin: 0;">⚠️ SESSION EXPIRED</h2>
+            <p style="margin: 10px 0;">Security lock active. Please refresh the stream.</p>
+            <p style="font-size: 14px; opacity: 0.7;">सुरक्षा के लिए प्लेयर को रीफ़्रेश करें।</p>
+            <button class="refresh-btn" onclick="window.location.reload();">Refresh Now / अभी रीफ़्रेश करें</button>
+        </div>
     </div>
 
     <script>
         const iframe = document.getElementById('captureFrame');
         const overlay = document.getElementById('masterOverlay');
+        const safetyLock = document.getElementById('safetyLock');
 
-        // Reveal everything only when the content is ready
-        iframe.addEventListener('load', function() {
-            iframe.style.opacity = "1";
-        });
+        // Reveal video when loaded
+        iframe.addEventListener('load', () => { iframe.style.opacity = "1"; });
 
+        // Remove initial ticker
         function removeOverlay() {
-            overlay.classList.add('hidden');
-            // This ensures the first click passes through instantly
             overlay.style.pointerEvents = 'none';
+            overlay.classList.add('hidden');
         }
 
-        // AUTO-CORRECT ROTATION: Forces the browser to refocus on the player if rotated
-        window.addEventListener("orientationchange", function() {
-            window.scrollTo(0, 0);
-        });
+        // 120-Second Lock Logic (120000 ms)
+        function activateSafetyLock() {
+            console.log("Session Expired: Locking Player.");
+            safetyLock.classList.add('is-locked');
+        }
+        
+        // Start Timer
+        setTimeout(activateSafetyLock, 120000);
+
+        // Rotation Fix
+        window.addEventListener("orientationchange", () => { window.scrollTo(0, 0); });
     </script>
 
 </body>

@@ -2,90 +2,77 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Star Gold Test - MSTV</title>
-    <!-- Mux.js is absolutely required for HLS (.m3u8) support in Shaka -->
-    <script src="https://cdnjs.cloudflare.com"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Replace with your local path if you have controls.css in your repo -->
+    <link rel="stylesheet" href="https://ajax.googleapis.com">
     <script src="shaka.js"></script>
     <style>
-        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
-        video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; display: block; }
-        #log { color: #00ffA0; margin-top: 10px; font-size: 14px; }
+        /* Full-window embed setup */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+        
+        /* Container fills the iframe/window */
+        .shaka-container { width: 100%; height: 100%; }
+        video { width: 100%; height: 100%; display: block; }
 
-        /* Spinner styling */
-        #spinner {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            border: 6px solid #f3f3f3;
-            border-top: 6px solid #00ffA0;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            z-index: 10;
-        }
-
-        @keyframes spin {
-            0% { transform: translate(-50%, -50%) rotate(0deg); }
-            100% { transform: translate(-50%, -50%) rotate(360deg); }
-        }
-
-        /* Make container relative to position spinner */
-        #video-container {
-            position: relative;
-            display: inline-block;
-        }
+        /* Customizing UI colors to match your previous theme */
+        .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
+        .shaka-bottom-controls { display: flex; align-items: center; }
     </style>
 </head>
 <body>
-    <h2>TESTING: STAR GOLD</h2>
-    <div id="video-container">
-        <video id="video" controls autoplay crossorigin="anonymous"></video>
-        <div id="spinner"></div>
+
+    <!-- The data-shaka-player-container attribute tells the UI library where to inject controls -->
+    <div data-shaka-player-container class="shaka-container">
+        <video autoplay id="video" crossorigin="anonymous"></video>
     </div>
-    <div id="log">Initializing Player...</div>
 
     <script>
-        const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+        const testUrl = "https://anywhere.pwisetthon.com";
 
-        async function startTest() {
-            const log = document.getElementById('log');
-            const video = document.getElementById('video');
-            const spinner = document.getElementById('spinner');
+        async function initPlayer() {
+            // Install polyfills
+            shaka.polyfill.installAll();
 
-            if (typeof shaka === 'undefined') {
-                log.innerText = "ERROR: shaka.js not found in this folder!";
-                spinner.style.display = 'none';
+            if (!shaka.Player.isBrowserSupported()) {
+                console.error('Browser not supported!');
                 return;
             }
 
-            shaka.polyfill.installAll();
+            const video = document.getElementById('video');
+            const container = document.querySelector('.shaka-container');
+            
+            // 1. Initialize Player
             const player = new shaka.Player(video);
 
-            player.addEventListener('error', (event) => {
-                log.innerText = "PLAYBACK ERROR: Code " + event.detail.code;
-                console.error("Shaka Error Detail:", event.detail);
-                spinner.style.display = 'none';
-            });
+            // 2. Initialize UI Overlay (Connects your shaka.js to the UI)
+            const ui = new shaka.ui.Overlay(player, container, video);
+            
+            // Configure UI elements (Quality selection is the main benefit here)
+            const config = {
+                'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen'],
+                'addLanguageControls': true
+            };
+            ui.configure(config);
 
-            // Hide spinner when video actually starts playing
-            video.addEventListener('playing', () => {
-                spinner.style.display = 'none';
+            // Error handling
+            player.addEventListener('error', (event) => {
+                console.error("Shaka Error:", event.detail);
             });
 
             try {
-                log.innerText = "Attempting to load: " + testUrl;
                 await player.load(testUrl);
-                log.innerText = "✅ STREAM LOADED SUCCESSFULLY";
+                console.log("Stream loaded successfully");
             } catch (e) {
-                log.innerText = "❌ LOAD FAILED: " + e.code;
-                console.error("Load Catch:", e);
-                spinner.style.display = 'none';
+                console.error("Load failed:", e);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', startTest);
+        // Shaka UI library fires this event when ready
+        document.addEventListener('shaka-ui-loaded', initPlayer);
+        // Fallback for non-UI builds or direct script inclusion
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.shaka && !window.shaka.ui) initPlayer();
+        });
     </script>
 </body>
 </html>

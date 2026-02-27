@@ -1,49 +1,91 @@
 <!DOCTYPE html>
-<html>
-  <head> <script src="shaka.js"></script>
-     </head>
-  <body>
-    <div data-shaka-player-container style="max-width:800px">
-      <video autoplay id="video" style="width:100%;height:100%"></video>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Star Gold Test - MSTV</title>
+    <!-- Mux.js is absolutely required for HLS (.m3u8) support in Shaka -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    <script src="shaka.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+        video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; display: block; }
+        #log { color: #00ffA0; margin-top: 10px; font-size: 14px; }
+
+        /* Spinner styling */
+        #spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border: 6px solid #f3f3f3;
+            border-top: 6px solid #00ffA0;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            z-index: 10;
+        }
+
+        @keyframes spin {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        /* Make container relative to position spinner */
+        #video-container {
+            position: relative;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <h2>TESTING: STAR GOLD</h2>
+    <div id="video-container">
+        <video id="video" controls autoplay crossorigin="anonymous"></video>
+        <div id="spinner"></div>
     </div>
+    <div id="log">Initializing Player...</div>
 
     <script>
-      const manifestUri = 'https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/index.m3u8';
+        const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
 
-      async function initApp() {
-        // Install built-in polyfills to patch browser incompatibilities
-        shaka.polyfill.installAll();
+        async function startTest() {
+            const log = document.getElementById('log');
+            const video = document.getElementById('video');
+            const spinner = document.getElementById('spinner');
 
-        // Check if the browser supports the basic APIs Shaka needs
-        if (shaka.Player.isBrowserSupported()) {
-          initPlayer();
-        } else {
-          console.error('Browser not supported!');
+            if (typeof shaka === 'undefined') {
+                log.innerText = "ERROR: shaka.js not found in this folder!";
+                spinner.style.display = 'none';
+                return;
+            }
+
+            shaka.polyfill.installAll();
+            const player = new shaka.Player(video);
+
+            player.addEventListener('error', (event) => {
+                log.innerText = "PLAYBACK ERROR: Code " + event.detail.code;
+                console.error("Shaka Error Detail:", event.detail);
+                spinner.style.display = 'none';
+            });
+
+            // Hide spinner when video actually starts playing
+            video.addEventListener('playing', () => {
+                spinner.style.display = 'none';
+            });
+
+            try {
+                log.innerText = "Attempting to load: " + testUrl;
+                await player.load(testUrl);
+                log.innerText = "✅ STREAM LOADED SUCCESSFULLY";
+            } catch (e) {
+                log.innerText = "❌ LOAD FAILED: " + e.code;
+                console.error("Load Catch:", e);
+                spinner.style.display = 'none';
+            }
         }
-      }
 
-      async function initPlayer() {
-        const video = document.getElementById('video');
-        const player = new shaka.Player(video);
-
-        // Attach player to window for console debugging
-        window.player = player;
-
-        // Listen for error events
-        player.addEventListener('error', (event) => {
-          console.error('Error code', event.detail.code, 'object', event.detail);
-        });
-
-        try {
-          // Load the HLS manifest
-          await player.load(manifestUri);
-          console.log('The video has now been loaded!');
-        } catch (e) {
-          console.error('Error loading manifest', e);
-        }
-      }
-
-      document.addEventListener('DOMContentLoaded', initApp);
+        document.addEventListener('DOMContentLoaded', startTest);
     </script>
-  </body>
+</body>
 </html>

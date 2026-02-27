@@ -3,16 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Embed Player</title>
-    <!-- CSS is mandatory for the UI to look correct -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
-    <!-- Using the UI-enabled version of Shaka -->
-    <script src="shaka.js"></script>
+    <!-- 1. Mux.js: REQUIRED for HLS playback in Shaka -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    
+    <!-- 2. Shaka UI & CSS -->
+    <link rel="stylesheet" href="https://ajax.googleapis.com">
+    <script src="https://ajax.googleapis.com"></script>
+
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
         .shaka-container { width: 100%; height: 100%; }
-        video { width: 100%; height: 100%; }
-        /* Professional green accent for the seeker bar */
+        video { width: 100%; height: 100%; display: block; }
+        /* Theme color for seeker bar */
         .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
     </style>
 </head>
@@ -23,36 +25,38 @@
     </div>
 
     <script>
+        // Your specific stream URL
         const manifestUri = "https://anywhere.pwisetthon.com";
 
         async function init() {
             const video = document.getElementById('video');
             const container = document.querySelector('.shaka-container');
 
-            // Initialize Player
+            // Initialize Player and UI
             const player = new shaka.Player(video);
-            
-            // Initialize UI
             const ui = new shaka.ui.Overlay(player, container, video);
-            const config = {
+            
+            ui.configure({
                 'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen']
-            };
-            ui.configure(config);
+            });
 
             shaka.polyfill.installAll();
 
-            player.addEventListener('error', (e) => console.error('Player Error:', e.detail));
+            // Handle errors
+            player.addEventListener('error', (e) => {
+                console.error('Shaka Error:', e.detail.code, e.detail);
+                if (e.detail.code === 1001) alert("CORS Error: The server is blocking this player.");
+            });
 
             try {
                 await player.load(manifestUri);
+                console.log("Success: Stream loaded.");
             } catch (e) {
-                console.error('Load Error:', e);
+                console.error("Load failed:", e);
             }
         }
 
-        // The UI library triggers this event when the DOM is ready
         document.addEventListener('shaka-ui-loaded', init);
-        // Backup: if the event already fired
         if (document.readyState === 'complete' && window.shaka) init();
     </script>
 </body>

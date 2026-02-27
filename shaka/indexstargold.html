@@ -15,17 +15,17 @@ body {
     text-align: center;
 }
 
-video {
+#player-wrapper {
+    position: relative;
+    display: inline-block;
     width: 100%;
-    max-width: 800px;
-    background: #111;
-    margin-top: 20px;
+    max-width: 900px;
 }
 
-#log {
-    color: #00ffa0;
-    margin-top: 10px;
-    font-size: 14px;
+video {
+    width: 100%;
+    background: #111;
+    margin-top: 20px;
 }
 
 #spinner {
@@ -35,118 +35,131 @@ video {
     transform: translate(-50%, -50%);
     font-size: 18px;
     color: #fff;
+    display: none;
 }
 
-#player-wrapper {
-    position: relative;
-    display: inline-block;
+#log {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #00ffa0;
 }
 </style>
 </head>
 
 <body>
 
-<h2 id="channel-title">Loading Channel...</h2>
+<h2 id="channel-title">Loading...</h2>
 
 <div id="player-wrapper">
     <video id="video" controls autoplay crossorigin="anonymous"></video>
     <div id="spinner">Loading stream...</div>
 </div>
 
-<div id="log">Initializing Player...</div>
+<div id="log">Initializing...</div>
 
 <script>
 
-// ========================
+// =======================
 // CHANNEL LIST
-// ========================
+// =======================
 const channels = {
-    1: {
+    "1": {
         name: "Zee TV",
         url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
-        type: "shaka",
-        drm: { 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b' }
+        drm: {
+            "ed068cf84f0640ccbc7c0e395c0a272e":
+            "bb722190f2bb446391020411a7d0828b"
+        }
     },
-    2: {
+    "2": {
         name: "Willow Cricket 2",
-        url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
-        type: "hls"
+        url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8"
     },
-    3: {
+    "3": {
         name: "Deewana HD",
-        
-        url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
-        type: "hls",
+        url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8"
     },
-    
-     4: {
-        name: "Star Gold ",
-        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
-        type: "hls",
+    "4": {
+        name: "Star Gold",
+        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8"
     },
-    
-    5: {
+    "5": {
         name: "Zindgi Tv (Pak)",
-        url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
-        type: "hls"
+        url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8"
     }
 };
 
-
-// ========================
+// =======================
 // GET CHANNEL FROM URL
-// Example:
-// index.html?channel=1
-// ========================
+// =======================
 function getChannelFromUrl() {
     const params = new URLSearchParams(window.location.search);
-    return params.get("channel") || 1;
+    let id = params.get("channel");
+
+    if (!id || !channels[id]) {
+        id = "1";
+    }
+
+    return id;
 }
 
 async function startPlayer() {
 
-    const log = document.getElementById("log");
     const video = document.getElementById("video");
+    const log = document.getElementById("log");
     const spinner = document.getElementById("spinner");
     const title = document.getElementById("channel-title");
 
-    if (typeof shaka === "undefined") {
-        log.innerText = "ERROR: shaka.js not found!";
+    shaka.polyfill.installAll();
+
+    if (!shaka.Player.isBrowserSupported()) {
+        log.innerText = "Browser not supported.";
         return;
     }
 
-    shaka.polyfill.installAll();
     const player = new shaka.Player(video);
 
-    // Show spinner when buffering
-    player.addEventListener("buffering", (event) => {
+    player.addEventListener("error", e => {
+        log.innerText = "Playback Error: " + e.detail.code;
+        console.error(e.detail);
+    });
+
+    // Spinner handling
+    player.addEventListener("buffering", event => {
         spinner.style.display = event.buffering ? "block" : "none";
     });
 
-    // Hide spinner when video can play
     video.addEventListener("canplay", () => {
         spinner.style.display = "none";
     });
 
-    // Error handling
-    player.addEventListener("error", (event) => {
-        log.innerText = "Playback Error: " + event.detail.code;
-        console.error(event.detail);
-    });
-
-    // Load selected channel
     const channelId = getChannelFromUrl();
-    const selectedChannel = channels[channelId] || channels[1];
+    const selected = channels[channelId];
 
-    title.innerText = selectedChannel.name;
+    title.innerText = selected.name;
+    log.innerText = "Loading: " + selected.name;
     spinner.style.display = "block";
-    log.innerText = "Loading: " + selectedChannel.name;
 
     try {
-        await player.load(selectedChannel.url);
-        log.innerText = "Stream loaded successfully";
+
+        // Reset DRM config first
+        player.configure({ drm: { clearKeys: {} } });
+
+        // Apply ClearKey if exists
+        if (selected.drm) {
+            player.configure({
+                drm: {
+                    clearKeys: selected.drm
+                }
+            });
+        }
+
+        await player.load(selected.url);
+
+        log.innerText = "Stream Loaded Successfully";
+
     } catch (e) {
-        log.innerText = "Load failed: " + e.code;
+        log.innerText = "Load Failed: " + e.code;
         console.error(e);
     }
 }

@@ -1,0 +1,1 @@
+<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.3/shaka-player.compiled.debug.externs.js" integrity="sha512-qppXsR219jqi2OB6h7+8wrgJiuTfiuXJS807IMmyVZzT3bycN2460hYbkVFF2IP6sBVMycQ2OIkdvXCPXc3yCQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>

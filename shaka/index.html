@@ -2,9 +2,10 @@
 <html lang="en">
 <head>
     <meta name="referrer" content="no-referrer">
-
     <meta charset="UTF-8">
     <title>MSTV Network | Unified Player</title>
+    <!-- Mux.js is REQUIRED for HLS channels (2, 5) to play in Shaka -->
+    <script src="https://cdnjs.cloudflare.com"></script>
     <script src="shaka.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
@@ -17,7 +18,8 @@
 
     <div id="stage">
         <div id="status-overlay">MSTV | Initializing...</div>
-        <video id="video" controls autoplay crossorigin="anonymous"></video>
+        <!-- Note: Added 'muted' to ensure Autoplay works on all browsers -->
+        <video id="video" controls autoplay muted playsinline crossorigin="anonymous"></video>
         <iframe id="external-frame" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
     </div>
 
@@ -32,85 +34,83 @@ const channels = {
     "2": {
         name: "Willow Cricket 2",
         url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
-        type: "hls"
+        type: "shaka"
     },
     "3": {
         name: "Deewana HD",
-        // Fixed: Added the proxy + the full CNN stream URL
         url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
-        type: "shaka",
+        type: "shaka"
     },
     "4": {
         name: "Star Gold",
-        
         url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
-        type: "shaka",
+        type: "shaka"
     },
-    
     "5": {
         name: "Zindgi Tv (Pak)",
         url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
-        type: "hls"
+        type: "shaka"
     }
 };
 
+let player;
 
+async function initApp() {
+    if (typeof shaka === 'undefined') {
+        document.getElementById('status-overlay').innerText = "shaka.js not found!";
+        return;
+    }
 
+    shaka.polyfill.installAll();
+    const video = document.getElementById('video');
+    player = new shaka.Player(video);
+
+    // Fixed the broken logic here:
+    const query = window.location.search.substring(1);
+    const chId = query || "1"; 
     
+    loadChannel(chId);
+}
 
-        let player;
+async function loadChannel(id) {
+    const ch = channels[id];
+    const status = document.getElementById('status-overlay');
+    const video = document.getElementById('video');
+    const iframe = document.getElementById('external-frame');
 
-        async function initApp() {
-            if (typeof shaka === 'undefined') return alert("shaka.js not found!");
+    if (!ch) {
+        status.innerText = "Error: Channel " + id + " not found.";
+        return;
+    }
 
-            shaka.polyfill.installAll();
-            const video = document.getElementById('video');
-            player = tion.search.substring(1);
-            const chId 
-            const iframe = document.getElementById('external-frame');
+    status.innerText = "MSTV | " + ch.name;
 
-            if (!ch) {
-                status.innerText = "Error: Channel " + id + " not found.";
-                return;
-            }
+    if (ch.type === "shaka") {
+        iframe.style.display = "none";
+        iframe.src = "";
+        video.style.display = "block";
+        
+        // Reset config and apply ClearKey DRM if available
+        player.configure({ drm: { clearKeys: ch.drm || {} } });
 
-            status.innerText = "MSTV | " + ch.name;
-
-            if (ch.type === "shaka") {
-                // --- SHAKA MODE (Zee TV / Bollywood) ---
-                iframe.style.display = "none";
-                iframe.src = "";
-                // Remove sandbox so Shaka has full power for DRM/EME
-                iframe.removeAttribute('sandbox'); 
-                video.style.display = "block";
-                
-                player.resetConfiguration();
-                if (ch.drm) {
-                    player.configure({ drm: { clearKeys: ch.drm } });
-                }
-
-                try {
-                    await player.load(ch.url);
-                } catch (e) { 
-                    status.innerText = "Playback Error: " + e.code; 
-                    console.error("Shaka Error:", e);
-                }
-            } else {
-                // --- IFRAME MODE (Star Sports) ---
-                video.style.display = "none";
-                player.unload(); // Stop Shaka background activity
-                
-                iframe.style.display = "block";
-                
-                // ANTI-REDIRECTION SANDBOX: 
-                // Blocks popups and top-level page jumps (redirects)
-                iframe.setAttribute('sandbox', 'allow-forms allow-scripts allow-same-origin allow-presentation');
-                
-                iframe.src = ch.url;
-            }
+        try {
+            await player.load(ch.url);
+            console.log("Success loading: " + ch.name);
+        } catch (e) { 
+            status.innerText = "Playback Error: " + e.code; 
+            console.error("Shaka Error:", e);
         }
+    } else {
+        // Iframe Fallback
+        video.style.display = "none";
+        player.unload(); 
+        iframe.style.display = "block";
+        iframe.setAttribute('sandbox', 'allow-forms allow-scripts allow-same-origin allow-presentation');
+        iframe.src = ch.url;
+    }
+}
 
-        document.addEventListener('DOMContentLoaded', initApp);
+document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>

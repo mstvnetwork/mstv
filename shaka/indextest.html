@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Star Gold Test - MSTV</title>
+     <script src="shaka.js"></script>
+    <style>
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
+        video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; }
+        #log { color: #00ffA0; margin-top: 10px; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <h2>TESTING: STAR GOLD STREAMS</h2>
+    <video id="video" controls autoplay crossorigin="anonymous"></video>
+    <div id="log">Initializing Player...</div>
+
+    <script>
+        // Stream array: add new streams here as needed
+        const streamList = [
+            {
+                name: "Zee TV (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+                drm: { clearKeys: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" } }
+            },
+            { name: "Real IPTV", type: "hls", url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8" },
+            { name: "BozzTV", type: "hls", url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8" },
+            { name: "Star Gold Proxy", type: "hls", url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8" },
+            { name: "Zindagi TV", type: "hls", url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8" },
+            { name: "Aaj Tak", type: "hls", url: "https://aajtaklive-amd.akamaized.net/hls/live/2014416/aajtak/aajtaklive/live_404p/chunks.m3u8" }
+        ];
+
+        // Automatically pick last path segment
+        const pathSegments = window.location.pathname.split("/").filter(Boolean);
+        const lastSegment = pathSegments[pathSegments.length - 1];
+        let index = parseInt(lastSegment, 10) - 1;
+
+        // If out of range or invalid, default to first stream
+        if (isNaN(index) || index < 0 || index >= streamList.length) {
+            index = 0;
+        }
+
+        const stream = streamList[index];
+
+        async function startTest() {
+            const log = document.getElementById('log');
+            const video = document.getElementById('video');
+
+            if (typeof shaka === 'undefined') {
+                log.innerText = "ERROR: shaka.js not found!";
+                return;
+            }
+
+            shaka.polyfill.installAll();
+            const player = new shaka.Player(video);
+
+            player.addEventListener('error', (event) => {
+                log.innerText = "PLAYBACK ERROR: " + event.detail.code;
+                console.error("Shaka Error:", event.detail);
+            });
+
+            try {
+                log.innerText = "Loading: " + stream.name;
+
+                if (stream.type === "dash" && stream.drm) {
+                    player.configure({ drm: stream.drm });
+                }
+
+                await player.load(stream.url);
+                log.innerText = "✅ STREAM LOADED SUCCESSFULLY: " + stream.name;
+            } catch (e) {
+                log.innerText = "❌ LOAD FAILED: " + e.code;
+                console.error(e);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', startTest);
+    </script>
+</body>
+</html>

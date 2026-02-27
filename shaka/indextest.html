@@ -1,63 +1,52 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- 1. Mux.js: REQUIRED for HLS playback in Shaka -->
-    <script src="https://cdnjs.cloudflare.com"></script>
+<html>
+  <head>
+    <!-- Shaka Player compiled library and default UI styles -->
+    <script src="shaka.js"></script>
     
-    <!-- 2. Shaka UI & CSS -->
-    <link rel="stylesheet" href="https://ajax.googleapis.com">
-    <script src="https://ajax.googleapis.com"></script>
-
-    <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-        .shaka-container { width: 100%; height: 100%; }
-        video { width: 100%; height: 100%; display: block; }
-        /* Theme color for seeker bar */
-        .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
-    </style>
-</head>
-<body>
-
-    <div data-shaka-player-container class="shaka-container">
-        <video autoplay id="video" crossorigin="anonymous"></video>
+  </head>
+  <body>
+    <div data-shaka-player-container style="max-width:800px">
+      <video autoplay id="video" style="width:100%;height:100%"></video>
     </div>
 
     <script>
-        // Your specific stream URL
-        const manifestUri = "https://anywhere.pwisetthon.com";
+      const manifestUri = 'https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/index.m3u8';
 
-        async function init() {
-            const video = document.getElementById('video');
-            const container = document.querySelector('.shaka-container');
+      async function initApp() {
+        // Install built-in polyfills to patch browser incompatibilities
+        shaka.polyfill.installAll();
 
-            // Initialize Player and UI
-            const player = new shaka.Player(video);
-            const ui = new shaka.ui.Overlay(player, container, video);
-            
-            ui.configure({
-                'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen']
-            });
-
-            shaka.polyfill.installAll();
-
-            // Handle errors
-            player.addEventListener('error', (e) => {
-                console.error('Shaka Error:', e.detail.code, e.detail);
-                if (e.detail.code === 1001) alert("CORS Error: The server is blocking this player.");
-            });
-
-            try {
-                await player.load(manifestUri);
-                console.log("Success: Stream loaded.");
-            } catch (e) {
-                console.error("Load failed:", e);
-            }
+        // Check if the browser supports the basic APIs Shaka needs
+        if (shaka.Player.isBrowserSupported()) {
+          initPlayer();
+        } else {
+          console.error('Browser not supported!');
         }
+      }
 
-        document.addEventListener('shaka-ui-loaded', init);
-        if (document.readyState === 'complete' && window.shaka) init();
+      async function initPlayer() {
+        const video = document.getElementById('video');
+        const player = new shaka.Player(video);
+
+        // Attach player to window for console debugging
+        window.player = player;
+
+        // Listen for error events
+        player.addEventListener('error', (event) => {
+          console.error('Error code', event.detail.code, 'object', event.detail);
+        });
+
+        try {
+          // Load the HLS manifest
+          await player.load(manifestUri);
+          console.log('The video has now been loaded!');
+        } catch (e) {
+          console.error('Error loading manifest', e);
+        }
+      }
+
+      document.addEventListener('DOMContentLoaded', initApp);
     </script>
-</body>
+  </body>
 </html>

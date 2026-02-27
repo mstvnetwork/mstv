@@ -4,24 +4,37 @@
     <meta charset="UTF-8">
     <meta name="referrer" content="no-referrer">
     <title>MSTV Unified Player</title>
-    <!-- 1. Mux.js for HLS -->
+    
+    <!-- 1. Shaka Player UI CSS (Required for controls to look right) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
+    
+    <!-- 2. Shaka Player All-in-One Library (Player + UI) -->
     <script src="https://cdnjs.cloudflare.com"></script>
-    <!-- 2. Shaka Player via CDN (Reliable) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net">
-    <script src="https://cdn.jsdelivr.net"></script>
+    
+    <!-- 3. Mux.js for HLS support (Needed for your .m3u8 links) -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
-        #stage { width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        video { width: 100%; height: 100%; background: #000; }
-        #status { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 8px 15px; border-radius: 4px; font-size: 14px; z-index: 100; border-left: 4px solid #007bff; }
-        #unmute-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #007bff; color: white; padding: 15px 30px; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 200; box-shadow: 0 0 20px rgba(0,123,255,0.5); border: none; }
+        
+        /* Container must be relative for UI overlay */
+        #stage { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        
+        video { width: 100%; height: 100%; }
+
+        #status { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 8px 15px; border-radius: 4px; font-size: 14px; z-index: 100; border-left: 4px solid #007bff; pointer-events: none; }
+        
+        #unmute-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #007bff; color: white; padding: 15px 30px; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 1000; box-shadow: 0 0 20px rgba(0,123,255,0.5); border: none; }
     </style>
 </head>
 <body>
 
+    <!-- The data-shaka-player-container tells the library to inject controls here -->
     <div id="stage" data-shaka-player-container>
         <div id="status">MSTV | Loading...</div>
         <button id="unmute-btn">🔊 CLICK FOR SOUND</button>
+        
+        <!-- The data-shaka-player attribute auto-initializes the player -->
         <video id="video" data-shaka-player autoplay muted playsinline style="width:100%;height:100%;"></video>
     </div>
 
@@ -64,13 +77,14 @@
 };
 
 
-
         async function initPlayer() {
             const video = document.getElementById('video');
-            const ui = video['ui'];
-            const player = ui.getControls().getPlayer();
             const status = document.getElementById('status');
             const unmuteBtn = document.getElementById('unmute-btn');
+            
+            // Get the player and UI overlay created by the data-shaka-player attributes
+            const ui = video['ui'];
+            const player = ui.getControls().getPlayer();
 
             // --- Unmute Logic ---
             unmuteBtn.addEventListener('click', () => {
@@ -79,27 +93,40 @@
                 unmuteBtn.style.display = 'none';
             });
 
-            // --- URL Logic ---
+            // --- Channel Selection ---
             const chId = window.location.search.substring(1) || "1";
             const ch = channels[chId];
 
             if (ch) {
                 status.innerText = "MSTV | Playing: " + ch.name;
+                
+                // Configure DRM if keys exist
                 if (ch.drm) {
-                    player.configure({ drm: { clearKeys: ch.drm } });
+                    player.configure({
+                        drm: { clearKeys: ch.drm }
+                    });
                 }
+
+                // Error handling
+                player.addEventListener('error', (event) => {
+                    console.error('Shaka Error:', event.detail);
+                    status.innerText = "Error: " + event.detail.code;
+                });
+
                 try {
                     await player.load(ch.url);
+                    console.log('The video has now been loaded!');
                 } catch (e) {
-                    status.innerText = "Error: " + e.code;
+                    console.error('Load Error:', e);
+                    status.innerText = "Load Failed: " + e.code;
                 }
+            } else {
+                status.innerText = "Channel not found.";
             }
         }
 
-        // Wait for Shaka UI to be ready
+        // Listen for the UI library to be ready
         document.addEventListener('shaka-ui-loaded', initPlayer);
-        // Backup if the event fires too fast
-        document.addEventListener('DOMContentLoaded', () => { if (window.shaka) initPlayer(); });
     </script>
 </body>
 </html>

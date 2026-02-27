@@ -3,36 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Player - Shaka</title>
+    <title>MSTV Player Pro</title>
     
-    <!-- 1. Mux.js: Required to play HLS (.m3u8) on browsers like Chrome -->
-    
-    <!-- 1. Mux.js (Required for Star Gold/HLS) -->
+    <!-- 1. Mux.js: Required for HLS (Channel 5) support in Shaka -->
     <script src="https://cdnjs.cloudflare.com"></script>
-
-    <!-- 2. Shaka Player (Full Compiled Library) -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.3/shaka-player.compiled.js"></script>
-</head>
-
+    
+    <!-- 2. Shaka Player: Using CDN to avoid 404 Not Found errors on Netlify -->
+    <script src="https://cdnjs.cloudflare.com"></script>
     
     <style>
         body, html { margin: 0; padding: 0; background: #000; height: 100%; width: 100%; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-        #video { width: 100%; height: 100%; background: #000; }
+        #video { width: 100%; height: 100%; background: #000; outline: none; }
         #status-overlay { 
             position: absolute; top: 15px; left: 15px; 
             color: #00ffA0; font-family: sans-serif; font-size: 16px; 
             z-index: 10; text-shadow: 2px 2px 4px #000;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
 
     <div id="status-overlay">MSTV | Initializing...</div>
+    <!-- crossorigin="anonymous" is critical for fixing 7002 CORS errors -->
     <video id="video" autoplay controls crossorigin="anonymous"></video>
 
     <script>
-        
-const channels = {
+        const channels = {
     "1": {
         name: "Zee TV",
         url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
@@ -68,26 +65,22 @@ const channels = {
         type: "hls"
     }
 };
-        
+
         let player;
 
         async function initApp() {
-            // Check if shaka.js is correctly linked
             if (typeof shaka === 'undefined') {
-                document.getElementById('status-overlay').innerText = "Error: shaka.js not found!";
+                document.getElementById('status-overlay').innerText = "Error: Library not loaded!";
                 return;
             }
 
             shaka.polyfill.installAll();
-            if (!shaka.Player.isBrowserSupported()) {
-                alert("This browser is not supported!");
-                return;
-            }
-
             const video = document.getElementById('video');
+            
+            // Fix 7002: Ensure player is attached to video tag immediately
             player = new shaka.Player(video);
 
-            // CONDITIONAL HEADERS: Only attaches Zee5 headers to Zee5 cloudfront links
+            // Conditional Header: Only for Zee TV Cloudfront links
             player.getNetworkingEngine().registerRequestFilter((type, request) => {
                 if (request.uris.some(u => u.includes('cloudfront.net'))) {
                     request.headers['Origin'] = 'https://www.zee5.com';
@@ -95,7 +88,11 @@ const channels = {
                 }
             });
 
-            // Parse URL for channel ID (e.g., ?5)
+            player.addEventListener('error', (e) => {
+                console.error('Shaka Error:', e.detail.code);
+                document.getElementById('status-overlay').innerText = "Error: " + e.detail.code;
+            });
+
             const query = window.location.search.substring(1);
             const chId = query || "1"; 
             loadChannel(chId);
@@ -106,26 +103,26 @@ const channels = {
             const status = document.getElementById('status-overlay');
 
             if (!ch) {
-                status.innerText = "Error: Channel " + id + " not found.";
+                status.innerText = "Channel Not Found";
                 return;
             }
 
             status.innerText = "MSTV | " + ch.name;
 
-            // Reset and configure DRM if necessary
-            player.resetConfiguration();
-            if (ch.drm) {
-                player.configure({ drm: { clearKeys: ch.drm } });
-            }
-
             try {
-                // Unload previous content before loading new one
+                // Completely clear previous session before loading
                 await player.unload();
+                
+                player.resetConfiguration();
+                if (ch.drm) {
+                    player.configure({ drm: { clearKeys: ch.drm } });
+                }
+
                 await player.load(ch.url);
-                console.log("Channel loaded successfully!");
+                console.log("MSTV: Successfully loaded " + ch.name);
             } catch (e) {
-                status.innerText = "Playback Error: " + e.code;
-                console.error("Shaka Load Error:", e);
+                status.innerText = "Load Failed: " + e.code;
+                console.error("Load Error:", e);
             }
         }
 

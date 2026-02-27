@@ -4,24 +4,25 @@
     <meta name="referrer" content="no-referrer">
     <meta charset="UTF-8">
     <title>MSTV Network | Unified Player</title>
-    <!-- Mux.js is REQUIRED for HLS channels (2, 5) to play in Shaka -->
+    <!-- REQUIRED: Mux.js allows HLS (Willow/Sky/Star) to play in Shaka on Chrome -->
     <script src="https://cdnjs.cloudflare.com"></script>
+    <!-- Your local library in the /shaka/ folder -->
     <script src="shaka.js"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
         #stage { width: 100vw; height: 100vh; position: relative; display: flex; justify-content: center; align-items: center; }
-        video, iframe { width: 100%; height: 100%; border: none; display: none; }
-        #status-overlay { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.6); padding: 5px 12px; border-radius: 4px; font-size: 12px; z-index: 100; border-left: 3px solid #007bff; }
+        video, iframe { width: 100%; height: 100%; border: none; display: none; background: #000; }
+        #status-overlay { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 6px 15px; border-radius: 4px; font-size: 13px; z-index: 100; border-left: 4px solid #007bff; pointer-events: none; }
+        #unmute-notice { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); background: #007bff; color: white; padding: 10px 20px; border-radius: 30px; font-weight: bold; cursor: pointer; z-index: 200; display: none; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
     </style>
 </head>
 <body>
 
     <div id="stage">
         <div id="status-overlay">MSTV | Initializing...</div>
-        <!-- Note: Added 'muted' to ensure Autoplay works on all browsers -->
+        <div id="unmute-notice">🔊 TAP TO UNMUTE</div>
+        <!-- 'muted' is REQUIRED for autoplay to start. We unmute via JS later. -->
         <video id="video" controls autoplay muted playsinline crossorigin="anonymous"></video>
-
-
         <iframe id="external-frame" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe>
     </div>
 
@@ -36,98 +37,101 @@ const channels = {
     "2": {
         name: "Willow Cricket 2",
         url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
-        type: "shaka"
+        type: "hls"
     },
     "3": {
         name: "Deewana HD",
+        
         url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
-        type: "shaka"
+        type: "hls",
     },
     "4": {
-        name: "Star Gold",
-        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
-        type: "shaka"
+        name: "Sky Sports",
+        
+        url: "https://nl1.rocketdns.info:25463/live/ALEX/sg5ng25ikf/2192.m3u8?token=HkNcWEBYFAkUUgsCA1UFVgFeUlYHAFEHWlFRUwpRVwIGWFUOUlVVAQUSH0ZAFRFRUwtoXlQaXgFTWAEdERBBVhc+XV0RChQABAgAVgJDTxZGD1pSEgJUH0ARWlURXxAGUFkNDAESGhFTSEcBQQ8CWG0CUkFZWwERWA9GXV9JEFwLPlBcXlFYVxQKEVQRTUFdQRYVDV5NCF9OQ1FYRxdTRwBDDhsEAQ8AFBwRB1wUDUBAHxUNEnkxEU5DVklHAFxADA5aGwkSWwBDCBFIEQgQa0ADRENCXQVeBxMRCxFVEB9HDFVBbFNZXVhVUBBaDg1HEFwVBAAIRh9ADFxfWhFdQToRXV0RChQEDgcCVwZDHg==",
+        type: "shaka",
     },
-    "5": {
+     "5": {
+        name: "Star Gold ",
+        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
+        type: "hls",
+    },
+    
+    "6": {
         name: "Zindgi Tv (Pak)",
         url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
-        type: "shaka"
+        type: "hls"
     }
 };
 
-let player;
 
-async function initApp() {
-    if (typeof shaka === 'undefined') {
-        document.getElementById('status-overlay').innerText = "shaka.js not found!";
-        return;
-    }
-    // Add this inside your script
-document.body.addEventListener('click', function() {
-    const video = document.getElementById('video');
-    video.muted = false;
-    console.log("User interacted, unmuting audio...");
-}, { once: true }); // Only runs the first time they click
+        let player;
 
+        async function initApp() {
+            if (typeof shaka === 'undefined') {
+                document.getElementById('status-overlay').innerText = "FATAL: shaka.js not found!";
+                return;
+            }
 
-    shaka.polyfill.installAll();
-    const video = document.getElementById('video');
-    player = new shaka.Player(video);
+            shaka.polyfill.installAll();
+            const video = document.getElementById('video');
+            player = new shaka.Player(video);
 
-    // Fixed the broken logic here:
-    const query = window.location.search.substring(1);
-    const chId = query || "1"; 
-    
-    loadChannel(chId);
-}
+            // Audio Workaround: Show notice and handle first click
+            const unmuteBtn = document.getElementById('unmute-notice');
+            unmuteBtn.style.display = 'block';
 
-async function loadChannel(id) {
-    const ch = channels[id];
-    const status = document.getElementById('status-overlay');
-    const video = document.getElementById('video');
-    const iframe = document.getElementById('external-frame');
+            window.addEventListener('click', function() {
+                video.muted = false;
+                video.volume = 1.0;
+                unmuteBtn.style.display = 'none';
+                console.log("Audio Unmuted");
+            }, { once: true });
 
-    if (!ch) {
-        status.innerText = "Error: Channel " + id + " not found.";
-        return;
-    }
-
-    status.innerText = "MSTV | " + ch.name;
-
-    if (ch.type === "shaka") {
-        iframe.style.display = "none";
-        iframe.src = "";
-        video.style.display = "block";
-        
-        // Reset config and apply ClearKey DRM if available
-        player.configure({ drm: { clearKeys: ch.drm || {} } });
-
-        try {
-            await player.load(ch.url);
-            console.log("Success loading: " + ch.name);
-        } catch (e) { 
-            status.innerText = "Playback Error: " + e.code; 
-            console.error("Shaka Error:", e);
+            const query = window.location.search.substring(1);
+            const chId = query || "1"; 
+            
+            loadChannel(chId);
         }
-    } else {
-        // Iframe Fallback
-        video.style.display = "none";
-        player.unload(); 
-        iframe.style.display = "block";
-        iframe.setAttribute('sandbox', 'allow-forms allow-scripts allow-same-origin allow-presentation');
-        iframe.src = ch.url;
-    }
-}
 
-document.addEventListener('DOMContentLoaded', initApp);
-        // This waits for the first click anywhere on the page to turn on the sound
-document.body.addEventListener('click', function() {
-    const video = document.getElementById('video');
-    video.muted = false;
-    video.volume = 1.0;
-    console.log("User interacted: Sound is now ON");
-}, { once: true });
+        async function loadChannel(id) {
+            const ch = channels[id];
+            const status = document.getElementById('status-overlay');
+            const video = document.getElementById('video');
+            const iframe = document.getElementById('external-frame');
 
+            if (!ch) {
+                status.innerText = "Error: Channel " + id + " not found.";
+                return;
+            }
+
+            status.innerText = "MSTV | " + ch.name;
+
+            if (ch.type === "shaka") {
+                iframe.style.display = "none";
+                video.style.display = "block";
+                
+                // ClearKey Configuration
+                player.configure({ 
+                    drm: { clearKeys: ch.drm || {} },
+                    streaming: { jumpLargeGaps: true }
+                });
+
+                try {
+                    await player.load(ch.url);
+                } catch (e) { 
+                    status.innerText = "Playback Error: " + e.code; 
+                    console.error("Shaka Error:", e);
+                }
+            } else {
+                video.style.display = "none";
+                player.unload(); 
+                iframe.style.display = "block";
+                iframe.src = ch.url;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>

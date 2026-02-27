@@ -3,9 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Star Gold Test - MSTV</title>
-    <!-- Mux.js is absolutely required for HLS (.m3u8) support in Shaka -->
-    <script src="https://cdnjs.cloudflare.com"></script>
-    <script src="shaka.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; text-align: center; }
         video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; }
@@ -13,39 +11,80 @@
     </style>
 </head>
 <body>
-    <h2>TESTING: STAR GOLD</h2>
+    <h2>TESTING: STAR GOLD STREAMS</h2>
     <video id="video" controls autoplay crossorigin="anonymous"></video>
     <div id="log">Initializing Player...</div>
 
     <script>
-        // THE URL YOU ARE TESTING
-        const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+        // Stream array
+        const streamList = [
+            {
+                name: "Zee TV (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+                drm: {
+                    clearKeys: {
+                        "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b"
+                    }
+                }
+            },
+            {
+                name: "Real IPTV",
+                type: "hls",
+                url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8"
+            },
+            {
+                name: "BozzTV",
+                type: "hls",
+                url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8"
+            },
+            {
+                name: "Star Gold Proxy",
+                type: "hls",
+                url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8"
+            },
+            {
+                name: "Zindagi TV",
+                type: "hls",
+                url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8"
+            }
+        ];
+
+        // Get the last segment of the path (for /shaka/1, /shaka/2, etc.)
+        const pathSegments = window.location.pathname.split("/").filter(Boolean);
+        const lastSegment = pathSegments[pathSegments.length - 1];
+        const index = parseInt(lastSegment, 10) - 1; // /1 -> index 0
+        const stream = streamList[index] || streamList[0];
 
         async function startTest() {
             const log = document.getElementById('log');
             const video = document.getElementById('video');
 
             if (typeof shaka === 'undefined') {
-                log.innerText = "ERROR: shaka.js not found in this folder!";
+                log.innerText = "ERROR: shaka.js not found!";
                 return;
             }
 
             shaka.polyfill.installAll();
             const player = new shaka.Player(video);
 
-            // Detailed logging
             player.addEventListener('error', (event) => {
-                log.innerText = "PLAYBACK ERROR: Code " + event.detail.code;
-                console.error("Shaka Error Detail:", event.detail);
+                log.innerText = "PLAYBACK ERROR: " + event.detail.code;
+                console.error("Shaka Error:", event.detail);
             });
 
             try {
-                log.innerText = "Attempting to load: " + testUrl;
-                await player.load(testUrl);
-                log.innerText = "✅ STREAM LOADED SUCCESSFULLY";
+                log.innerText = "Loading: " + stream.name;
+
+                if (stream.type === "dash" && stream.drm) {
+                    player.configure({ drm: stream.drm });
+                }
+
+                await player.load(stream.url);
+                log.innerText = "✅ STREAM LOADED SUCCESSFULLY: " + stream.name;
             } catch (e) {
                 log.innerText = "❌ LOAD FAILED: " + e.code;
-                console.error("Load Catch:", e);
+                console.error(e);
             }
         }
 

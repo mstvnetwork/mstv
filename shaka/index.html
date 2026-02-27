@@ -5,124 +5,112 @@
     <meta name="referrer" content="no-referrer">
     <title>MSTV Unified Player</title>
     
-    <!-- 1. Shaka Player UI CSS (Required for controls to look right) -->
+    <!-- Shaka Player UI & Engine -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
-    
-    <!-- 2. Shaka Player All-in-One Library (Player + UI) -->
     <script src="https://cdnjs.cloudflare.com"></script>
     
-    <!-- 3. Mux.js for HLS support (Needed for your .m3u8 links) -->
+    <!-- Mux.js (Required for HLS/m3u8 playback) -->
     <script src="https://cdnjs.cloudflare.com"></script>
 
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
-        
-        /* Container must be relative for UI overlay */
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white; }
         #stage { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        
         video { width: 100%; height: 100%; }
-
-        #status { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.7); padding: 8px 15px; border-radius: 4px; font-size: 14px; z-index: 100; border-left: 4px solid #007bff; pointer-events: none; }
         
-        #unmute-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #007bff; color: white; padding: 15px 30px; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 1000; box-shadow: 0 0 20px rgba(0,123,255,0.5); border: none; }
+        /* Enhanced Status Label */
+        #status { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.85); padding: 10px 18px; border-radius: 6px; font-size: 13px; z-index: 1000; border-left: 5px solid #007bff; max-width: 80%; line-height: 1.4; pointer-events: none; }
+        .error-text { color: #ff4d4d; font-weight: bold; }
+        
+        #unmute-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #007bff; color: white; padding: 15px 35px; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 2000; box-shadow: 0 0 30px rgba(0,123,255,0.6); border: none; font-size: 16px; }
     </style>
 </head>
 <body>
 
-    <!-- The data-shaka-player-container tells the library to inject controls here -->
     <div id="stage" data-shaka-player-container>
-        <div id="status">MSTV | Loading...</div>
-        <button id="unmute-btn">🔊 CLICK FOR SOUND</button>
-        
-        <!-- The data-shaka-player attribute auto-initializes the player -->
-        <video id="video" data-shaka-player autoplay muted playsinline style="width:100%;height:100%;"></video>
+        <div id="status">MSTV | Initializing...</div>
+        <button id="unmute-btn">🔊 ENABLE SOUND & PLAY</button>
+        <video id="video" data-shaka-player autoplay muted playsinline></video>
     </div>
 
     <script>
         const channels = {
-    "1": {
-        name: "Zee TV",
-        url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
-        type: "shaka",
-        drm: { 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b' }
-    },
-    "2": {
-        name: "Willow Cricket 2",
-        url: "https://restream-live.realiptv.to/live/ALEX/sg5ng25ikf/3973.m3u8",
-        type: "hls"
-    },
-    "3": {
-        name: "Deewana HD",
-        
-        url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8",
-        type: "hls",
-    },
-    
-     "4": {
-        name: "Star Gold ",
-        url: "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8",
-        type: "hls",
-    },
-    
-    "5": {
-        name: "Zindgi Tv (Pak)",
-        url: "https://5ad386ff92705.streamlock.net/live_transcoder/ngrp:zindagitv.stream_all/chunklist.m3u8",
-        type: "hls"
-    }
-};
+            "1": { name: "Zee TV", url: "https://d1g8wgjurz8via.cloudfront.net", drm: { 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b' } },
+            "2": { name: "Willow Cricket 2", url: "https://restream-live.realiptv.to" },
+            "3": { name: "Deewana HD", url: "https://live20.bozztv.com" },
+            "4": { name: "Sky Sports", url: "https://nl1.rocketdns.info" },
+            "5": { name: "Star Gold", url: "https://anywhere.pwisetthon.com" },
+            "6": { name: "Zindgi Tv (Pak)", url: "https://5ad386ff92705.streamlock.net" }
+        };
 
+        const statusEl = document.getElementById('status');
 
+        function updateStatus(msg, isError = false) {
+            statusEl.innerHTML = isError ? `<span class="error-text">ERROR: ${msg}</span>` : `MSTV | ${msg}`;
+            console.log(`[MSTV] ${msg}`);
+        }
 
         async function initPlayer() {
             const video = document.getElementById('video');
-            const status = document.getElementById('status');
-            const unmuteBtn = document.getElementById('unmute-btn');
-            
-            // Get the player and UI overlay created by the data-shaka-player attributes
             const ui = video['ui'];
-            const player = ui.getControls().getPlayer();
+            const controls = ui.getControls();
+            const player = controls.getPlayer();
+            const unmuteBtn = document.getElementById('unmute-btn');
 
-            // --- Unmute Logic ---
+            // --- Unmute & Force Play ---
             unmuteBtn.addEventListener('click', () => {
                 video.muted = false;
-                video.volume = 1.0;
-                unmuteBtn.style.display = 'none';
+                video.play().then(() => {
+                    unmuteBtn.style.display = 'none';
+                    updateStatus("Audio Enabled");
+                }).catch(e => updateStatus("Click Play again", true));
             });
 
-            // --- Channel Selection ---
+            // --- Shaka Configuration ---
+            player.configure({
+                streaming: {
+                    forceTransmuxTS: true, // Crucial for .m3u8 TS streams
+                    jumpLargeGaps: true
+                }
+            });
+
+            // --- Error Reporting Logic ---
+            player.addEventListener('error', (event) => {
+                const error = event.detail;
+                // Map common Shaka errors to readable text
+                let friendlyMsg = error.code;
+                if (error.code === 1002) friendlyMsg = "CORS/Network Block (1002)";
+                if (error.code === 3016) friendlyMsg = "Format Unsupported (3016)";
+                if (error.code === 4032) friendlyMsg = "DRM Key Mismatch (4032)";
+                
+                updateStatus(friendlyMsg, true);
+            });
+
             const chId = window.location.search.substring(1) || "1";
             const ch = channels[chId];
 
             if (ch) {
-                status.innerText = "MSTV | Playing: " + ch.name;
-                
-                // Configure DRM if keys exist
-                if (ch.drm) {
-                    player.configure({
-                        drm: { clearKeys: ch.drm }
-                    });
-                }
-
-                // Error handling
-                player.addEventListener('error', (event) => {
-                    console.error('Shaka Error:', event.detail);
-                    status.innerText = "Error: " + event.detail.code;
-                });
+                updateStatus(`Loading ${ch.name}...`);
+                if (ch.drm) player.configure({ drm: { clearKeys: ch.drm } });
 
                 try {
                     await player.load(ch.url);
-                    console.log('The video has now been loaded!');
+                    updateStatus(`Playing: ${ch.name}`);
                 } catch (e) {
-                    console.error('Load Error:', e);
-                    status.innerText = "Load Failed: " + e.code;
+                    // This catches initial load errors
+                    updateStatus(`Load Failed (${e.code})`, true);
                 }
             } else {
-                status.innerText = "Channel not found.";
+                updateStatus("Channel ID not found in URL", true);
             }
         }
 
-        // Listen for the UI library to be ready
         document.addEventListener('shaka-ui-loaded', initPlayer);
+        // Fallback for non-UI builds
+        document.addEventListener('DOMContentLoaded', () => { 
+            if (window.shaka && !document.getElementById('video')['ui']) {
+                updateStatus("UI Library failed to load. Check CDN links.", true);
+            }
+        });
     </script>
 </body>
 </html>

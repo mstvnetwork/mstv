@@ -3,76 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Replace with your local path if you have controls.css in your repo -->
-    <link rel="stylesheet" href="https://ajax.googleapis.com">
-    <script src="shaka.js"></script>
+    <title>Embed Player</title>
+    <!-- CSS is mandatory for the UI to look correct -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
+    <!-- Using the UI-enabled version of Shaka -->
+    <script src="https://cdnjs.cloudflare.com"></script>
     <style>
-        /* Full-window embed setup */
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-        
-        /* Container fills the iframe/window */
         .shaka-container { width: 100%; height: 100%; }
-        video { width: 100%; height: 100%; display: block; }
-
-        /* Customizing UI colors to match your previous theme */
+        video { width: 100%; height: 100%; }
+        /* Professional green accent for the seeker bar */
         .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
-        .shaka-bottom-controls { display: flex; align-items: center; }
     </style>
 </head>
 <body>
 
-    <!-- The data-shaka-player-container attribute tells the UI library where to inject controls -->
     <div data-shaka-player-container class="shaka-container">
         <video autoplay id="video" crossorigin="anonymous"></video>
     </div>
 
     <script>
-        const testUrl = "https://anywhere.pwisetthon.com";
+        const manifestUri = "https://anywhere.pwisetthon.com";
 
-        async function initPlayer() {
-            // Install polyfills
-            shaka.polyfill.installAll();
-
-            if (!shaka.Player.isBrowserSupported()) {
-                console.error('Browser not supported!');
-                return;
-            }
-
+        async function init() {
             const video = document.getElementById('video');
             const container = document.querySelector('.shaka-container');
-            
-            // 1. Initialize Player
-            const player = new shaka.Player(video);
 
-            // 2. Initialize UI Overlay (Connects your shaka.js to the UI)
-            const ui = new shaka.ui.Overlay(player, container, video);
+            // Initialize Player
+            const player = new shaka.Player(video);
             
-            // Configure UI elements (Quality selection is the main benefit here)
+            // Initialize UI
+            const ui = new shaka.ui.Overlay(player, container, video);
             const config = {
-                'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen'],
-                'addLanguageControls': true
+                'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen']
             };
             ui.configure(config);
 
-            // Error handling
-            player.addEventListener('error', (event) => {
-                console.error("Shaka Error:", event.detail);
-            });
+            shaka.polyfill.installAll();
+
+            player.addEventListener('error', (e) => console.error('Player Error:', e.detail));
 
             try {
-                await player.load(testUrl);
-                console.log("Stream loaded successfully");
+                await player.load(manifestUri);
             } catch (e) {
-                console.error("Load failed:", e);
+                console.error('Load Error:', e);
             }
         }
 
-        // Shaka UI library fires this event when ready
-        document.addEventListener('shaka-ui-loaded', initPlayer);
-        // Fallback for non-UI builds or direct script inclusion
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.shaka && !window.shaka.ui) initPlayer();
-        });
+        // The UI library triggers this event when the DOM is ready
+        document.addEventListener('shaka-ui-loaded', init);
+        // Backup: if the event already fired
+        if (document.readyState === 'complete' && window.shaka) init();
     </script>
 </body>
 </html>

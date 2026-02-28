@@ -2,20 +2,38 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Shaka Live UI Player</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/controls.min.css">
+<title>Shaka Live HLS Player</title>
+
+<!-- Shaka UI CDN -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/controls.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.ui.min.js"></script>
 
 <style>
     body { margin:0; background:#000; }
-    #video-container { width:100%; max-width:900px; margin:0 auto; }
+    #video-container { width:100%; max-width:900px; margin:0 auto; position:relative; }
     video { width:100%; display:block; }
+    #spinner {
+        position:absolute;
+        top:50%; left:50%;
+        transform:translate(-50%, -50%);
+        border:6px solid #f3f3f3;
+        border-top:6px solid #00ffA0;
+        border-radius:50%;
+        width:50px; height:50px;
+        animation:spin 1s linear infinite;
+        z-index:10;
+    }
+    @keyframes spin {
+        0% { transform:rotate(0deg); }
+        100% { transform:rotate(360deg); }
+    }
 </style>
 </head>
-
 <body>
+
 <div id="video-container" data-shaka-player-container>
     <video id="video" data-shaka-player autoplay playsinline muted></video>
+    <div id="spinner"></div>
 </div>
 
 <script>
@@ -29,11 +47,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const video = document.getElementById('video');
     const container = document.getElementById('video-container');
+    const spinner = document.getElementById('spinner');
 
-    // Expose globally for debugging in console
+    // Expose player globally for debugging
     window.player = new shaka.Player(video);
 
-    // Create UI overlay
+    // UI Overlay
     const ui = new shaka.ui.Overlay(window.player, container, video);
     ui.configure({
         controlPanelElements: [
@@ -42,30 +61,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         ]
     });
 
-    // --- Live stream configuration ---
+    // --- Live streaming configuration ---
     window.player.configure({
         streaming: {
             retryParameters: { maxAttempts: 6, baseDelay: 500, backoffFactor: 2, fuzzFactor: 0.5 },
             rebufferingGoal: 5,
             bufferingGoal: 20
         },
-        manifest: {
-            dash: { ignoreMinBufferTime: true },
-            hls: { ignoreManifestDrift: true } // allows catching late live segments
-        },
         abr: { enabled: true }
     });
 
-    // Error logging
-    window.player.addEventListener('error', e => {
-        console.warn('Shaka error', e.detail);
-    });
-
-    // Spinner logic
+    // Show/hide spinner on buffering
     video.addEventListener('playing', () => {
-        const spinner = document.getElementById('spinner');
         if (spinner) spinner.style.display = 'none';
     });
+    video.addEventListener('waiting', () => {
+        if (spinner) spinner.style.display = 'block';
+    });
+
+    // Log Shaka errors
+    window.player.addEventListener('error', e => console.warn('Shaka error', e.detail));
 
     try {
         // Replace this with your live HLS URL
@@ -73,8 +88,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         video.play();
     } catch (e) {
         console.error('Load failed', e);
+        if (spinner) spinner.style.display = 'none';
     }
 });
 </script>
+
 </body>
 </html>

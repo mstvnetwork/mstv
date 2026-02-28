@@ -2,99 +2,84 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Hybrid Shaka Live Player</title>
+<title>Player</title>
 
-<!-- Shaka UI CDN -->
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/controls.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.ui.min.js"></script>
+<script src="shaka.js"></script>
 
 <style>
-    body { margin:0; background:#000; }
-    #video-container { width:100%; max-width:900px; margin:0 auto; position:relative; }
-    video { width:100%; display:block; }
-    #spinner {
-        position:absolute;
-        top:50%; left:50%;
-        transform:translate(-50%, -50%);
-        border:6px solid #f3f3f3;
-        border-top:6px solid #00ffA0;
-        border-radius:50%;
-        width:50px; height:50px;
-        animation:spin 1s linear infinite;
-        z-index:10;
+    body {
+        margin: 0;
+        background: #000;
     }
+
+    #video-container {
+        position: relative;
+        width: 100%;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+
+    video {
+        width: 100%;
+        background: #111;
+        display: block;
+    }
+
+    #spinner {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        border: 6px solid #f3f3f3;
+        border-top: 6px solid #00ffA0;
+        border-radius: 50%;
+        width: 50px;
+        height: 50px;
+        animation: spin 1s linear infinite;
+        z-index: 10;
+    }
+
     @keyframes spin {
-        0% { transform:rotate(0deg); }
-        100% { transform:rotate(360deg); }
+        0% { transform: translate(-50%, -50%) rotate(0deg); }
+        100% { transform: translate(-50%, -50%) rotate(360deg); }
     }
 </style>
 </head>
 
 <body>
-<div id="video-container" data-shaka-player-container>
-    <video id="video" autoplay playsinline muted></video>
+
+<div id="video-container">
+    <video id="video" controls autoplay crossorigin="anonymous"></video>
     <div id="spinner"></div>
 </div>
 
 <script>
+const streamUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+
 document.addEventListener('DOMContentLoaded', async () => {
     const video = document.getElementById('video');
-    const container = document.getElementById('video-container');
     const spinner = document.getElementById('spinner');
 
-    // Replace with your live HLS URL
-    const liveUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
-
-    // Step 1: Start native playback immediately
-    video.src = liveUrl;
-    video.play().catch(() => {
-        // Mobile might block autoplay, spinner will remain until user interacts
-        console.log("Native autoplay blocked");
-    });
-
-    // Step 2: Initialize Shaka Player in background
-    shaka.polyfill.installAll();
-
-    if (!shaka.Player.isBrowserSupported()) {
-        console.error("Browser not supported");
-        if (spinner) spinner.style.display = 'none';
+    if (typeof shaka === 'undefined') {
+        spinner.style.display = 'none';
         return;
     }
 
-    window.player = new shaka.Player(video);
+    shaka.polyfill.installAll();
+    const player = new shaka.Player(video);
 
-    // UI Overlay
-    const ui = new shaka.ui.Overlay(window.player, container, video);
-    ui.configure({
-        controlPanelElements: [
-            'play_pause','time_and_duration','spacer',
-            'mute','volume','quality','captions','fullscreen','overflow_menu'
-        ]
+    player.addEventListener('error', () => {
+        spinner.style.display = 'none';
     });
 
-    // Live stream config
-    window.player.configure({
-        streaming: {
-            retryParameters: { maxAttempts: 6, baseDelay: 500, backoffFactor: 2, fuzzFactor: 0.5 },
-            rebufferingGoal: 5,
-            bufferingGoal: 20
-        },
-        abr: { enabled: true }
+    video.addEventListener('playing', () => {
+        spinner.style.display = 'none';
     });
 
-    // Spinner logic
-    video.addEventListener('playing', () => { if (spinner) spinner.style.display='none'; });
-    video.addEventListener('waiting', () => { if (spinner) spinner.style.display='block'; });
-
-    // Shaka error logging
-    window.player.addEventListener('error', e => console.warn('Shaka error', e.detail));
-
-    // Step 3: Load Shaka in background after native playback starts
     try {
-        await window.player.load(liveUrl);
-        console.log("Shaka loaded live stream successfully");
+        await player.load(streamUrl);
     } catch (e) {
-        console.error("Shaka load failed:", e);
+        spinner.style.display = 'none';
     }
 });
 </script>

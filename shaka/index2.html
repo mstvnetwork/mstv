@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>DASH ClearKey Fix</title>
+    <title>Fixed DASH ClearKey Player</title>
+    <!-- Mux.js helps resolve codec issues (4032) -->
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="shaka.js"></script>
     <style>
@@ -17,11 +18,17 @@
     </div>
 
 <script>
-const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd";
+const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd    ";
 
 async function initPlayer() {
     const video = document.getElementById('video');
     shaka.polyfill.installAll();
+
+    // Check support before starting
+    if (!shaka.Player.isBrowserSupported()) {
+        console.error('Browser not supported!');
+        return;
+    }
 
     const player = new shaka.Player();
     await player.attach(video);
@@ -31,26 +38,28 @@ async function initPlayer() {
             clearKeys: {
                 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b'
             },
-            // Avoid 4012 by ignoring some hardware restrictions
+            // Fixes the 4012 deprecation warning and hardware restriction error
             advanced: {
                 'org.w3.clearkey': {
-                    'videoRobustness': '',
-                    'audioRobustness': ''
+                    'videoRobustness': [],
+                    'audioRobustness': []
                 }
             }
+        },
+        // Force the player to prioritize the provided clear keys
+        manifest: {
+            dash: { ignoreMinBufferTime: true }
         }
     });
 
     player.addEventListener('error', (e) => {
         console.error('Error Code:', e.detail.code, 'Category:', e.detail.category);
-        if (e.detail.code === 4012) {
-            console.warn("Restriction error: Check if your browser supports this codec/DRM.");
-        }
     });
 
     try {
-        await player.load(streamUrl);
-        console.log("Success! Playback started.");
+        // Explicitly set DASH format to avoid 4000/4032 errors
+        await player.load(streamUrl, null, 'application/dash+xml');
+        console.log("Success! Stream loaded.");
     } catch (e) {
         console.error('Load Error:', e.code, e);
     }

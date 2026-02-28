@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DASH Player with ClearKeys</title>
+
+<!-- Ensure shaka.js is in your repo or use the CDN version -->
+<script src="shaka.js"></script>
+
+<style>
+    body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    #video-container { position: relative; width: 100%; max-width: 800px; }
+    video { width: 100%; background: #111; display: block; }
+    #spinner {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        border: 6px solid #f3f3f3; border-top: 6px solid #00ffA0; border-radius: 50%;
+        width: 50px; height: 50px; animation: spin 1s linear infinite; z-index: 10;
+    }
+    @keyframes spin { 
+        0% { transform: translate(-50%, -50%) rotate(0deg); }
+        100% { transform: translate(-50%, -50%) rotate(360deg); }
+    }
+</style>
+</head>
+<body>
+
+<div id="video-container">
+    <video id="video" controls autoplay crossorigin="anonymous"></video>
+    <div id="spinner"></div>
+</div>
+
+<script>
+// Your integrated DASH stream URL
+const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd";
+
+document.addEventListener('DOMContentLoaded', async () => {
+    const video = document.getElementById('video');
+    const spinner = document.getElementById('spinner');
+
+    if (typeof shaka === 'undefined') {
+        console.error("Shaka library not found. Check your shaka.js path.");
+        spinner.style.display = 'none';
+        return;
+    }
+
+    shaka.polyfill.installAll();
+    const player = new shaka.Player(video);
+
+    // Integrated Clear Keys Configuration
+    player.configure({
+        drm: {
+            clearKeys: {
+                'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b'
+            }
+        }
+    });
+
+    // Error handling
+    player.addEventListener('error', (event) => {
+        console.error('Shaka Error:', event.detail);
+        spinner.style.display = 'none';
+    });
+
+    video.addEventListener('playing', () => {
+        spinner.style.display = 'none';
+    });
+
+    try {
+        await player.load(streamUrl);
+        console.log('Stream loaded successfully!');
+    } catch (e) {
+        console.error('Load Error:', e);
+        spinner.style.display = 'none';
+    }
+});
+</script>
+
+</body>
+</html>

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>DASH Player Final</title>
+    <title>DASH Bypass Fix</title>
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="shaka.js"></script>
     <style>
@@ -17,7 +17,6 @@
     </div>
 
 <script>
-// Corrected Stream URL
 const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd";
 
 async function initPlayer() {
@@ -27,26 +26,40 @@ async function initPlayer() {
     const player = new shaka.Player();
     await player.attach(video);
 
+    // 1. Configure the ClearKeys
     player.configure({
         drm: {
             clearKeys: {
                 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b'
+            },
+            // Force the player to use the simplest possible DRM path
+            advanced: {
+                'org.w3.clearkey': {
+                    'videoRobustness': [''], 
+                    'audioRobustness': ['']
+                }
             }
-        },
-        manifest: {
-            dash: { ignoreMinBufferTime: true }
         }
     });
 
-    // REMOVED: allowCrossSiteCredentials (This fixes Error 1002/CORS)
-    
+    // 2. The Manifest Filter: This prevents Error 4012 by stripping 
+    // problematic hardware restrictions from the manifest before loading.
+    player.getNetworkingEngine().registerResponseFilter((type, response) => {
+        if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
+            let str = shaka.util.Uint8ArrayUtils.toUtf8(response.data);
+            // Removes any 'com.widevine.alpha' requirements that cause hardware blocks
+            str = str.replace(/<ContentProtection [^>]*?schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"[^]*?<\/ContentProtection>/g, '');
+            response.data = shaka.util.Uint8ArrayUtils.fromUtf8(str);
+        }
+    });
+
     player.addEventListener('error', (e) => {
         console.error('Shaka Error:', e.detail.code, e.detail);
     });
 
     try {
         await player.load(streamUrl);
-        console.log("Stream loaded!");
+        console.log("Success! Manifest filtered and stream loaded.");
     } catch (e) {
         console.error('Load Error:', e.code);
     }

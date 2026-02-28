@@ -2,8 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>DASH Fix Final</title>
-    <!-- FIXED: Correct direct link to mux.js file -->
+    <title>DASH Final Bypass</title>
     <script src="https://cdn.jsdelivr.net"></script>
     <script src="shaka.js"></script>
     <style>
@@ -18,7 +17,7 @@
     </div>
 
 <script>
-const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd";
+const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd" ;
 
 async function initPlayer() {
     const video = document.getElementById('video');
@@ -31,21 +30,26 @@ async function initPlayer() {
         drm: {
             clearKeys: {
                 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b'
+            },
+            // Force browser to ignore hardware security level
+            advanced: {
+                'org.w3.clearkey': {
+                    'videoRobustness': [],
+                    'audioRobustness': []
+                }
             }
-        },
-        manifest: {
-            dash: { ignoreMinBufferTime: true }
         }
     });
 
-    // Fixes 4012 by stripping hardware DRM tags before Shaka sees them
+    // DEEP SCRUB FILTER: Removes ALL Widevine and PlayReady tags 
+    // that trigger the 4012 hardware restriction error.
     player.getNetworkingEngine().registerResponseFilter((type, response) => {
         if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST) {
-            const data = response.data;
-            let str = new TextDecoder().decode(data);
+            let str = new TextDecoder().decode(response.data);
             
-            // Remove Widevine blocks that force hardware security
-            str = str.replace(/<ContentProtection [^>]*?schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"[\s\S]*?<\/ContentProtection>/g, '');
+            // Remove ANY ContentProtection block that isn't ClearKey
+            // (Widevine: edef8ba9..., PlayReady: 9a04f079...)
+            str = str.replace(/<ContentProtection[^>]*?schemeIdUri="urn:uuid:(?!e2719d58-b985-45e9-a471-88028010a6d7)[^]*?<\/ContentProtection>/gi, '');
             
             response.data = new TextEncoder().encode(str);
         }
@@ -59,7 +63,7 @@ async function initPlayer() {
         await player.load(streamUrl);
         console.log("Success! Playback starting.");
     } catch (e) {
-        console.error('Final Load Error:', e.code);
+        console.error('Load Error:', e.code);
     }
 }
 

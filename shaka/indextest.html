@@ -3,18 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Required Dependencies -->
+    <!-- 1. Mux.js MUST be before shaka.js to fix "numerical signs" visual issues -->
     <script src="https://cdnjs.cloudflare.com"></script>
+    
+    <!-- 2. Shaka UI and CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
-    <!-- Using your identified UI library -->
     <script src="shaka.js"></script> 
 
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-        /* Player fills the entire iframe/window */
         .shaka-container { width: 100%; height: 100%; }
         video { width: 100%; height: 100%; display: block; }
-        /* Accent color for seeker bar */
         .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
     </style>
 </head>
@@ -25,13 +24,14 @@
     </div>
 
     <script>
-        const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+        const testUrl = "https://anywhere.pwisetthon.com";
 
-        async function initPlayer() {
+        async function init() {
             const video = document.getElementById('video');
             const container = document.querySelector('.shaka-container');
 
-            // Initialize Player and UI Overlay
+            shaka.polyfill.installAll();
+            
             const player = new shaka.Player(video);
             const ui = new shaka.ui.Overlay(player, container, video);
             
@@ -39,21 +39,14 @@
                 'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen']
             });
 
-            shaka.polyfill.installAll();
-
             try {
                 await player.load(testUrl);
             } catch (e) {
-                console.error("Playback failed", e);
+                console.error("Playback Error:", e);
             }
         }
 
-        // Initialize when the UI library is ready
-        document.addEventListener('shaka-ui-loaded', initPlayer);
-        // Fallback for direct loading
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.shaka && !window.shaka.ui) initPlayer();
-        });
+        document.addEventListener('shaka-ui-loaded', init);
     </script>
 </body>
 </html>

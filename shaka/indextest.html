@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Shaka Live HLS Player</title>
+<title>Hybrid Shaka Live Player</title>
 
 <!-- Shaka UI CDN -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/controls.min.css">
@@ -29,39 +29,50 @@
     }
 </style>
 </head>
-<body>
 
+<body>
 <div id="video-container" data-shaka-player-container>
-    <video id="video" data-shaka-player autoplay playsinline muted></video>
+    <video id="video" autoplay playsinline muted></video>
     <div id="spinner"></div>
 </div>
 
 <script>
 document.addEventListener('DOMContentLoaded', async () => {
-    shaka.polyfill.installAll();
-
-    if (!shaka.Player.isBrowserSupported()) {
-        console.error("Browser not supported");
-        return;
-    }
-
     const video = document.getElementById('video');
     const container = document.getElementById('video-container');
     const spinner = document.getElementById('spinner');
 
-    // Expose player globally for debugging
+    // Replace with your live HLS URL
+    const liveUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
+
+    // Step 1: Start native playback immediately
+    video.src = liveUrl;
+    video.play().catch(() => {
+        // Mobile might block autoplay, spinner will remain until user interacts
+        console.log("Native autoplay blocked");
+    });
+
+    // Step 2: Initialize Shaka Player in background
+    shaka.polyfill.installAll();
+
+    if (!shaka.Player.isBrowserSupported()) {
+        console.error("Browser not supported");
+        if (spinner) spinner.style.display = 'none';
+        return;
+    }
+
     window.player = new shaka.Player(video);
 
     // UI Overlay
     const ui = new shaka.ui.Overlay(window.player, container, video);
     ui.configure({
         controlPanelElements: [
-            'play_pause', 'time_and_duration', 'spacer',
-            'mute', 'volume', 'quality', 'captions', 'fullscreen', 'overflow_menu'
+            'play_pause','time_and_duration','spacer',
+            'mute','volume','quality','captions','fullscreen','overflow_menu'
         ]
     });
 
-    // --- Live streaming configuration ---
+    // Live stream config
     window.player.configure({
         streaming: {
             retryParameters: { maxAttempts: 6, baseDelay: 500, backoffFactor: 2, fuzzFactor: 0.5 },
@@ -71,24 +82,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         abr: { enabled: true }
     });
 
-    // Show/hide spinner on buffering
-    video.addEventListener('playing', () => {
-        if (spinner) spinner.style.display = 'none';
-    });
-    video.addEventListener('waiting', () => {
-        if (spinner) spinner.style.display = 'block';
-    });
+    // Spinner logic
+    video.addEventListener('playing', () => { if (spinner) spinner.style.display='none'; });
+    video.addEventListener('waiting', () => { if (spinner) spinner.style.display='block'; });
 
-    // Log Shaka errors
+    // Shaka error logging
     window.player.addEventListener('error', e => console.warn('Shaka error', e.detail));
 
+    // Step 3: Load Shaka in background after native playback starts
     try {
-        // Replace this with your live HLS URL
-        await window.player.load("https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8");
-        video.play();
+        await window.player.load(liveUrl);
+        console.log("Shaka loaded live stream successfully");
     } catch (e) {
-        console.error('Load failed', e);
-        if (spinner) spinner.style.display = 'none';
+        console.error("Shaka load failed:", e);
     }
 });
 </script>

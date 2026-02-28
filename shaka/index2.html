@@ -1,54 +1,44 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Updated Shaka Player</title>
-
-<script src="shaka.js"></script>
-
-<style>
-    body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
-    #video-container { position: relative; width: 100%; max-width: 800px; }
-    video { width: 100%; background: #111; display: block; }
-    #spinner {
-        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        border: 6px solid #f3f3f3; border-top: 6px solid #00ffA0; border-radius: 50%;
-        width: 50px; height: 50px; animation: spin 1s linear infinite; z-index: 10;
-    }
-    @keyframes spin { 
-        0% { transform: translate(-50%, -50%) rotate(0deg); }
-        100% { transform: translate(-50%, -50%) rotate(360deg); }
-    }
-</style>
+    <meta charset="UTF-8">
+    <title>Fixed Shaka Player</title>
+    <!-- Add mux.js for wider codec support -->
+    <script src="https://cdnjs.cloudflare.com"></script>
+    <script src="shaka.js"></script>
+    <style>
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        #video-container { position: relative; width: 100%; max-width: 800px; }
+        video { width: 100%; background: #111; display: block; }
+        #spinner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            border: 6px solid #f3f3f3; border-top: 6px solid #00ffA0; border-radius: 50%;
+            width: 50px; height: 50px; animation: spin 1s linear infinite; z-index: 10;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
 </head>
 <body>
-
-<div id="video-container">
-    <video id="video" controls autoplay crossorigin="anonymous"></video>
-    <div id="spinner"></div>
-</div>
+    <div id="video-container">
+        <video id="video" controls autoplay crossorigin="anonymous"></video>
+        <div id="spinner"></div>
+    </div>
 
 <script>
-// Fixed typo: d1g8wgjurz8via (with an '8')
-const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd";
+const streamUrl = "https://d1g8wgjurz8via.cloudfront.net";
 
-document.addEventListener('DOMContentLoaded', async () => {
+async function initPlayer() {
     const video = document.getElementById('video');
     const spinner = document.getElementById('spinner');
 
-    if (typeof shaka === 'undefined') {
-        console.error("Shaka library not found.");
-        spinner.style.display = 'none';
+    shaka.polyfill.installAll();
+    if (!shaka.Player.isBrowserSupported()) {
+        console.error('Browser not supported!');
         return;
     }
 
-    shaka.polyfill.installAll();
-
-    // FIXED: Initialize player without passing video element to constructor
     const player = new shaka.Player();
-    
-    // FIXED: Use the .attach() method as requested by the v5.0 deprecation notice
-    await player.attach(video);
+    await player.attach(video); // Use modern attach method
 
     player.configure({
         drm: {
@@ -58,23 +48,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     });
 
-    player.addEventListener('error', (event) => {
-        console.error('Shaka Error:', event.detail);
+    player.addEventListener('error', (e) => {
+        console.error('Shaka Error Code:', e.detail.code, e.detail);
         spinner.style.display = 'none';
     });
 
-    video.addEventListener('playing', () => {
-        spinner.style.display = 'none';
-    });
+    video.onplaying = () => spinner.style.display = 'none';
 
     try {
         await player.load(streamUrl);
     } catch (e) {
-        console.error('Load Error:', e);
+        console.error('Load Error:', e.code, e);
         spinner.style.display = 'none';
     }
-});
-</script>
+}
 
+document.addEventListener('DOMContentLoaded', initPlayer);
+</script>
 </body>
 </html>

@@ -2,26 +2,18 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Fixed Shaka Player</title>
-    <!-- Add mux.js for wider codec support -->
-    <script src="https://cdnjs.cloudflare.com"></script>
+    <title>DASH ClearKey Fix</title>
+    <script src="https://cdn.jsdelivr.net"></script>
     <script src="shaka.js"></script>
     <style>
         body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
         #video-container { position: relative; width: 100%; max-width: 800px; }
         video { width: 100%; background: #111; display: block; }
-        #spinner {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            border: 6px solid #f3f3f3; border-top: 6px solid #00ffA0; border-radius: 50%;
-            width: 50px; height: 50px; animation: spin 1s linear infinite; z-index: 10;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
     <div id="video-container">
         <video id="video" controls autoplay crossorigin="anonymous"></video>
-        <div id="spinner"></div>
     </div>
 
 <script>
@@ -29,37 +21,38 @@ const streamUrl = "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/ma
 
 async function initPlayer() {
     const video = document.getElementById('video');
-    const spinner = document.getElementById('spinner');
-
     shaka.polyfill.installAll();
-    if (!shaka.Player.isBrowserSupported()) {
-        console.error('Browser not supported!');
-        return;
-    }
 
     const player = new shaka.Player();
-    await player.attach(video); // Use modern attach method
+    await player.attach(video);
 
     player.configure({
         drm: {
             clearKeys: {
                 'ed068cf84f0640ccbc7c0e395c0a272e': 'bb722190f2bb446391020411a7d0828b'
+            },
+            // Avoid 4012 by ignoring some hardware restrictions
+            advanced: {
+                'org.w3.clearkey': {
+                    'videoRobustness': '',
+                    'audioRobustness': ''
+                }
             }
         }
     });
 
     player.addEventListener('error', (e) => {
-        console.error('Shaka Error Code:', e.detail.code, e.detail);
-        spinner.style.display = 'none';
+        console.error('Error Code:', e.detail.code, 'Category:', e.detail.category);
+        if (e.detail.code === 4012) {
+            console.warn("Restriction error: Check if your browser supports this codec/DRM.");
+        }
     });
-
-    video.onplaying = () => spinner.style.display = 'none';
 
     try {
         await player.load(streamUrl);
+        console.log("Success! Playback started.");
     } catch (e) {
         console.error('Load Error:', e.code, e);
-        spinner.style.display = 'none';
     }
 }
 

@@ -2,54 +2,58 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Star Gold Test - MSTV</title>
-    <!-- Mux.js is absolutely required for HLS (.m3u8) support in Shaka -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Required Dependencies -->
     <script src="https://cdnjs.cloudflare.com"></script>
-    <script src="shaka.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
+    <!-- Using your identified UI library -->
+    <script src="shaka.js"></script> 
+
     <style>
-        
-        video { width: 100%; max-width: 800px; background: #111; margin-top: 20px; }
-        
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+        /* Player fills the entire iframe/window */
+        .shaka-container { width: 100%; height: 100%; }
+        video { width: 100%; height: 100%; display: block; }
+        /* Accent color for seeker bar */
+        .shaka-range-container input[type=range]::-webkit-slider-runnable-track { background: #00ffA0 !important; }
     </style>
 </head>
 <body>
-    <h2></h2>
-    <video id="video" controls autoplay crossorigin="anonymous"></video>
-    <div id="log">Initializing Player...</div>
+
+    <div data-shaka-player-container class="shaka-container">
+        <video autoplay id="video" crossorigin="anonymous"></video>
+    </div>
 
     <script>
-        // THE URL YOU ARE TESTING
         const testUrl = "https://anywhere.pwisetthon.com/http://tvn2.chowdhury-shaheb.com/stargold/tracks-v1a1/mono.m3u8";
 
-        async function startTest() {
-            const log = document.getElementById('log');
+        async function initPlayer() {
             const video = document.getElementById('video');
+            const container = document.querySelector('.shaka-container');
 
-            if (typeof shaka === 'undefined') {
-                log.innerText = "ERROR: shaka.js not found in this folder!";
-                return;
-            }
-
-            shaka.polyfill.installAll();
+            // Initialize Player and UI Overlay
             const player = new shaka.Player(video);
-
-            // Detailed logging
-            player.addEventListener('error', (event) => {
-                log.innerText = "PLAYBACK ERROR: Code " + event.detail.code;
-                console.error("Shaka Error Detail:", event.detail);
+            const ui = new shaka.ui.Overlay(player, container, video);
+            
+            ui.configure({
+                'controlPanelElements': ['play_pause', 'time_and_duration', 'spacer', 'quality', 'volume', 'fullscreen']
             });
 
+            shaka.polyfill.installAll();
+
             try {
-                log.innerText = "Attempting to load: " + testUrl;
                 await player.load(testUrl);
-                log.innerText = "✅ STREAM LOADED SUCCESSFULLY";
             } catch (e) {
-                log.innerText = "❌ LOAD FAILED: " + e.code;
-                console.error("Load Catch:", e);
+                console.error("Playback failed", e);
             }
         }
 
-        document.addEventListener('DOMContentLoaded', startTest);
+        // Initialize when the UI library is ready
+        document.addEventListener('shaka-ui-loaded', initPlayer);
+        // Fallback for direct loading
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.shaka && !window.shaka.ui) initPlayer();
+        });
     </script>
 </body>
 </html>

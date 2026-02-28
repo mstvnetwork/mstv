@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Mux.js is mandatory to fix the "numerical signs" (TS segments) -->
     <script src="https://cdnjs.cloudflare.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com">
     <script src="shaka.js"></script> 
@@ -21,23 +22,28 @@
         const testUrl = "https://anywhere.pwisetthon.com";
 
         async function init() {
-            const video = document.getElementById('video');
-            const container = document.querySelector('.shaka-container');
-            
             shaka.polyfill.installAll();
             
+            const video = document.getElementById('video');
+            const container = document.querySelector('.shaka-container');
             const player = new shaka.Player(video);
             const ui = new shaka.ui.Overlay(player, container, video);
 
-            player.addEventListener('error', (e) => console.error('Shaka Error:', e.detail));
+            // --- THE FIX FOR ERROR 4015 ---
+            // This forces Shaka to treat the Proxy response as HLS
+            player.getNetworkingEngine().registerResponseFilter((type, response) => {
+                if (response.uri.includes('anywhere.pwisetthon.com')) {
+                    response.headers['content-type'] = 'application/x-mpegurl';
+                }
+            });
 
             try {
-                // FORCE SHAKA TO TREAT AS HLS (This bypasses the 'text/plain' error 4015)
-                // Third argument 'application/x-mpegurl' is the secret here
+                // We pass 'application/x-mpegurl' as the 3rd argument to force HLS
                 await player.load(testUrl, null, 'application/x-mpegurl');
-                console.log("Success: HLS Forced Load");
+                console.log("Success: HLS Forced Load via Filter");
             } catch (e) {
                 console.error("Playback Error:", e);
+                // If it still fails, it might be a CORS issue from the proxy itself
             }
         }
 

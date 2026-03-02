@@ -12,7 +12,7 @@ body {
     margin: 0;
     background: #000;
     font-family: sans-serif;
-    height: 200vh; /* enough scroll */
+    height: 200vh;
 }
 
 /* Shared wrapper */
@@ -45,7 +45,6 @@ body {
     border-radius: 50px;
     border: 3px solid var(--primary);
     background: #111;
-    pointer-events: none; /* important */
 }
 
 /* Single iframe */
@@ -61,48 +60,42 @@ body {
 <body>
 
 <div class="player-wrapper">
-
-    <div class="main-player" id="mainMask">
+    <div class="main-player">
         <iframe id="sharedFrame"
             src="https://tulnit.com/live/bollywood-colors/"
             sandbox="allow-forms allow-scripts allow-same-origin">
         </iframe>
     </div>
-
 </div>
 
 <div class="tube-player" id="tubeMask"></div>
 
 <script>
+const params = new URLSearchParams(window.location.search);
+const isPublic = params.get("view") === "public";
+
 const frame = document.getElementById("sharedFrame");
 const tube = document.getElementById("tubeMask");
 
-function syncScroll() {
-    const scrollY = window.scrollY;
-
-    /* Move iframe upward as page scrolls */
-    frame.style.transform = `translateY(-${scrollY}px)`;
-
-    /* Show bottom portion inside tube */
-    tube.innerHTML = "";
-    tube.appendChild(frame.cloneNode(true));
+/* PUBLIC MODE */
+if (isPublic) {
+    tube.remove();
+    document.body.style.height = "auto";
 }
 
-/* Instead of cloning each time (bad), do this instead: */
+/* PRIVATE MODE */
+if (!isPublic) {
 
-const tubeFrame = frame.cloneNode(true);
-tube.appendChild(tubeFrame);
+    const tubeFrame = frame.cloneNode(true);
+    tube.appendChild(tubeFrame);
 
-/* Disable pointer events on tube so clicks go through illusion */
-tube.style.pointerEvents = "none";
-
-window.addEventListener("scroll", () => {
-    const scrollY = window.scrollY;
-
-    frame.style.transform = `translateY(-${scrollY}px)`;
-    tubeFrame.style.transform = `translateY(-${scrollY + 
-        document.querySelector(".main-player").offsetHeight - 80}px)`;
-});
+    window.addEventListener("scroll", () => {
+        const scrollY = window.scrollY;
+        frame.style.transform = `translateY(-${scrollY}px)`;
+        tubeFrame.style.transform = `translateY(-${scrollY + 
+            document.querySelector(".main-player").offsetHeight - 80}px)`;
+    });
+}
 </script>
 
 </body>

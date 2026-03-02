@@ -1,166 +1,109 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile Only Stream</title>
-    <style>
-        :root { --primary: #00ffA0; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scroll Split Player</title>
 
-        .viewport {
-            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
-            overflow: hidden; position: relative;
-            border: 4px solid var(--primary); border-radius: 12px;
-            background: #000;
-        }
+<style>
+:root { --primary: #00ffa0; }
 
-        #captureFrame {
-            position: absolute;
-            width: 100%; height: 170%; 
-            top: -57px; left: 0%; 
-            border: none;
-            pointer-events: auto; 
-            z-index: 1;
-        }
+body {
+    margin: 0;
+    background: #000;
+    font-family: sans-serif;
+    height: 200vh; /* enough scroll */
+}
 
-        #lockLayer {
-            position: absolute;
-            top: 0; left: 0; 
-            width: 100%; height: 100%;
-            z-index: 9999; 
-            background: rgba(0,0,0,0.01); 
-            pointer-events: none; 
-            cursor: pointer;
-        }
+/* Shared wrapper */
+.player-wrapper {
+    position: relative;
+    width: 100%;
+    max-width: 1000px;
+    margin: 20px auto;
+}
 
-        #lockLayer.active {
-            pointer-events: all !important;
-            cursor: default;
-        }
+/* Top viewport */
+.main-player {
+    position: relative;
+    aspect-ratio: 16/9;
+    overflow: hidden;
+    border: 4px solid var(--primary);
+    border-radius: 14px;
+}
 
-        .click-hint {
-            position: absolute; bottom: 40px; right: 15px;
-            color: var(--primary); font-family: sans-serif; font-size: 12px;
-            z-index: 10000; pointer-events: none; opacity: 0.7;
-        }
+/* Bottom tube */
+.tube-player {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 1000px;
+    height: 80px;
+    overflow: hidden;
+    border-radius: 50px;
+    border: 3px solid var(--primary);
+    background: #111;
+    pointer-events: none; /* important */
+}
 
-        #resetBtn {
-            position: absolute; bottom: 10px; right: 15px;
-            padding: 6px 12px;
-            font-family: sans-serif;
-            background: var(--primary);
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            color: #000;
-            z-index: 10001;
-            display: none;
-        }
-
-        /* Fallback for non-mobile devices */
-        #fallback {
-            display: none;
-            text-align: center;
-            color: #fff;
-            font-family: sans-serif;
-        }
-        #fallback img {
-            max-width: 50%;
-            border: 4px solid var(--primary);
-            border-radius: 12px;
-            margin-bottom: 20px;
-        }
-    </style>
+/* Single iframe */
+#sharedFrame {
+    position: absolute;
+    width: 100%;
+    height: 170%;
+    border: none;
+}
+</style>
 </head>
+
 <body>
 
-    <!-- Mobile Viewer -->
-    <div class="viewport" id="playerWrapper">
-        <div id="lockLayer"></div>
-        <div id="status" class="click-hint">▶️ Click on Sony tv stream, if no click happen change channel and come back</div>
-        <button id="resetBtn">Reset</button>
+<div class="player-wrapper">
 
-        <iframe id="captureFrame" 
-                src="https://tulnit.com/live/sony-tv-hd/" 
-                scrolling="no" 
-                sandbox="allow-forms allow-scripts allow-same-origin">
+    <div class="main-player" id="mainMask">
+        <iframe id="sharedFrame"
+            src="https://tulnit.com/live/bollywood-colors/"
+            sandbox="allow-forms allow-scripts allow-same-origin">
         </iframe>
     </div>
 
-    <!-- Non-Mobile Fallback -->
-    <div id="fallback">
-        <img src="https://via.placeholder.com/400x225?text=Mobile+Only" alt="Mobile Only">
-        <h2>This content is only available on Android and iOS devices.</h2>
-        <p>Please open this page on a mobile device to view the stream.</p>
-    </div>
+</div>
 
-    <script>
-        function isMobileOS() {
-            const ua = navigator.userAgent || navigator.vendor || window.opera;
-            if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) return true;
-            if (/android/i.test(ua)) return true;
-            return false;
-        }
+<div class="tube-player" id="tubeMask"></div>
 
-        window.onload = function() {
-            const wrapper = document.getElementById('playerWrapper');
-            const fallback = document.getElementById('fallback');
-            const shield = document.getElementById('lockLayer');
-            const status = document.getElementById('status');
-            const resetBtn = document.getElementById('resetBtn');
+<script>
+const frame = document.getElementById("sharedFrame");
+const tube = document.getElementById("tubeMask");
 
-            if (!isMobileOS()) {
-                wrapper.style.display = 'none';
-                fallback.style.display = 'flex';
-                fallback.style.flexDirection = 'column';
-                fallback.style.alignItems = 'center';
-                fallback.style.justifyContent = 'center';
-                return;
-            }
+function syncScroll() {
+    const scrollY = window.scrollY;
 
-            let clickCount = 0;
-            const maxClicks = 4;
-            let locked = false;
+    /* Move iframe upward as page scrolls */
+    frame.style.transform = `translateY(-${scrollY}px)`;
 
-            function lockPlayer() {
-                shield.classList.add('active');
-                status.innerText = "CONTROLS LOCKED";
-                resetBtn.style.display = 'block';
-                locked = true;
-                setTimeout(() => { status.style.opacity = "0"; }, 3000);
-            }
+    /* Show bottom portion inside tube */
+    tube.innerHTML = "";
+    tube.appendChild(frame.cloneNode(true));
+}
 
-            function resetPlayer() {
-                clickCount = 0;
-                locked = false;
-                shield.classList.remove('active');
-                status.innerText = `▶️ Click on Sony tv stream, if no click happen change channel and come back`;
-                status.style.opacity = "0.7";
-                resetBtn.style.display = 'none';
-                // Reset the timeout again
-                clearTimeout(lockTimeout);
-                lockTimeout = setTimeout(lockPlayer, 28000);
-            }
+/* Instead of cloning each time (bad), do this instead: */
 
-            wrapper.addEventListener('click', function() {
-                if (locked) return;
-                clickCount++;
-                let remaining = maxClicks - clickCount;
-                if (remaining > 0) {
-                    status.innerText = `Setup Mode: ${remaining} clicks left`;
-                }
-                if (clickCount >= maxClicks) {
-                    lockPlayer();
-                }
-            });
+const tubeFrame = frame.cloneNode(true);
+tube.appendChild(tubeFrame);
 
-            resetBtn.addEventListener('click', resetPlayer);
+/* Disable pointer events on tube so clicks go through illusion */
+tube.style.pointerEvents = "none";
 
-            // Safety lock after 28s
-            let lockTimeout = setTimeout(lockPlayer, 28000);
-        };
-    </script>
+window.addEventListener("scroll", () => {
+    const scrollY = window.scrollY;
+
+    frame.style.transform = `translateY(-${scrollY}px)`;
+    tubeFrame.style.transform = `translateY(-${scrollY + 
+        document.querySelector(".main-player").offsetHeight - 80}px)`;
+});
+</script>
 
 </body>
 </html>

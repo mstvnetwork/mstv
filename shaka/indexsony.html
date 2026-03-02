@@ -138,96 +138,108 @@
         <p>Please open this page on a mobile device to view the stream.</p>
     </div>
 
-    <script>
-function isMobileOS() {
-    const ua = navigator.userAgent || navigator.vendor || window.opera;
-    if (/iPad|iPhone|iPod/.test(ua) && !window.MSStream) return true;
-    if (/android/i.test(ua)) return true;
-    return false;
-}
+ <script>
+(function() {
 
-window.onload = function() {
+    function isAllowedDevice() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
 
-    const wrapper   = document.getElementById('playerWrapper');
-    const fallback  = document.getElementById('fallback');
-    const shield    = document.getElementById('lockLayer');
-    const status    = document.getElementById('status');
-    const resetBtn  = document.getElementById('resetBtn');
-    const ticker    = document.getElementById('ticker');
+        const isiPhone = /iPhone/i.test(ua);
+        const isAndroidPhone = /Android/i.test(ua) && /Mobile/i.test(ua);
 
-    if (!isMobileOS()) {
-        wrapper.style.display = 'none';
-        fallback.style.display = 'flex';
-        fallback.style.flexDirection = 'column';
-        fallback.style.alignItems = 'center';
-        fallback.style.justifyContent = 'center';
-        return;
+        return isiPhone || isAndroidPhone;
     }
 
-    let clickCount = 0;
-    const maxClicks = 4;
-    let locked = false;
+    // If not allowed, stop everything immediately
+    if (!isAllowedDevice()) {
 
-    let resetUsed = sessionStorage.getItem("resetUsed");
+        document.addEventListener("DOMContentLoaded", function() {
+            const wrapper  = document.getElementById('playerWrapper');
+            const fallback = document.getElementById('fallback');
 
-    function lockPlayer() {
-        shield.classList.add('active');
-        status.innerText = "CONTROLS LOCKED";
-        locked = true;
+            if (wrapper) wrapper.remove();   // completely remove player
+            if (fallback) {
+                fallback.style.display = 'flex';
+                fallback.style.flexDirection = 'column';
+                fallback.style.alignItems = 'center';
+                fallback.style.justifyContent = 'center';
+            }
+        });
 
-        // Hide ticker always when locked
-        ticker.style.display = 'none';
+        return; // Stop further script execution
+    }
 
-        // Show reset only if not already used
-        if (!resetUsed) {
-            resetBtn.style.display = 'block';
+    // ===== Allowed Devices Only Below This Line =====
+
+    document.addEventListener("DOMContentLoaded", function() {
+
+        const wrapper   = document.getElementById('playerWrapper');
+        const shield    = document.getElementById('lockLayer');
+        const status    = document.getElementById('status');
+        const resetBtn  = document.getElementById('resetBtn');
+        const ticker    = document.getElementById('ticker');
+
+        let clickCount = 0;
+        const maxClicks = 4;
+        let locked = false;
+
+        let resetUsed = sessionStorage.getItem("resetUsed");
+
+        function lockPlayer() {
+            shield.classList.add('active');
+            status.innerText = "CONTROLS LOCKED";
+            ticker.style.display = 'none';
+            locked = true;
+
+            if (!resetUsed) {
+                resetBtn.style.display = 'block';
+            }
+
+            setTimeout(() => { status.style.opacity = "0"; }, 3000);
         }
 
-        setTimeout(() => { status.style.opacity = "0"; }, 3000);
-    }
+        function resetPlayer() {
+            clickCount = 0;
+            locked = false;
 
-    function resetPlayer() {
-        clickCount = 0;
-        locked = false;
+            shield.classList.remove('active');
+            status.innerText = "▶️ Click on Sony tv stream, if no click happen change channel and come back";
+            status.style.opacity = "0.7";
 
-        shield.classList.remove('active');
-        status.innerText = "▶️ Click on Sony tv stream, if no click happen change channel and come back";
-        status.style.opacity = "0.7";
+            resetBtn.style.display = 'none';
 
-        resetBtn.style.display = 'none';
+            sessionStorage.setItem("resetUsed", "true");
+            resetUsed = true;
 
-        // After reset, permanently disable ticker for this session
-        sessionStorage.setItem("resetUsed", "true");
-        resetUsed = true;
-
-        clearTimeout(lockTimeout);
-        lockTimeout = setTimeout(lockPlayer, 28000);
-    }
-
-    // If reset was already used earlier in session, hide ticker immediately
-    if (resetUsed) {
-        ticker.style.display = "none";
-    }
-
-    wrapper.addEventListener('click', function() {
-        if (locked) return;
-
-        clickCount++;
-        let remaining = maxClicks - clickCount;
-
-        if (remaining > 0) {
-            status.innerText = `Setup Mode: ${remaining} clicks left`;
+            clearTimeout(lockTimeout);
+            lockTimeout = setTimeout(lockPlayer, 28000);
         }
 
-        if (clickCount >= maxClicks) {
-            lockPlayer();
+        if (resetUsed) {
+            ticker.style.display = "none";
         }
+
+        wrapper.addEventListener('click', function() {
+            if (locked) return;
+
+            clickCount++;
+            let remaining = maxClicks - clickCount;
+
+            if (remaining > 0) {
+                status.innerText = `Setup Mode: ${remaining} clicks left`;
+            }
+
+            if (clickCount >= maxClicks) {
+                lockPlayer();
+            }
+        });
+
+        resetBtn.addEventListener('click', resetPlayer);
+
+        let lockTimeout = setTimeout(lockPlayer, 28000);
     });
 
-    resetBtn.addEventListener('click', resetPlayer);
-
-    let lockTimeout = setTimeout(lockPlayer, 28000);
-};
-    </script>
+})();
+</script>
 </body>
 </html>

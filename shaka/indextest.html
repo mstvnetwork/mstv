@@ -2,64 +2,63 @@
 <html>
 <head>
     <style>
-        body { background: #1a1a1a; color: #ddd; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-        .master-wrapper { width: 100%; max-width: 600px; display: flex; flex-direction: column; gap: 5px; }
+        body { background: #1a1a1a; color: #eee; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        
+        /* THE SINGLE VIEWPORT */
+        .viewport { 
+            width: 100%; max-width: 600px; 
+            height: 480px; /* Combined height of Top (120px) + Gap (20px) + Bottom (340px) */
+            position: relative; overflow: hidden; 
+            background: #000; border: 2px solid #444; border-radius: 12px;
+        }
 
-        /* PREVIEW CONTAINERS */
-        .top-overflow { width: 100%; height: 120px; position: relative; background: #000; border: 2px solid #333; border-radius: 8px 8px 0 0; overflow: hidden; }
-        .bottom-master { width: 100%; position: relative; padding-top: 56.25%; background: #000; border: 2px solid #444; border-radius: 0 0 8px 8px; overflow: hidden; }
-        iframe { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: none; transform-origin: 0 0; }
+        /* THE GAP: A "Visual Divider" that hides the middle content */
+        .middle-divider {
+            position: absolute; 
+            top: 120px; left: 0; width: 100%; height: 20px;
+            background: #1a1a1a; z-index: 5; /* Matches body background */
+            border-top: 1px solid #444; border-bottom: 1px solid #444;
+        }
+
+        /* THE SINGLE IFRAME */
+        #main-iframe { position: absolute; top: 0; left: 0; width: 1920px; height: 1080px; border: none; transform-origin: 0 0; }
 
         /* CONTROLS */
-        .controls { background: #222; padding: 20px; border-radius: 8px; margin-top: 20px; width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 15px; }
-        .slider-group { display: flex; flex-direction: column; gap: 5px; }
-        .slider-group label { font-size: 11px; color: #888; display: flex; justify-content: space-between; }
-        input[type="range"] { -webkit-appearance: none; width: 100%; height: 4px; background: #444; outline: none; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: #007bff; border-radius: 50%; cursor: pointer; }
-        
-        /* OUTPUT BOXES */
-        .output-section { margin-top: 15px; width: 100%; }
-        h4 { margin: 10px 0 5px; font-size: 12px; color: #28a745; }
-        textarea { width: 100%; height: 80px; background: #000; color: #0f0; padding: 10px; font-family: monospace; font-size: 10px; display: none; border: 1px solid #333; }
+        .controls { background: #222; padding: 20px; border-radius: 8px; margin-top: 15px; width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 15px; }
+        .slider-group { display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        button { padding: 10px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        textarea { height: 100px; background: #000; color: #0f0; font-family: monospace; font-size: 10px; margin-top: 10px; display: none; }
     </style>
 </head>
 <body>
 
-<div class="master-wrapper">
-    <div class="top-overflow">
-        <iframe id="iframe-skyline" src="https://tulnit.com"></iframe>
-    </div>
-    <div class="bottom-master">
-        <iframe id="iframe-main" src="https://tulnit.com/live/sony-sab-hd/"></iframe>
-    </div>
+<div class="viewport">
+    <!-- The "Divider" makes one iframe look like two separate boxes -->
+    <div class="middle-divider"></div>
+    <iframe id="main-iframe" src="https://tulnit.com/live/sony-sab-hd/"></iframe>
+</div>
+
 <div class="controls">
     <div class="slider-group">
-        <label>Zoom <span id="z-val">0.60</span></label>
-        <input type="range" id="zoom" min="0.1" max="2" step="0.01" value="0.60" oninput="sync()">
+        <label>Master Zoom: <span id="z-val">0.60</span></label>
+        <input type="range" id="zoom" min="0.1" max="1.5" step="0.01" value="0.60" oninput="sync()">
     </div>
     <div class="slider-group">
-        <label>Sync X-Axis <span id="x-val">-282px</span></label>
+        <label>Vertical Position (Y): <span id="y-val">-100px</span></label>
+        <input type="range" id="posY" min="-1500" max="1500" value="-100" oninput="sync()">
+    </div>
+    <div class="slider-group">
+        <label>Horizontal Position (X): <span id="x-val">-282px</span></label>
         <input type="range" id="posX" min="-1500" max="1500" value="-282" oninput="sync()">
     </div>
-    <div class="slider-group">
-        <label>Main Y-Axis <span id="y-val">-53px</span></label>
-        <input type="range" id="posY" min="-1500" max="1500" value="-53" oninput="sync()">
-    </div>
     
-    <button style="padding:10px; cursor:pointer; background:#28a745; color:white; border:none; border-radius:4px;" onclick="generate()">🔒 LOCK & GENERATE TRIMMED CODE</button>
-
-    <div class="output-section">
-        <h4>1. TRIMMED PRIVATE 16:9 CODE (Use this for your site)</h4>
-        <textarea id="output-trimmed" readonly></textarea>
-        
-        <h4>2. FULL WATERFALL CODE (For reference)</h4>
-        <textarea id="output-full" readonly></textarea>
-    </div>
+    <button onclick="generate()">🔒 GENERATE UNIFIED SYNC CODE</button>
+    <textarea id="output" readonly></textarea>
 </div>
 
 <script>
-    const iMain = document.getElementById('iframe-main');
-    const iSky = document.getElementById('iframe-skyline');
+    const iframe = document.getElementById('main-iframe');
 
     function sync() {
         const z = parseFloat(document.getElementById('zoom').value);
@@ -70,30 +69,22 @@
         document.getElementById('x-val').innerText = x + 'px';
         document.getElementById('y-val').innerText = y + 'px';
 
-        iMain.style.transform = `scale(${z}) translate(${x}px, ${y}px)`;
-        const skyY = y + (120 / z); 
-        iSky.style.transform = `scale(${z}) translate(${x}px, ${skyY}px)`;
+        // Shift the iframe so the "skyline" starts at top:0 
+        // and the "main player" starts after the 120px divider
+        iframe.style.transform = `scale(${z}) translate(${x}px, ${y}px)`;
     }
 
     function generate() {
         const z = document.getElementById('zoom').value;
         const x = document.getElementById('posX').value;
         const y = document.getElementById('posY').value;
-        const skyY = (parseFloat(y) + (120 / z)).toFixed(0);
-
-        const trimmedOut = document.getElementById('output-trimmed');
-        const fullOut = document.getElementById('output-full');
-
-        // TRIMMED LOGIC: Only the bottom 16:9 part
-        trimmedOut.value = `<div style="width:100%; max-width:600px; position:relative; overflow:hidden; background:#000; border:1px solid #444; border-radius:8px; aspect-ratio:16/9;">\n  <iframe src="https://tulnit.com" style="position:absolute; top:0; left:0; width:1920px; height:1080px; border:none; transform-origin:0 0; transform:scale(${z}) translate(${x}px, ${y}px);" scrolling="no"></iframe>\n</div>`;
+        const out = document.getElementById('output');
         
-        // FULL LOGIC: Both containers
-        fullOut.value = `<div style="width:100%; max-width:600px; display:flex; flex-direction:column; background:#000;">\n  <div style="width:100%; height:120px; position:relative; overflow:hidden; border:1px solid #333; border-radius:8px 8px 0 0;">\n    <iframe src="https://tulnit.com" style="position:absolute; top:0; left:0; width:1920px; height:1080px; border:none; transform-origin:0 0; transform:scale(${z}) translate(${x}px, ${skyY}px);"></iframe>\n  </div>\n  <div style="width:100%; position:relative; padding-top:56.25%; overflow:hidden; border:1px solid #444; border-top:none; border-radius:0 0 8px 8px;">\n    <iframe src="https://tulnit.com" style="position:absolute; top:0; left:0; width:1920px; height:1080px; border:none; transform-origin:0 0; transform:scale(${z}) translate(${x}px, ${y}px);"></iframe>\n  </div>\n</div>`;
-
-        trimmedOut.style.display = 'block';
-        fullOut.style.display = 'block';
+        out.value = `<div style="width:100%; max-width:600px; height:480px; position:relative; overflow:hidden; background:#000; border:2px solid #444; border-radius:12px;">\n  <div style="position:absolute; top:120px; left:0; width:100%; height:20px; background:#1a1a1a; z-index:5; border-top:1px solid #444; border-bottom:1px solid #444;"></div>\n  <iframe src="https://tulnit.com" style="position:absolute; top:0; left:0; width:1920px; height:1080px; border:none; transform-origin:0 0; transform:scale(${z}) translate(${x}px, ${y}px);"></iframe>\n</div>`;
+        out.style.display = 'block';
     }
     sync();
 </script>
+
 </body>
 </html>

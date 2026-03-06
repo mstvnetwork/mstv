@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global High-Performance Player</title>
+    
+    <!-- 1. Libraries: Local Shaka + CDN HLS Fallback -->
+    <script src="./shaka-player.compiled.js"></script>
+    <script src="https://cdn.jsdelivr.net"></script>
+
+    <style>
+        body { margin: 0; background: #111; color: white; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; }
+        
+        .player-container {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            margin-top: 20px;
+        }
+
+        video, iframe { width: 100%; height: 100%; border: none; display: none; }
+
+        /* Loader Overlay */
+        #loader-overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: none; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.7); z-index: 10;
+        }
+
+        .spinner {
+            width: 50px; height: 50px;
+            border: 5px solid rgba(255,255,255,0.2);
+            border-top: 5px solid #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Controls */
+        .controls { margin: 20px; width: 90%; max-width: 400px; }
+        select { width: 100%; padding: 12px; border-radius: 8px; font-size: 16px; cursor: pointer; }
+
+        #live-stamp {
+            position: absolute; top: 10px; left: 10px;
+            background: red; color: white; padding: 2px 8px;
+            font-weight: bold; border-radius: 4px; display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="player-container">
+        <div id="loader-overlay"><div class="spinner"></div></div>
+        <div id="live-stamp">LIVE</div>
+        
+        <video id="video-player" playsinline controls autocomplete="off"></video>
+        <iframe id="iframe-player" allowfullscreen></iframe>
+        
+        <div id="placeholder" style="height:100%; display:flex; align-items:center; justify-content:center; text-align:center; padding:20px;">
+            Select a channel to start streaming
+        </div>
+    </div>
+
+    <div class="controls">
+        <select id="channel-select">
+            <option value="">⌛ Loading Channels...</option>
+        </select>
+    </div>
+
+    <script>
+        const select = document.getElementById('channel-select');
+        const videoPlayer = document.getElementById('video-player');
+        const iframePlayer = document.getElementById('iframe-player');
+        const loader = document.getElementById('loader-overlay');
+        const liveStamp = document.getElementById('live-stamp');
+        const placeholder = document.getElementById('placeholder');
+        
+        const JSON_URL = "./channels.json";
+        let hlsInstance = null;
+        let shakaInstance = null;
+        let channelsData = [];
+        let retryTimer = null;
+
+        // --- 1. INSTANT LOADING (LOCALSTORAGE) ---
+        function initChannels() {
+            const cached = localStorage.getItem('channels_cache');
+            if (cached) renderDropdown(JSON.parse(cached));
+
+            fetch(JSON_URL) // Clean URL for Netlify Edge Caching
+                .then(res => res.json())
+                .then(data => {
+                    localStorage.setItem('channels_cache', JSON.stringify(data));
+                    renderDropdown(data);
+                }).catch(e => console.error("Update failed", e));
+        }
+
+        function renderDropdown(data) {
+            channelsData = data;
+            select.innerHTML = '<option value="">👉📺 Click & Select Channel</option>';
+            data.forEach((ch, i) => {
+                const opt = document.createElement('option');
+                opt.value = i;
+                opt.textContent = ch.name;
+                select.appendChild(opt);
+            });
+        }
+
+        // --- 2. PLAYER STATE CONTROLS ---
+        function toggleLoader(show) { loader.style.display = show ? 'flex' : 'none'; }
+        
+        videoPlayer.addEventListener('waiting', () => toggleLoader(true));
+        videoPlayer.addEventListener('playing', () => { 
+            toggleLoader(false); 
+            liveStamp.style.display = 'block';
+            clearTimeout(retryTimer); 
+        });
+
+        async function stopAll() {
+            clearTimeout(retryTimer);
+            if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+            if (shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
+            videoPlayer.pause();
+            videoPlayer.src = "";
+            videoPlayer.style.display = 'none';
+            iframePlayer.src = "";
+            iframePlayer.style.display = 'none';
+            liveStamp.style.display = 'none';
+            placeholder.style.display = 'none';
+        }
+
+        // --- 3. PERFORMANCE-TUNED PLAYBACK ---
+        async function playChannel(index) {
+            const channel = channelsData[index];
+            if (!channel) return;
+
+            await stopAll();
+            toggleLoader(true);
+
+            if (channel.type === 'iframe') {
+                iframePlayer.src = channel.url;
+                iframePlayer.style.display = 'block';
+                toggleLoader(false);
+                liveStamp.style.display = 'block';
+            } else {
+                videoPlayer.style.display = 'block';
+                
+                // Set a 10s Retry Timer for slow connections
+                retryTimer = setTimeout(() => {
+                    console.log("Slow connection detected, retrying...");
+                    playChannel(index);
+                }, 12000);
+
+                if (shaka.Player.isBrowserSupported()) {
+                    shaka.polyfill.installAll();
+                    shakaInstance = new shaka.Player(videoPlayer);
+                    shakaInstance.configure({
+                        abr: { defaultBandwidthEstimate: 500000 }, // Start with 3G speed
+                        streaming: {
+                            rebufferingGoal: 2,   // Fast start
+                            bufferingGoal: 10,    // Low data usage
+                            lowLatencyMode: true
+                        }
+                    });
+                    try { await shakaInstance.load(channel.url); } 
+                    catch (e) { console.error("Shaka Error", e); }
+                } 
+                else if (Hls.isSupported()) {
+                    hlsInstance = new Hls({ 
+                        startLevel: 0, 
+                        capLevelToPlayerSize: true,
+                        maxBufferLength: 10 
+                    });
+                    hlsInstance.loadSource(channel.url);
+                    hlsInstance.attachMedia(videoPlayer);
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => videoPlayer.play());
+                }
+            }
+        }
+
+        select.onchange = () => { if(select.value !== "") playChannel(select.value); };
+        initChannels();
+    </script>
+</body>
+</html>

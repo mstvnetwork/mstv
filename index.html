@@ -112,85 +112,96 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; borde
   <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media; picture-in-picture"></iframe>
   <div id="live-stamp">MSTV Network</div>
 </div>
-
-
 <script defer>
 const select = document.getElementById('channel-select');
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
 const placeholder = document.getElementById('placeholder');
 const loader = document.getElementById('loading');
+const liveStamp = document.getElementById('live-stamp');
 const JSON_URL = './channels.json';
 
 let channels = [];
 let hls = null;
 let shakaPlayer = null;
 
+// Stop any playing video/iframe
 async function stopAll() {
-  loader.style.display='none';
-  if(hls){ hls.destroy(); hls=null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer=null; }
+  loader.style.display = 'none';
+  liveStamp.style.display = 'none';
+
+  if(hls){ hls.destroy(); hls = null; }
+  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
 
   video.pause();
   video.removeAttribute('src');
   video.load();
 
   iframe.removeAttribute('src');
-  iframe.src='about:blank';
+  iframe.src = 'about:blank';
 
-  video.style.display='none';
-  iframe.style.display='none';
-  placeholder.style.display='flex';
+  video.style.display = 'none';
+  iframe.style.display = 'none';
+  placeholder.style.display = 'flex';
 }
 
+// Populate channel dropdown
 function renderDropdown(data){
   channels = data;
   select.innerHTML = '<option value="">📱Click & Select Channel</option>';
-  data.forEach((ch,i)=>{
-    const opt=document.createElement("option");
-    opt.value=i;
-    opt.textContent=ch.name;
+  data.forEach((ch, i) => {
+    const opt = document.createElement("option");
+    opt.value = i;
+    opt.textContent = ch.name;
     select.appendChild(opt);
   });
 }
 
+// Load channels from JSON (with localStorage caching)
 async function loadChannels(){
   const cached = localStorage.getItem("channels_cache");
   if(cached) renderDropdown(JSON.parse(cached));
-  try{
-    const res = await fetch(JSON_URL,{cache:'force-cache'});
+
+  try {
+    const res = await fetch(JSON_URL, { cache: 'force-cache' });
     const data = await res.json();
-    localStorage.setItem('channels_cache',JSON.stringify(data));
+    localStorage.setItem('channels_cache', JSON.stringify(data));
     renderDropdown(data);
   } catch(e){
     console.error('Channels load failed', e);
   }
 }
 
+// Play selected channel
 async function playChannel(index){
   const channel = channels[index];
   if(!channel) return;
 
   await stopAll();
-  loader.style.display='block';
-  placeholder.style.display='none';
+  loader.style.display = 'block';
+  placeholder.style.display = 'none';
 
-  if(channel.type==='iframe'){
-    iframe.style.display='block';
+  // Show live stamp if channel is live
+  liveStamp.style.display = channel.isLive ? 'block' : 'none';
+
+  // Iframe stream
+  if(channel.type === 'iframe'){
+    iframe.style.display = 'block';
     iframe.src = channel.url;
-    iframe.onload = ()=>{ loader.style.display='none'; };
+    iframe.onload = () => { loader.style.display = 'none'; };
     return;
   }
 
-  video.style.display='block';
-  const isHls = channel.type==='hls' || channel.url.includes('.m3u8');
+  // Video stream
+  video.style.display = 'block';
+  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
 
   if(isHls){
     if(window.Hls && Hls.isSupported()){
       hls = new Hls({ enableWorker:true, lowLatencyMode:true, startLevel:-1 });
       hls.loadSource(channel.url);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=>video.play());
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
     } else if(video.canPlayType('application/vnd.apple.mpegurl')){
       video.src = channel.url;
       video.play();
@@ -198,27 +209,35 @@ async function playChannel(index){
     return;
   }
 
+  // Shaka player
   if(window.shaka && shaka.Player.isBrowserSupported()){
     shaka.polyfill.installAll();
     shakaPlayer = new shaka.Player(video);
     shakaPlayer.configure({ streaming:{ bufferingGoal:10, rebufferingGoal:0.5, lowLatencyMode:true } });
+
     try{
       await shakaPlayer.load(channel.url);
       video.play();
     } catch(e){
       console.error('Shaka error', e);
-      loader.style.display='none';
-      placeholder.style.display='flex';
+      loader.style.display = 'none';
+      placeholder.style.display = 'flex';
+      liveStamp.style.display = 'none';
     }
   }
 }
 
-video.onplaying = ()=>{ loader.style.display='none'; };
-select.onchange = ()=>{ if(select.value!=='') playChannel(select.value); };
+// Hide loader when video starts
+video.onplaying = () => { loader.style.display = 'none'; };
 
+// Play selected channel from dropdown
+select.onchange = () => { if(select.value !== '') playChannel(select.value); };
+
+// Initialize
 loadChannels();
-</script>
+ </script>
 
+    
 <!-- JSON-LD for SEO -->
 <script type="application/ld+json">
 {

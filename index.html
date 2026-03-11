@@ -88,16 +88,8 @@
     <select id="channel-select" style="display:none;"></select>
     <div class="channel-grid" id="channel-list-container"></div>
 </main>
-
 <script>
-// 1. ADMIN DETECTION (MUST BE TOP)
-const isAdmin = new URLSearchParams(window.location.search).get('view') === 'admin';
-if (isAdmin) {
-    document.body.classList.add('admin-mode');
-    window.goatcounter = { no_onload: true }; // Hide from analytics
-    console.log("MSTV: Admin Active");
-}
-
+// 1. GLOBAL CONSTANTS
 const select = document.getElementById('channel-select');
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
@@ -111,50 +103,85 @@ const JSON_URL = './channels.json';
 let channels = [];
 let hls = null;
 let shakaPlayer = null;
+let isAdmin = false; // Initialise as false
 
+// 2. ADMIN & ANALYTICS DETECTION (Fixed for Body Loading)
+document.addEventListener("DOMContentLoaded", () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    isAdmin = urlParams.get('view') === 'admin';
+
+    if (isAdmin) {
+        document.body.classList.add('admin-mode');
+        window.goatcounter = { no_onload: true }; // Opt-out of tracking
+        console.log("MSTV: Admin Mode Active - Tracking Disabled");
+        
+        // Trigger status check if channels are already loaded
+        if (channels.length > 0) verifyAllChannels();
+    }
+});
+
+// 3. BACKGROUND STATUS CHECK (Only runs if Admin)
 async function verifyAllChannels() {
     if (!isAdmin) return;
+    console.log("MSTV: Checking stream health...");
     channels.forEach(async (ch, i) => {
         const card = document.getElementById(`card-${i}`);
         const dot = document.getElementById(`dot-${i}`);
         if (!card || !ch.url || ch.type === 'iframe') return;
+
         try {
+            // 'no-cors' allows pinging 3rd party streams without security blocks
             await fetch(ch.url, { method: 'HEAD', mode: 'no-cors' });
-            card.classList.add('online'); card.classList.remove('offline');
+            card.classList.remove('offline');
+            card.classList.add('online');
             if(dot) dot.style.color = "#2ecc71";
         } catch (e) {
-            card.classList.add('offline'); card.classList.remove('online');
+            card.classList.remove('online');
+            card.classList.add('offline');
             if(dot) dot.style.color = "#e74c3c";
         }
     });
 }
+
+// 30-Minute Maintenance Loop
 setInterval(verifyAllChannels, 1800000);
 
+// 4. ORIGINAL PLAYBACK LOGIC (100% Intact)
 async function stopAll() {
-    if(loader) loader.style.display = 'none';
-    liveStamp.style.display = 'none';
-    if(hls){ hls.destroy(); hls = null; }
-    if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
-    video.pause(); video.removeAttribute('src'); video.load();
-    iframe.removeAttribute('src'); iframe.src = 'about:blank';
-    video.style.display = 'none'; iframe.style.display = 'none';
-    placeholder.style.display = 'flex';
+  if(loader) loader.style.display = 'none';
+  liveStamp.style.display = 'none';
+  if(hls){ hls.destroy(); hls = null; }
+  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
+  video.pause(); video.removeAttribute('src'); video.load();
+  iframe.removeAttribute('src'); iframe.src = 'about:blank';
+  video.style.display = 'none'; iframe.style.display = 'none';
+  placeholder.style.display = 'flex';
 }
 
 function renderUI(data) {
-    channels = data;
-    gridContainer.innerHTML = ''; 
-    data.forEach((ch, i) => {
-        const card = document.createElement('div');
-        card.className = 'channel-card';
-        card.id = `card-${i}`;
-        card.setAttribute('data-name', ch.name.toLowerCase());
-        const logoHtml = ch.logo ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` : `<span style="font-size:1.5rem">📺</span>`;
-        card.innerHTML = `<div class="card-logo">${logoHtml}</div><div class="channel-name">${ch.name} <span class="status-dot" id="dot-${i}">●</span></div>`;
-        card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
-        gridContainer.appendChild(card);
-    });
-    if (isAdmin) verifyAllChannels();
+  channels = data;
+  gridContainer.innerHTML = ''; 
+
+  data.forEach((ch, i) => {
+    const card = document.createElement('div');
+    card.className = 'channel-card';
+    card.id = `card-${i}`; 
+    card.setAttribute('data-name', ch.name.toLowerCase());
+    
+    const logoHtml = ch.logo 
+      ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` 
+      : `<span style="font-size:1.5rem">📺</span>`;
+
+    card.innerHTML = `
+      <div class="card-logo">${logoHtml}</div>
+      <div class="channel-name">${ch.name} <span class="status-dot" id="dot-${i}">●</span></div>
+    `;
+    
+    card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
+    gridContainer.appendChild(card);
+  });
+  
+  if (isAdmin) verifyAllChannels();
 }
 
 searchInput.addEventListener('input', (e) => {
@@ -165,69 +192,49 @@ searchInput.addEventListener('input', (e) => {
 });
 
 async function loadChannels(){
-    const cached = localStorage.getItem("channels_cache");
-    if(cached) renderUI(JSON.parse(cached));
-    try {
-        const res = await fetch(JSON_URL, { cache: 'no-cache' });
-        const data = await res.json();
-        localStorage.setItem('channels_cache', JSON.stringify(data));
-        renderUI(data);
-    } catch(e){ console.error('Load fail', e); }
+  const cached = localStorage.getItem("channels_cache");
+  if(cached) renderUI(JSON.parse(cached));
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-cache' });
+    const data = await res.json();
+    localStorage.setItem('channels_cache', JSON.stringify(data));
+    renderUI(data);
+  } catch(e){ console.error('Load fail', e); }
 }
 
 async function playChannel(index){
-    const channel = channels[index];
-    if(!channel) return;
-    await stopAll();
-    if(loader) loader.style.display = 'block';
-    placeholder.style.display = 'none';
-    liveStamp.style.display = channel.isLive ? 'block' : 'none';
-    if(channel.type === 'iframe'){
-        iframe.style.display = 'block'; iframe.src = channel.url;
-        iframe.onload = () => { if(loader) loader.style.display = 'none'; };
-        return;
+  const channel = channels[index];
+  if(!channel) return;
+  await stopAll();
+  if(loader) loader.style.display = 'block';
+  placeholder.style.display = 'none';
+  liveStamp.style.display = channel.isLive ? 'block' : 'none';
+
+  if(channel.type === 'iframe'){
+    iframe.style.display = 'block'; iframe.src = channel.url;
+    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
+    return;
+  }
+
+  video.style.display = 'block';
+  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
+  if(isHls){
+    if(window.Hls && Hls.isSupported()){
+      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
+      hls.loadSource(channel.url); hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src = channel.url; video.play();
     }
-    video.style.display = 'block';
-    const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
-    if(isHls){
-        if(window.Hls && Hls.isSupported()){
-            hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-            hls.loadSource(channel.url); hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-        } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-            video.src = channel.url; video.play();
-        }
-    } else if(window.shaka && shaka.Player.isBrowserSupported()){
-        shaka.polyfill.installAll();
-        shakaPlayer = new shaka.Player(video);
-        try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
-    }
+  } else if(window.shaka && shaka.Player.isBrowserSupported()){
+    shaka.polyfill.installAll();
+    shakaPlayer = new shaka.Player(video);
+    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
+  }
 }
+
 video.onplaying = () => { if(loader) loader.style.display = 'none'; };
 loadChannels();
-</script>
-
-<footer class="site-footer">
-    <div class="seo-content">
-        <h2>MSTV Network: Premium Live Media Hub</h2>
-        <p>Watch <strong>free live Indian, Pakistani, and International TV channels</strong>. High-definition 24/7 broadcast.</p>
-        <div style="margin-top: 25px; padding: 15px; border: 1px solid #333; border-radius: 8px; background: rgba(255,255,255,0.05);">
-            <p style="font-size: 0.85rem; color: #aaa; margin: 0;"><strong>Disclaimer:</strong> MSTV Network provides a curated directory of <strong>publicly available streams</strong>. We do not host any content.</p>
-        </div>
-    </div>
-    <div class="footer-bottom"><p>© 2026 MSTV Network. All Rights Reserved.</p></div>
-</footer>
-
-<script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
-
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org", "@type": "VideoObject", "name": "MSTV Network Live Stream",
-  "description": "Watch live Indian, Pakistani, and International TV channels.",
-  "thumbnailUrl": ["https://mstvnet.netlify.app"],
-  "uploadDate": "2024-01-01T08:00:00+00:00", "contentUrl": "https://mstvnet.netlify.app",
-  "publisher": { "@type": "Organization", "name": "MSTV Network", "logo": { "@type": "ImageObject", "url": "https://mstvnet.netlify.app" } }
-}
 </script>
 </body>
 </html>

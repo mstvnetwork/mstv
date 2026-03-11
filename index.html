@@ -54,7 +54,7 @@
         .card-logo img { width: 90%; height: 90%; object-fit: contain; filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.1)); }
         .channel-name { font-size: 0.65rem; font-weight: 700; color: #334155; }
 
-        /* Admin Mode Styles - Initially Hidden */
+        /* Admin Mode Styles */
         .status-dot { display: none; font-size: 0.8rem; margin-left: 4px; vertical-align: middle; }
         html.admin-mode .status-dot { display: inline-block; }
         html.admin-mode .channel-card.online { border-color: #2ecc71 !important; box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
@@ -91,12 +91,19 @@
 </main>
 
 <script>
-// --- 1. IMMEDIATE ADMIN DETECTION ---
-const isAdmin = new URLSearchParams(window.location.search).get('view') === 'admin';
-if (isAdmin) {
+// 1. STICKY ADMIN DETECTION (Checks URL AND Session)
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('view') === 'admin') {
+    sessionStorage.setItem('mstv_admin', 'true');
+}
+
+// Global Admin Constant
+const IS_MSTV_ADMIN = sessionStorage.getItem('mstv_admin') === 'true';
+
+if (IS_MSTV_ADMIN) {
     document.documentElement.classList.add('admin-mode');
-    window.goatcounter = { no_onload: true }; // Skip counting admin visits in analytics
-    console.log("MSTV: Admin Active - Tracking Paused");
+    window.goatcounter = { no_onload: true }; 
+    console.log("MSTV: Admin Mode Sticky Active");
 }
 
 const select = document.getElementById('channel-select');
@@ -113,29 +120,27 @@ let channels = [];
 let hls = null;
 let shakaPlayer = null;
 
-// --- 2. STATUS CHECK LOGIC (Only runs if Admin) ---
+// 2. STATUS CHECK (Only runs if Admin)
 async function verifyAllChannels() {
-    if (!isAdmin) return;
-    console.log("MSTV: Checking stream status...");
+    if (!IS_MSTV_ADMIN) return;
     channels.forEach(async (ch, i) => {
         const card = document.getElementById(`card-${i}`);
         const dot = document.getElementById(`dot-${i}`);
         if (!card || !ch.url || ch.type === 'iframe') return;
 
         try {
-            // Using HEAD request + no-cors for checking 3rd party URLs
             await fetch(ch.url, { method: 'HEAD', mode: 'no-cors' });
             card.classList.add('online'); card.classList.remove('offline');
-            if(dot) dot.style.color = "#2ecc71"; // Green
+            if(dot) dot.style.color = "#2ecc71";
         } catch (e) {
             card.classList.add('offline'); card.classList.remove('online');
-            if(dot) dot.style.color = "#e74c3c"; // Red
+            if(dot) dot.style.color = "#e74c3c";
         }
     });
 }
-setInterval(verifyAllChannels, 1800000); // 30-minute maintenance cycle
+setInterval(verifyAllChannels, 1800000);
 
-// --- 3. ORIGINAL PLAYBACK LOGIC ---
+// 3. ORIGINAL PLAYBACK LOGIC
 async function stopAll() {
     if(loader) loader.style.display = 'none';
     liveStamp.style.display = 'none';
@@ -156,15 +161,13 @@ function renderUI(data) {
         card.id = `card-${i}`;
         card.setAttribute('data-name', ch.name.toLowerCase());
         
-        const logoHtml = ch.logo 
-            ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` 
-            : `<span style="font-size:1.5rem">📺</span>`;
+        const logoHtml = ch.logo ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` : `<span style="font-size:1.5rem">📺</span>`;
 
         card.innerHTML = `<div class="card-logo">${logoHtml}</div><div class="channel-name">${ch.name} <span class="status-dot" id="dot-${i}">●</span></div>`;
         card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
         gridContainer.appendChild(card);
     });
-    if (isAdmin) verifyAllChannels();
+    if (IS_MSTV_ADMIN) verifyAllChannels();
 }
 
 searchInput.addEventListener('input', (e) => {
@@ -192,13 +195,11 @@ async function playChannel(index){
     if(loader) loader.style.display = 'block';
     placeholder.style.display = 'none';
     liveStamp.style.display = channel.isLive ? 'block' : 'none';
-
     if(channel.type === 'iframe'){
         iframe.style.display = 'block'; iframe.src = channel.url;
         iframe.onload = () => { if(loader) loader.style.display = 'none'; };
         return;
     }
-
     video.style.display = 'block';
     const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
     if(isHls){
@@ -222,32 +223,23 @@ loadChannels();
 <footer class="site-footer">
     <div class="seo-content">
         <h2>MSTV Network: Premium Live Media Hub</h2>
-        <p>Watch your favorite <strong>live Indian, Pakistani, and International TV channels</strong>. High-quality 24/7 digital broadcasting.</p>
+        <p>Watch <strong>free live Indian, Pakistani, and International TV channels</strong>. Optimized for 24/7 high-definition broadcast.</p>
         <div style="margin-top: 25px; padding: 15px; border: 1px solid #333; border-radius: 8px; background: rgba(255,255,255,0.05);">
-            <p style="font-size: 0.85rem; color: #aaa; margin: 0;"><strong>Disclaimer:</strong> MSTV Network provides a directory of <strong>publicly available streams</strong>. We do not host or store any media content on our servers.</p>
+            <p style="font-size: 0.85rem; color: #aaa; margin: 0;"><strong>Disclaimer:</strong> MSTV Network provides a directory of <strong>publicly available streams</strong>. We do not host any media content.</p>
         </div>
     </div>
     <div class="footer-bottom"><p>© 2026 MSTV Network. All Rights Reserved.</p></div>
 </footer>
 
-<!-- 2. GOATCOUNTER ANALYTICS -->
 <script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
 
-<!-- 3. SEO VIDEO SCHEMA -->
 <script type="application/ld+json">
 {
-  "@context": "https://schema.org",
-  "@type": "VideoObject",
-  "name": "MSTV Network Live Stream",
+  "@context": "https://schema.org", "@type": "VideoObject", "name": "MSTV Network Live Stream",
   "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
   "thumbnailUrl": ["https://mstvnet.netlify.app"],
-  "uploadDate": "2024-01-01T08:00:00+00:00",
-  "contentUrl": "https://mstvnet.netlify.app",
-  "publisher": {
-    "@type": "Organization",
-    "name": "MSTV Network",
-    "logo": { "@type": "ImageObject", "url": "https://mstvnet.netlify.app" }
-  }
+  "uploadDate": "2024-01-01T08:00:00+00:00", "contentUrl": "https://mstvnet.netlify.app",
+  "publisher": { "@type": "Organization", "name": "MSTV Network", "logo": { "@type": "ImageObject", "url": "https://mstvnet.netlify.app" } }
 }
 </script>
 </body>

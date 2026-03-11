@@ -20,8 +20,6 @@
     <meta property="og:title" content="MSTV Network | Free Live Indian & Pakistani TV">
     <meta property="og:description" content="Stream your favorite International TV channels for free 24/7 on MSTV Network. Your global hub for live digital media.">
     <meta property="og:image" content="https://mstvnet.netlify.app">
-    <meta property="og:image:width" content="1200">
-    <meta property="og:image:height" content="630">
 
     <!-- Twitter / X -->
     <meta name="twitter:card" content="summary_large_image">
@@ -38,20 +36,12 @@
     <script defer src="https://cdn.jsdelivr.net"></script>
 
     <style>
-        :root {
-            --bg-dark: #0F1115;
-            --accent: #90EE90;
-            --header-h: 70px;
-            --player-y: 70px;
-            --text-dim: #555;
-        }
-
+        :root { --bg-dark: #0F1115; --accent: #90EE90; --header-h: 70px; --player-y: 70px; }
         html { scroll-padding-top: 380px; scroll-behavior: smooth; }
         body { background-color: #E8E4C9 !important; margin: 0; padding: 0; font-family: Arial, sans-serif; }
 
         header { position: sticky; top: 0; z-index: 1000; background: #111419; height: var(--header-h); display: flex; align-items: center; justify-content: space-between; padding: 0 5%; border-bottom: 1px solid #222; }
-        .logo-section { display: flex; flex-direction: column; }
-        .brand-name { font-size: 1.4rem; font-weight: bold; background: linear-gradient(90deg, #90EE90, #00FFA3); -webkit-background-clip: text; color: transparent; line-height: 1; }
+        .brand-name { font-size: 1.4rem; font-weight: bold; background: linear-gradient(90deg, #90EE90, #00FFA3); -webkit-background-clip: text; color: transparent; }
         .slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
         .search-container { flex-grow: 0.4; max-width: 350px; }
         .search-container input { width: 100%; padding: 10px 15px; border-radius: 25px; border: 1px solid #333; background: #1A1D20; color: white; outline: none; }
@@ -66,12 +56,11 @@
         main { padding: 20px 5%; }
         .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(85px, 1fr)); gap: 10px; }
         .channel-card { background: #E8E4C9; border-radius: 8px; padding: 6px; text-align: center; cursor: pointer; border: 1px solid #D1D5DB; box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: all 0.2s ease; position: relative; }
-        .channel-card:hover { transform: translateY(-3px); border-color: var(--accent); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-        .card-logo { aspect-ratio: 1/1; margin-bottom: 2px; border-radius: 6px; background: transparent; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        .card-logo { aspect-ratio: 1/1; margin-bottom: 2px; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
         .card-logo img { width: 90%; height: 90%; object-fit: contain; filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.1)); }
         .channel-name { font-size: 0.65rem; font-weight: 700; color: #334155; }
 
-        /* Status Logic CSS (Admin Only) */
+        /* Admin Styles */
         .status-dot { display: none; font-size: 0.8rem; margin-left: 4px; vertical-align: middle; }
         body.admin-mode .status-dot { display: inline-block; }
         body.admin-mode .channel-card.online { border-color: #2ecc71 !important; box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
@@ -83,20 +72,13 @@
 <body>
 
 <header>
-    <div class="logo-section">
-        <div class="brand-name">MSTV NETWORK</div>
-        <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
-    </div>
-    <div class="search-container">
-        <input type="text" id="channel-search" placeholder="Search channels...">
-    </div>
+    <div class="logo-section"><div class="brand-name">MSTV NETWORK</div><div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div></div>
+    <div class="search-container"><input type="text" id="channel-search" placeholder="Search channels..."></div>
 </header>
 
 <div class="sticky-player-wrapper">
     <div class="player-container">
-        <div id="loading">🌀 Buffering...</div>
-        <div id="live-stamp">LIVE</div>
-        <div id="placeholder">📺</div>
+        <div id="loading">🌀 Buffering...</div><div id="live-stamp">LIVE</div><div id="placeholder">📺</div>
         <video id="video-player" autoplay playsinline controls></video>
         <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media"></iframe>
     </div>
@@ -106,18 +88,16 @@
     <select id="channel-select" style="display:none;"></select>
     <div class="channel-grid" id="channel-list-container"></div>
 </main>
-    <!-- [KEEP YOUR HEAD, CSS, AND HEADER SECTIONS EXACTLY AS THEY ARE] -->
-
-<!-- STYLES ADDON (Place inside your <style> tag) -->
-<style>
-    .status-dot { display: none; font-size: 0.8rem; margin-left: 4px; vertical-align: middle; }
-    body.admin-mode .status-dot { display: inline-block; }
-    body.admin-mode .channel-card.online { border-color: #2ecc71 !important; box-shadow: 0 0 8px rgba(46, 204, 113, 0.4); }
-    body.admin-mode .channel-card.offline { border-color: #e74c3c !important; opacity: 0.6; }
-</style>
 
 <script>
-// 1. GLOBAL CONSTANTS
+// 1. ADMIN DETECTION (MUST BE TOP)
+const isAdmin = new URLSearchParams(window.location.search).get('view') === 'admin';
+if (isAdmin) {
+    document.body.classList.add('admin-mode');
+    window.goatcounter = { no_onload: true }; // Hide from analytics
+    console.log("MSTV: Admin Active");
+}
+
 const select = document.getElementById('channel-select');
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
@@ -132,150 +112,107 @@ let channels = [];
 let hls = null;
 let shakaPlayer = null;
 
-// 2. IMMEDIATE ADMIN & ANALYTICS CHECK
-const urlParams = new URLSearchParams(window.location.search);
-const isAdmin = urlParams.get('view') === 'admin';
-
-if (isAdmin) {
-    document.body.classList.add('admin-mode');
-    window.goatcounter = { no_onload: true }; // Prevents GoatCounter from tracking you
-    console.log("MSTV: Admin Mode Active - Tracking Disabled");
-}
-
-// 3. BACKGROUND STATUS CHECK (Only runs if Admin)
 async function verifyAllChannels() {
     if (!isAdmin) return;
     channels.forEach(async (ch, i) => {
         const card = document.getElementById(`card-${i}`);
         const dot = document.getElementById(`dot-${i}`);
         if (!card || !ch.url || ch.type === 'iframe') return;
-
         try {
-            // Using no-cors to bypass security blocks on 3rd party streams
             await fetch(ch.url, { method: 'HEAD', mode: 'no-cors' });
-            card.classList.remove('offline');
-            card.classList.add('online');
+            card.classList.add('online'); card.classList.remove('offline');
             if(dot) dot.style.color = "#2ecc71";
         } catch (e) {
-            card.classList.remove('online');
-            card.classList.add('offline');
+            card.classList.add('offline'); card.classList.remove('online');
             if(dot) dot.style.color = "#e74c3c";
         }
     });
 }
-
-// Set 30-minute auto-refresh for the status dots
 setInterval(verifyAllChannels, 1800000);
 
-// 4. ORIGINAL PLAYBACK LOGIC (100% Intact)
 async function stopAll() {
-  if(loader) loader.style.display = 'none';
-  liveStamp.style.display = 'none';
-  if(hls){ hls.destroy(); hls = null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
-  video.pause(); video.removeAttribute('src'); video.load();
-  iframe.removeAttribute('src'); iframe.src = 'about:blank';
-  video.style.display = 'none'; iframe.style.display = 'none';
-  placeholder.style.display = 'flex';
+    if(loader) loader.style.display = 'none';
+    liveStamp.style.display = 'none';
+    if(hls){ hls.destroy(); hls = null; }
+    if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
+    video.pause(); video.removeAttribute('src'); video.load();
+    iframe.removeAttribute('src'); iframe.src = 'about:blank';
+    video.style.display = 'none'; iframe.style.display = 'none';
+    placeholder.style.display = 'flex';
 }
 
 function renderUI(data) {
-  channels = data;
-  select.innerHTML = '<option value="">📱 Select Channel</option>';
-  gridContainer.innerHTML = ''; 
-
-  data.forEach((ch, i) => {
-    const opt = document.createElement("option");
-    opt.value = i; 
-    opt.textContent = ch.name; 
-    select.appendChild(opt);
-
-    const card = document.createElement('div');
-    card.className = 'channel-card';
-    card.id = `card-${i}`; // Added for status targeting
-    card.setAttribute('data-name', ch.name.toLowerCase());
-    
-    const logoHtml = ch.logo 
-      ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` 
-      : `<span style="font-size:1.5rem">📺</span>`;
-
-    card.innerHTML = `
-      <div class="card-logo">${logoHtml}</div>
-      <div class="channel-name">${ch.name} <span class="status-dot" id="dot-${i}">●</span></div>
-    `;
-    
-    card.onclick = () => { 
-        playChannel(i); 
-        window.scrollTo({top: 0, behavior: 'smooth'}); 
-    };
-    gridContainer.appendChild(card);
-  });
-  
-  if (isAdmin) verifyAllChannels();
+    channels = data;
+    gridContainer.innerHTML = ''; 
+    data.forEach((ch, i) => {
+        const card = document.createElement('div');
+        card.className = 'channel-card';
+        card.id = `card-${i}`;
+        card.setAttribute('data-name', ch.name.toLowerCase());
+        const logoHtml = ch.logo ? `<img src="${ch.logo}" alt="${ch.name}" onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` : `<span style="font-size:1.5rem">📺</span>`;
+        card.innerHTML = `<div class="card-logo">${logoHtml}</div><div class="channel-name">${ch.name} <span class="status-dot" id="dot-${i}">●</span></div>`;
+        card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
+        gridContainer.appendChild(card);
+    });
+    if (isAdmin) verifyAllChannels();
 }
 
 searchInput.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase().trim();
-    const cards = document.querySelectorAll('.channel-card');
-    cards.forEach(card => {
-        const name = card.getAttribute('data-name');
-        card.style.display = name.includes(term) ? 'block' : 'none';
+    document.querySelectorAll('.channel-card').forEach(card => {
+        card.style.display = card.getAttribute('data-name').includes(term) ? 'block' : 'none';
     });
 });
 
 async function loadChannels(){
-  const cached = localStorage.getItem("channels_cache");
-  if(cached) renderUI(JSON.parse(cached));
-  try {
-    const res = await fetch(JSON_URL, { cache: 'no-cache' });
-    const data = await res.json();
-    localStorage.setItem('channels_cache', JSON.stringify(data));
-    renderUI(data);
-  } catch(e){ console.error('Load fail', e); }
+    const cached = localStorage.getItem("channels_cache");
+    if(cached) renderUI(JSON.parse(cached));
+    try {
+        const res = await fetch(JSON_URL, { cache: 'no-cache' });
+        const data = await res.json();
+        localStorage.setItem('channels_cache', JSON.stringify(data));
+        renderUI(data);
+    } catch(e){ console.error('Load fail', e); }
 }
 
 async function playChannel(index){
-  const channel = channels[index];
-  if(!channel) return;
-  await stopAll();
-  if(loader) loader.style.display = 'block';
-  placeholder.style.display = 'none';
-  liveStamp.style.display = channel.isLive ? 'block' : 'none';
-
-  if(channel.type === 'iframe'){
-    iframe.style.display = 'block'; iframe.src = channel.url;
-    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
-    return;
-  }
-
-  video.style.display = 'block';
-  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
+    const channel = channels[index];
+    if(!channel) return;
+    await stopAll();
+    if(loader) loader.style.display = 'block';
+    placeholder.style.display = 'none';
+    liveStamp.style.display = channel.isLive ? 'block' : 'none';
+    if(channel.type === 'iframe'){
+        iframe.style.display = 'block'; iframe.src = channel.url;
+        iframe.onload = () => { if(loader) loader.style.display = 'none'; };
+        return;
     }
-  } else if(window.shaka && shaka.Player.isBrowserSupported()){
-    shaka.polyfill.installAll();
-    shakaPlayer = new shaka.Player(video);
-    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
-  }
+    video.style.display = 'block';
+    const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
+    if(isHls){
+        if(window.Hls && Hls.isSupported()){
+            hls = new Hls({ enableWorker:true, lowLatencyMode:true });
+            hls.loadSource(channel.url); hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
+        } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+            video.src = channel.url; video.play();
+        }
+    } else if(window.shaka && shaka.Player.isBrowserSupported()){
+        shaka.polyfill.installAll();
+        shakaPlayer = new shaka.Player(video);
+        try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
+    }
 }
-
 video.onplaying = () => { if(loader) loader.style.display = 'none'; };
 loadChannels();
 </script>
 
-<!-- 5. ORIGINAL FOOTER, ANALYTICS & SCHEMA (100% Intact) -->
 <footer class="site-footer">
     <div class="seo-content">
         <h2>MSTV Network: Premium Live Media Hub</h2>
-        <p>Experience the best in digital broadcasting with <strong>MSTV Network</strong>. We provide a seamless interface for viewing <strong>free live Indian, Pakistani, and International TV channels</strong> available publicly on the internet. Our platform is optimized for high-definition playback, ensuring you stay connected with global news, sports, and entertainment 24/7.</p>
+        <p>Watch <strong>free live Indian, Pakistani, and International TV channels</strong>. High-definition 24/7 broadcast.</p>
         <div style="margin-top: 25px; padding: 15px; border: 1px solid #333; border-radius: 8px; background: rgba(255,255,255,0.05);">
-            <p style="font-size: 0.85rem; color: #aaa; margin: 0;"><strong>Disclaimer & Copyright:</strong> MSTV Network does not host, provide, or store any media content on its own servers. We provide a curated directory of <strong>publicly available streams</strong> found on the internet. All logos, trademarks, and video content are the property of their respective original owners.</p>
+            <p style="font-size: 0.85rem; color: #aaa; margin: 0;"><strong>Disclaimer:</strong> MSTV Network provides a curated directory of <strong>publicly available streams</strong>. We do not host any content.</p>
         </div>
     </div>
     <div class="footer-bottom"><p>© 2026 MSTV Network. All Rights Reserved.</p></div>
@@ -285,21 +222,12 @@ loadChannels();
 
 <script type="application/ld+json">
 {
-  "@context": "https://schema.org",
-  "@type": "VideoObject",
-  "name": "MSTV Network Live Stream",
-  "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network. High-quality 24/7 digital broadcast.",
+  "@context": "https://schema.org", "@type": "VideoObject", "name": "MSTV Network Live Stream",
+  "description": "Watch live Indian, Pakistani, and International TV channels.",
   "thumbnailUrl": ["https://mstvnet.netlify.app"],
-  "uploadDate": "2024-01-01T08:00:00+00:00",
-  "contentUrl": "https://mstvnet.netlify.app",
-  "embedUrl": "https://mstvnet.netlify.app",
-  "publisher": {
-    "@type": "Organization",
-    "name": "MSTV Network",
-    "logo": { "@type": "ImageObject", "url": "https://mstvnet.netlify.app" }
-  }
+  "uploadDate": "2024-01-01T08:00:00+00:00", "contentUrl": "https://mstvnet.netlify.app",
+  "publisher": { "@type": "Organization", "name": "MSTV Network", "logo": { "@type": "ImageObject", "url": "https://mstvnet.netlify.app" } }
 }
 </script>
-
 </body>
 </html>

@@ -274,10 +274,10 @@ async function playChannel(index) {
     const ch = channels[index];
     if (!ch) return;
 
-    // 1. Mixed Content Bypass (Opens HTTP links in new window)
+    // 1. Handle HTTP streams for viewers on HTTPS (Bridge to player.html)
     if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
-        const playerUrl = `player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`;
-        window.open(playerUrl, '_blank');
+        const bridgeUrl = `player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`;
+        window.open(bridgeUrl, '_blank');
         return;
     }
 
@@ -294,34 +294,34 @@ async function playChannel(index) {
     } else {
         video.style.display = 'block';
         
-        // --- HLS LOGIC (Using CORS Proxy for Chrome Compatibility) ---
+        // --- HLS LOGIC WITH CHROME CORS FIX ---
         if (ch.url.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                // Using the free CORS proxy to bypass Chrome security
-                const proxyPrefix = "https://corsproxy.io?"; 
-                const proxiedUrl = proxyPrefix + encodeURIComponent(ch.url);
+                // Try playing through a public CORS proxy for max compatibility
+                const proxiedUrl = "https://corsproxy.io?" + encodeURIComponent(ch.url);
 
                 hls = new Hls({
-                    xhrSetup: function(xhr, url) {
+                    xhrSetup: function(xhr) {
                         xhr.withCredentials = false;
                     }
                 });
                 
                 hls.loadSource(proxiedUrl);
                 hls.attachMedia(video);
+                
                 hls.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    video.play().catch(e => console.log("Autoplay blocked:", e)); 
+                    video.play().catch(e => console.log("Autoplay check:", e)); 
                 });
 
-                // Error Handler: If proxy fails, try direct link as backup
+                // FALLBACK: If the public proxy fails, try your Netlify proxy
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     if (data.fatal) {
-                        console.warn("Proxy failed, trying direct source...");
-                        hls.loadSource(ch.url);
+                        console.warn("Proxy 1 failed, trying Netlify proxy...");
+                        const netlifyProxyUrl = `/proxy/${ch.url.replace(/^https?:\/\//, '')}`;
+                        hls.loadSource(netlifyProxyUrl);
                     }
                 });
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native Safari/iOS playback
                 video.src = ch.url;
                 video.play();
             }
@@ -333,9 +333,7 @@ async function playChannel(index) {
 
             if (ch.keyId && ch.key) {
                 shakaPlayer.configure({
-                    drm: {
-                        clearKeys: { [ch.keyId]: ch.key }
-                    }
+                    drm: { clearKeys: { [ch.keyId]: ch.key } }
                 });
             }
 
@@ -343,13 +341,12 @@ async function playChannel(index) {
                 await shakaPlayer.load(ch.url); 
                 video.play(); 
             } catch(e) { 
-                console.error("Shaka Load Error:", e); 
+                console.error("Shaka Error:", e); 
             }
-        } else {
-            console.error("No compatible playback engine found.");
         }
     }
 }
+
 
 
 

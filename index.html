@@ -252,23 +252,39 @@
 </main>
 
 <script>
-        <!-- 1. DYNAMIC ITEMLIST SCHEMA (Replaced your static VideoObject) -->
-    <script type="application/ld+json" id="mstv-schema">
-    {
-      "@context": "https://schema.org",
-      "@type": "ItemList",
-      "name": "MSTV Network Live Channels",
-      "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
-      "itemListElement": [] 
-    }
-     // Add this at the very bottom of your script
-window.addEventListener('load', () => {
-    const hash = decodeURIComponent(window.location.hash.substring(1));
-    if (hash) {
-        const index = channels.findIndex(ch => ch.name === hash);
-        if (index !== -1) playChannel(index);
-    }
-});
+    
+// --- MOVE THIS TO THE TOP ---
+function updateLiveSchema(data) {
+    const schemaEl = document.getElementById('mstv-schema');
+    if(!schemaEl) return;
+    try {
+        const items = data.map((ch, i) => ({
+            "@type": "ListItem",
+            "position": i + 1,
+            "item": {
+                "@type": "VideoObject",
+                "name": ch.name,
+                "description": `Watch ${ch.name} live on MSTV Network.`,
+                "thumbnailUrl": [ch.logo || "https://mstvnet.netlify.app"],
+                "uploadDate": "2024-01-01T08:00:00+00:00",
+                "embedUrl": `https://mstvnet.netlify.app#${encodeURIComponent(ch.name)}`,
+                "publication": {
+                    "@type": "BroadcastEvent",
+                    "isLiveBroadcast": true,
+                    "startDate": new Date().toISOString()
+                }
+            }
+        }));
+        schemaEl.innerHTML = JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            "name": "MSTV Network Channels",
+            "itemListElement": items
+        });
+    } catch (e) { console.error("Schema Error", e); }
+}
+
+
 let channels = [];
 let hls = null;
 let shakaPlayer = null;

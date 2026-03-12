@@ -274,7 +274,7 @@ async function playChannel(index) {
     const ch = channels[index];
     if (!ch) return;
 
-    // 1. Insecure HTTP Fallback
+    // 1. Mixed Content / Insecure Link Bypass
     if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
         window.open(`player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`, '_blank');
         return;
@@ -283,7 +283,7 @@ async function playChannel(index) {
     await stopAll();
     placeholder.style.display = 'none';
     loader.style.display = 'block';
-    liveStamp.style.display = ch.isLive ? 'block' : 'none';
+    if (liveStamp) liveStamp.style.display = ch.isLive ? 'block' : 'none';
     window.location.hash = encodeURIComponent(ch.name);
 
     if (ch.type === 'iframe') {
@@ -293,42 +293,41 @@ async function playChannel(index) {
     } else {
         video.style.display = 'block';
         
+        // --- HLS LOGIC (Using Netlify Proxy for Chrome) ---
         if (ch.url.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                // Use a relative path so Chrome sees it as the SAME DOMAIN
-                const proxiedUrl = `/proxy/${ch.url.replace(/^https?:\/\//, '')}`;
+                // Remove https:// for the proxy path to avoid double slashes
+                const cleanUrl = ch.url.replace(/^https?:\/\//, '');
+                const proxiedUrl = `/proxy/${cleanUrl}`;
 
                 hls = new Hls({
-                    // This tells Hls.js to ignore Chrome's cross-origin restrictions
                     xhrSetup: function(xhr) {
                         xhr.withCredentials = false;
                     }
                 });
                 hls.loadSource(proxiedUrl);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(e => console.log("Autoplay blocked", e)); });
+                hls.on(Hls.Events.MANIFEST_PARSED, () => { 
+                    video.play().catch(e => console.log("Autoplay check:", e)); 
+                });
                 
-                // ERROR HANDLER: If it fails, try the original URL as a backup
+                // Fallback: If proxy fails, try direct URL
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     if (data.fatal) {
-                        console.warn("Proxy failed, trying direct link...");
+                        console.warn("Proxy issue, trying direct link...");
                         hls.loadSource(ch.url);
                     }
                 });
-            } 
-            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = ch.url;
                 video.play();
             }
         } 
-        // ... (Keep Shaka logic the same below)
-    }
-}
-
         // --- DASH & CLEAR KEY LOGIC ---
         else if (typeof shaka !== 'undefined' && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
             shakaPlayer = new shaka.Player(video);
+
             if (ch.keyId && ch.key) {
                 shakaPlayer.configure({
                     drm: {
@@ -336,17 +335,20 @@ async function playChannel(index) {
                     }
                 });
             }
+
             try { 
                 await shakaPlayer.load(ch.url); 
                 video.play(); 
             } catch(e) { 
-                console.error("Shaka Load Error", e); 
+                console.error("Shaka Error:", e); 
             }
         } else {
-            console.error("No compatible player library found.");
+            console.error("No compatible player engine found.");
         }
     }
 }
+
+
 
 
 

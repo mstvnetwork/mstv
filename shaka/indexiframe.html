@@ -29,40 +29,42 @@
 </head>
 <body>
 
-<div class="player-container">
-    <!-- The Lock Layer -->
-    <div id="iframe-lock" title="Click once to Play"></div>
+<div id="player-wrapper" style="position: relative; width: 640px; height: 320px;">
+    <!-- The Lock Overlay -->
+    <div id="click-shield" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 999; cursor: pointer; background: rgba(0,0,0,0);"></div>
     
-    <!-- Your GDPlayer Iframe -->
-    <iframe id="gd-player"
-            src="https://gdplayer.to/x/?aTVSb2t2Qi96d25Gc3hyK0RlbTNMbTFNcllLcEk3bFI0amZRYVI0UnlJSU1xemM5YVp0K1huNDJYbDI2aTRURGVMcmZ6dXVaSnBnSlpiQXZrblpJaVZBcUhiSHc4RldtbmRMM3VDZEhtaE50Rlh3NmFqNlNxaWNuM2xpYXRBdzN1MVpxU1crbG02eE1wOFRRdGdVRHJWd3BYcjdCWlNERUx5OGVqVVgzdEhFPQ,," 
-            width="640" 
-            height="320" 
-            loading="lazy" 
-            allow="fullscreen; accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; geolocation; web-share; screen-wake-lock; idle-detection">
-    </iframe>
+    <!-- Visual Status Bar (Optional) -->
+    <div id="lock-status" style="position: absolute; bottom: 0; left: 0; height: 4px; width: 0%; background: #ff0000; z-index: 1000; transition: width 5s linear;"></div>
+
+    <iframe id="gd-iframe" src="https://gdplayer.to,," width="640" height="320" allow="fullscreen; autoplay; encrypted-media;"></iframe>
 </div>
 
 <script>
-    const lock = document.getElementById('iframe-lock');
+    const shield = document.getElementById('click-shield');
+    const statusBar = document.getElementById('lock-status');
+    let isLocked = false;
 
-    // 1. Intercept top-level redirect attempts
-    window.onbeforeunload = function() {
-        return "Redirect attempt blocked. Stay on this page to continue watching?";
-    };
+    // 1. Safety net for forced redirects
+    window.onbeforeunload = () => "Redirect blocked. Stay here?";
 
-    // 2. Click-to-Play and Re-lock Logic
-    lock.addEventListener('click', function() {
-        // Briefly disable the lock to let the click reach the Play button
-        lock.style.pointerEvents = 'none';
+    shield.addEventListener('click', () => {
+        if (isLocked) return;
 
-        // Re-enable the lock after 400ms to block all future ad clicks
+        // Unlock the iframe for 5 seconds
+        shield.style.pointerEvents = 'none';
+        statusBar.style.width = '100%'; 
+        console.log("Iframe Unlocked: Adjust volume/quality now...");
+
+        // Re-lock after 5 seconds (Adjust this number as needed)
         setTimeout(() => {
-            lock.style.pointerEvents = 'auto';
-            console.log("Iframe interaction locked. Redirects blocked.");
-        }, 900);
+            shield.style.pointerEvents = 'auto';
+            statusBar.style.background = '#00ff00'; // Green = Protected
+            isLocked = true;
+            console.log("Iframe Locked: Clicks blocked to prevent redirects.");
+        }, 5000); 
     });
 </script>
+
 
 </body>
 </html>

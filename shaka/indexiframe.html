@@ -1,68 +1,96 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <title>Stream Test</title>
     <style>
-        .player-container {
-            position: relative;
-            width: 640px;
-            height: 320px;
-            background: #000;
+        body { background: #121212; display: flex; justify-content: center; padding: 50px; font-family: sans-serif; }
+        
+        .channel-card {
+            width: 320px;
+            background: #1e1e1e;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            transition: 0.3s;
+            text-decoration: none;
+            color: white;
+            border: 1px solid #333;
         }
 
-        /* The "Lock" Overlay: Sits on top of the iframe */
-        #iframe-lock {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: 10;
-            background: rgba(0,0,0,0); /* Transparent */
-            cursor: pointer;
-            pointer-events: auto; /* Active by default */
+        .channel-card:hover { transform: translateY(-10px); border-color: #ff0000; }
+
+        .thumb {
+            height: 180px;
+            background: linear-gradient(45deg, #ff0000, #b30000);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
         }
 
-        iframe {
-            border: none;
+        .details { padding: 20px; }
+        .btn {
+            display: inline-block;
+            margin-top: 10px;
+            padding: 8px 20px;
+            background: #ff0000;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
         }
     </style>
 </head>
 <body>
 
-<div class="player-container">
-    <!-- The Lock Layer -->
-    <div id="iframe-lock" title="Click once to Play"></div>
-    
-    <!-- Your GDPlayer Iframe -->
-    <iframe id="gd-player"
-            src="https://gdplayer.to/x/?aTVSb2t2Qi96d25Gc3hyK0RlbTNMbTFNcllLcEk3bFI0amZRYVI0UnlJSU1xemM5YVp0K1huNDJYbDI2aTRURGVMcmZ6dXVaSnBnSlpiQXZrblpJaVZBcUhiSHc4RldtbmRMM3VDZEhtaE50Rlh3NmFqNlNxaWNuM2xpYXRBdzN1MVpxU1crbG02eE1wOFRRdGdVRHJWd3BYcjdCWlNERUx5OGVqVVgzdEhFPQ,," 
-            width="640" 
-            height="320" 
-            loading="lazy" 
-            allow="fullscreen; accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; geolocation; web-share; screen-wake-lock; idle-detection">
-    </iframe>
-</div>
+    <!-- The Card Link -->
+    <a href="javascript:void(0);" onclick="openPlayer()" class="channel-card">
+        <div class="thumb">LIVE STREAM</div>
+        <div class="details">
+            <h2 style="margin:0">Astro Channel</h2>
+            <p style="color:#aaa; font-size:14px;">M3U8 Playback Test</p>
+            <span class="btn">WATCH NOW</span>
+        </div>
+    </a>
 
-<script>
-    const lock = document.getElementById('iframe-lock');
-
-    // 1. Intercept top-level redirect attempts
-    window.onbeforeunload = function() {
-        return "Redirect attempt blocked. Stay on this page to continue watching?";
-    };
-
-    // 2. Click-to-Play and Re-lock Logic
-    lock.addEventListener('click', function() {
-        // Briefly disable the lock to let the click reach the Play button
-        lock.style.pointerEvents = 'none';
-
-        // Re-enable the lock after 400ms to block all future ad clicks
-        setTimeout(() => {
-            lock.style.pointerEvents = 'auto';
-            console.log("Iframe interaction locked. Redirects blocked.");
-        }, 5000);
-    });
-</script>
+    <script>
+        function openPlayer() {
+            // The .m3u8 URL to test
+            const streamUrl = 'https://criccoder.pages.dev/astro.m3u8';
+            
+            // Create a new window
+            const playerWin = window.open("", "_blank", "width=850,height=520");
+            
+            // Write the player code into the new window
+            playerWin.document.write(`
+                <html>
+                <head>
+                    <title>Astro Player</title>
+                    <script src="https://cdn.jsdelivr.net"><\/script>
+                    <style>
+                        body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                        video { width: 100%; height: 100%; max-width: 800px; }
+                    </style>
+                </head>
+                <body>
+                    <video id="video" controls autoplay></video>
+                    <script>
+                        var video = document.getElementById('video');
+                        var videoSrc = '${streamUrl}';
+                        if (Hls.isSupported()) {
+                            var hls = new Hls();
+                            hls.loadSource(videoSrc);
+                            hls.attachMedia(video);
+                        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                            video.src = videoSrc;
+                        }
+                    <\/script>
+                </body>
+                </html>
+            `);
+        }
+    </script>
 
 </body>
 </html>

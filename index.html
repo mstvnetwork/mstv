@@ -295,21 +295,25 @@ async function playChannel(index) {
         video.style.display = 'block';
         
         if (ch.url.includes('.m3u8')) {
-            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                // Enhanced HLS Setup with User-Agent Simulation
-                hls = new Hls({
-                    xhrSetup: function(xhr, url) {
-                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
-                        xhr.withCredentials = false;
-                    }
-                });
-                hls.loadSource(ch.url);
-                hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = ch.url;
-                video.play();
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+        // We use your Netlify Proxy to trick Chrome's security
+        const proxiedUrl = `/proxy/${ch.url}`;
+
+        hls = new Hls({
+            xhrSetup: function(xhr, url) {
+                // Keep the User-Agent simulation for better compatibility
+                xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
             }
+        });
+        hls.loadSource(proxiedUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = ch.url;
+        video.play();
+    }
+}
+
         } else if (typeof shaka !== 'undefined') {
             // Shaka Player Fallback for DASH
             shaka.polyfill.installAll();

@@ -270,12 +270,11 @@ async function stopAll() {
     placeholder.style.display = 'flex';
 }
 
-
 async function playChannel(index) {
     const ch = channels[index];
     if (!ch) return;
 
-    // 1. Mixed Content Bypass for HTTP links
+    // 1. Handle Insecure Streams
     if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
         window.open(`player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`, '_blank');
         return;
@@ -290,28 +289,24 @@ async function playChannel(index) {
     if (ch.type === 'iframe') {
         iframe.style.display = 'block';
         iframe.src = ch.url;
-        iframe.onload = () => loader.style.display = 'none';
+        iframe.onload = () => { loader.style.display = 'none'; };
     } else {
         video.style.display = 'block';
         
-        // --- HLS LOGIC (Using Netlify Proxy for Chrome/CORS) ---
+        // --- HLS LOGIC ---
         if (ch.url.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                // Wrap the URL with our Netlify Proxy prefix
                 const proxiedUrl = `/proxy/${ch.url}`;
-
                 hls = new Hls({
                     xhrSetup: function(xhr, url) {
-                        // Note: User-Agent is now handled in netlify.toml
                         xhr.withCredentials = false;
                     }
                 });
                 hls.loadSource(proxiedUrl);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+                hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play(); });
             } 
             else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                // Fallback for Safari/iPhone
                 video.src = ch.url;
                 video.play();
             }
@@ -320,18 +315,13 @@ async function playChannel(index) {
         else if (typeof shaka !== 'undefined' && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
             shakaPlayer = new shaka.Player(video);
-
-            // Configure Clear Keys if present in JSON
             if (ch.keyId && ch.key) {
                 shakaPlayer.configure({
                     drm: {
-                        clearKeys: {
-                            [ch.keyId]: ch.key
-                        }
+                        clearKeys: { [ch.keyId]: ch.key }
                     }
                 });
             }
-
             try { 
                 await shakaPlayer.load(ch.url); 
                 video.play(); 
@@ -341,10 +331,9 @@ async function playChannel(index) {
         } else {
             console.error("No compatible player library found.");
         }
-     }    
-   }
- }
+    }
 }
+
 
 
 

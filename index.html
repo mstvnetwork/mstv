@@ -1,7 +1,11 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#111419">
+
+        <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#111419">
 
@@ -32,13 +36,14 @@
 
     <!-- Verification (Using code 36a9620cce1db39f) -->
     <meta name="google-site-verification" content="36a9620cce1db39f">
-    <!-- Player Libraries -->
-    <script defer src="./shaka.js"></script>
-    <script defer src="https://cdn.jsdelivr.net"></script>
+    
+<!-- Replace your old player script tags with these -->
+<script src="https://cdn.jsdelivr.net"></script>
+<script src="https://cdn.jsdelivr.net"></script>
 </head>
 
 
-    <style>
+   <style>
         :root {
             --bg-dark: #0F1115;
             --accent: #90EE90;
@@ -245,207 +250,139 @@
     <div class="channel-grid" id="channel-list-container"></div>
 
 </main>
+
 <script>
-const select = document.getElementById('channel-select');
+let channels = [];
+let hls = null;
+let shakaPlayer = null;
 const video = document.getElementById('video-player');
 const iframe = document.getElementById('iframe-player');
 const placeholder = document.getElementById('placeholder');
 const loader = document.getElementById('loading');
 const liveStamp = document.getElementById('live-stamp');
-const gridContainer = document.getElementById('channel-list-container');
-const searchInput = document.getElementById('channel-search');
-const JSON_URL = './channels.json';
-
-let channels = [];
-let hls = null;
-let shakaPlayer = null;
-
-/**
- * NEW: SEO Automation Function
- * Updates the ItemList schema so Google sees every channel as a "Live" result.
- */
-
-function updateLiveSchema(data) {
-    const schemaScript = document.getElementById('mstv-schema');
-    if (!schemaScript) return;
-
-    try {
-        // Build the new list of 45 channels
-        const items = data.map((ch, i) => ({
-            "@type": "ListItem",
-            "position": i + 1,
-            "item": {
-                "@type": "VideoObject",
-                "name": ch.name,
-                "description": `Watch ${ch.name} live stream on MSTV Network. High-quality 24/7 digital broadcast.`,
-                "thumbnailUrl": [ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png"],
-                "uploadDate": "2024-01-01T08:00:00+00:00",
-                // HIDE ORIGINAL URL: We only provide the link to your website
-                "embedUrl": `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`,
-                "publication": {
-                    "@type": "BroadcastEvent",
-                    "isLiveBroadcast": true,
-                    "startDate": new Date().toISOString()
-                }
-            }
-        }));
-
-        // Reconstruct the whole object to ensure no syntax errors
-        const fullSchema = {
-          "@context": "https://schema.org",
-          "@type": "ItemList",
-          "name": "MSTV Network Live Channels",
-          "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
-          "itemListElement": items
-        };
-
-        schemaScript.innerHTML = JSON.stringify(fullSchema);
-    } catch (e) { console.error("Schema update failed", e); }
-}
-
-
+const grid = document.getElementById('channel-list-container');
 
 async function stopAll() {
-  if(loader) loader.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = 'none';
-  if(hls){ hls.destroy(); hls = null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
-  video.pause(); video.removeAttribute('src'); video.load();
-  iframe.removeAttribute('src'); iframe.src = 'about:blank';
-  video.style.display = 'none'; iframe.style.display = 'none';
-  placeholder.style.display = 'flex';
+    if(hls) { hls.destroy(); hls = null; }
+    if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
+    video.pause(); video.src = ""; video.style.display = 'none';
+    iframe.src = ""; iframe.style.display = 'none';
+    placeholder.style.display = 'flex';
 }
 
-function renderUI(data) {
-  channels = data;
-  if(select) select.innerHTML = '<option value="">📱 Select Channel</option>';
-  if(gridContainer) gridContainer.innerHTML = ''; 
 
-  // TRIGGER THE SEO UPDATE
-  updateLiveSchema(data);
+async function playChannel(index) {
+    const ch = channels[index];
+    if (!ch) return;
 
-  data.forEach((ch, i) => {
-    // 1. Update dropdown
-    if(select) {
-        const opt = document.createElement("option");
-        opt.value = i; 
-        opt.textContent = ch.name; 
-        select.appendChild(opt);
+    // 1. Mixed Content Bypass
+    if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
+        window.open(`player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`, '_blank');
+        return;
     }
 
-    // 2. Create channel card
-    const card = document.createElement('div');
-    card.className = 'channel-card';
-    card.setAttribute('data-name', ch.name.toLowerCase());
-    
-    // Logo fallback logic using your preferred thumbnail
-    const logoSrc = ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
-    const logoHtml = `<img src="${logoSrc}" alt="${ch.name}" 
-          onerror="this.onerror=null; this.src='https://mstvnet.netlify.app/mstv-thumbnail.png';">`;
+    await stopAll();
+    placeholder.style.display = 'none';
+    loader.style.display = 'block';
+    liveStamp.style.display = ch.isLive ? 'block' : 'none';
+    window.location.hash = encodeURIComponent(ch.name);
 
-    card.innerHTML = `
-      <div class="card-logo">${logoHtml}</div>
-      <div class="channel-name">${ch.name}</div>
-    `;
-    
-    card.onclick = () => { 
-        playChannel(i); 
-        window.scrollTo({top: 0, behavior: 'smooth'}); 
-    };
-    if(gridContainer) gridContainer.appendChild(card);
-  });
+    if (ch.type === 'iframe') {
+        iframe.style.display = 'block';
+        iframe.src = ch.url;
+        iframe.onload = () => loader.style.display = 'none';
+    } else {
+        video.style.display = 'block';
+        
+        if (ch.url.includes('.m3u8')) {
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                // Enhanced HLS Setup with User-Agent Simulation
+                hls = new Hls({
+                    xhrSetup: function(xhr, url) {
+                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
+                        xhr.withCredentials = false;
+                    }
+                });
+                hls.loadSource(ch.url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = ch.url;
+                video.play();
+            }
+        } else if (typeof shaka !== 'undefined') {
+            // Shaka Player Fallback for DASH
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                shakaPlayer = new shaka.Player(video);
+                try { 
+                    await shakaPlayer.load(ch.url); 
+                    video.play(); 
+                } catch(e) { 
+                    console.error("Shaka Error", e); 
+                }
+            }
+        }
+    } // Closes else (video display)
+} // Closes playChannel function
+
+
+
+video.onplaying = () => loader.style.display = 'none';
+
+async function loadChannels() {
+    try {
+        const res = await fetch('./channels.json', {cache: "no-cache"});
+        channels = await res.json();
+        renderUI();
+        updateLiveSchema(channels);
+        checkHash();
+    } catch(e) { console.error("Load failed", e); }
 }
 
-// Search Bar Implementation
-if(searchInput) {
-    searchInput.addEventListener('input', (e) => {
-        const term = e.target.value.toLowerCase().trim();
-        const cards = document.querySelectorAll('.channel-card');
-        cards.forEach(card => {
-            const name = card.getAttribute('data-name');
-            card.style.display = name.includes(term) ? 'block' : 'none';
-        });
+function renderUI() {
+    grid.innerHTML = "";
+    channels.forEach((ch, i) => {
+        const isHttp = ch.url.startsWith('http://') && window.location.protocol === 'https:';
+        const card = document.createElement('a');
+        card.className = 'channel-card';
+        
+        if(isHttp) {
+            card.href = `player.html?source=${encodeURIComponent(ch.url)}&name=${encodeURIComponent(ch.name)}`;
+            card.target = "_blank";
+        } else {
+            card.href = "javascript:void(0)";
+            card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
+        }
+
+        card.innerHTML = `
+            <div class="card-logo">
+                <img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'">
+                ${isHttp ? '<span class="ext-badge">↗</span>' : ''}
+            </div>
+            <div class="channel-name">${ch.name}</div>
+        `;
+        grid.appendChild(card);
     });
 }
 
-async function loadChannels(){
-  const cached = localStorage.getItem("channels_cache");
-  if(cached) renderUI(JSON.parse(cached));
-  try {
-    const res = await fetch(JSON_URL, { cache: 'no-cache' });
-    const data = await res.json();
-    localStorage.setItem('channels_cache', JSON.stringify(data));
-    renderUI(data);
-  } catch(e){ console.error('Load fail', e); }
-}
-
-async function playChannel(index){
-  const channel = channels[index];
-  if(!channel) return;
-  await stopAll();
-  if(loader) loader.style.display = 'block';
-  placeholder.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
-
-  if(channel.type === 'iframe'){
-    iframe.style.display = 'block'; iframe.src = channel.url;
-    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
-    return;
-  }
-
-  video.style.display = 'block';
-  const isHls = channel.type === 'hls' || (channel.url && channel.url.includes('.m3u8'));
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
+function checkHash() {
+    const hash = decodeURIComponent(window.location.hash.substring(1));
+    if(hash) {
+        const idx = channels.findIndex(c => c.name === hash);
+        if(idx !== -1) playChannel(idx);
     }
-  } else if(window.shaka && shaka.Player.isBrowserSupported()){
-    shaka.polyfill.installAll();
-    shakaPlayer = new shaka.Player(video);
-    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
-  }
 }
 
-video.onplaying = () => { if(loader) loader.style.display = 'none'; };
-loadChannels();
- function updateMetaTags(channel) {
-    const siteTitle = `${channel.name} Live | MSTV Network`;
-    const description = `Watch ${channel.name} live stream on MSTV Network. Free 24/7 high-quality Indian and Pakistani TV broadcast.`;
-    const image = channel.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
-    const url = `https://mstvnet.netlify.app{encodeURIComponent(channel.name)}`;
+document.getElementById('channel-search').addEventListener('input', (e) => {
+    const term = e.target.value.toLowerCase();
+    document.querySelectorAll('.channel-card').forEach(card => {
+        card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+    });
+});
 
-    // Update Browser Title
-    document.title = siteTitle;
-
-    // Update SEO & Social Meta Tags
-    document.querySelector('meta[name="title"]')?.setAttribute("content", siteTitle);
-    document.querySelector('meta[name="description"]')?.setAttribute("content", description);
-    document.querySelector('meta[property="og:title"]')?.setAttribute("content", siteTitle);
-    document.querySelector('meta[property="og:description"]')?.setAttribute("content", description);
-    document.querySelector('meta[property="og:image"]')?.setAttribute("content", image);
-    document.querySelector('meta[property="og:url"]')?.setAttribute("content", url);
-    document.querySelector('meta[name="twitter:title"]')?.setAttribute("content", siteTitle);
-    document.querySelector('meta[name="twitter:description"]')?.setAttribute("content", description);
-    document.querySelector('meta[name="twitter:image"]')?.setAttribute("content", image);
-    
-    // Update Canonical
-    document.querySelector('link[rel="canonical"]')?.setAttribute("href", url);
-}
-
-// Trigger this inside your playChannel(index) function
-// Example: 
-// function playChannel(index) {
-//    const channel = channels[index];
-//    updateMetaTags(channel);
-//    ... rest of your code
-// }
-
+window.onload = loadChannels;
 </script>
-
 <footer class="site-footer">
     <div class="seo-content">
         <h2>MSTV Network: Premium Live Media Hub</h2>
@@ -469,10 +406,9 @@ loadChannels();
         <p>© 2026 MSTV Network. All Rights Reserved.</p>
     </div>
 </footer>
-
-<!-- 2. GOATCOUNTER ANALYTICS -->
-<script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
-<!-- 1. DYNAMIC ITEMLIST SCHEMA (Replaced your static VideoObject) -->
+<!-- GoatCounter Analytics -->
+    <script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+    <!-- 1. DYNAMIC ITEMLIST SCHEMA (Replaced your static VideoObject) -->
     <script type="application/ld+json" id="mstv-schema">
     {
       "@context": "https://schema.org",
@@ -489,8 +425,6 @@ window.addEventListener('load', () => {
         if (index !== -1) playChannel(index);
     }
 });
-
-    </script>
-
+</script>
 </body>
 </html>

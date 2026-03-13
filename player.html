@@ -2,48 +2,41 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>MSTV External Player</title>
-    <!-- Use the latest Hls.js CDN for better compatibility -->
+    <title>MSTV Player</title>
+    <!-- Reliable JSDelivr CDN for Hls.js -->
     <script src="https://cdn.jsdelivr.net"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-        #video-container { width: 95%; max-width: 900px; aspect-ratio: 16/9; background: #111; border: 2px solid #90EE90; border-radius: 8px; }
+        #v-container { width: 95%; max-width: 900px; aspect-ratio: 16/9; background: #111; border: 2px solid #90EE90; border-radius: 8px; }
         video { width: 100%; height: 100%; }
         .info { padding: 15px; text-align: center; }
-        .btn { color: #90EE90; text-decoration: none; border: 1px solid #90EE90; padding: 8px 20px; border-radius: 20px; margin-top: 15px; display: inline-block; }
+        .btn { color: #90EE90; text-decoration: none; border: 1px solid #90EE90; padding: 8px 20px; border-radius: 20px; margin-top: 15px; display: inline-block; font-size: 14px; }
     </style>
 </head>
 <body>
     <div class="info">
-        <h2 id="ch-name">Connecting to Stream...</h2>
+        <h2 id="ch-name">Loading...</h2>
     </div>
 
-    <div id="video-container">
-        <!-- Ensure ID is exactly 'player' to match the script -->
+    <div id="v-container">
         <video id="player" controls autoplay playsinline></video>
     </div>
 
-    <a href="https://mstvnet.netlify.app" class="btn">← Back to MSTV Home</a>
+    <a href="https://mstvnet.netlify.app" class="btn">← Back to Home</a>
 
     <script>
-        // Use DOMContentLoaded to ensure the <video id="player"> exists before running
-        document.addEventListener('DOMContentLoaded', () => {
+        function startPlayback() {
             const params = new URLSearchParams(window.location.search);
             const source = params.get('source');
             const name = params.get('name');
-            
+            const video = document.getElementById('player');
+
             if (name) document.getElementById('ch-name').innerText = name;
 
-            const video = document.getElementById('player');
-            
-            if (source && video) {
+            // CHECK: Is the Hls library ready?
+            if (typeof Hls !== 'undefined') {
                 if (Hls.isSupported()) {
-                    const hls = new Hls({
-                        xhrSetup: function(xhr) {
-                            // Netlify handles the proxy, so we just set standard credentials
-                            xhr.withCredentials = false;
-                        }
-                    });
+                    const hls = new Hls();
                     hls.loadSource(source);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
@@ -52,9 +45,14 @@
                     video.play();
                 }
             } else {
-                console.error("Video element or source URL not found.");
+                // If not ready, wait 500ms and try again
+                console.log("HLS library not ready, retrying...");
+                setTimeout(startPlayback, 500);
             }
-        });
+        }
+
+        // Run when page is ready
+        window.addEventListener('DOMContentLoaded', startPlayback);
     </script>
 </body>
 </html>

@@ -351,22 +351,22 @@ async function loadChannels() {
     try {
         const res = await fetch('./channels.json', {cache: "no-cache"});
         channels = await res.json();
+
+        // --- TEST MODE: Inject newWindow rule locally ---
+        channels.forEach(ch => {
+            // Add the names of the two channels you want to test
+            if (ch.name === "Astro Test" || ch.name === "HTTP Test (Insecure)") {
+                ch.newWindow = true; 
+            }
+        });
+        // ------------------------------------------------
+
         renderUI();
         updateLiveSchema(channels);
-        const hash = decodeURIComponent(window.location.hash.substring(1));
-        if(hash) {
-            const idx = channels.findIndex(c => c.name === hash);
-            if(idx !== -1) playChannel(idx);
-        }
+        checkHash();
     } catch(e) { console.error("Load failed", e); }
 }
 
-document.getElementById('channel-search').addEventListener('input', (e) => {
-    const term = e.target.value.toLowerCase();
-    document.querySelectorAll('.channel-card').forEach(card => {
-        card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
-    });
-});
 
 video.onplaying = () => loader.style.display = 'none';
 window.onload = loadChannels;

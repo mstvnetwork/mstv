@@ -2,46 +2,35 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>MSTV Player | Bridge</title>
-    <!-- Primary CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSTV External Player</title>
+    <!-- Multi-CDN Fallback for Hls.js -->
     <script id="hls-script" src="https://cdn.jsdelivr.net"></script>
     <style>
         body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; overflow: hidden; }
-        #v-container { width: 95%; max-width: 900px; aspect-ratio: 16/9; background: #111; border: 2px solid #90EE90; border-radius: 8px; }
-        video { width: 100%; height: 100%; }
+        #v-container { width: 95%; max-width: 900px; aspect-ratio: 16/9; background: #111; border: 2px solid #90EE90; border-radius: 8px; box-shadow: 0 0 20px rgba(144,238,144,0.2); }
+        video { width: 100%; height: 100%; display: block; border-radius: 6px; }
         .info { padding: 15px; text-align: center; }
-        .btn { color: #90EE90; text-decoration: none; border: 1px solid #90EE90; padding: 8px 20px; border-radius: 20px; margin-top: 15px; display: inline-block; font-size: 14px; }
+        .btn { color: #90EE90; text-decoration: none; border: 1px solid #90EE90; padding: 10px 25px; border-radius: 25px; margin-top: 20px; display: inline-block; font-weight: bold; transition: 0.3s; }
+        .btn:hover { background: #90EE90; color: #000; }
     </style>
 </head>
 <body>
     <div class="info">
-        <h2 id="ch-name">Preparing Player...</h2>
+        <h2 id="ch-name">Preparing Secure Stream...</h2>
     </div>
 
     <div id="v-container">
         <video id="player" controls autoplay playsinline></video>
     </div>
 
-    <a href="https://mstvnet.netlify.app" class="btn">← Back to Home</a>
+    <a href="https://mstvnet.netlify.app" class="btn">← Back to MSTV Home</a>
 
     <script>
-        const fallbacks = [
-            "https://cdnjs.cloudflare.com",
-            "https://unpkg.com"
-        ];
-        let currentFallback = 0;
-
-        function loadFallbackLibrary() {
-            if (currentFallback < fallbacks.length) {
-                console.warn("Primary CDN blocked. Trying fallback:", fallbacks[currentFallback]);
-                const newScript = document.createElement('script');
-                newScript.src = fallbacks[currentFallback];
-                newScript.onload = startPlayback;
-                document.head.appendChild(newScript);
-                currentFallback++;
-            }
-        }
-
+        /**
+         * Chrome-Compatible Playback Engine
+         * Bypasses CORS by wrapping the URL in a public proxy.
+         */
         function startPlayback() {
             const params = new URLSearchParams(window.location.search);
             const source = params.get('source');
@@ -50,28 +39,49 @@
 
             if (name) document.getElementById('ch-name').innerText = name;
 
+            // 1. Wait for HLS library to be defined (prevents ReferenceError)
             if (typeof Hls !== 'undefined') {
-                if (Hls.isSupported()) {
-                    const hls = new Hls({ xhrSetup: (xhr) => { xhr.withCredentials = false; } });
-                    hls.loadSource(source);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = source;
-                    video.play();
+                if (source) {
+                    // Use a CORS proxy to bypass Chrome's strict security blocks
+                    const proxyPrefix = "https://corsproxy.io";
+                    const proxiedUrl = proxyPrefix + encodeURIComponent(source);
+
+                    if (Hls.isSupported()) {
+                        const hls = new Hls({
+                            xhrSetup: function(xhr) {
+                                // Forces standard credential handling for broad compatibility
+                                xhr.withCredentials = false;
+                            }
+                        });
+                        hls.loadSource(proxiedUrl);
+                        hls.attachMedia(video);
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            video.play().catch(e => console.log("Autoplay check:", e));
+                        });
+                        
+                        // FALLBACK: If proxied URL fails, try original link directly
+                        hls.on(Hls.Events.ERROR, (event, data) => {
+                            if (data.fatal) {
+                                console.warn("Proxy failed, trying direct link...");
+                                hls.loadSource(source);
+                            }
+                        });
+                    } 
+                    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        // Native playback for Safari/iOS
+                        video.src = source;
+                        video.play();
+                    }
                 }
             } else {
-                loadFallbackLibrary();
-                // If we've tried all fallbacks and still nothing, try native as a last resort
-                if (currentFallback >= fallbacks.length) {
-                    console.error("All HLS libraries failed to load. Trying native playback.");
-                    video.src = source;
-                    video.play();
-                }
+                // If library isn't ready yet, retry in 500ms
+                console.log("HLS library loading... retrying.");
+                setTimeout(startPlayback, 500);
             }
         }
 
-        window.addEventListener('load', startPlayback);
+        // Initialize when the page structure is ready
+        window.addEventListener('DOMContentLoaded', startPlayback);
     </script>
 </body>
 </html>

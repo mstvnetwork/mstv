@@ -1,33 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <title>MSTV Player (Triple Engine)</title>
+    <meta charset="UTF-8">
+    <title>MSTV Player</title>
+    <!-- Use a reliable CDN for the compiled library and UI controls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.3/shaka-player.compiled.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.3/controls.css">
     
-    <!-- DASH ENGINE (Local) -->
-    <link rel="stylesheet" href="shaka-ui.css">
-    <script src="shaka-player.ui.min.js"></script>
-
-    <!-- HLS ENGINE (CDN Fallback for Chrome/Firefox) -->
-    <script src="https://cdn.jsdelivr.net"></script>
-    <style>
-        body, html { margin: 0; padding: 0; background: #000; overflow: hidden; width: 100%; height: 100%; }
-        .container { position: relative; width: 100vw; height: 100vh; background: #000; }
-        video { width: 100%; height: 100%; }
-        #engine-badge {
-            position: absolute; top: 20px; left: 20px; z-index: 999;
-            background: rgba(0,0,0,0.8); color: #00ff00; padding: 10px;
-            font-family: monospace; border-radius: 5px; border: 1px solid #333;
+     <style>
+        /* Optimized for Iframe: Removes all margins and scrollbars */
+        body, html { 
+            margin: 0; 
+            padding: 0; 
+            background: #000; 
+            overflow: hidden; 
+            width: 100%; 
+            height: 100%; 
         }
-    </style>
+        .container { 
+            display: flex; 
+            width: 100vw; 
+            height: 100vh; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        video { 
+            width: 100%; 
+            height: 100%; 
+            background: #000; 
+            object-fit: contain; /* Maintains aspect ratio without stretching */
+        }
+     </style>
+        
+    
 </head>
 
 <body>
     <div class="container">
-        <div id="engine-badge">LOADING LIBRARIES...</div>
         <video id="video" controls autoplay crossorigin="anonymous"></video>
     </div>
 
-<script>
+    <script>
         const streamList = [
             {
                 name: "Zee TV (DASH ClearKey)",
@@ -93,65 +106,70 @@
             }
         ];
 
-  async function initApp() {
-            const video = document.getElementById('video');
-            const badge = document.getElementById('engine-badge');
-            const hash = window.location.hash.substring(1);
-            let index = (parseInt(hash, 10) || 1) - 1;
-            const stream = streamList[index] || streamList[0];
+        async function initApp() {
+            // 2. INSTALL POLYFILLS
+            shaka.polyfill.installAll();
 
-            // --- 1. HLS ENGINE (STRICTLY NON-SHAKA) ---
-            if (stream.type === "hls") {
-                // Option A: Native Support (Safari/Mobile)
-                if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    badge.innerText = `ENGINE: NATIVE HLS | ${stream.name}`;
-                    badge.style.color = "#00ffff"; 
-                    video.src = stream.url;
-                } 
-                // Option B: Hls.js Fallback (Chrome/Firefox)
-                else if (Hls.isSupported()) {
-                    badge.innerText = `ENGINE: HLS.JS (CDN) | ${stream.name}`;
-                    badge.style.color = "#ff00ff"; // Magenta for Hls.js
-                    const hls = new Hls();
-                    hls.loadSource(stream.url);
-                    hls.attachMedia(video);
-                } 
-                else {
-                    badge.innerText = "HLS NOT SUPPORTED ON THIS BROWSER";
-                    badge.style.color = "red";
-                }
-                return; // STOP: Shaka is never called for HLS
-            }
-
-            // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
-            if (stream.type === "dash") {
-                if (typeof shaka === 'undefined') {
-                    badge.innerText = "DASH ERROR: SHAKA FILE MISSING";
-                    badge.style.color = "red";
-                    return;
-                }
-
-                badge.innerText = `ENGINE: SHAKA DASH | ${stream.name}`;
-                badge.style.color = "#00ff00"; 
-                
-                shaka.polyfill.installAll();
-                const player = new shaka.Player(video);
-
-                if (stream.drm) {
-                    player.configure({ drm: { clearKeys: stream.drm } });
-                }
-
-                try {
-                    await player.load(stream.url);
-                } catch (e) {
-                    badge.innerText = "DASH LOAD ERROR";
-                    badge.style.color = "red";
-                }
+            if (shaka.Player.isBrowserSupported()) {
+                initPlayer();
+            } else {
+                console.error('Browser not supported for Shaka!');
             }
         }
 
+        async function initPlayer() {
+    const video = document.getElementById('video');
+    const player = new shaka.Player(video);
+
+    // --- OPTIMIZATION SETTINGS START ---
+    player.configure({
+    streaming: {
+        // Reduced buffering for faster startup
+        rebufferingGoal: 1,      
+        bufferingGoal: 5,        
+        
+        // Modern gap jumping settings
+        stallEnabled: true,      // Automatically jump gaps if playback stalls
+        stallThreshold: 2,       // Jump after 2 seconds of stalling
+        stallSkip: 0.1,          // Small skip to trigger the jump
+        
+        lowLatencyMode: true
+    },
+    manifest: {
+        dash: {
+            autoCorrectDrift: true
+        },
+        // Force HLS to start closer to the live edge
+        defaultPresentationDelay: 1 
+    },
+    abr: {
+        // Pick a lower quality initially for near-instant playback
+        defaultBandwidthEstimate: 1000000 
+    }
+});
+
+    // --- OPTIMIZATION SETTINGS END ---
+
+    const hash = window.location.hash.substring(1);
+    let index = parseInt(hash, 10) - 1;
+    if (isNaN(index) || index < 0 || index >= streamList.length) index = 0;
+
+    const stream = streamList[index];
+
+    if (stream.type === "dash" && stream.drm) {
+        player.configure({ drm: { clearKeys: stream.drm } });
+    }
+
+    try {
+        await player.load(stream.url);
+    } catch (e) {
+        console.error('Error loading stream:', e);
+    }
+}
+
+
         window.addEventListener('hashchange', () => window.location.reload());
-        window.onload = initApp;
+        document.addEventListener('DOMContentLoaded', initApp);
     </script>
 </body>
 </html>

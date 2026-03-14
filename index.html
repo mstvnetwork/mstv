@@ -473,25 +473,42 @@ loadChannels();
 <!-- 2. GOATCOUNTER ANALYTICS -->
 <script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 
-<!-- 1. DYNAMIC ITEMLIST SCHEMA (Replaced your static VideoObject) -->
-    <script type="application/ld+json" id="mstv-schema">
-    {
-      "@context": "https://schema.org",
-      "@type": "ItemList",
-      "name": "MSTV Network Live Channels",
-      "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
-      "itemListElement": [] 
-    }
-     // Add this at the very bottom of your script
-window.addEventListener('load', () => {
+// ... existing fetch code ...
+.then(data => {
+    // 1. Show your channels on the page
+    displayChannels(data); 
+
+    // 2. CREATE THE SEO SCHEMA (The function we built)
+    injectDynamicSchema(data);
+
+    // 3. HANDLE THE HASH (The fixed version of your old code)
     const hash = decodeURIComponent(window.location.hash.substring(1));
     if (hash) {
-        const index = channels.findIndex(ch => ch.name === hash);
+        const index = data.findIndex(ch => ch.name === hash);
         if (index !== -1) playChannel(index);
     }
 });
 
-    </script>
-
+// Define the SEO function anywhere in your JS file
+function injectDynamicSchema(channelArray) {
+    const schemaData = {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      "name": "MSTV Network Live Channels",
+      "url": "https://mstvnet.netlify.app",
+      "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
+      "itemListElement": channelArray.map((ch, index) => ({
+        "@type": "ListItem",
+        "position": index + 1,
+        "name": ch.name,
+        "url": `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`
+      }))
+    };
+    const script = document.createElement('script');
+    script.type = 'application/ld+json';
+    script.text = JSON.stringify(schemaData);
+    document.head.appendChild(script);
+}
+</script>
 </body>
 </html>

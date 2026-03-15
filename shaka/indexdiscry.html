@@ -12,32 +12,42 @@
     </div>
 
     <script>
-      const manifestUri = 'https://n3.sanwalyaarpya.com:1686/hls/star1in.m3u8?md5=Em5Gw5L3ziMUKLNyvpSbxw&expires=1773479470';
+<script>
+  const manifestUri = 'https://n3.sanwalyaarpya.com';
 
-      async function initPlayer() {
-        const video = document.getElementById('video');
-        const ui = video['ui'];
-        const controls = ui.getControls();
-        const player = controls.getPlayer();
+  async function initPlayer() {
+    // 1. Get the container and video elements
+    const video = document.getElementById('video');
+    const container = video.parentElement;
 
-        // CRITICAL: This part adds the Referer and Origin required by your links
-        player.getNetworkingEngine().registerRequestFilter((type, request) => {
-          if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST || 
-              type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-            request.headers['Referer'] = 'https://profamouslife.com/';
-            request.headers['Origin'] = 'https://profamouslife.com';
-          }
-        });
+    // 2. Initialize the Player
+    const player = new shaka.Player(video);
 
-        try {
-          await player.load(manifestUri);
-          console.log('The video has now been loaded!');
-        } catch (e) {
-          console.error('Error code', e.code, 'object', e);
-        }
+    // 3. Initialize the UI
+    const ui = new shaka.ui.Overlay(player, container, video);
+    const controls = ui.getControls();
+
+    // 4. Add your custom headers (Referer/Origin)
+    player.getNetworkingEngine().registerRequestFilter((type, request) => {
+      if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST || 
+          type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+        request.headers['Referer'] = 'https://profamouslife.com';
+        request.headers['Origin'] = 'https://profamouslife.com';
       }
+    });
 
-      document.addEventListener('shaka-ui-loaded', initPlayer);
-    </script>
+    // 5. Load the stream
+    try {
+      await player.load(manifestUri);
+      console.log('The video has now been loaded!');
+    } catch (e) {
+      console.error('Error code', e.code, 'object', e);
+    }
+  }
+
+  // Use DOMContentLoaded to make sure the elements exist in the DOM first
+  document.addEventListener('DOMContentLoaded', initPlayer);
+</script>
+
   </body>
 </html>

@@ -21,34 +21,37 @@
 
     <script>
         async function initApp() {
-            const params = new URLSearchParams(window.location.search);
-            const rawUrl = params.get('url');
-            if (!rawUrl) return;
+    const params = new URLSearchParams(window.location.search);
+    const rawUrl = params.get('url');
+    if (!rawUrl) return;
 
-            // Use the public proxy to bypass CORS and Mixed Content blocks
-            const proxyPrefix = 'https://corsproxy.io/?';
-            const proxiedUrl = proxyPrefix + encodeURIComponent(rawUrl);
+    // TRYING A DIFFERENT PROXY: AllOrigins
+    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(rawUrl)}`;
 
-            const video = document.getElementById('video');
-            const player = new shaka.Player(video);
-            const ui = new shaka.ui.Overlay(player, video.parentElement, video);
+    const video = document.getElementById('video');
+    const player = new shaka.Player(video);
+    const ui = new shaka.ui.Overlay(player, video.parentElement, video);
 
-            // Add required headers via NetworkingEngine
-            player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                request.headers['Origin'] = 'https://profamouslife.com';
-            });
+    player.getNetworkingEngine().registerRequestFilter((type, request) => {
+        // These headers are mandatory for Roarzone and CricHD streams
+        request.headers['Referer'] = 'https://profamouslife.com';
+        request.headers['Origin'] = 'https://profamouslife.com';
+    });
 
-            try {
-                await player.load(proxiedUrl);
-                document.getElementById('loading-text').style.display = 'none';
-            } catch (e) {
-                console.error("Shaka Error:", e.code);
-                document.getElementById('loading-text').innerText = "Playback Error: " + e.code;
-                document.getElementById('loading-text').style.color = "#ff3e3e";
-            }
-        }
+    try {
+        await player.load(proxyUrl);
+        document.getElementById('loading-text').style.display = 'none';
+    } catch (e) {
+        console.error("Shaka Error:", e.code);
+        // If 1001/403 persists, the server has blocked the public proxy IP.
+        document.getElementById('loading-text').innerText = "Error 403: Stream Protected. Use a CORS Browser Extension.";
+        document.getElementById('loading-text').style.color = "#ff3e3e";
+    }
+}
+document.addEventListener('shaka-ui-loaded', initApp);
 
-        document.addEventListener('shaka-ui-loaded', initApp);
+
+        
     </script>
 </body>
 </html>

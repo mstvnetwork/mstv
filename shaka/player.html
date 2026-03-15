@@ -25,15 +25,15 @@
     const rawUrl = params.get('url');
     if (!rawUrl) return;
 
-    // TRYING A DIFFERENT PROXY: AllOrigins
-    const proxyUrl = `https://api.allorigins.win{encodeURIComponent(rawUrl)}`;
+    // Use standard quotes and + for the URL to avoid the "Name Not Resolved" error
+    const proxyUrl = "https://api.allorigins.win" + encodeURIComponent(rawUrl);
 
     const video = document.getElementById('video');
     const player = new shaka.Player(video);
     const ui = new shaka.ui.Overlay(player, video.parentElement, video);
 
     player.getNetworkingEngine().registerRequestFilter((type, request) => {
-        // These headers are mandatory for Roarzone and CricHD streams
+        // Headers required by Sony Ten and Star Sports servers
         request.headers['Referer'] = 'https://profamouslife.com';
         request.headers['Origin'] = 'https://profamouslife.com';
     });
@@ -43,9 +43,7 @@
         document.getElementById('loading-text').style.display = 'none';
     } catch (e) {
         console.error("Shaka Error:", e.code);
-        // If 1001/403 persists, the server has blocked the public proxy IP.
-        document.getElementById('loading-text').innerText = "Error 403: Stream Protected. Use a CORS Browser Extension.";
-        document.getElementById('loading-text').style.color = "#ff3e3e";
+        document.getElementById('loading-text').innerText = "Error " + e.code + ": Check Link or CORS Extension";
     }
 }
 document.addEventListener('shaka-ui-loaded', initApp);

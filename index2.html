@@ -179,13 +179,17 @@ document.head.appendChild(script);
 const ticker = document.getElementById("ticker");
 
 async function loadEPG() {
-    try {
-        const res = await fetch("https://raw.githubusercontent.com/mstvnetwork/mstv4/refs/heads/main/epg.json?ts=" + Date.now(), {
-            cache: "no-store"
-        });
-        const data = await res.json();
+    // 1. URL-based cache busting (GitHub supports this without CORS issues)
+    const freshUrl = "https://raw.githubusercontent.com" + Date.now();
 
-        const now = new Date(); // user local time
+    try {
+        // 2. Simple fetch: no extra headers or 'cache' options to avoid CORS preflight
+        const res = await fetch(freshUrl);
+        
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        
+        const data = await res.json();
+        const now = new Date(); 
 
         let current = null;
         let next = null;
@@ -213,11 +217,12 @@ async function loadEPG() {
 
             ticker.innerHTML = `<span>${text}</span>`;
         } else {
-            ticker.innerHTML = `<span>No program data available</span>`;
+            ticker.innerHTML = `<span>No program data available (Time: ${now.toLocaleTimeString()})</span>`;
         }
 
     } catch (err) {
-        ticker.innerHTML = `<span>EPG loading error</span>`;
+        console.error("Ticker Fetch Error:", err);
+        ticker.innerHTML = `<span>EPG loading error (CORS/Network)</span>`;
     }
 }
 

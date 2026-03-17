@@ -60,6 +60,36 @@ iframe {
     border:none;
     display:block;
 }
+    .ticker {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    font-size: 0.9rem;
+    padding: 8px 0;
+    overflow: hidden;
+    white-space: nowrap;
+    z-index: 10;
+    border-top: 1px solid #222;
+}
+
+.ticker span {
+    display: inline-block;
+    padding-left: 100%;
+    animation: scrollTicker 20s linear infinite;
+}
+
+@keyframes scrollTicker {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+}
+
+/* IMPORTANT: make wrapper relative */
+.player-wrapper {
+    position: relative;
+}
 
 .instructions {
     max-width: 900px;
@@ -102,6 +132,9 @@ footer {
         src="https://mstvnetwork.github.io/mstv4/index5.html" 
         allowfullscreen>
     </iframe>
+    <div class="ticker" id="ticker">
+    Loading schedule...
+    </div>
 </div>
 
 <div class="instructions">
@@ -112,6 +145,56 @@ footer {
 <footer id="footer"></footer>
 
 <script>
+    const ticker = document.getElementById("ticker");
+
+async function loadEPG() {
+    try {
+        const res = await fetch("https://yourdomain.com/epg.json?ts=" + Date.now(), {
+            cache: "no-store"
+        });
+        const data = await res.json();
+
+        const now = new Date();
+
+        let current = null;
+        let next = null;
+
+        for (let i = 0; i < data.schedule.length; i++) {
+            const start = new Date(data.schedule[i].start);
+            const end = new Date(data.schedule[i].end);
+
+            if (now >= start && now < end) {
+                current = data.schedule[i];
+                next = data.schedule[i + 1] || null;
+                break;
+            }
+        }
+
+        if (current) {
+            const formatTime = (t) =>
+                new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const text = `
+                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next ? next.title : "N/A"} 
+                ${next ? `(Ends ${formatTime(next.end)})` : ""}
+            `;
+
+            ticker.innerHTML = `<span>${text}</span>`;
+        } else {
+            ticker.innerHTML = `<span>No program data available</span>`;
+        }
+
+    } catch (err) {
+        ticker.innerHTML = `<span>EPG loading error</span>`;
+    }
+}
+
+// initial load
+loadEPG();
+
+// refresh every 30 seconds (real-time feel)
+setInterval(loadEPG, 30000);
 // SEO FOOTER
 document.getElementById("footer").innerHTML =
 "Apna TV 24/7 provides free access to live TV serials, movies, and web series. Stream anytime anywhere.";

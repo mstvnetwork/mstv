@@ -45,7 +45,7 @@
             --accent: #90EE90;
             --header-h: 70px;
             --player-y: 70px;
-            --text-dim: #212121;
+            --text-dim: #555;
         }
 
         html { 
@@ -83,7 +83,7 @@
             color: transparent;
             line-height: 1;
         }
-        .slogan { font-weight: bold; font-size: 0.7rem; color: #FFD700; margin-top: 4px; }
+        .slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
 
         .search-container { flex-grow: 0.4; max-width: 350px; }
         .search-container input {
@@ -121,12 +121,6 @@
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }
-        .player-container {
-    /* ... existing code ... */
-    contain: layout; /* Tells the browser this box won't change size */
-    background: #000 url('https://mstvnet.netlify.app') center/contain no-repeat;
-}
-
 
         video, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
         #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 5rem; color: var(--accent); }
@@ -203,23 +197,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-        /* Skeleton Loading Effect */
-.card-logo {
-    background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
-    background-size: 200% 100%;
-    animation: loading-shimmer 1.5s infinite;
-}
-
-/* Stop shimmering once the image is actually there */
-.card-logo img {
-    background: #E8E4C9; /* Match card color */
-}
-
-@keyframes loading-shimmer {
-    0% { background-position: 200% 0; }
-    100% { background-position: -200% 0; }
-}
-
 
         .site-footer { padding: 40px 5%; text-align: center; font-size: 0.9rem; color: #444; border-top: 1px solid #ccc; }
     </style>
@@ -357,60 +334,33 @@ async function stopAll() {
   video.style.display = 'none'; iframe.style.display = 'none';
   placeholder.style.display = 'flex';
 }
+
 /**
- * MOBILE-OPTIMISED RENDERER
- * Splitting the work into batches to keep the Mobile CPU responsive.
+ * OPTIMIZED RENDER FUNCTION
+ * Added lazy loading and fixed dimensions to stop CLS
  */
 function renderUI(data) {
   channels = data;
   if(select) select.innerHTML = '<option value="">📱 Select Channel</option>';
   if(gridContainer) gridContainer.innerHTML = ''; 
 
-  // 1. Update SEO Schema (Keep this fast)
   updateLiveSchema(data);
 
-  // 2. Render the first 12 cards IMMEDIATELY (What the user sees first)
-  const initialBatch = data.slice(0, 12);
-  renderBatch(initialBatch, 0);
-
-  // 3. Delay the rest of the list by 150ms
-  // This allows the mobile browser to finish "Painting" the player first.
-  setTimeout(() => {
-    const remaining = data.slice(12);
-    renderBatch(remaining, 12);
-    console.log("🚀 Rest of channels loaded in background");
-  }, 150);
-
-  // Handle Initial Load from Hash
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  if (hash) {
-      const index = data.findIndex(ch => ch.name === hash);
-      if (index !== -1) playChannel(index);
-  }
-}
-
-/**
- * HELPER FUNCTION: Handles the actual creation of cards
- */
-function renderBatch(batchData, startIndex) {
-  batchData.forEach((ch, i) => {
-    const actualIndex = startIndex + i;
-    
-    // Add to dropdown
+  data.forEach((ch, i) => {
     if(select) {
         const opt = document.createElement("option");
-        opt.value = actualIndex; 
+        opt.value = i; 
         opt.textContent = ch.name; 
         select.appendChild(opt);
     }
 
-    // Create the Card
     const card = document.createElement('div');
     card.className = 'channel-card';
     card.setAttribute('data-name', ch.name.toLowerCase());
     
-    const logoSrc = ch.logo || "https://mstvnet.netlify.app";
+    const logoSrc = ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
     
+    // FIX: Added width, height, and loading="lazy"
     card.innerHTML = `
       <div class="card-logo">
         <img 
@@ -419,17 +369,23 @@ function renderBatch(batchData, startIndex) {
             width="95" 
             height="64" 
             loading="lazy"
-            onerror="this.src='https://mstvnet.netlify.app';">
+            onerror="this.src='https://mstvnet.netlify.app/mstv-thumbnail.png';">
       </div>
       <div class="channel-name">${ch.name}</div>
     `;
     
     card.onclick = () => { 
-        playChannel(actualIndex); 
+        playChannel(i); 
         window.scrollTo({top: 0, behavior: 'smooth'}); 
     };
     if(gridContainer) gridContainer.appendChild(card);
   });
+
+  const hash = decodeURIComponent(window.location.hash.substring(1));
+  if (hash) {
+      const index = data.findIndex(ch => ch.name === hash);
+      if (index !== -1) playChannel(index);
+  }
 }
 
 // SEARCH FILTER LOGIC
@@ -480,8 +436,6 @@ async function loadChannels(){
   try {
     const res = await fetch(JSON_URL, { cache: 'no-cache' });
     const data = await res.json();
-    const res = await fetch(JSON_URL, { cache: 'force-cache' }); 
-
     renderUI(data);
   } catch(e){ console.error('Load fail', e); }
 }

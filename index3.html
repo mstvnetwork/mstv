@@ -207,12 +207,7 @@
         </iframe>
     </div>
 </div>    
-    <div class="channel-grid">
-    <!-- Your channel cards go here -->
-    <div class="channel-card">Channel 1</div>
-    <div class="channel-card">Channel 2</div>
-    <div class="channel-card">Channel 3</div>
-    </div>
+    
         
 
     <script>
@@ -420,8 +415,58 @@ window.addEventListener('load', () => {
   document.body.appendChild(s);
 });
         const iframe = document.getElementById('iframe-player');
-    
+    </script>
+    <script>
+    const jsonUrl = 'channels.json'; // Path to your JSON file
+    const channelGrid = document.querySelector('.channel-grid');
+    const iframePlayer = document.getElementById('iframe-player');
+    const placeholder = document.getElementById('placeholder');
+    const loading = document.getElementById('loading');
 
+    // 1. Fetch JSON and Build Grid
+    async function loadChannels() {
+        try {
+            const response = await fetch(jsonUrl);
+            const channels = await response.json();
+            
+            channels.forEach(channel => {
+                const card = document.createElement('div');
+                card.className = 'channel-card';
+                card.innerHTML = `
+                    <div class="card-logo"><img src="${channel.logo}" alt="${channel.name}"></div>
+                    <div class="channel-name">${channel.name}</div>
+                `;
+                
+                // 2. Click Logic: Auto-update player
+                card.onclick = () => {
+                    playChannel(channel.url);
+                };
+                
+                channelGrid.appendChild(card);
+            });
+        } catch (error) {
+            console.error('Error loading channels:', error);
+        }
+    }
+
+    // 3. Player Update Logic
+    function playChannel(url) {
+        // Show loading, hide placeholder
+        loading.style.display = 'block';
+        placeholder.style.display = 'none';
+        iframePlayer.style.display = 'block';
+
+        // Set the new source - iframe-player automatically 
+        // resizes due to the CSS 'aspect-ratio: 16/9' we added.
+        iframePlayer.src = url;
+
+        iframePlayer.onload = () => {
+            loading.style.display = 'none';
+        };
+    }
+
+    // Initialize the "robot"
+    loadChannels();
 </script>
 </body>
 </html>

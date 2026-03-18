@@ -182,7 +182,7 @@ function updateLiveSchema(data) {
             "item": {
                 "@type": "VideoObject",
                 "name": ch.name,
-                "thumbnailUrl": [ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png"],
+                "thumbnailUrl": [ch.logo || "https://mstvnet.netlify.app"],
                 "uploadDate": "2024-01-01T08:00:00+00:00",
                 "embedUrl": `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`, 
                 "publication": { "@type": "BroadcastEvent", "isLiveBroadcast": true, "startDate": new Date().toISOString() }
@@ -194,18 +194,14 @@ function updateLiveSchema(data) {
         script.type = 'application/ld+json';
         script.text = JSON.stringify(fullSchema);
         document.head.appendChild(script);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("Schema error", e); }
 }
 
 function updateMetaTags(channel) {
     const siteTitle = `${channel.name} Live | MSTV Network`;
-    const image = channel.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
-    const url = `https://mstvnet.netlify.app{encodeURIComponent(channel.name)}`;
-
     document.title = siteTitle;
-    document.querySelector('meta[name="description"]')?.setAttribute("content", `Watch ${channel.name} live stream on MSTV Network.`);
-    document.querySelector('meta[property="og:title"]')?.setAttribute("content", siteTitle);
-    document.querySelector('meta[property="og:image"]')?.setAttribute("content", image);
+    const url = `https://mstvnet.netlify.app{encodeURIComponent(channel.name)}`;
+    document.querySelector('meta[name="description"]')?.setAttribute("content", `Watch ${channel.name} live on MSTV.`);
     document.querySelector('link[rel="canonical"]')?.setAttribute("href", url);
 }
 
@@ -214,9 +210,12 @@ async function stopAll() {
   if(liveStamp) liveStamp.style.display = 'none';
   if(hls){ hls.destroy(); hls = null; }
   if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
-  video.pause(); video.removeAttribute('src'); video.load();
-  iframe.removeAttribute('src'); iframe.src = 'about:blank';
-  video.style.display = 'none'; iframe.style.display = 'none';
+  video.pause(); 
+  video.src = "";
+  video.load();
+  iframe.src = 'about:blank';
+  video.style.display = 'none'; 
+  iframe.style.display = 'none';
   placeholder.style.display = 'flex';
 }
 
@@ -225,13 +224,12 @@ function renderUI(data) {
   if(gridContainer) gridContainer.innerHTML = ''; 
   updateLiveSchema(data);
 
-  // Initial Batch for Mobile CPU
-  const initialBatch = data.slice(0, 15);
-  renderBatch(initialBatch, 0);
+  // Load first 15 for speed
+  renderBatch(data.slice(0, 15), 0);
 
+  // Load rest after delay
   setTimeout(() => {
-    const remaining = data.slice(15);
-    renderBatch(remaining, 15);
+    renderBatch(data.slice(15), 15);
   }, 200);
 
   const hash = decodeURIComponent(window.location.hash.substring(1));
@@ -247,11 +245,11 @@ function renderBatch(batchData, startIndex) {
     const card = document.createElement('div');
     card.className = 'channel-card';
     card.setAttribute('data-name', ch.name.toLowerCase());
-    const logoSrc = ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
+    const logoSrc = ch.logo || "https://mstvnet.netlify.app";
     
     card.innerHTML = `
       <div class="card-logo">
-        <img src="${logoSrc}" alt="${ch.name}" width="95" height="64" loading="lazy" onerror="this.src='https://mstvnet.netlify.app/mstv-thumbnail.png';">
+        <img src="${logoSrc}" alt="${ch.name}" width="95" height="64" loading="lazy" onerror="this.src='https://mstvnet.netlify.app';">
       </div>
       <div class="channel-name">${ch.name}</div>
     `;
@@ -268,27 +266,53 @@ searchInput.addEventListener('input', (e) => {
     });
 });
 
-async function playChannel(index) {
-  // ... existing setup (stopAll, loader, etc.) ...
+async function playChannel(index){
+  const channel = channels[index];
+  if(!channel) return;
 
-  if (window.shaka && shaka.Player.isBrowserSupported()) {
-    // Initialize player WITHOUT the video element in constructor
-    shakaPlayer = new shaka.Player(); 
-    
+  await stopAll();
+  updateMetaTags(channel);
+  window.location.hash = encodeURIComponent(channel.name);
+
+  if(loader) loader.style.display = 'block';
+  placeholder.style.display = 'none';
+  if(liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
+
+  if(channel.type === 'iframe'){
+    iframe.style.display = 'block';
+    iframe.src = channel.url;
+    // Iframe loader hide logic
+    iframe.onload = () => { if(iframe.src !== 'about:blank') loader.style.display = 'none'; };
+    return;
+  }
+
+  video.style.display = 'block';
+  const isHls = channel.type === 'hls' || (channel.url && channel.url.includes('.m3u8'));
+
+  if(isHls){
+    if(window.Hls && Hls.isSupported()){
+      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
+      hls.loadSource(channel.url); hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src = channel.url; video.play();
+    }
+  } else {
+    // DASH / SHAKA PLAYER v4+ FIX
+    shakaPlayer = new shaka.Player();
     try {
-      // 1. Attach the video element separately (await is important)
-      await shakaPlayer.attach(video); 
-      
-      // 2. Load the manifest
-      await shakaPlayer.load(channel.url); 
-      video.play();
-    } catch (e) {
-      // Log the full error object to see the specific Shaka error code
-      console.error('Shaka Error:', e.code, e); 
+        await shakaPlayer.attach(video);
+        await shakaPlayer.load(channel.url);
+        video.play();
+    } catch(e) {
+        console.error("Shaka Error:", e.code, e);
+        loader.style.display = 'none';
+        placeholder.style.display = 'flex';
     }
   }
 }
 
+video.onplaying = () => { if(loader) loader.style.display = 'none'; };
 
 async function loadChannels(){
   try {
@@ -299,6 +323,7 @@ async function loadChannels(){
 }
 loadChannels();
 </script>
+
 <script data-goatcounter="https://mstv.goatcounter.com" async src="https://gc.zgo.at"></script>
 </body>
 </html>

@@ -117,12 +117,10 @@ async function playChannel(index) {
     
     if(elements.loader) elements.loader.style.display = 'block';
     if(elements.placeholder) elements.placeholder.style.display = 'none';
-    if(ch.isLive && elements.live) elements.live.style.display = 'block';
 
     if(ch.type === 'iframe') {
         elements.iframe.style.display = 'block';
         elements.iframe.src = ch.url;
-        elements.iframe.onload = () => { if(elements.loader) elements.loader.style.display = 'none'; };
         return;
     }
 
@@ -132,18 +130,53 @@ async function playChannel(index) {
     if(isM3U8) {
         await loadLibrary(HLS_JS, 'Hls'); 
         if(window.Hls && Hls.isSupported()) {
-            hlsInstance = new Hls();
-            hlsInstance.loadSource(ch.url);
+            hlsInstance = new Hls({
+                // Performance & Reliability Fixes
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 90
+            });
+            
+            // RECOMMENDED ORDER: attachMedia -> loadSource
             hlsInstance.attachMedia(elements.video);
-            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => elements.video.play());
+            hlsInstance.on(Hls.Events.MEDIA_ATTACHED, function () {
+                hlsInstance.loadSource(ch.url);
+            });
+
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                elements.video.play().catch(e => console.log("Autoplay blocked:", e));
+            });
+
+            // ERROR RECOVERY: If HLS fails, try native playback (Safari/iOS)
+            hlsInstance.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hlsInstance.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            hlsInstance.recoverMediaError();
+                            break;
+                        default:
+                            stopAll();
+                            break;
+                    }
+                }
+            });
+        } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
+            // NATIVE FALLBACK: Essential for iPhone/Safari
+            elements.video.src = ch.url;
+            elements.video.addEventListener('loadedmetadata', () => elements.video.play());
         }
     } else {
+        // DASH/Shaka logic remains the same
         await loadLibrary(SHAKA_JS, 'shaka');
-        shaka.polyfil.installAll(); // Corrected spelling
+        shaka.polyfil.installAll();
         shakaInstance = new shaka.Player(elements.video);
         try { await shakaInstance.load(ch.url); elements.video.play(); } catch(e) { console.error(e); }
     }
 }
+
 
 function renderUI(data) {
     channels = data;

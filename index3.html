@@ -268,39 +268,27 @@ searchInput.addEventListener('input', (e) => {
     });
 });
 
-async function playChannel(index){
-  const channel = channels[index];
-  if(!channel) return;
-  updateMetaTags(channel);
-  window.location.hash = encodeURIComponent(channel.name);
-  await stopAll();
-  if(loader) loader.style.display = 'block';
-  placeholder.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
+async function playChannel(index) {
+  // ... existing setup (stopAll, loader, etc.) ...
 
-  if(channel.type === 'iframe'){
-    iframe.style.display = 'block'; iframe.src = channel.url;
-    return;
-  }
-
-  video.style.display = 'block';
-  const isHls = channel.type === 'hls' || (channel.url && channel.url.includes('.m3u8'));
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
+  if (window.shaka && shaka.Player.isBrowserSupported()) {
+    // Initialize player WITHOUT the video element in constructor
+    shakaPlayer = new shaka.Player(); 
+    
+    try {
+      // 1. Attach the video element separately (await is important)
+      await shakaPlayer.attach(video); 
+      
+      // 2. Load the manifest
+      await shakaPlayer.load(channel.url); 
+      video.play();
+    } catch (e) {
+      // Log the full error object to see the specific Shaka error code
+      console.error('Shaka Error:', e.code, e); 
     }
-  } else if(window.shaka && shaka.Player.isBrowserSupported()){
-    shakaPlayer = new shaka.Player(video);
-    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
   }
 }
 
-video.onplaying = () => { if(loader) loader.style.display = 'none'; };
-iframe.onload = () => { if(iframe.src !== 'about:blank' && loader) loader.style.display = 'none'; };
 
 async function loadChannels(){
   try {

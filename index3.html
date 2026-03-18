@@ -91,7 +91,6 @@
     </div>
     <p>© 2026 MSTV Network. All Rights Reserved.</p>
 </footer>
-
 <script>
 const HLS_JS = "https://cdn.jsdelivr.net";
 const SHAKA_JS = "https://cdn.jsdelivr.net";
@@ -102,6 +101,7 @@ const elements = {
     iframe: document.getElementById('iframe-player'),
     placeholder: document.getElementById('placeholder'),
     loader: document.getElementById('loading'),
+    live: document.getElementById('live-stamp'),
     grid: document.getElementById('channel-list-container'),
     search: document.getElementById('channel-search')
 };
@@ -110,18 +110,29 @@ let channels = [];
 let hlsInstance = null;
 let shakaInstance = null;
 
-// Dynamic Script Loader (Crucial for Performance)
-function loadScript(src) {
+// NEW: Robust Library Loader
+function loadLibrary(url, globalVar) {
     return new Promise((resolve) => {
-        if (document.querySelector(`script[src="${src}"]`)) return resolve();
-        const s = document.createElement('script');
-        s.src = src; s.onload = resolve;
-        document.body.appendChild(s);
+        if (window[globalVar]) return resolve();
+        const script = document.createElement('script');
+        script.src = url;
+        script.async = true;
+        script.onload = () => {
+            // Poll for the global variable to ensure it's initialized
+            const check = setInterval(() => {
+                if (window[globalVar]) {
+                    clearInterval(check);
+                    resolve();
+                }
+            }, 50);
+        };
+        document.body.appendChild(script);
     });
 }
 
 async function stopAll() {
     elements.loader.style.display = 'none';
+    elements.live.style.display = 'none';
     if(hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     if(shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
     elements.video.pause(); elements.video.src = ""; elements.video.load();
@@ -134,36 +145,45 @@ async function playChannel(index) {
     const ch = channels[index];
     if(!ch) return;
     
-    // SEO & Hash Update
     window.location.hash = encodeURIComponent(ch.name);
     document.title = `${ch.name} Live | MSTV Network`;
-    
     await stopAll();
+    
     elements.loader.style.display = 'block';
     elements.placeholder.style.display = 'none';
+    if(ch.isLive) elements.live.style.display = 'block';
 
     if(ch.type === 'iframe') {
         elements.iframe.style.display = 'block';
         elements.iframe.src = ch.url;
-        elements.loader.style.display = 'none';
+        elements.iframe.onload = () => elements.loader.style.display = 'none';
         return;
     }
 
     elements.video.style.display = 'block';
     
-    // Dynamic Player Selection
-    if(ch.url.includes('.m3u8')) {
-        await loadScript('https://cdn.jsdelivr.net');
-        if(Hls.isSupported()) {
-            hlsInstance = new Hls({ capLevelToPlayerSize: true });
+    // Check extension or type
+    const isM3U8 = ch.url.includes('.m3u8') || ch.type === 'hls';
+
+    if(isM3U8) {
+        await loadLibrary(HLS_JS, 'Hls'); 
+        if(window.Hls && Hls.isSupported()) {
+            hlsInstance = new Hls();
             hlsInstance.loadSource(ch.url);
             hlsInstance.attachMedia(elements.video);
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => elements.video.play());
+        } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
+            elements.video.src = ch.url;
+            elements.video.play();
         }
     } else {
-        await loadScript('https://cdn.jsdelivr.net');
-        shakaInstance = new shaka.Player(elements.video);
-        try { await shakaInstance.load(ch.url); elements.video.play(); } catch(e) { console.error(e); }
+        await loadLibrary(SHAKA_JS, 'shaka');
+        // Ensure Shaka polyfills are installed
+        shaka.polyfil.installAll();
+        if (shaka.Player.isBrowserSupported()) {
+            shakaInstance = new shaka.Player(elements.video);
+            try { await shakaInstance.load(ch.url); elements.video.play(); } catch(e) { console.error(e); }
+        }
     }
 }
 
@@ -183,9 +203,9 @@ function renderUI(data) {
         card.onclick = () => { playChannel(i); window.scrollTo({top: 0, behavior: 'smooth'}); };
         frag.appendChild(card);
     });
+    elements.grid.innerHTML = '';
     elements.grid.appendChild(frag);
 
-    // Initial play from Hash
     const hash = decodeURIComponent(window.location.hash.substring(1));
     if (hash) {
         const idx = data.findIndex(c => c.name === hash);
@@ -193,7 +213,6 @@ function renderUI(data) {
     }
 }
 
-// Optimized Search
 elements.search.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase();
     document.querySelectorAll('.channel-card').forEach(card => {
@@ -205,7 +224,5 @@ elements.video.onplaying = () => elements.loader.style.display = 'none';
 
 fetch(JSON_URL).then(r => r.json()).then(renderUI).catch(e => console.error(e));
 </script>
-
-<script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

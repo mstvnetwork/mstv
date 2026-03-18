@@ -266,53 +266,72 @@ searchInput.addEventListener('input', (e) => {
     });
 });
 
-async function playChannel(index){
+async function playChannel(index) {
   const channel = channels[index];
-  if(!channel) return;
+  if (!channel) return;
 
+  // 1. Reset UI and Stop existing players
   await stopAll();
   updateMetaTags(channel);
   window.location.hash = encodeURIComponent(channel.name);
 
-  if(loader) loader.style.display = 'block';
+  if (loader) loader.style.display = 'block';
   placeholder.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
+  if (liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
 
-  if(channel.type === 'iframe'){
+  // 2. Handle IFRAME Channels
+  if (channel.type === 'iframe') {
     iframe.style.display = 'block';
     iframe.src = channel.url;
-    // Iframe loader hide logic
-    iframe.onload = () => { if(iframe.src !== 'about:blank') loader.style.display = 'none'; };
+    iframe.onload = () => { if (iframe.src !== 'about:blank') loader.style.display = 'none'; };
     return;
   }
 
+  // 3. Handle VIDEO Channels (HLS / DASH)
   video.style.display = 'block';
   const isHls = channel.type === 'hls' || (channel.url && channel.url.includes('.m3u8'));
 
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
+  if (isHls) {
+    // HLS.js Logic
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls.loadSource(channel.url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = channel.url;
+      video.play().catch(() => {});
     }
   } else {
-    // DASH / SHAKA PLAYER v4+ FIX
-    shakaPlayer = new shaka.Player();
+    // DASH / SHAKA PLAYER v4.16+ FIX
+    // DO NOT pass 'video' into the constructor here (fixes deprecation)
+    shakaPlayer = new shaka.Player(); 
+
     try {
-        await shakaPlayer.attach(video);
-        await shakaPlayer.load(channel.url);
-        video.play();
-    } catch(e) {
-        console.error("Shaka Error:", e.code, e);
-        loader.style.display = 'none';
-        placeholder.style.display = 'flex';
+      // Step 1: Explicitly attach the video element
+      await shakaPlayer.attach(video);
+      
+      // Step 2: Load the manifest (await ensures we catch errors)
+      await shakaPlayer.load(channel.url);
+      
+      console.log("MSTV: DASH Stream loaded successfully!");
+      video.play().catch(() => {
+        console.log("Autoplay blocked, waiting for user interaction.");
+      });
+    } catch (e) {
+      // Fixes [object Object] by logging the actual error name and code
+      console.error("Shaka Error Name:", e.category, "Code:", e.code);
+      console.error("Full Error Data:", e);
+      
+      if (loader) loader.style.display = 'none';
+      placeholder.style.display = 'flex';
+      
+      // Alert user if it's a common CORS or Mixed Content error
+      if (e.code === 1001) alert("Stream Load Error: Check your network or CORS policy.");
     }
   }
 }
 
-video.onplaying = () => { if(loader) loader.style.display = 'none'; };
 
 async function loadChannels(){
   try {

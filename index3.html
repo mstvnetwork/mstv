@@ -130,52 +130,39 @@ async function playChannel(index) {
     if(isM3U8) {
         await loadLibrary(HLS_JS, 'Hls'); 
         if(window.Hls && Hls.isSupported()) {
-            hlsInstance = new Hls({
-                // Performance & Reliability Fixes
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 90
-            });
-            
-            // RECOMMENDED ORDER: attachMedia -> loadSource
+            hlsInstance = new Hls({ enableWorker: true });
+            // Fix: Standard HLS.js attach sequence
             hlsInstance.attachMedia(elements.video);
             hlsInstance.on(Hls.Events.MEDIA_ATTACHED, function () {
                 hlsInstance.loadSource(ch.url);
             });
-
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                elements.video.play().catch(e => console.log("Autoplay blocked:", e));
-            });
-
-            // ERROR RECOVERY: If HLS fails, try native playback (Safari/iOS)
-            hlsInstance.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            hlsInstance.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            hlsInstance.recoverMediaError();
-                            break;
-                        default:
-                            stopAll();
-                            break;
-                    }
-                }
+                elements.video.play().catch(() => {
+                    elements.video.muted = true; // Autoplay fix
+                    elements.video.play();
+                });
             });
         } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
-            // NATIVE FALLBACK: Essential for iPhone/Safari
+            // Native Safari/iOS support
             elements.video.src = ch.url;
-            elements.video.addEventListener('loadedmetadata', () => elements.video.play());
         }
     } else {
-        // DASH/Shaka logic remains the same
         await loadLibrary(SHAKA_JS, 'shaka');
-        shaka.polyfil.installAll();
-        shakaInstance = new shaka.Player(elements.video);
-        try { await shakaInstance.load(ch.url); elements.video.play(); } catch(e) { console.error(e); }
+        shaka.polyfill.installAll(); // Fix: Typo 'polyfil' -> 'polyfill'
+        
+        // Fix: Modern Shaka 4.x Attachment (Removes Deprecation Warning)
+        shakaInstance = new shaka.Player(); 
+        await shakaInstance.attach(elements.video); 
+        
+        try { 
+            await shakaInstance.load(ch.url); 
+            elements.video.play(); 
+        } catch(e) { 
+            console.error("Shaka Load Error", e); 
+        }
     }
 }
+
 
 
 function renderUI(data) {

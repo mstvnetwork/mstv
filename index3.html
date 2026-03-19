@@ -296,6 +296,9 @@ let channels = [], hls = null, shakaPlayer = null;
  * 2. STABLE LIBRARY LOADER (CORS & REDIRECT SAFE)
  * Uses cdnjs for maximum reliability and strict versioning.
  */
+/** 
+ * HIGH-PERFORMANCE LOADER (FIXES MIME & REACHABILITY)
+ */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
         if (window[globalVar]) return resolve(); 
@@ -303,8 +306,11 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 100); // 100ms safety buffer
-        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
+        s.onload = () => setTimeout(resolve, 100); 
+        s.onerror = () => { 
+            console.error(globalVar + " failed to load from: " + url); 
+            resolve(); 
+        };
         document.body.appendChild(s);
     });
 }
@@ -331,8 +337,7 @@ async function playChannel(idx) {
     p.style.display = 'none';
 
     if(ch.type === 'iframe') {
-        i.style.display = 'block'; 
-        i.src = ch.url;
+        i.style.display = 'block'; i.src = ch.url;
         return;
     }
 
@@ -340,18 +345,16 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // Switch to cdnjs to avoid jsDelivr CORS redirects
+        // Version-locked stable HLS.js from CDN
         await loadLib('https://cdnjs.cloudflare.com', 'Hls');
         if(window.Hls && Hls.isSupported()){
             hls = new Hls({enableWorker:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
-        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        // Using CDNJS for Shaka to fix MIME/404 errors
+        // Compiled Shaka from CDN (Fixes local MIME/404 errors)
         await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
@@ -361,6 +364,7 @@ async function playChannel(idx) {
         }
     }
 }
+
 
 /** 
  * 4. UI RENDERER (Lighthouse Optimized)

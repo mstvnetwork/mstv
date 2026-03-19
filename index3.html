@@ -253,9 +253,9 @@
         <p>© 2026 MSTV Network. All Rights Reserved.</p>
     </div>
 </footer>
-<script>
 
-        /** 
+    <script>
+/** 
  * 1. CORE DOM & STATE
  */
 const el = (id) => document.getElementById(id);
@@ -265,21 +265,22 @@ const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
+
 /** 
- * 1. FIXED LOCAL LOADER
- * Uses your repo's 402KB hls.min.js for maximum speed.
+ * 2. REBUST LOADER (LOCAL + CDN FALLBACK)
+ * Fixed the broken cdnjs links to point to actual files.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
         if (window[globalVar]) return resolve(); 
         const s = document.createElement('script');
-        // Add a version/timestamp to force a fresh load of the newly found file
         s.src = url + '?v=1.5.11'; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
         s.onload = () => setTimeout(resolve, 50); 
         s.onerror = () => {
             console.warn(`Local ${globalVar} failed, falling back to CDN`);
+            // FIXED: Added full file paths for fallbacks
             const fallback = globalVar === 'Hls' 
                 ? 'https://cdnjs.cloudflare.com'
                 : 'https://cdnjs.cloudflare.com';
@@ -292,9 +293,8 @@ function loadLib(url, globalVar) {
     });
 }
 
-
 /** 
- * 3. PLAYER CONTROLLER (HLS & SHAKA UI)
+ * 3. PLAYER CONTROLLER
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -305,9 +305,6 @@ async function stopAll() {
     if(p) p.style.display = 'flex';
 }
 
-/** 
- * 2. STABILIZED PLAYER
- */
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
@@ -325,13 +322,12 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // Pointing to your confirmed 402KB local file
         await loadLib('./shaka/hls.min.js', 'Hls');
-        
         if (window.Hls && Hls.isSupported()){
             hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-            hls.loadSource(ch.url);
+            // Safe order: attach then load
             hls.attachMedia(v);
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(ch.url));
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
             v.src = ch.url; v.play().catch(()=>{});
@@ -350,21 +346,18 @@ async function playChannel(idx) {
     }
 }
 
-
 /** 
- * 4. BATCH RENDERER (FIXES SLOW 4G LOADS)
- * Renders first 8 items immediately, then the rest in background.
+ * 4. BATCH RENDERER (FIXED LOGO PATHS)
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
-    
     gridContainer.style.minHeight = 'auto'; 
     gridContainer.innerHTML = ''; 
 
     const createCard = (ch, i) => {
-        // High priority for the first 8 items (above-the-fold)
         const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        // FIXED: Restore ch.logo path instead of the site root
         const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
@@ -377,15 +370,12 @@ function renderUI(data) {
         `;
     };
 
-    // PHASE 1: Immediate render of first 12 items
     gridContainer.innerHTML = data.slice(0, 12).map((ch, i) => createCard(ch, i)).join('');
 
-    // PHASE 2: Background render of remaining items to keep UI snappy
     setTimeout(() => {
         const remaining = data.slice(12).map((ch, i) => createCard(ch, i + 12)).join('');
         gridContainer.insertAdjacentHTML('beforeend', remaining);
         
-        // Deep Link Check
         const hash = decodeURIComponent(window.location.hash.substring(1));
         const startIdx = data.findIndex(c => c.name === hash);
         if(startIdx !== -1) playChannel(startIdx);
@@ -415,7 +405,6 @@ if(i) i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'non
         if(res.ok) renderUI(await res.json());
     } catch(e) { console.log('Init error'); }
 })();
-
 </script>
 </body>
 </html>

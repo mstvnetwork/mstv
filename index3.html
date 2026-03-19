@@ -283,8 +283,8 @@ header {
 </footer>
 
 <script>
-/** 
- * 1. CORE STATE
+    /** 
+ * 1. CORE STATE & DOM
  */
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
@@ -295,11 +295,8 @@ const JSON_URL = './channels.json';
 let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 2. STABLE LIBRARY LOADER (CORS & REDIRECT SAFE)
- * Uses cdnjs for maximum reliability and strict versioning.
- */
-/** 
- * HIGH-PERFORMANCE LOADER (FIXES MIME & REACHABILITY)
+ * 2. HIGH-PERFORMANCE LOADER
+ * Uses specific versions to prevent redirects and MIME issues.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -308,17 +305,14 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 100); 
-        s.onerror = () => { 
-            console.error(globalVar + " failed to load from: " + url); 
-            resolve(); 
-        };
+        s.onload = () => setTimeout(resolve, 50); 
+        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
         document.body.appendChild(s);
     });
 }
 
 /** 
- * 3. PLAYER CONTROLLER
+ * 3. PLAYER CONTROLLER (HLS FIX INTEGRATED)
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -339,64 +333,73 @@ async function playChannel(idx) {
     p.style.display = 'none';
 
     if(ch.type === 'iframe') {
-        i.style.display = 'block'; i.src = ch.url;
+        i.style.display = 'block'; 
+        i.src = ch.url;
         return;
     }
 
     v.style.display = 'block';
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
-        if(isHls) {
+    if(isHls) {
+        // Use stable version-locked HLS.js
         await loadLib('https://cdn.jsdelivr.net', 'Hls');
         
-        if (window.Hls && Hls.isSupported()) {
-            hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                // Critical for mobile stability
-                backBufferLength: 60 
-            });
-
-            // FIX: Attach to video element FIRST
-            hls.attachMedia(v); 
-
-            // FIX: Load source ONLY after media is attached
+        if (window.Hls && Hls.isSupported()){
+            hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            
+            // FIX: Attach Media FIRST
+            hls.attachMedia(v);
+            
+            // FIX: Load Source ONLY after attachment is confirmed
             hls.on(Hls.Events.MEDIA_ATTACHED, () => {
                 hls.loadSource(ch.url);
             });
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                v.play().catch(() => console.log("Autoplay blocked"));
+                v.play().catch(() => {});
             });
 
-            // Auto-recovery for network drops
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
-                        case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-                        default: stopAll(); break;
-                    }
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
                 }
             });
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url; v.play().catch(() => {});
         }
-
-
+    } else {
+        // Shaka compiled version from official CDN
+        await loadLib('https://cdnjs.cloudflare.com', 'shaka');
+        if (window.shaka && shaka.Player.isBrowserSupported()) {
+            shaka.polyfilled.install();
+            shakaPlayer = new shaka.Player(v);
+            try { 
+                await shakaPlayer.load(ch.url); 
+                v.play().catch(() => {}); 
+            } catch(e) { console.error('Shaka fail', e); l.style.display='none'; }
+        }
+    }
+}
 
 /** 
- * 4. UI RENDERER (Lighthouse Optimized)
+ * 4. UI RENDERER (CLS OPTIMIZED)
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
     
-    gridContainer.style.minHeight = 'auto'; // Release reserved space
+    // Clear the reserved CSS height once data loads to avoid empty scrolling
+    gridContainer.style.minHeight = 'auto';
+
     gridContainer.innerHTML = data.map((ch, i) => {
         const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
+        const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
                 <div class="card-logo">
-                    <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                    <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
                          onerror="this.src='https://mstvnet.netlify.app';">
                 </div>
                 <div class="channel-name">${ch.name}</div>
@@ -432,7 +435,7 @@ i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
         if(res.ok) renderUI(await res.json());
     } catch(e) { console.log('Init error'); }
 })();
-
+    
 
     </script>
 </body>

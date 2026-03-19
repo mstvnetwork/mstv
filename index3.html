@@ -347,18 +347,42 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || ch.url.includes('.m3u8');
 
     if(isHls) {
-        await loadLib('https://cdn.jsdelivr.net');
-        if(Hls.isSupported()){
-            hls = new Hls({enableWorker:true}); hls.loadSource(ch.url); hls.attachMedia(v);
+        // 1. Load the library
+        await loadLib('https://cdn.jsdelivr.net/npm/hls.js@latest');
+
+        // 2. RETRY LOOP: Wait until 'Hls' is actually defined in the global scope
+        let attempts = 0;
+        while (typeof Hls === 'undefined' && attempts < 20) {
+            await new Promise(r => setTimeout(r, 50)); // Wait 50ms
+            attempts++;
+        }
+
+        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+            hls = new Hls({enableWorker:true, lowLatencyMode:true});
+            hls.loadSource(ch.url);
+            hls.attachMedia(v);
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
+        } else {
+            // Fallback for native HLS (like Safari)
+            if (v.canPlayType('application/vnd.apple.mpegurl')) {
+                v.src = ch.url;
+                v.play();
+            } else {
+                console.error("HLS not supported or failed to load.");
+            }
         }
     } else {
+        // Shaka loading logic...
         await loadLib('./shaka.js');
-        shaka.polyfilled.install();
-        shakaPlayer = new shaka.Player(v);
-        try { await shakaPlayer.load(ch.url); v.play(); } catch(e) { console.error(e); }
+        // Add a similar check for 'shaka' if needed
+        if (window.shaka) {
+            shaka.polyfilled.install();
+            shakaPlayer = new shaka.Player(v);
+            try { await shakaPlayer.load(ch.url); v.play(); } catch(e) { console.error(e); }
+        }
     }
 }
+
 
 // 4. UI Rendering
 function renderUI(data) {

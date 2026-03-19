@@ -254,8 +254,9 @@
     </div>
 </footer>
 <script>
-    /** 
- * 1. CORE DOM ELEMENTS
+
+        /** 
+ * 1. CORE DOM & STATE
  */
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
@@ -266,7 +267,8 @@ const JSON_URL = './channels.json';
 let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 2. LOCAL LIBRARY LOADER
+ * 2. PERFORMANCE-FIRST LOADER
+ * Uses specific versions and CORS-safe headers to prevent slow redirects.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -274,14 +276,15 @@ function loadLib(url, globalVar) {
         const s = document.createElement('script');
         s.src = url; 
         s.async = true;
+        s.crossOrigin = "anonymous"; 
         s.onload = () => setTimeout(resolve, 50); 
-        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
+        s.onerror = () => { console.error(`${globalVar} failed`); resolve(); };
         document.body.appendChild(s);
     });
 }
 
 /** 
- * 3. PLAYER CONTROLLER (LOCAL FILES INTEGRATED)
+ * 3. PLAYER CONTROLLER (HLS & SHAKA UI)
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -309,18 +312,18 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // USE LOCAL HLS LIBRARY
+        // Use local HLS for fastest handshake
         await loadLib('./shaka/hls.min.js', 'Hls');
         if (window.Hls && Hls.isSupported()){
-            hls = new Hls({enableWorker:true, lowLatencyMode:true});
-            hls.loadSource(ch.url);
+            hls = new Hls({ enableWorker: true, lowLatencyMode: true });
             hls.attachMedia(v);
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(ch.url));
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
             v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        // USE LOCAL SHAKA UI LIBRARY
+        // Use local Shaka UI with modern attach method
         await loadLib('./shaka/shaka-player.ui.min.js', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.installAll();
@@ -329,20 +332,25 @@ async function playChannel(idx) {
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(() => {}); 
-            } catch(e) { console.error('Shaka error', e); if(l) l.style.display='none'; }
+            } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
         }
     }
 }
 
 /** 
- * 4. UI RENDERER (Lighthouse Optimized)
+ * 4. BATCH RENDERER (FIXES SLOW 4G LOADS)
+ * Renders first 8 items immediately, then the rest in background.
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
+    
     gridContainer.style.minHeight = 'auto'; 
-    gridContainer.innerHTML = data.map((ch, i) => {
-        const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
+    gridContainer.innerHTML = ''; 
+
+    const createCard = (ch, i) => {
+        // High priority for the first 8 items (above-the-fold)
+        const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
         const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
@@ -353,15 +361,25 @@ function renderUI(data) {
                 <div class="channel-name">${ch.name}</div>
             </div>
         `;
-    }).join('');
-    
-    const hash = decodeURIComponent(window.location.hash.substring(1));
-    const startIdx = data.findIndex(c => c.name === hash);
-    if(startIdx !== -1) playChannel(startIdx);
+    };
+
+    // PHASE 1: Immediate render of first 12 items
+    gridContainer.innerHTML = data.slice(0, 12).map((ch, i) => createCard(ch, i)).join('');
+
+    // PHASE 2: Background render of remaining items to keep UI snappy
+    setTimeout(() => {
+        const remaining = data.slice(12).map((ch, i) => createCard(ch, i + 12)).join('');
+        gridContainer.insertAdjacentHTML('beforeend', remaining);
+        
+        // Deep Link Check
+        const hash = decodeURIComponent(window.location.hash.substring(1));
+        const startIdx = data.findIndex(c => c.name === hash);
+        if(startIdx !== -1) playChannel(startIdx);
+    }, 40); 
 }
 
 /** 
- * 5. SEARCH & LISTENERS
+ * 5. SEARCH & EVENT LISTENERS
  */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
@@ -383,6 +401,7 @@ if(i) i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'non
         if(res.ok) renderUI(await res.json());
     } catch(e) { console.log('Init error'); }
 })();
+
 </script>
 </body>
 </html>

@@ -282,7 +282,7 @@ header {
 
 <script>
 /** 
- * 1. CORE STATE & DOM
+ * 1. CORE STATE
  */
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
@@ -293,7 +293,8 @@ const JSON_URL = './channels.json';
 let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 2. STABLE LIBRARY LOADER
+ * 2. STABLE LIBRARY LOADER (CORS & REDIRECT SAFE)
+ * Uses cdnjs for maximum reliability and strict versioning.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -302,11 +303,8 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => {
-            // Give the browser 50ms to register the global object
-            setTimeout(resolve, 50); 
-        };
-        s.onerror = () => { console.error(`${globalVar} failed`); resolve(); };
+        s.onload = () => setTimeout(resolve, 100); // 100ms safety buffer
+        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
         document.body.appendChild(s);
     });
 }
@@ -342,66 +340,42 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // FIXED: Using a version-locked stable HLS.js
-        await loadLib('https://cdn.jsdelivr.net', 'Hls');
-        
-        if (window.Hls && Hls.isSupported()) {
-            hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 60
-            });
+        // Switch to cdnjs to avoid jsDelivr CORS redirects
+        await loadLib('https://cdnjs.cloudflare.com', 'Hls');
+        if(window.Hls && Hls.isSupported()){
+            hls = new Hls({enableWorker:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                v.play().catch(() => {
-                    console.log("Autoplay blocked, waiting for user interaction.");
-                });
-            });
-            // Error recovery for stream drops
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
-                        case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
-                        default: stopAll(); break;
-                    }
-                }
-            });
+            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url;
-            v.play().catch(() => {});
+            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
+        // Using CDNJS for Shaka to fix MIME/404 errors
         await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
             shakaPlayer = new shaka.Player(v);
-            try { 
-                await shakaPlayer.load(ch.url); 
-                v.play().catch(() => {}); 
-            } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
+            try { await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } 
+            catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
         }
     }
 }
 
 /** 
- * 4. UI RENDERER
+ * 4. UI RENDERER (Lighthouse Optimized)
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
-
-    // Reset min-height once content is ready
-    gridContainer.style.minHeight = 'auto';
-
+    
+    gridContainer.style.minHeight = 'auto'; // Release reserved space
     gridContainer.innerHTML = data.map((ch, i) => {
-        const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-        const logo = ch.logo || "https://mstvnet.netlify.app";
+        const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
         return `
             <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
                 <div class="card-logo">
-                    <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                    <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
                          onerror="this.src='https://mstvnet.netlify.app';">
                 </div>
                 <div class="channel-name">${ch.name}</div>
@@ -415,7 +389,7 @@ function renderUI(data) {
 }
 
 /** 
- * 5. SEARCH & LISTENERS
+ * 5. SEARCH & EVENT LISTENERS
  */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
@@ -431,16 +405,13 @@ searchInput.addEventListener('input', (e) => {
 v.onplaying = () => { if(l) l.style.display = 'none'; };
 i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
 
-// Initial Boot
 (async () => {
     try {
         const res = await fetch(JSON_URL, { cache: 'default' });
         if(res.ok) renderUI(await res.json());
-    } catch(e) { 
-        console.error('Init error', e);
-        gridContainer.innerHTML = '<p style="text-align:center;padding:20px;">Network Error. Please refresh.</p>';
-    }
+    } catch(e) { console.log('Init error'); }
 })();
+
 
     </script>
 </body>

@@ -293,10 +293,8 @@ const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
-
 /** 
- * 2. HIGH-PERFORMANCE LOADER
- * Uses specific versions to prevent redirects and MIME issues.
+ * 1. SIMPLIFIED LOADER
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -305,11 +303,12 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 50); 
+        s.onload = () => setTimeout(resolve, 100); // Wait for browser to register the global
         s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
         document.body.appendChild(s);
     });
 }
+
 
 /** 
  * 3. PLAYER CONTROLLER (HLS FIX INTEGRATED)
@@ -324,6 +323,9 @@ async function stopAll() {
     p.style.display = 'flex';
 }
 
+/** 
+ * 2. STABILIZED PLAYER CONTROLLER
+ */
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
@@ -333,8 +335,7 @@ async function playChannel(idx) {
     p.style.display = 'none';
 
     if(ch.type === 'iframe') {
-        i.style.display = 'block'; 
-        i.src = ch.url;
+        i.style.display = 'block'; i.src = ch.url;
         return;
     }
 
@@ -342,24 +343,25 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // Use stable version-locked HLS.js
+        // Use a rock-solid version of HLS.js
         await loadLib('https://cdn.jsdelivr.net', 'Hls');
         
         if (window.Hls && Hls.isSupported()){
-            hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hls = new Hls({ 
+                enableWorker: true, 
+                lowLatencyMode: true,
+                autoStartLoad: true
+            });
             
-            // FIX: Attach Media FIRST
+            // Standard order: loadSource -> attachMedia
+            hls.loadSource(ch.url);
             hls.attachMedia(v);
             
-            // FIX: Load Source ONLY after attachment is confirmed
-            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                hls.loadSource(ch.url);
-            });
-
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 v.play().catch(() => {});
             });
 
+            // Error Recovery
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
@@ -367,10 +369,12 @@ async function playChannel(idx) {
                 }
             });
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url; v.play().catch(() => {});
+            // Safari/iOS Native fallback
+            v.src = ch.url; 
+            v.play().catch(() => {});
         }
     } else {
-        // Shaka compiled version from official CDN
+        // Shaka for DASH/Other
         await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
@@ -378,10 +382,12 @@ async function playChannel(idx) {
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(() => {}); 
-            } catch(e) { console.error('Shaka fail', e); l.style.display='none'; }
+            } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
         }
     }
 }
+
+
 
 /** 
  * 4. UI RENDERER (CLS OPTIMIZED)

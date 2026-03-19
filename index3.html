@@ -251,7 +251,7 @@
         <p>© 2026 MSTV Network. All Rights Reserved.</p>
     </div>
 </footer>
-<main>
+    <main>
     <select id="channel-select" style="display:none;"></select>
     <div class="channel-grid" id="channel-list-container"></div>
 </main>
@@ -263,7 +263,7 @@
         
         <div style="margin-top:25px;padding:15px;border:1px solid #333;border-radius:8px;background:rgba(255,255,255,0.05);contain:content;">
             <p style="font-size:0.85rem;color:#aaa;margin:0;">
-                <strong>Disclaimer:</strong> MSTV Network provides a directory of publicly available streams. All content is property of original owners.
+                <strong>Disclaimer:</strong> MSTV Network provides a directory of publicly available streams. All logos and content are property of original owners.
             </p>
         </div>
     </div>
@@ -271,30 +271,44 @@
 </footer>
 
 <script>
-// Performance Constants
+/** 
+ * PERFORMANCE CONSTANTS & STATE 
+ */
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
+const gridContainer = el('channel-list-container');
+const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
+
 let channels = [], hls = null, shakaPlayer = null;
 
-// 1. Dynamic Script Loader (Crucial for 100% Score)
-function loadLib(url) {
+/** 
+ * 1. HIGH-PERFORMANCE SCRIPT LOADER (NO LOOPS)
+ * Resolves exactly when the global variable (Hls/shaka) is ready.
+ */
+function loadLib(url, globalVar) {
     return new Promise((resolve) => {
-        if (document.querySelector(`script[src="${url}"]`)) return resolve();
+        if (window[globalVar]) return resolve(); 
         const s = document.createElement('script');
-        s.src = url; s.async = true;
-        s.onload = resolve;
+        s.src = url; 
+        s.async = true;
+        s.onload = () => {
+            // Tiny delay to ensure browser thread registers the global object
+            setTimeout(resolve, 10); 
+        };
         document.body.appendChild(s);
     });
 }
 
-// 2. Fixed SEO Functions
+/** 
+ * 2. SEO & META OPTIMIZATION (FIXED SYNTAX)
+ */
 function updateLiveSchema(data) {
     const old = el('mstv-dynamic-schema'); if (old) old.remove();
     const schema = {
         "@context": "https://schema.org",
         "@type": "ItemList",
-        "itemListElement": data.slice(0,10).map((ch, i) => ({
+        "itemListElement": data.slice(0, 15).map((ch, i) => ({
             "@type": "ListItem",
             "position": i + 1,
             "item": {
@@ -319,7 +333,9 @@ function updateMetaTags(ch) {
     document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`);
 }
 
-// 3. Playback Logic
+/** 
+ * 3. PLAYER CONTROL LOGIC
+ */
 async function stopAll() {
     if(l) l.style.display = 'none';
     if(hls){ hls.destroy(); hls = null; }
@@ -335,94 +351,113 @@ async function playChannel(idx) {
     updateMetaTags(ch);
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
+    
     if(l) l.style.display = 'block';
     p.style.display = 'none';
 
     if(ch.type === 'iframe') {
-        i.style.display = 'block'; i.src = ch.url;
+        i.style.display = 'block'; 
+        i.src = ch.url;
         return;
     }
 
     v.style.display = 'block';
-    const isHls = ch.type === 'hls' || ch.url.includes('.m3u8');
+    const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // 1. Load the library
-        await loadLib('https://cdn.jsdelivr.net/npm/hls.js@latest');
-
-        // 2. RETRY LOOP: Wait until 'Hls' is actually defined in the global scope
-        let attempts = 0;
-        while (typeof Hls === 'undefined' && attempts < 20) {
-            await new Promise(r => setTimeout(r, 50)); // Wait 50ms
-            attempts++;
-        }
-
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+        await loadLib('https://cdn.jsdelivr.net', 'Hls');
+        if(window.Hls && Hls.isSupported()){
             hls = new Hls({enableWorker:true, lowLatencyMode:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-        } else {
-            // Fallback for native HLS (like Safari)
-            if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                v.src = ch.url;
-                v.play();
-            } else {
-                console.error("HLS not supported or failed to load.");
-            }
+            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=> {}));
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url; v.play().catch(()=> {});
         }
     } else {
-        // Shaka loading logic...
-        await loadLib('./shaka.js');
-        // Add a similar check for 'shaka' if needed
-        if (window.shaka) {
+        await loadLib('./shaka.js', 'shaka');
+        if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
             shakaPlayer = new shaka.Player(v);
-            try { await shakaPlayer.load(ch.url); v.play(); } catch(e) { console.error(e); }
+            try { 
+                await shakaPlayer.load(ch.url); 
+                v.play().catch(()=> {}); 
+            } catch(e) { console.error('Shaka fail', e); l.style.display = 'none'; }
         }
     }
 }
 
-
-// 4. UI Rendering
+/** 
+ * 4. UI RENDERING (OPTIMIZED FOR LCP)
+ */
 function renderUI(data) {
     channels = data;
-    const container = el('channel-list-container');
-    container.innerHTML = data.map((ch, i) => `
-        <div class="channel-card" onclick="playChannel(${i});window.scrollTo(0,0)">
+    if(!gridContainer) return;
+
+    // Use DocumentFragment for a single layout reflow (Performance boost)
+    const fragment = document.createDocumentFragment();
+    
+    data.forEach((ch, i) => {
+        const card = document.createElement('div');
+        card.className = 'channel-card';
+        card.setAttribute('data-name', ch.name.toLowerCase());
+        
+        // Use FetchPriority for the first 8 logos to improve LCP score
+        const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        
+        card.innerHTML = `
             <div class="card-logo">
-                <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" loading="lazy" onerror="this.src='https://mstvnet.netlify.app'">
+                <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app'">
             </div>
             <div class="channel-name">${ch.name}</div>
-        </div>
-    `).join('');
+        `;
+        
+        card.onclick = () => { 
+            playChannel(i); 
+            window.scrollTo({top: 0, behavior: 'smooth'}); 
+        };
+        fragment.appendChild(card);
+    });
+
+    gridContainer.innerHTML = '';
+    gridContainer.appendChild(fragment);
     updateLiveSchema(data);
     
+    // Check for Deep Link
     const hash = decodeURIComponent(window.location.hash.substring(1));
     const startIdx = data.findIndex(c => c.name === hash);
     if(startIdx !== -1) playChannel(startIdx);
 }
 
-// 5. Event Listeners (Passive for performance)
-el('channel-search').addEventListener('input', (e) => {
-    const term = e.target.value.toLowerCase();
-    document.querySelectorAll('.channel-card').forEach(card => {
-        card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
-    });
+/** 
+ * 5. EVENT LISTENERS
+ */
+let searchDebounce;
+searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.channel-card').forEach(card => {
+            card.style.display = card.getAttribute('data-name').includes(term) ? 'flex' : 'none';
+        });
+    }, 150);
 }, { passive: true });
 
-v.onplaying = () => l.style.display = 'none';
-i.onload = () => { if(i.src !== 'about:blank') l.style.display = 'none'; };
+v.onplaying = () => { if(l) l.style.display = 'none'; };
+i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
 
-// Initial Load
+// Initial Boot
 (async () => {
     try {
-        const res = await fetch(JSON_URL);
-        renderUI(await res.json());
-    } catch(e) { console.log('Load Error'); }
+        const res = await fetch(JSON_URL, { cache: 'default' });
+        if(res.ok) renderUI(await res.json());
+    } catch(e) { console.log('Init Error'); }
 })();
 </script>
-<script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+<!-- ANALYTICS -->
+<script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
+
 </body>
 </html>
-  
+

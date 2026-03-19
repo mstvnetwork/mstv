@@ -255,15 +255,10 @@
 </footer>
 <script>
     /** 
- * 1. CORE DOM ELEMENTS (Global Scope)
+ * 1. CORE DOM ELEMENTS
  */
 const el = (id) => document.getElementById(id);
-
-// Explicitly defining all shorthand variables used in the script
-const v = el('video-player');   // Video
-const i = el('iframe-player');  // Iframe
-const p = el('placeholder');    // Placeholder TV icon
-const l = el('loading');        // Loading Spinner
+const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
@@ -271,7 +266,7 @@ const JSON_URL = './channels.json';
 let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 2. STABLE LIBRARY LOADER
+ * 2. LOCAL LIBRARY LOADER
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -279,15 +274,14 @@ function loadLib(url, globalVar) {
         const s = document.createElement('script');
         s.src = url; 
         s.async = true;
-        s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 100); 
+        s.onload = () => setTimeout(resolve, 50); 
         s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
         document.body.appendChild(s);
     });
 }
 
 /** 
- * 3. PLAYER CONTROLLER
+ * 3. PLAYER CONTROLLER (LOCAL FILES INTEGRATED)
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -301,10 +295,8 @@ async function stopAll() {
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
-    
     await stopAll();
     
-    // Now 'l' is guaranteed to be defined
     if(l) l.style.display = 'block';
     if(p) p.style.display = 'none';
 
@@ -317,42 +309,37 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        await loadLib('https://cdnjs.cloudflare.com', 'Hls');
+        // USE LOCAL HLS LIBRARY
+        await loadLib('./shaka/hls.min.js', 'Hls');
         if (window.Hls && Hls.isSupported()){
-            hls = new Hls({enableWorker:true});
+            hls = new Hls({enableWorker:true, lowLatencyMode:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        // Load your local Shaka UI library
+        // USE LOCAL SHAKA UI LIBRARY
         await loadLib('./shaka/shaka-player.ui.min.js', 'shaka');
-        
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.installAll();
-            
-            // Standard Shaka 4.x+ initialization (No deprecation warnings)
             shakaPlayer = new shaka.Player(); 
             await shakaPlayer.attach(v); 
-            
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(() => {}); 
-            } catch(e) { 
-                console.error('Shaka fail', e); 
-                if(l) l.style.display='none'; 
-            }
+            } catch(e) { console.error('Shaka error', e); if(l) l.style.display='none'; }
         }
     }
 }
 
 /** 
- * 4. UI RENDERER & LISTENERS
+ * 4. UI RENDERER (Lighthouse Optimized)
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
-    
     gridContainer.style.minHeight = 'auto'; 
     gridContainer.innerHTML = data.map((ch, i) => {
         const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
@@ -373,6 +360,9 @@ function renderUI(data) {
     if(startIdx !== -1) playChannel(startIdx);
 }
 
+/** 
+ * 5. SEARCH & LISTENERS
+ */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
     clearTimeout(searchTimer);

@@ -7,6 +7,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#111419">
+    <link rel="stylesheet" href="./shaka/shaka-ui.css">
+
 
     <!-- Primary SEO Meta Tags (Optimised to 58 characters) -->
     <title>MSTV Network | Free Live Indian, Pakistani & International TV</title>
@@ -398,39 +400,63 @@ searchInput.addEventListener('input', (e) => {
     });
 });
 
-async function playChannel(index){
-  const channel = channels[index];
-  if(!channel) return;
-  updateMetaTags(channel);
-  window.location.hash = encodeURIComponent(channel.name);
-  await stopAll();
-  if(loader) loader.style.display = 'block';
-  placeholder.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = channel.isLive ? 'block' : 'none';
+/** 
+ * 1. PLAYER CONTROLLER (LOCAL SHAKA UI FIXED)
+ */
+async function playChannel(idx) {
+    const ch = channels[idx]; if(!ch) return;
+    window.location.hash = encodeURIComponent(ch.name);
+    await stopAll();
+    
+    if(l) l.style.display = 'block';
+    p.style.display = 'none';
 
-  if(channel.type === 'iframe'){
-    iframe.style.display = 'block'; iframe.src = channel.url;
-    return;
-  }
-
-  video.style.display = 'block';
-  const isHls = channel.type === 'hls' || (channel.url && channel.url.includes('.m3u8'));
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
+    if(ch.type === 'iframe') {
+        i.style.display = 'block'; i.src = ch.url;
+        return;
     }
-  } else if(window.shaka && shaka.Player.isBrowserSupported()){
-    shakaPlayer = new shaka.Player(video);
-    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
-  }
+
+    v.style.display = 'block';
+    const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+
+    if(isHls) {
+        await loadLib('https://cdnjs.cloudflare.com', 'Hls');
+        if(window.Hls && Hls.isSupported()){
+            hls = new Hls({enableWorker:true});
+            hls.loadSource(ch.url);
+            hls.attachMedia(v);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
+        }
+    } else {
+        // LOAD LOCAL SHAKA UI LIBRARY
+        await loadLib('./shaka/shaka-player.ui.min.js', 'shaka');
+        
+        if (window.shaka && shaka.Player.isBrowserSupported()) {
+            shaka.polyfilled.installAll();
+            
+            // UI SETUP: Required for shaka-player.ui.min.js
+            const videoContainer = v.parentElement; // The .player-container
+            
+            // Initialize Player as a standalone object first
+            shakaPlayer = new shaka.Player(); 
+            
+            // Create the UI Overlay
+            const ui = new shaka.ui.Overlay(shakaPlayer, videoContainer, v);
+            
+            // Attach the player to the video element
+            await shakaPlayer.attach(v); 
+            
+            try { 
+                await shakaPlayer.load(ch.url); 
+                v.play().catch(() => {}); 
+            } catch(e) { 
+                console.error('Shaka UI Load Error', e); 
+                if(l) l.style.display='none'; 
+            }
+        }
+    }
 }
 
-video.onplaying = () => { if(loader) loader.style.display = 'none'; };
-iframe.onload = () => { if(loader) loader.style.display = 'none'; };
 
 async function loadChannels(){
   try {

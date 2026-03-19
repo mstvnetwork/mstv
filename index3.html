@@ -39,74 +39,109 @@
     <script defer src="./shaka.js"></script>
     <script defer src="https://cdn.jsdelivr.net"></script>
 </head>
-    
+    <style>
+        :root {
+            --bg-dark: #0F1115;
+            --accent: #90EE90;
+            --header-h: 70px;
+            --player-y: 70px;
+            --text-dim: #555;
+        }
 
-        <style>
-    :root {
-        --bg-dark: #0F1115;
-        --accent: #90EE90;
-        --header-h: 60px; /* Adjust based on your header height */
-    }
+        html { 
+            scroll-padding-top: 380px; 
+            scroll-behavior: smooth;
+        }
 
-    html { 
-        /* 
-           Scroll padding should now match only the height of the sticky player.
-           On a 600px wide player (16:9), height is ~337px. 
-        */
-        scroll-padding-top: 360px; 
-        scroll-behavior: smooth;
-    }
+        body {
+            background-color: #E8E4C9 !important;
+            margin: 0; padding: 0;
+            font-family: Arial, sans-serif;
+            font-display: swap; /* Fixes text-shift */
+        }
 
-    /* 1. NON-STICKY HEADER */
-    header {
-        position: relative; /* Header now scrolls away */
-        z-index: 10;
-        background: #111419;
-        height: var(--header-h);
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 0 5%;
-        border-bottom: 1px solid #222;
-        color: white;
-    }
+        /* 1. STICKY HEADER */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #111419;
+            height: var(--header-h);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 5%;
+            border-bottom: 1px solid #222;
+        }
 
-    /* 2. STICKY PLAYER (Anchored to Top) */
-    .sticky-player-wrapper {
-        position: sticky;
-        top: 0; /* Player sticks to the very top of the screen */
-        z-index: 900;
-        background: #E8E4C9; /* Matches body color for seamless look */
-        padding: 5px 0; /* Tighter padding for sticky mode */
-        width: 100%;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        border-bottom: 2px solid var(--accent); /* Visual divider when stuck */
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
+        .logo-section { display: flex; flex-direction: column; }
+        .brand-name {
+            font-size: 1.4rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #90EE90, #00FFA3);
+            -webkit-background-clip: text;
+            color: transparent;
+            line-height: 1;
+        }
+        .slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
 
-    .player-container {
-        position: relative;
-        width: 100%; /* Fills screen width on mobile */
-        max-width: 650px; /* Good desktop size */
-        aspect-ratio: 16 / 9; 
-        background: black;
-        overflow: hidden;
-        /* Removed border-radius for a cleaner "flush" look when sticky */
-    }
+        .search-container { flex-grow: 0.4; max-width: 350px; }
+        .search-container input {
+            width: 100%;
+            padding: 10px 15px;
+            border-radius: 25px;
+            border: 1px solid #333;
+            background: #1A1D20;
+            color: white;
+            outline: none;
+        }
 
-    /* Robotic Iframe Fit */
-    iframe, video { 
-        position: absolute; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%; 
-        border: none;
-    }
+        /* 2. STICKY PLAYER - Fixed Min-Height to stop CLS */
+        .sticky-player-wrapper {
+            position: sticky;
+            top: var(--player-y);
+            z-index: 900;
+            background: #E8E4C9;
+            padding: 15px 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 1px solid #ccc;
+            min-height: 200px; 
+        }
 
-/* 3. CHANNEL GRID - Tight Fit Style */
+        .player-container {
+            position: relative;
+            width: 92%;
+            max-width: 600px;
+            aspect-ratio: 16/9;
+            background: black;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        video, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
+        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 5rem; color: var(--accent); }
+        
+        #loading {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 12px 24px;
+            border-radius: 30px;
+            border: 1px solid var(--accent);
+            color: var(--accent);
+            font-weight: bold;
+            display: none;
+        }
+
+        #live-stamp { position: absolute; top: 10px; left: 10px; background: #E50914; color: white; padding: 5px 12px; border-radius: 5px; font-size: 0.75rem; font-weight: bold; z-index: 50; display: none; }
+
+        
+            /* 3. CHANNEL GRID - Tight Fit Style */
 .channel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); /* Slightly smaller for tighter density */
@@ -171,7 +206,7 @@
 <header>
     <div class="logo-section">
         <div class="brand-name">MSTV NETWORK</div>
-        <div class="slogan">LIVE CHANNELS</div>
+        <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
     </div>
     <div class="search-container">
         <input type="text" id="channel-search" placeholder="Search channels...">
@@ -182,14 +217,11 @@
     <div class="player-container">
         <div id="loading">🌀 Buffering...</div>
         <div id="live-stamp">Mstv Network</div>
-        <iframe id="iframe-player" src="about:blank" allowfullscreen></iframe>
+        <div id="placeholder">📺</div>
+        <video id="video-player" autoplay playsinline controls></video>
+        <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media"></iframe>
     </div>
 </div>
-
-<div class="channel-grid">
-    <!-- Channels load here -->
-</div>
-
 
 <main>
     <select id="channel-select" style="display:none;"></select>

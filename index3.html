@@ -281,7 +281,9 @@ header {
 </footer>
 
 <script>
-// 1. Performance Constants & State
+        /** 
+ * 1. CORE STATE & DOM
+ */
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
@@ -290,22 +292,26 @@ const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// 2. High-Performance Library Loader (Non-Blocking)
-// Resolves only when the script is fully parsed and the global object is ready
+/** 
+ * 2. HIGH-PERFORMANCE LOADER (CORS & MIME FIXED)
+ * Uses official CDNs to ensure correct MIME types and browser compatibility.
+ */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
         if (window[globalVar]) return resolve(); 
         const s = document.createElement('script');
         s.src = url; 
         s.async = true;
-        s.crossOrigin = "anonymous"; // Essential to prevent CORS "Site can't be reached" errors
-        s.onload = () => setTimeout(resolve, 20); 
-        s.onerror = () => { console.warn(`${globalVar} failed`); resolve(); };
+        s.crossOrigin = "anonymous"; 
+        s.onload = () => setTimeout(resolve, 15); 
+        s.onerror = () => { console.error(`${globalVar} load failed`); resolve(); };
         document.body.appendChild(s);
     });
 }
 
-// 3. Dynamic Player Controller
+/** 
+ * 3. PLAYER CONTROLLER (ZERO BLOCKING TIME)
+ */
 async function stopAll() {
     if(l) l.style.display = 'none';
     if(hls){ hls.destroy(); hls = null; }
@@ -340,53 +346,60 @@ async function playChannel(idx) {
             hls.loadSource(ch.url);
             hls.attachMedia(v);
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
-        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        await loadLib('./shaka.js', 'shaka');
+        // FIXED: Using compiled Shaka from CDN to fix Polyfill and MIME errors
+        await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
             shakaPlayer = new shaka.Player(v);
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(()=>{}); 
-            } catch(e) { console.error('Shaka error', e); if(l) l.style.display='none'; }
+            } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
         }
     }
 }
 
+/** 
+ * 4. UI RENDERER (CLS-LOCKING LOGIC)
+ */
 function renderUI(data) {
     channels = data;
-    const container = el('channel-list-container');
-    if(!container) return;
+    if(!gridContainer) return;
 
-    // Remove the fixed height once data is ready to keep it clean
-    container.style.minHeight = 'auto'; 
+    // CLS Fix: Release the reserved min-height once content is ready
+    gridContainer.style.minHeight = 'auto';
 
-    container.innerHTML = data.map((ch, i) => {
+    gridContainer.innerHTML = data.map((ch, i) => {
         const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
-            <div class="channel-card">
+            <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
                 <div class="card-logo">
-                    <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
-                         onerror="this.src='https://mstvnet.netlify.app'">
+                    <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                         onerror="this.src='https://mstvnet.netlify.app';">
                 </div>
                 <div class="channel-name">${ch.name}</div>
             </div>
         `;
     }).join('');
-}
     
-    // 5. Search Logic (Debounced to keep UI snappy)
+    const hash = decodeURIComponent(window.location.hash.substring(1));
+    const startIdx = data.findIndex(c => c.name === hash);
+    if(startIdx !== -1) playChannel(startIdx);
+}
+
+/** 
+ * 5. SEARCH & ANALYTICS (PASSIVE LISTENERS)
+ */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => {
         const term = e.target.value.toLowerCase();
         document.querySelectorAll('.channel-card').forEach(card => {
-            const match = card.innerText.toLowerCase().includes(term);
-            card.style.display = match ? 'flex' : 'none';
+            card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
         });
     }, 150);
 }, { passive: true });
@@ -394,16 +407,14 @@ searchInput.addEventListener('input', (e) => {
 v.onplaying = () => { if(l) l.style.display = 'none'; };
 i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
 
-// 6. Secure Data Initialization
+// Initial Boot
 (async () => {
     try {
-        // Use standard relative path for Netlify compatibility
         const res = await fetch(JSON_URL, { cache: 'default' });
         if(res.ok) renderUI(await res.json());
-        else throw new Error("File not found");
     } catch(e) { 
-        console.error('Boot error:', e);
-        gridContainer.innerHTML = '<p style="padding:20px;text-align:center;">Network error. Please refresh.</p>';
+        console.error('Init error', e);
+        gridContainer.innerHTML = '<p style="text-align:center;padding:20px;">Network Error. Please refresh.</p>';
     }
 })();
 

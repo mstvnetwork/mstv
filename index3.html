@@ -271,9 +271,7 @@
 </footer>
 
 <script>
-/** 
- * PERFORMANCE CONSTANTS & STATE 
- */
+// 1. Performance Constants & State
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
@@ -282,60 +280,22 @@ const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-/** 
- * 1. HIGH-PERFORMANCE SCRIPT LOADER (NO LOOPS)
- * Resolves exactly when the global variable (Hls/shaka) is ready.
- */
+// 2. High-Performance Library Loader (Non-Blocking)
+// Resolves only when the script is fully parsed and the global object is ready
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
         if (window[globalVar]) return resolve(); 
         const s = document.createElement('script');
         s.src = url; 
         s.async = true;
-        s.onload = () => {
-            // Tiny delay to ensure browser thread registers the global object
-            setTimeout(resolve, 10); 
-        };
+        s.crossOrigin = "anonymous"; // Essential to prevent CORS "Site can't be reached" errors
+        s.onload = () => setTimeout(resolve, 20); 
+        s.onerror = () => { console.warn(`${globalVar} failed`); resolve(); };
         document.body.appendChild(s);
     });
 }
 
-/** 
- * 2. SEO & META OPTIMIZATION (FIXED SYNTAX)
- */
-function updateLiveSchema(data) {
-    const old = el('mstv-dynamic-schema'); if (old) old.remove();
-    const schema = {
-        "@context": "https://schema.org",
-        "@type": "ItemList",
-        "itemListElement": data.slice(0, 15).map((ch, i) => ({
-            "@type": "ListItem",
-            "position": i + 1,
-            "item": {
-                "@type": "VideoObject",
-                "name": ch.name,
-                "thumbnailUrl": ch.logo || "https://mstvnet.netlify.app",
-                "embedUrl": `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`,
-                "publication": { "@type": "BroadcastEvent", "isLiveBroadcast": true, "startDate": new Date().toISOString() }
-            }
-        }))
-    };
-    const s = document.createElement('script');
-    s.id = 'mstv-dynamic-schema'; s.type = 'application/ld+json';
-    s.text = JSON.stringify(schema);
-    document.head.appendChild(s);
-}
-
-function updateMetaTags(ch) {
-    document.title = `${ch.name} Live | MSTV Network`;
-    const desc = `Watch ${ch.name} live on MSTV Network. Free 24/7 HD broadcast.`;
-    document.querySelector('meta[name="description"]')?.setAttribute("content", desc);
-    document.querySelector('link[rel="canonical"]')?.setAttribute("href", `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`);
-}
-
-/** 
- * 3. PLAYER CONTROL LOGIC
- */
+// 3. Dynamic Player Controller
 async function stopAll() {
     if(l) l.style.display = 'none';
     if(hls){ hls.destroy(); hls = null; }
@@ -348,7 +308,6 @@ async function stopAll() {
 
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
-    updateMetaTags(ch);
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
     
@@ -370,9 +329,9 @@ async function playChannel(idx) {
             hls = new Hls({enableWorker:true, lowLatencyMode:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=> {}));
+            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url; v.play().catch(()=> {});
+            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
         await loadLib('./shaka.js', 'shaka');
@@ -381,64 +340,46 @@ async function playChannel(idx) {
             shakaPlayer = new shaka.Player(v);
             try { 
                 await shakaPlayer.load(ch.url); 
-                v.play().catch(()=> {}); 
-            } catch(e) { console.error('Shaka fail', e); l.style.display = 'none'; }
+                v.play().catch(()=>{}); 
+            } catch(e) { console.error('Shaka error', e); if(l) l.style.display='none'; }
         }
     }
 }
 
-/** 
- * 4. UI RENDERING (OPTIMIZED FOR LCP)
- */
+// 4. UI Rendering (Optimized for LCP & CLS)
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
 
-    // Use DocumentFragment for a single layout reflow (Performance boost)
-    const fragment = document.createDocumentFragment();
-    
-    data.forEach((ch, i) => {
-        const card = document.createElement('div');
-        card.className = 'channel-card';
-        card.setAttribute('data-name', ch.name.toLowerCase());
-        
-        // Use FetchPriority for the first 8 logos to improve LCP score
+    // Build entire grid as a single string to minimize DOM operations
+    gridContainer.innerHTML = data.map((ch, i) => {
         const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-        
-        card.innerHTML = `
-            <div class="card-logo">
-                <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app'">
+        return `
+            <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
+                <div class="card-logo">
+                    <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                         onerror="this.src='https://mstvnet.netlify.app'">
+                </div>
+                <div class="channel-name">${ch.name}</div>
             </div>
-            <div class="channel-name">${ch.name}</div>
         `;
-        
-        card.onclick = () => { 
-            playChannel(i); 
-            window.scrollTo({top: 0, behavior: 'smooth'}); 
-        };
-        fragment.appendChild(card);
-    });
-
-    gridContainer.innerHTML = '';
-    gridContainer.appendChild(fragment);
-    updateLiveSchema(data);
+    }).join('');
     
-    // Check for Deep Link
+    // Auto-play from URL hash
     const hash = decodeURIComponent(window.location.hash.substring(1));
     const startIdx = data.findIndex(c => c.name === hash);
     if(startIdx !== -1) playChannel(startIdx);
 }
 
-/** 
- * 5. EVENT LISTENERS
- */
-let searchDebounce;
+// 5. Search Logic (Debounced to keep UI snappy)
+let searchTimer;
 searchInput.addEventListener('input', (e) => {
-    clearTimeout(searchDebounce);
-    searchDebounce = setTimeout(() => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
         const term = e.target.value.toLowerCase();
         document.querySelectorAll('.channel-card').forEach(card => {
-            card.style.display = card.getAttribute('data-name').includes(term) ? 'flex' : 'none';
+            const match = card.innerText.toLowerCase().includes(term);
+            card.style.display = match ? 'flex' : 'none';
         });
     }, 150);
 }, { passive: true });
@@ -446,58 +387,19 @@ searchInput.addEventListener('input', (e) => {
 v.onplaying = () => { if(l) l.style.display = 'none'; };
 i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
 
-// Initial Boot
+// 6. Secure Data Initialization
 (async () => {
     try {
+        // Use standard relative path for Netlify compatibility
         const res = await fetch(JSON_URL, { cache: 'default' });
         if(res.ok) renderUI(await res.json());
-    } catch(e) { console.log('Init Error'); }
-})();
-</script>
-
-<!-- ANALYTICS -->
-<script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
-    /** 
-    <script>
- * 1. FIX: Added 'anonymous' cross-origin to script tags
- * This solves the "cannot be reached" error caused by security blocking.
- */
-function loadLib(url, globalVar) {
-    return new Promise((resolve) => {
-        if (window[globalVar]) return resolve(); 
-        const s = document.createElement('script');
-        s.src = url; 
-        s.async = true;
-        s.crossOrigin = "anonymous"; // CRITICAL: Fixes CORS blocking
-        s.onload = () => setTimeout(resolve, 10);
-        s.onerror = () => { console.error("Lib load failed"); resolve(); }; 
-        document.body.appendChild(s);
-    });
-}
-
-/** 
- * 2. FIX: Optimized Data Fetching
- * Uses 'cors' mode and 'force-cache' to avoid Netlify timeouts.
- */
-(async () => {
-    try {
-        // Use a relative path to ensure Netlify finds the file
-        const res = await fetch('./channels.json', { 
-            mode: 'cors',
-            cache: 'force-cache' 
-        });
-        if (res.ok) {
-            const data = await res.json();
-            renderUI(data);
-        } else {
-            throw new Error("JSON not found");
-        }
+        else throw new Error("File not found");
     } catch(e) { 
-        console.error('Init Error:', e); 
-        // Fallback: Notify user if connection fails
-        el('channel-list-container').innerHTML = "<p style='color:red; text-align:center;'>Connection Error. Please refresh.</p>";
+        console.error('Boot error:', e);
+        gridContainer.innerHTML = '<p style="padding:20px;text-align:center;">Network error. Please refresh.</p>';
     }
 })();
+
     </script>
 </body>
 </html>

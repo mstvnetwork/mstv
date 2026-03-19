@@ -265,23 +265,33 @@ const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
-
 /** 
- * 2. PERFORMANCE-FIRST LOADER
- * Uses specific versions and CORS-safe headers to prevent slow redirects.
+ * 1. FIXED LOCAL LOADER
+ * Uses your repo's 402KB hls.min.js for maximum speed.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
         if (window[globalVar]) return resolve(); 
         const s = document.createElement('script');
-        s.src = url; 
+        // Add a version/timestamp to force a fresh load of the newly found file
+        s.src = url + '?v=1.5.11'; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
         s.onload = () => setTimeout(resolve, 50); 
-        s.onerror = () => { console.error(`${globalVar} failed`); resolve(); };
+        s.onerror = () => {
+            console.warn(`Local ${globalVar} failed, falling back to CDN`);
+            const fallback = globalVar === 'Hls' 
+                ? 'https://cdnjs.cloudflare.com'
+                : 'https://cdnjs.cloudflare.com';
+            const s2 = document.createElement('script');
+            s2.src = fallback;
+            s2.onload = () => setTimeout(resolve, 50);
+            document.body.appendChild(s2);
+        };
         document.body.appendChild(s);
     });
 }
+
 
 /** 
  * 3. PLAYER CONTROLLER (HLS & SHAKA UI)
@@ -295,6 +305,9 @@ async function stopAll() {
     if(p) p.style.display = 'flex';
 }
 
+/** 
+ * 2. STABILIZED PLAYER
+ */
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
@@ -312,18 +325,18 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // Use local HLS for fastest handshake
+        // Pointing to your confirmed 402KB local file
         await loadLib('./shaka/hls.min.js', 'Hls');
+        
         if (window.Hls && Hls.isSupported()){
             hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hls.loadSource(ch.url);
             hls.attachMedia(v);
-            hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(ch.url));
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
             v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        // Use local Shaka UI with modern attach method
         await loadLib('./shaka/shaka-player.ui.min.js', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.installAll();
@@ -336,6 +349,7 @@ async function playChannel(idx) {
         }
     }
 }
+
 
 /** 
  * 4. BATCH RENDERER (FIXES SLOW 4G LOADS)

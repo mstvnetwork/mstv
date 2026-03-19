@@ -457,7 +457,48 @@ i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
 
 <!-- ANALYTICS -->
 <script data-goatcounter="https://mstv.goatcounter.com" async src="//gc.zgo.at/count.js"></script>
+    /** 
+    <script>
+ * 1. FIX: Added 'anonymous' cross-origin to script tags
+ * This solves the "cannot be reached" error caused by security blocking.
+ */
+function loadLib(url, globalVar) {
+    return new Promise((resolve) => {
+        if (window[globalVar]) return resolve(); 
+        const s = document.createElement('script');
+        s.src = url; 
+        s.async = true;
+        s.crossOrigin = "anonymous"; // CRITICAL: Fixes CORS blocking
+        s.onload = () => setTimeout(resolve, 10);
+        s.onerror = () => { console.error("Lib load failed"); resolve(); }; 
+        document.body.appendChild(s);
+    });
+}
 
+/** 
+ * 2. FIX: Optimized Data Fetching
+ * Uses 'cors' mode and 'force-cache' to avoid Netlify timeouts.
+ */
+(async () => {
+    try {
+        // Use a relative path to ensure Netlify finds the file
+        const res = await fetch('./channels.json', { 
+            mode: 'cors',
+            cache: 'force-cache' 
+        });
+        if (res.ok) {
+            const data = await res.json();
+            renderUI(data);
+        } else {
+            throw new Error("JSON not found");
+        }
+    } catch(e) { 
+        console.error('Init Error:', e); 
+        // Fallback: Notify user if connection fails
+        el('channel-list-container').innerHTML = "<p style='color:red; text-align:center;'>Connection Error. Please refresh.</p>";
+    }
+})();
+    </script>
 </body>
 </html>
 

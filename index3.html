@@ -356,16 +356,18 @@ async function playChannel(idx) {
     }
 }
 
-// 4. UI Rendering (Optimized for LCP & CLS)
 function renderUI(data) {
     channels = data;
-    if(!gridContainer) return;
+    const container = el('channel-list-container');
+    if(!container) return;
 
-    // Build entire grid as a single string to minimize DOM operations
-    gridContainer.innerHTML = data.map((ch, i) => {
+    // Remove the fixed height once data is ready to keep it clean
+    container.style.minHeight = 'auto'; 
+
+    container.innerHTML = data.map((ch, i) => {
         const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
         return `
-            <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
+            <div class="channel-card">
                 <div class="card-logo">
                     <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
                          onerror="this.src='https://mstvnet.netlify.app'">
@@ -375,11 +377,9 @@ function renderUI(data) {
         `;
     }).join('');
     
-    // Auto-play from URL hash
-    const hash = decodeURIComponent(window.location.hash.substring(1));
-    const startIdx = data.findIndex(c => c.name === hash);
-    if(startIdx !== -1) playChannel(startIdx);
-}
+    
+
+
 
 // 5. Search Logic (Debounced to keep UI snappy)
 let searchTimer;

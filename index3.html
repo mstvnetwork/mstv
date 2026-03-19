@@ -160,17 +160,29 @@
 
         
         #loading {
-            position: absolute; top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 100;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 12px 24px;
-            border-radius: 30px;
-            border: 1px solid var(--accent);
-            color: var(--accent);
-            font-weight: bold;
-            display: none;
-        }
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    display: none; /* Hidden by default */
+}
+
+/* The actual spinner circle */
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid rgba(144, 238, 144, 0.2); /* Faded accent color */
+    border-top: 5px solid var(--accent); /* Solid accent color */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
 
         #live-stamp { position: absolute; top: 10px; left: 10px; background: #E50914; color: white; padding: 5px 12px; border-radius: 5px; font-size: 0.75rem; font-weight: bold; z-index: 50; display: none; }
 
@@ -249,7 +261,10 @@
 
 <div class="sticky-player-wrapper">
     <div class="player-container">
-        <div id="loading">🌀 Buffering...</div>
+        <div id="loading">
+    <div class="spinner"></div>
+</div>
+
         <div id="live-stamp">Mstv Network</div>
         <div id="placeholder">📺</div>
         <video id="video-player" autoplay playsinline controls></video>
@@ -422,6 +437,33 @@ function renderUI(data) {
 /** 
  * 5. SEARCH & EVENT LISTENERS
  */
+        /** 
+ * 5. SEARCH & EVENT LISTENERS
+ */
+let searchTimer;
+searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.channel-card').forEach(card => {
+            card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+        });
+    }, 150);
+}, { passive: true });
+
+// --- ADD THE SPINNER LOGIC HERE ---
+if(v) {
+    v.onplaying = () => { if(l) l.style.display = 'none'; };
+    v.onwaiting = () => { if(l) l.style.display = 'block'; }; // Shows if it buffers mid-stream
+}
+// ----------------------------------
+
+if(i) i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
+
+// Initial Boot (Leave this at the very bottom)
+(async () => {
+    // ... rest of your code
+
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
     clearTimeout(searchTimer);

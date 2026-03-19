@@ -281,7 +281,7 @@ header {
 </footer>
 
 <script>
-        /** 
+/** 
  * 1. CORE STATE & DOM
  */
 const el = (id) => document.getElementById(id);
@@ -293,8 +293,7 @@ const JSON_URL = './channels.json';
 let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 2. HIGH-PERFORMANCE LOADER (CORS & MIME FIXED)
- * Uses official CDNs to ensure correct MIME types and browser compatibility.
+ * 2. STABLE LIBRARY LOADER
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -303,14 +302,17 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 15); 
-        s.onerror = () => { console.error(`${globalVar} load failed`); resolve(); };
+        s.onload = () => {
+            // Give the browser 50ms to register the global object
+            setTimeout(resolve, 50); 
+        };
+        s.onerror = () => { console.error(`${globalVar} failed`); resolve(); };
         document.body.appendChild(s);
     });
 }
 
 /** 
- * 3. PLAYER CONTROLLER (ZERO BLOCKING TIME)
+ * 3. PLAYER CONTROLLER
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -340,35 +342,57 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
+        // FIXED: Using a version-locked stable HLS.js
         await loadLib('https://cdn.jsdelivr.net', 'Hls');
-        if(window.Hls && Hls.isSupported()){
-            hls = new Hls({enableWorker:true, lowLatencyMode:true});
+        
+        if (window.Hls && Hls.isSupported()) {
+            hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 60
+            });
             hls.loadSource(ch.url);
             hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                v.play().catch(() => {
+                    console.log("Autoplay blocked, waiting for user interaction.");
+                });
+            });
+            // Error recovery for stream drops
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
+                        case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
+                        default: stopAll(); break;
+                    }
+                }
+            });
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url;
+            v.play().catch(() => {});
         }
     } else {
-        // FIXED: Using compiled Shaka from CDN to fix Polyfill and MIME errors
         await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
             shakaPlayer = new shaka.Player(v);
             try { 
                 await shakaPlayer.load(ch.url); 
-                v.play().catch(()=>{}); 
+                v.play().catch(() => {}); 
             } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
         }
     }
 }
 
 /** 
- * 4. UI RENDERER (CLS-LOCKING LOGIC)
+ * 4. UI RENDERER
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
 
-    // CLS Fix: Release the reserved min-height once content is ready
+    // Reset min-height once content is ready
     gridContainer.style.minHeight = 'auto';
 
     gridContainer.innerHTML = data.map((ch, i) => {
@@ -391,7 +415,7 @@ function renderUI(data) {
 }
 
 /** 
- * 5. SEARCH & ANALYTICS (PASSIVE LISTENERS)
+ * 5. SEARCH & LISTENERS
  */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
@@ -417,7 +441,6 @@ i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
         gridContainer.innerHTML = '<p style="text-align:center;padding:20px;">Network Error. Please refresh.</p>';
     }
 })();
-
 
     </script>
 </body>

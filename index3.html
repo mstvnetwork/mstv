@@ -254,221 +254,148 @@
     </div>
 </footer>
 <script>
-const select = document.getElementById('channel-select');
-const video = document.getElementById('video-player');
-const iframe = document.getElementById('iframe-player');
-const placeholder = document.getElementById('placeholder');
-const loader = document.getElementById('loading');
-const liveStamp = document.getElementById('live-stamp');
-const gridContainer = document.getElementById('channel-list-container');
-const searchInput = document.getElementById('channel-search');
+    /** 
+ * 1. CORE DOM ELEMENTS (Global Scope)
+ */
+const el = (id) => document.getElementById(id);
+
+// Explicitly defining all shorthand variables used in the script
+const v = el('video-player');   // Video
+const i = el('iframe-player');  // Iframe
+const p = el('placeholder');    // Placeholder TV icon
+const l = el('loading');        // Loading Spinner
+const gridContainer = el('channel-list-container');
+const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
-let channels = [];
-let hls = null;
-let shakaPlayer = null;
-
-
-/**
- * FIXED SEO SCHEMA FUNCTION
- * Added missing $ for template literals
- */
-function updateLiveSchema(data) {
-    const oldSchema = document.getElementById('mstv-dynamic-schema');
-    if (oldSchema) oldSchema.remove();
-
-    try {
-        const fullSchema = {
-          "@context": "https://schema.org",
-          "@type": "ItemList",
-          "name": "MSTV Network Live Channels",
-          "url": "https://mstvnet.netlify.app",
-          "description": "Watch live Indian, Pakistani, and International TV channels on MSTV Network.",
-          "itemListElement": data.map((ch, i) => ({
-            "@type": "ListItem",
-            "position": i + 1,
-            "item": {
-                "@type": "VideoObject",
-                "name": ch.name,
-                "description": `Watch ${ch.name} live stream on MSTV Network.`,
-                "thumbnailUrl": [ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png"],
-                "uploadDate": "2024-01-01T08:00:00+00:00",
-                // FIXED: Added $ for template literal
-                "embedUrl": `https://mstvnet.netlify.app{encodeURIComponent(ch.name)}`, 
-                "publication": {
-                    "@type": "BroadcastEvent",
-                    "isLiveBroadcast": true,
-                    "startDate": new Date().toISOString()
-                }
-            }
-          }))
-        };
-               const script = document.createElement('script');
-        script.id = 'mstv-dynamic-schema';
-        script.type = 'application/ld+json';
-        script.text = JSON.stringify(fullSchema);
-        document.head.appendChild(script);
-    } catch (e) { console.error("Schema update failed", e); }
-}
-
-function updateMetaTags(channel) {
-    const siteTitle = `${channel.name} Live | MSTV Network`;
-    const description = `Watch ${channel.name} live stream on MSTV Network. Free 24/7 high-quality Indian and Pakistani TV broadcast.`;
-    const image = channel.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
-    // FIXED: Added $ for template literal
-    const url = `https://mstvnet.netlify.app{encodeURIComponent(channel.name)}`;
-
-    document.title = siteTitle;
-    document.querySelector('meta[name="description"]')?.setAttribute("content", description);
-    document.querySelector('meta[property="og:title"]')?.setAttribute("content", siteTitle);
-    document.querySelector('meta[property="og:image"]')?.setAttribute("content", image);
-    document.querySelector('link[rel="canonical"]')?.setAttribute("href", url);
-}
-
-
-async function stopAll() {
-  if(loader) loader.style.display = 'none';
-  if(liveStamp) liveStamp.style.display = 'none';
-  if(hls){ hls.destroy(); hls = null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
-  video.pause(); video.removeAttribute('src'); video.load();
-  iframe.removeAttribute('src'); iframe.src = 'about:blank';
-  video.style.display = 'none'; iframe.style.display = 'none';
-  placeholder.style.display = 'flex';
-}
-
-/**
- * OPTIMIZED RENDER FUNCTION
- * Added lazy loading and fixed dimensions to stop CLS
- */
-function renderUI(data) {
-  channels = data;
-  if(select) select.innerHTML = '<option value="">📱 Select Channel</option>';
-  if(gridContainer) gridContainer.innerHTML = ''; 
-
-  updateLiveSchema(data);
-
-  data.forEach((ch, i) => {
-    if(select) {
-        const opt = document.createElement("option");
-        opt.value = i; 
-        opt.textContent = ch.name; 
-        select.appendChild(opt);
-    }
-
-    const card = document.createElement('div');
-    card.className = 'channel-card';
-    card.setAttribute('data-name', ch.name.toLowerCase());
-    
-    const logoSrc = ch.logo || "https://mstvnet.netlify.app/mstv-thumbnail.png";
-    
-    // FIX: Added width, height, and loading="lazy"
-    card.innerHTML = `
-      <div class="card-logo">
-        <img 
-            src="${logoSrc}" 
-            alt="${ch.name}" 
-            width="95" 
-            height="64" 
-            loading="lazy"
-            onerror="this.src='https://mstvnet.netlify.app/mstv-thumbnail.png';">
-      </div>
-      <div class="channel-name">${ch.name}</div>
-    `;
-    
-    card.onclick = () => { 
-        playChannel(i); 
-        window.scrollTo({top: 0, behavior: 'smooth'}); 
-    };
-    if(gridContainer) gridContainer.appendChild(card);
-  });
-
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  if (hash) {
-      const index = data.findIndex(ch => ch.name === hash);
-      if (index !== -1) playChannel(index);
-  }
-}
-
-// SEARCH FILTER LOGIC
-searchInput.addEventListener('input', (e) => {
-    const term = e.target.value.toLowerCase();
-    const cards = document.querySelectorAll('.channel-card');
-    cards.forEach(card => {
-        const name = card.getAttribute('data-name');
-        card.style.display = name.includes(term) ? 'flex' : 'none';
-    });
-});
+let channels = [], hls = null, shakaPlayer = null;
 
 /** 
- * 1. PLAYER CONTROLLER (LOCAL SHAKA UI FIXED)
+ * 2. STABLE LIBRARY LOADER
  */
+function loadLib(url, globalVar) {
+    return new Promise((resolve) => {
+        if (window[globalVar]) return resolve(); 
+        const s = document.createElement('script');
+        s.src = url; 
+        s.async = true;
+        s.crossOrigin = "anonymous"; 
+        s.onload = () => setTimeout(resolve, 100); 
+        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
+        document.body.appendChild(s);
+    });
+}
+
+/** 
+ * 3. PLAYER CONTROLLER
+ */
+async function stopAll() {
+    if(l) l.style.display = 'none';
+    if(hls){ hls.destroy(); hls = null; }
+    if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
+    if(v) { v.pause(); v.src = ""; v.load(); v.style.display = 'none'; }
+    if(i) { i.src = 'about:blank'; i.style.display = 'none'; }
+    if(p) p.style.display = 'flex';
+}
+
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
+    
     await stopAll();
     
+    // Now 'l' is guaranteed to be defined
     if(l) l.style.display = 'block';
-    p.style.display = 'none';
+    if(p) p.style.display = 'none';
 
     if(ch.type === 'iframe') {
-        i.style.display = 'block'; i.src = ch.url;
+        if(i) { i.style.display = 'block'; i.src = ch.url; }
         return;
     }
 
-    v.style.display = 'block';
+    if(v) v.style.display = 'block';
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
         await loadLib('https://cdnjs.cloudflare.com', 'Hls');
-        if(window.Hls && Hls.isSupported()){
+        if (window.Hls && Hls.isSupported()){
             hls = new Hls({enableWorker:true});
             hls.loadSource(ch.url);
             hls.attachMedia(v);
             hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         }
     } else {
-        // LOAD LOCAL SHAKA UI LIBRARY
+        // Load your local Shaka UI library
         await loadLib('./shaka/shaka-player.ui.min.js', 'shaka');
         
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.installAll();
             
-            // UI SETUP: Required for shaka-player.ui.min.js
-            const videoContainer = v.parentElement; // The .player-container
-            
-            // Initialize Player as a standalone object first
+            // Standard Shaka 4.x+ initialization (No deprecation warnings)
             shakaPlayer = new shaka.Player(); 
-            
-            // Create the UI Overlay
-            const ui = new shaka.ui.Overlay(shakaPlayer, videoContainer, v);
-            
-            // Attach the player to the video element
             await shakaPlayer.attach(v); 
             
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(() => {}); 
             } catch(e) { 
-                console.error('Shaka UI Load Error', e); 
+                console.error('Shaka fail', e); 
                 if(l) l.style.display='none'; 
             }
         }
     }
 }
 
-
-async function loadChannels(){
-  try {
-    const res = await fetch(JSON_URL, { cache: 'no-cache' });
-    const data = await res.json();
-    renderUI(data);
-  } catch(e){ console.error('Load fail', e); }
+/** 
+ * 4. UI RENDERER & LISTENERS
+ */
+function renderUI(data) {
+    channels = data;
+    if(!gridContainer) return;
+    
+    gridContainer.style.minHeight = 'auto'; 
+    gridContainer.innerHTML = data.map((ch, i) => {
+        const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
+        const logo = ch.logo || "https://mstvnet.netlify.app";
+        return `
+            <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
+                <div class="card-logo">
+                    <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                         onerror="this.src='https://mstvnet.netlify.app';">
+                </div>
+                <div class="channel-name">${ch.name}</div>
+            </div>
+        `;
+    }).join('');
+    
+    const hash = decodeURIComponent(window.location.hash.substring(1));
+    const startIdx = data.findIndex(c => c.name === hash);
+    if(startIdx !== -1) playChannel(startIdx);
 }
-loadChannels();
-</script>
-<!-- 2. GOATCOUNTER ANALYTICS -->
-<script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 
+let searchTimer;
+searchInput.addEventListener('input', (e) => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.channel-card').forEach(card => {
+            card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+        });
+    }, 150);
+}, { passive: true });
+
+if(v) v.onplaying = () => { if(l) l.style.display = 'none'; };
+if(i) i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
+
+(async () => {
+    try {
+        const res = await fetch(JSON_URL, { cache: 'default' });
+        if(res.ok) renderUI(await res.json());
+    } catch(e) { console.log('Init error'); }
+})();
+</script>
 </body>
 </html>
+
+
+

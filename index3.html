@@ -280,7 +280,7 @@ header {
 </footer>
 
 <script>
-    /** 
+        /** 
  * 1. CORE STATE & DOM
  */
 const el = (id) => document.getElementById(id);
@@ -290,8 +290,10 @@ const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
+
 /** 
- * 1. SIMPLIFIED LOADER
+ * 2. STABLE LIBRARY LOADER
+ * Switched to cdnjs to avoid jsDelivr's CORS-blocking redirects.
  */
 function loadLib(url, globalVar) {
     return new Promise((resolve) => {
@@ -300,15 +302,14 @@ function loadLib(url, globalVar) {
         s.src = url; 
         s.async = true;
         s.crossOrigin = "anonymous"; 
-        s.onload = () => setTimeout(resolve, 100); // Wait for browser to register the global
-        s.onerror = () => { console.error(globalVar + " load failed"); resolve(); };
+        s.onload = () => setTimeout(resolve, 50); 
+        s.onerror = () => { console.error(`${globalVar} failed`); resolve(); };
         document.body.appendChild(s);
     });
 }
 
-
 /** 
- * 3. PLAYER CONTROLLER (HLS FIX INTEGRATED)
+ * 3. PLAYER CONTROLLER (HLS & DASH FIXED)
  */
 async function stopAll() {
     if(l) l.style.display = 'none';
@@ -320,9 +321,6 @@ async function stopAll() {
     p.style.display = 'flex';
 }
 
-/** 
- * 2. STABILIZED PLAYER CONTROLLER
- */
 async function playChannel(idx) {
     const ch = channels[idx]; if(!ch) return;
     window.location.hash = encodeURIComponent(ch.name);
@@ -340,64 +338,44 @@ async function playChannel(idx) {
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
     if(isHls) {
-        // Use a rock-solid version of HLS.js
-        await loadLib('https://cdn.jsdelivr.net', 'Hls');
+        // Using cdnjs to fix the 'Hls load failed' CORS issue
+        await loadLib('https://cdnjs.cloudflare.com', 'Hls');
         
         if (window.Hls && Hls.isSupported()){
-            hls = new Hls({ 
-                enableWorker: true, 
-                lowLatencyMode: true,
-                autoStartLoad: true
-            });
-            
-            // Standard order: loadSource -> attachMedia
+            hls = new Hls({ enableWorker: true, lowLatencyMode: true });
             hls.loadSource(ch.url);
             hls.attachMedia(v);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                v.play().catch(() => {});
-            });
-
-            // Error Recovery
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-                }
-            });
+            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari/iOS Native fallback
-            v.src = ch.url; 
-            v.play().catch(() => {});
+            v.src = ch.url; v.play().catch(()=>{});
         }
     } else {
-        // Shaka for DASH/Other
+        // Using cdnjs for Shaka Player
         await loadLib('https://cdnjs.cloudflare.com', 'shaka');
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfilled.install();
-            shakaPlayer = new shaka.Player(v);
+            // FIX: Using .attach() to resolve the Shaka deprecation warning
+            shakaPlayer = new shaka.Player(); 
+            await shakaPlayer.attach(v); 
             try { 
                 await shakaPlayer.load(ch.url); 
                 v.play().catch(() => {}); 
-            } catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
+            } catch(e) { console.error('Shaka error', e); if(l) l.style.display='none'; }
         }
     }
 }
 
-
-
 /** 
- * 4. UI RENDERER (CLS OPTIMIZED)
+ * 4. UI RENDERER
  */
 function renderUI(data) {
     channels = data;
     if(!gridContainer) return;
-    
-    // Clear the reserved CSS height once data loads to avoid empty scrolling
-    gridContainer.style.minHeight = 'auto';
+    gridContainer.style.minHeight = 'auto'; 
 
     gridContainer.innerHTML = data.map((ch, i) => {
-        const priority = i < 10 ? 'fetchpriority="high"' : 'loading="lazy"';
+        const priority = i < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        // Note: BBC_Earth.webp 404 error is likely due to the URL in your JSON
         const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${i});window.scrollTo({top:0,behavior:'smooth'})">
@@ -416,7 +394,7 @@ function renderUI(data) {
 }
 
 /** 
- * 5. SEARCH & EVENT LISTENERS
+ * 5. EVENT LISTENERS
  */
 let searchTimer;
 searchInput.addEventListener('input', (e) => {
@@ -438,7 +416,7 @@ i.onload = () => { if(i.src !== 'about:blank' && l) l.style.display = 'none'; };
         if(res.ok) renderUI(await res.json());
     } catch(e) { console.log('Init error'); }
 })();
-    
+
 
     </script>
 </body>

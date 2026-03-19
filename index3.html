@@ -346,26 +346,41 @@ async function playChannel(idx) {
     v.style.display = 'block';
     const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
-    if(isHls) {
-        // Version-locked stable HLS.js from CDN
-        await loadLib('https://cdnjs.cloudflare.com', 'Hls');
-        if(window.Hls && Hls.isSupported()){
-            hls = new Hls({enableWorker:true});
-            hls.loadSource(ch.url);
-            hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
+        if(isHls) {
+        await loadLib('https://cdn.jsdelivr.net', 'Hls');
+        
+        if (window.Hls && Hls.isSupported()) {
+            hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                // Critical for mobile stability
+                backBufferLength: 60 
+            });
+
+            // FIX: Attach to video element FIRST
+            hls.attachMedia(v); 
+
+            // FIX: Load source ONLY after media is attached
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hls.loadSource(ch.url);
+            });
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                v.play().catch(() => console.log("Autoplay blocked"));
+            });
+
+            // Auto-recovery for network drops
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR: hls.startLoad(); break;
+                        case Hls.ErrorTypes.MEDIA_ERROR: hls.recoverMediaError(); break;
+                        default: stopAll(); break;
+                    }
+                }
+            });
         }
-    } else {
-        // Compiled Shaka from CDN (Fixes local MIME/404 errors)
-        await loadLib('https://cdnjs.cloudflare.com', 'shaka');
-        if (window.shaka && shaka.Player.isBrowserSupported()) {
-            shaka.polyfilled.install();
-            shakaPlayer = new shaka.Player(v);
-            try { await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } 
-            catch(e) { console.error('Shaka fail', e); if(l) l.style.display='none'; }
-        }
-    }
-}
+
 
 
 /** 

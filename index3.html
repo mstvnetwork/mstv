@@ -173,3 +173,198 @@ video, iframe {
 <!-- Player Libraries -->
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
+<script>
+const el = (id) => document.getElementById(id);
+
+const v = el('main-video'),
+      i = el('main-iframe'),
+      p = el('placeholder'),
+      l = el('loading'),
+      gridContainer = el('channel-list-container'),
+      searchInput = el('channel-search');
+
+const JSON_URL = './channels.json';
+
+let channels = [], hls = null, shakaPlayer = null;
+
+// STOP EVERYTHING CLEANLY
+async function stopAll() {
+  if (l) l.style.display = 'none';
+
+  if (hls) {
+    hls.detachMedia();
+    hls.destroy();
+    hls = null;
+  }
+
+  if (shakaPlayer) {
+    await shakaPlayer.detach();
+    await shakaPlayer.destroy();
+    shakaPlayer = null;
+  }
+
+  if (v) {
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    v.style.display = 'none';
+  }
+
+  if (i) {
+    i.src = 'about:blank';
+    i.style.display = 'none';
+  }
+
+  if (p) p.style.display = 'flex';
+}
+
+// PLAY CHANNEL
+async function playChannel(idx) {
+  const ch = channels[idx];
+  if (!ch) return;
+
+  window.location.hash = encodeURIComponent(ch.name);
+
+  await stopAll();
+
+  v.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  if (l) l.style.display = 'block';
+  if (p) p.style.display = 'none';
+
+  // LOADER CONTROL (FIXED)
+  const hideLoader = () => {
+    if (l) l.style.display = 'none';
+
+    v.removeEventListener('playing', hideLoader);
+    v.removeEventListener('loadeddata', hideLoader);
+    v.removeEventListener('canplay', hideLoader);
+  };
+
+  v.addEventListener('playing', hideLoader);
+  v.addEventListener('loadeddata', hideLoader);
+  v.addEventListener('canplay', hideLoader);
+
+  // fallback safety
+  setTimeout(hideLoader, 8000);
+
+  if (ch.type === 'iframe') {
+    i.style.display = 'block';
+    i.src = ch.url;
+
+    i.onload = () => {
+      hideLoader();
+    };
+    return;
+  }
+
+  v.style.display = 'block';
+
+  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+
+  if (isHls) {
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        capLevelToPlayerSize: true
+      });
+
+      hls.attachMedia(v);
+
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls.loadSource(ch.url);
+      });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        v.play().catch(hideLoader);
+      });
+
+      // important: hide loader when first chunk loads
+      hls.on(Hls.Events.FRAG_LOADED, hideLoader);
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) hideLoader();
+      });
+
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = ch.url;
+      v.play().catch(hideLoader);
+    }
+
+  } else {
+    if (window.shaka && shaka.Player.isBrowserSupported()) {
+      shaka.polyfilled.installAll();
+      shakaPlayer = new shaka.Player(v);
+
+      shakaPlayer.configure({
+        streaming: {
+          bufferingGoal: 10,
+          rebufferingGoal: 2,
+          bufferBehind: 0
+        }
+      });
+
+      try {
+        await shakaPlayer.load(ch.url);
+        v.play().catch(hideLoader);
+      } catch (e) {
+        console.error('Shaka error:', e);
+        hideLoader();
+      }
+    }
+  }
+}
+
+// UI RENDER
+function renderUI(data) {
+  channels = Array.isArray(data) ? data : data.channels || [];
+
+  if (!gridContainer) return;
+
+  gridContainer.innerHTML = '';
+
+  const createCard = (ch, index) => {
+    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+    const logo = ch.logo || "https://mstvnet.netlify.app";
+
+    return `
+      <div class="channel-card" onclick="playChannel(${index})">
+        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority}
+             onerror="this.src='https://mstvnet.netlify.app';">
+        <div class="channel-name">${ch.name}</div>
+      </div>`;
+  };
+
+  gridContainer.innerHTML = channels.map(createCard).join('');
+
+  const hash = decodeURIComponent(window.location.hash.substring(1));
+  const startIdx = channels.findIndex(c => c.name === hash);
+  if (startIdx !== -1) playChannel(startIdx);
+}
+
+// SEARCH
+if (searchInput) {
+  searchInput.addEventListener('input', e => {
+    const term = e.target.value.toLowerCase();
+    document.querySelectorAll('.channel-card').forEach(card => {
+      card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+    });
+  });
+}
+
+// INIT
+(async () => {
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      renderUI(data);
+    }
+  } catch (e) {
+    console.log('Init error:', e);
+  }
+})();
+</script>
+</body>
+</html>

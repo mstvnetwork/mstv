@@ -126,7 +126,7 @@ video, iframe {
       <span class="slogan">LIVE STREAMING 24/7</span>
     </div>
     <div class="search-container">
-      <input type="text" placeholder="Search channels...">
+      <input id="channel-search" type="text" placeholder="Search channels...">
     </div>
   </header>
 
@@ -172,112 +172,130 @@ video, iframe {
 <!-- Player Libraries -->
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
-
 <script>
 const el = (id) => document.getElementById(id);
-const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
-const gridContainer = el('channel-list-container');
-const searchInput = el('channel-search');
+
+const v = el('main-video'),
+      i = el('main-iframe'),
+      p = el('placeholder'),
+      l = el('loading'),
+      gridContainer = el('channel-list-container'),
+      searchInput = el('channel-search');
+
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
+// STOP EVERYTHING CLEANLY
 async function stopAll() {
-  if(l) l.style.display='none';
-  
-  // 1. Completely destroy HLS instance
-  if(hls){ 
+  if (l) l.style.display = 'none';
+
+  if (hls) {
     hls.detachMedia();
-    hls.destroy(); 
-    hls = null; 
+    hls.destroy();
+    hls = null;
   }
-  
-  // 2. Completely destroy Shaka instance
-  if(shakaPlayer){ 
+
+  if (shakaPlayer) {
     await shakaPlayer.detach();
-    await shakaPlayer.destroy(); 
-    shakaPlayer = null; 
+    await shakaPlayer.destroy();
+    shakaPlayer = null;
   }
-  
-  // 3. Reset Video Element to stop background buffering
-  if(v){ 
-    v.pause(); 
-    v.removeAttribute('src'); // Remove source attribute
-    v.load(); 
-    v.style.display='none'; 
+
+  if (v) {
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    v.style.display = 'none';
   }
-  
-  // 4. Reset Iframe
-  if(i){ 
-    i.src = 'about:blank'; 
-    i.style.display = 'none'; 
+
+  if (i) {
+    i.src = 'about:blank';
+    i.style.display = 'none';
   }
-  
-  if(p) p.style.display = 'flex';
+
+  if (p) p.style.display = 'flex';
 }
 
-async function playChannel(idx){
-  const ch = channels[idx]; 
-  if(!ch) return;
+// PLAY CHANNEL
+async function playChannel(idx) {
+  const ch = channels[idx];
+  if (!ch) return;
 
   window.location.hash = encodeURIComponent(ch.name);
-  
-  // Kill everything first to free up CPU/Network
+
   await stopAll();
-  
-  v.scrollIntoView({behavior:'smooth', block:'start'});
 
-  // 1. Show Loading, Hide Placeholder
-  if(l) l.style.display = 'block'; 
-  if(p) p.style.display = 'none';
+  v.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
-  // Helper to hide loader once playback starts
-  const hideLoader = () => { if(l) l.style.display = 'none'; };
+  if (l) l.style.display = 'block';
+  if (p) p.style.display = 'none';
 
-  if(ch.type === 'iframe'){ 
-    i.style.display = 'block'; 
-    i.src = ch.url; 
-    // Hide loader when the iframe finished loading its content
-    i.onload = hideLoader;
-    return; 
+  // LOADER CONTROL (FIXED)
+  const hideLoader = () => {
+    if (l) l.style.display = 'none';
+
+    v.removeEventListener('playing', hideLoader);
+    v.removeEventListener('loadeddata', hideLoader);
+    v.removeEventListener('canplay', hideLoader);
+  };
+
+  v.addEventListener('playing', hideLoader);
+  v.addEventListener('loadeddata', hideLoader);
+  v.addEventListener('canplay', hideLoader);
+
+  // fallback safety
+  setTimeout(hideLoader, 8000);
+
+  if (ch.type === 'iframe') {
+    i.style.display = 'block';
+    i.src = ch.url;
+
+    i.onload = () => {
+      hideLoader();
+    };
+    return;
   }
 
   v.style.display = 'block';
-  
-  // 2. Set up event listener to hide loader only when video ACTUALLY starts playing
-  v.onplaying = hideLoader;
 
   const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ 
-        autoStartLoad: false, 
-        enableWorker: true, 
+  if (isHls) {
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({
+        enableWorker: true,
         lowLatencyMode: true,
-        capLevelToPlayerSize: true 
-      });
-      hls.attachMedia(v);
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        hls.loadSource(ch.url);
-        hls.startLoad(); 
-      });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(hideLoader));
-      
-      // Fallback: hide loader if there's a fatal error
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if(data.fatal) hideLoader();
+        capLevelToPlayerSize: true
       });
 
-    } else if(v.canPlayType('application/vnd.apple.mpegurl')){ 
-      v.src = ch.url; 
-      v.play().catch(hideLoader); 
+      hls.attachMedia(v);
+
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls.loadSource(ch.url);
+      });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        v.play().catch(hideLoader);
+      });
+
+      // important: hide loader when first chunk loads
+      hls.on(Hls.Events.FRAG_LOADED, hideLoader);
+
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) hideLoader();
+      });
+
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = ch.url;
+      v.play().catch(hideLoader);
     }
+
   } else {
-    if(window.shaka && shaka.Player.isBrowserSupported()){
+    if (window.shaka && shaka.Player.isBrowserSupported()) {
       shaka.polyfilled.installAll();
       shakaPlayer = new shaka.Player(v);
-      
+
       shakaPlayer.configure({
         streaming: {
           bufferingGoal: 10,
@@ -286,66 +304,69 @@ async function playChannel(idx){
         }
       });
 
-      try { 
-        await shakaPlayer.load(ch.url); 
-        v.play().catch(hideLoader); 
-      } catch(e) { 
-        console.error('Shaka fail', e); 
+      try {
+        await shakaPlayer.load(ch.url);
+        v.play().catch(hideLoader);
+      } catch (e) {
+        console.error('Shaka error:', e);
         hideLoader();
       }
     }
   }
 }
 
-
-
-function renderUI(data){
-  // Ensure we are using the array from your JSON
+// UI RENDER
+function renderUI(data) {
   channels = Array.isArray(data) ? data : data.channels || [];
-  
-  if(!gridContainer) return;
+
+  if (!gridContainer) return;
+
   gridContainer.innerHTML = '';
 
   const createCard = (ch, index) => {
     const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-    // Fallback logo logic
     const logo = ch.logo || "https://mstvnet.netlify.app";
-    
+
     return `
       <div class="channel-card" onclick="playChannel(${index})">
-        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority}
              onerror="this.src='https://mstvnet.netlify.app';">
         <div class="channel-name">${ch.name}</div>
       </div>`;
   };
 
-  // Render initial cards
   gridContainer.innerHTML = channels.map(createCard).join('');
 
-  // Auto-play from Hash if exists
-  const hash = decodeURIComponent(window.location.hash.substring(1)); 
-  const startIdx = channels.findIndex(c => c.name === hash); 
-  if(startIdx !== -1) playChannel(startIdx);
+  const hash = decodeURIComponent(window.location.hash.substring(1));
+  const startIdx = channels.findIndex(c => c.name === hash);
+  if (startIdx !== -1) playChannel(startIdx);
 }
 
-// Search Logic
-searchInput.addEventListener('input', e => {
-  const term = e.target.value.toLowerCase();
-  document.querySelectorAll('.channel-card').forEach(card => {
-    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+// SEARCH
+if (searchInput) {
+  searchInput.addEventListener('input', e => {
+    const term = e.target.value.toLowerCase();
+    document.querySelectorAll('.channel-card').forEach(card => {
+      card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+    });
   });
-});
+}
 
-// Initialization
+// INIT
 (async () => {
   try {
-    const res = await fetch(JSON_URL, { cache: 'no-store' }); // Prevent cached JSON issues
-    if(res.ok) {
+    const res = await fetch(JSON_URL, { cache: 'no-store' });
+    if (res.ok) {
       const data = await res.json();
       renderUI(data);
     }
-  } catch(e) { console.log('Init error:', e); }
+  } catch (e) {
+    console.log('Init error:', e);
+  }
 })();
+</script>
+
+      
 </script>
   <!-- GoatCounter Analytics -->
 <script async data-goatcounter="https://mstv.goatcounter.com/count"

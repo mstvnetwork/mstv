@@ -30,205 +30,140 @@
   --bg-dark: #0F1115;
   --accent: #90EE90;
   --header-h: 70px;
-  --text-dim: #555;
 }
 
-/* Base styles */
-html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 220px); }
-body { 
-  margin: 0; 
-  /* Faster Font Stack for better performance */
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; 
-  font-display: swap; 
-  min-height: 100dvh; 
-  overflow-x: hidden; 
-  background-color: var(--bg-dark); /* Prevents white flash on load */
-  color: white;
+/* 1. STICKY LOGIC: Grouped for stability */
+.sticky-container {
+  position: sticky;
+  top: 0;
+  z-index: 2000;
+  background: var(--bg-dark);
 }
 
-/* Sticky header */
 header {
-  position: sticky; top: 0; z-index: 1000;
-  background: #111419; height: var(--header-h);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 5%; border-bottom: 1px solid #222;
+  height: var(--header-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 5%;
+  background: #111419;
+  border-bottom: 1px solid #222;
 }
 
-.logo-section { display: flex; flex-direction: column; }
-.brand-name {
-  font-size: 1.4rem; font-weight: bold;
-  background: linear-gradient(90deg, #90EE90, #00FFA3);
-  -webkit-background-clip: text; color: transparent; line-height: 1;
-}
-.slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
-
-.search-container { flex-grow: 0.4; max-width: 350px; }
-.search-container input {
-  width: 100%; padding: 10px 15px; border-radius: 25px; border: 1px solid #333;
-  background: #1A1D20; color: white; outline: none;
-}
-
-/* Sticky Player */
 .sticky-player-wrapper {
-  position: sticky; top: var(--header-h); z-index: 900;
-  background: #E8E4C9; width: 100%; display: flex; flex-direction: column;
-  align-items: center; border-bottom: 1px solid #ccc; padding: 8px 0;
+  background: #E8E4C9;
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-bottom: 1px solid #ccc;
 }
 
+/* 2. PLAYER: Fixed 16:9 regardless of mode */
 .player-container {
-  position: relative; width: 92%; max-width: 600px;
-  aspect-ratio: 16/9; background: black; border-radius: 12px;
-  overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  position: relative;
+  width: 92%;
+  max-width: 600px;
+  aspect-ratio: 16 / 9; /* Strictly 16:9 */
+  background: black;
+  border-radius: 12px;
+  overflow: hidden;
 }
 
 video, iframe {
-  position: absolute; top: 0; left: 0;
-  width: 100%; height: 100%;
-  border: none; display: none;
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  border: none;
 }
 
-#placeholder {
-  height: 100%; display: flex; align-items: center; justify-content: center;
-  font-size: 5rem; color: var(--accent);
+/* 3. TICKER & PLAY STORE ICON */
+.ticker {
+  overflow: hidden;
+  width: 92%;
+  max-width: 600px;
+  background: blue;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  margin-top: 8px;
 }
 
+.play-store-badge {
+  height: 25px; /* Fits inside ticker */
+  vertical-align: middle;
+  margin: 0 15px;
+}
+
+/* 4. LANDSCAPE FIX: Stop cutting off */
+@media screen and (orientation: landscape) and (max-height: 550px) {
+  :root { --header-h: 50px; } /* Slimmer header */
+  
+  .player-container {
+    /* Auto-scale width based on height to stay 16:9 within viewport */
+    height: calc(100vh - 110px); 
+    width: auto;
+  }
+  
+  .ticker { height: 30px; margin-top: 4px; }
+  .play-store-badge { height: 20px; }
+}
+
+/* Loading Icon Overlay */
 #loading {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  z-index: 100; background: rgba(0,0,0,0.8); padding: 7px 7px;
-  border-radius: 30px; border: 1px solid var(--accent); color: var(--accent);
-  font-weight: bold; display: none;
+  z-index: 100; color: var(--accent); font-weight: bold;
 }
-
-#live-stamp { position: absolute; top: 10px; left: 10px;
-  background: #E50914; color: white; padding: 5px 12px; border-radius: 5px;
-  font-size: 0.75rem; font-weight: bold; z-index: 50; display: none;
-}
-
-/* Ticker */
-.ticker { overflow: hidden; width: 92%; max-width: 600px; background: blue; color: white; height: 45px; display: flex; align-items: center; }
-.ticker-track { display: flex; width: max-content; animation: ticker-loop 20s linear infinite; }
-.ticker-content { white-space: nowrap; padding-right: 60px; display: inline-flex; align-items: center; }
-@keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-/* Fixed icon dimensions prevent layout shift */
-.play-icon { 
-  height: 30px; 
-  width: auto; 
-  margin: 0 10px; 
-  display: inline-block; 
-  vertical-align: middle;
-}
-
-/* Channel grid: Fixed CLS by reserving 100% of the viewport height */
-.channel-grid {
-  display: grid; 
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  gap: 8px; 
-  padding: 15px 4%;
-  min-height: 100vh; 
-}
-
-.channel-card {
-  background: #F5F1DC; border-radius: 8px; padding: 6px;
-  text-align: center; cursor: pointer; border: 1px solid #d6d6d6;
-  display: flex; flex-direction: column; align-items: center;
-  min-height: 100px; /* Base height placeholder */
-}
-
-/* Image optimization */
-.channel-card img { 
-  aspect-ratio: 95/64; 
-  width: 100%; 
-  height: auto; 
-  object-fit: contain; 
-  display: block;
-  background-color: #eee; /* Visible placeholder during load */
-}
-
-.site-footer { padding: 40px 5%; text-align: center; font-size: 0.9rem; color: #444; border-top: 1px solid #ccc; }
-/* Fix for Landscape Mode while keeping 16:9 Ratio */
-@media screen and (orientation: landscape) and (max-height: 500px) {
-  
-  /* 1. Un-stick the header so it scrolls away and doesn't sit on top of the player */
-  header {
-    position: relative !important;
-    height: 60px; /* Slightly shorter for landscape */
-  }
-
-  /* 2. Keep the player sticky but move it to the very top (top: 0) */
-  /* This prevents the 70px header from pushing the player off-screen */
-  .sticky-player-wrapper {
-    position: sticky !important;
-    top: 0 !important; 
-    padding: 4px 0;
-    background: #000; /* Darker background looks better for video in landscape */
-  }
-
-  /* 3. Maintain 16:9 Ratio but scale width to fit the short screen */
-  .player-container {
-    width: auto; /* Let the height/aspect-ratio determine width */
-    height: 85vh; /* Scale player to fit most of the vertical screen */
-    max-width: 100%;
-    aspect-ratio: 16 / 9 !important; /* Forces the ratio */
-    border-radius: 4px; /* Smaller radius looks better on small screens */
-  }
-
-  /* 4. Hide the ticker in landscape to save critical vertical space */
-  .ticker {
-    display: none !important;
-  }
-
-  /* 5. Adjust scroll padding so anchor links don't go under the player */
-  html {
-    scroll-padding-top: 90vh; 
-  }
-}
-
-
 
 </style>
 </head>
 
 <body>
-<header>
-  <div class="logo-section">
-    <div class="brand-name">MSTV NETWORK</div>
-    <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
-  </div>
-  <div class="search-container">
-    <input type="text" id="channel-search" placeholder="Search channels...">
-  </div>
-</header>
+<!-- Sticky Top Section -->
+<div class="sticky-container">
+  <header>
+    <div class="logo-section">
+      <span class="brand-name">YOUR BRAND</span>
+      <span class="slogan">LIVE STREAMING 24/7</span>
+    </div>
+    <div class="search-container">
+      <input type="text" placeholder="Search channels...">
+    </div>
+  </header>
 
-<div class="sticky-player-wrapper">
-  <div class="player-container">
-    <div id="loading">🌀 Buffering...</div>
-    <div id="live-stamp">MSTV Network</div>
-    <div id="placeholder">📺</div>
-    <video id="video-player" autoplay playsinline controls></video>
-    <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media" loading="lazy"></iframe>
-  </div>
+  <div class="sticky-player-wrapper">
+    <div class="player-container">
+      <div id="live-stamp">LIVE</div>
+      <div id="loading">LOADING...</div>
+      <div id="placeholder">📺</div>
+      
+      <!-- Video/Iframe Elements -->
+      <video id="main-video" playsinline></video>
+      <iframe id="main-iframe" allowfullscreen></iframe>
+    </div>
 
-  <div class="ticker" aria-label="Scrolling ticker">
-    <div class="ticker-track">
-      <div class="ticker-content">
-        No channel play, use free VPN from 
-        <img src="https://upload.wikimedia.org" class="play-icon" alt="Google Play Store" width="135" height="40">
-        & choose Australia or Singapore
-      </div>
-      <div class="ticker-content">
-        No channel play, use free VPN from 
-        <img src="https://upload.wikimedia.org" class="play-icon" alt="Google Play Store" width="135" height="40">
-        & choose Australia or Singapore
+    <!-- Ticker with Google Play Badge -->
+    <div class="ticker">
+      <div class="ticker-track">
+        <div class="ticker-content">
+          🚀 Welcome to the Live Stream! 
+          <a href="#"><img src="https://upload.wikimedia.org" alt="Google Play" class="play-store-badge"></a>
+          Stay tuned for more updates!
+        </div>
+        <!-- Duplicate for seamless loop -->
+        <div class="ticker-content">
+          🚀 Welcome to the Live Stream! 
+          <a href="#"><img src="https://upload.wikimedia.org" alt="Google Play" class="play-store-badge"></a>
+          Stay tuned for more updates!
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-<main>
-  <select id="channel-select" style="display:none;"></select>
-  <div class="channel-grid" id="channel-list-container"></div>
-</main>
+<!-- Scrollable Content -->
+<div class="channel-grid" id="channel-grid">
+  <!-- Channel cards go here -->
+</div>
 
 
 <!-- Player Libraries -->
@@ -278,7 +213,7 @@ async function stopAll() {
   if(p) p.style.display = 'flex';
 }
 
-async function playChannel(idx){
+q(idx){
   const ch = channels[idx]; 
   if(!ch) return;
 

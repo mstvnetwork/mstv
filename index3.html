@@ -116,42 +116,39 @@ async function stopAll(){
   placeholder.style.display="flex";
 }
 
-/* PLAY CHANNEL */
-async function playChannelByName(name){
-  const ch = channels.find(c => c.name === name);
-  if(!ch) return;
-
+async function playChannel(index){
+  const channel = channels[index];
+  if(!channel) return;
   await stopAll();
-  placeholder.style.display="none";
+  if(loader) loader.style.display = 'block';
+  placeholder.style.display = 'none';
+  liveStamp.style.display = channel.isLive ? 'block' : 'none';
 
-  if(ch.type === "iframe"){
-    iframe.style.display="block";
-    iframe.src = ch.url;
+  if(channel.type === 'iframe'){
+    iframe.style.display = 'block'; iframe.src = channel.url;
+    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
     return;
   }
 
-  video.style.display="block";
-
-  const isHls = ch.url.includes(".m3u8");
-
+  video.style.display = 'block';
+  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
   if(isHls){
     if(window.Hls && Hls.isSupported()){
-      hls = new Hls();
-      hls.loadSource(ch.url);
-      hls.attachMedia(video);
+      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
+      hls.loadSource(channel.url); hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else {
-      video.src = ch.url;
-      video.play();
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src = channel.url; video.play();
     }
-  } else {
-    if(window.shaka){
-      shakaPlayer = new shaka.Player(video);
-      await shakaPlayer.load(ch.url);
-      video.play();
-    }
+  } else if(window.shaka && shaka.Player.isBrowserSupported()){
+    shaka.polyfill.installAll();
+    shakaPlayer = new shaka.Player(video);
+    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
   }
 }
+
+video.onplaying = () => { if(loader) loader.style.display = 'none'; };
+loadChannels();
 
 /* CREATE CARD */
 function createCard(ch){
@@ -162,21 +159,40 @@ function createCard(ch){
   </div>`;
 }
 
-/* RENDER */
-function render(data){
+function renderUI(data) {
   channels = data;
-  grid.innerHTML = data.map(createCard).join("");
+  select.innerHTML = '<option value="">📱 Select Channel</option>';
+  gridContainer.innerHTML = ''; 
 
-  grid.addEventListener("click", e=>{
-    const card = e.target.closest(".channel-card");
-    if(!card) return;
-    playChannelByName(card.dataset.name);
+  data.forEach((ch, i) => {
+    const opt = document.createElement("option");
+    opt.value = i; 
+    opt.textContent = ch.name; 
+    select.appendChild(opt);
+
+    const card = document.createElement('div');
+    card.className = 'channel-card';
+    card.setAttribute('data-name', ch.name.toLowerCase());
+    
+    // Fallback logic: if the image fails, it replaces itself with a 📺 emoji
+    const logoHtml = ch.logo 
+      ? `<img src="${ch.logo}" alt="${ch.name}" 
+          onerror="this.onerror=null; this.parentElement.innerHTML='<span style=\'font-size:1.5rem\'>📺</span>';">` 
+      : `<span style="font-size:1.5rem">📺</span>`;
+
+    card.innerHTML = `
+      <div class="card-logo">${logoHtml}</div>
+      <div class="channel-name">${ch.name}</div>
+    `;
+    
+    card.onclick = () => { 
+        playChannel(i); 
+        window.scrollTo({top: 0, behavior: 'smooth'}); 
+    };
+    gridContainer.appendChild(card);
   });
-
-  // deep link
-  const hash = decodeURIComponent(location.hash.slice(1));
-  if(hash) playChannelByName(hash);
 }
+
 
 /* SEARCH */
 search.addEventListener("input", e=>{

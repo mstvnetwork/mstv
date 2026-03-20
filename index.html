@@ -185,83 +185,154 @@ let channels = [], hls = null, shakaPlayer = null;
 
 async function stopAll() {
   if(l) l.style.display='none';
-  if(hls){ hls.destroy(); hls=null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer=null; }
-  if(v){ v.pause(); v.src=''; v.load(); v.style.display='none'; }
-  if(i){ i.src='about:blank'; i.style.display='none'; }
-  if(p) p.style.display='flex';
+  
+  // 1. Completely destroy HLS instance
+  if(hls){ 
+    hls.detachMedia();
+    hls.destroy(); 
+    hls = null; 
+  }
+  
+  // 2. Completely destroy Shaka instance
+  if(shakaPlayer){ 
+    await shakaPlayer.detach();
+    await shakaPlayer.destroy(); 
+    shakaPlayer = null; 
+  }
+  
+  // 3. Reset Video Element to stop background buffering
+  if(v){ 
+    v.pause(); 
+    v.removeAttribute('src'); // Remove source attribute
+    v.load(); 
+    v.style.display='none'; 
+  }
+  
+  // 4. Reset Iframe
+  if(i){ 
+    i.src = 'about:blank'; 
+    i.style.display = 'none'; 
+  }
+  
+  if(p) p.style.display = 'flex';
 }
 
 async function playChannel(idx){
-  const ch=channels[idx]; if(!ch) return;
-  window.location.hash=encodeURIComponent(ch.name);
+  const ch = channels[idx]; 
+  if(!ch) return;
+
+  window.location.hash = encodeURIComponent(ch.name);
+  
+  // Kill everything first to free up CPU/Network
   await stopAll();
+  
   v.scrollIntoView({behavior:'smooth', block:'start'});
-  if(l) l.style.display='block'; if(p) p.style.display='none';
+  if(l) l.style.display = 'block'; 
+  if(p) p.style.display = 'none';
 
-  if(ch.type==='iframe'){ i.style.display='block'; i.src=ch.url; return; }
+  if(ch.type === 'iframe'){ 
+    i.style.display = 'block'; 
+    i.src = ch.url; 
+    return; 
+  }
 
-  v.style.display='block';
-  const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
+  v.style.display = 'block';
+  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
   if(isHls){
     if(window.Hls && Hls.isSupported()){
-      hls=new Hls({ enableWorker:true, lowLatencyMode:true });
+      // Configured for fast start and ZERO pre-loading
+      hls = new Hls({ 
+        autoStartLoad: false, 
+        enableWorker: true, 
+        lowLatencyMode: true,
+        capLevelToPlayerSize: true 
+      });
       hls.attachMedia(v);
-      hls.on(Hls.Events.MEDIA_ATTACHED, ()=>hls.loadSource(ch.url));
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=>v.play().catch(()=>{}));
-    } else if(v.canPlayType('application/vnd.apple.mpegurl')){ v.src=ch.url; v.play().catch(()=>{}); }
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls.loadSource(ch.url);
+        hls.startLoad(); // Only start downloading segments NOW
+      });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
+    } else if(v.canPlayType('application/vnd.apple.mpegurl')){ 
+      v.src = ch.url; 
+      v.play().catch(() => {}); 
+    }
   } else {
+    // DASH/Other: Shaka only initializes when this block is hit
     if(window.shaka && shaka.Player.isBrowserSupported()){
       shaka.polyfilled.installAll();
-      shakaPlayer=new shaka.Player();
-      await shakaPlayer.attach(v);
-      try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); }catch(e){console.error('Shaka fail', e);}
+      shakaPlayer = new shaka.Player(v);
+      
+      // Fast-start config for Shaka
+      shakaPlayer.configure({
+        streaming: {
+          bufferingGoal: 10,
+          rebufferingGoal: 2,
+          bufferBehind: 0
+        }
+      });
+
+      try { 
+        await shakaPlayer.load(ch.url); 
+        v.play().catch(() => {}); 
+      } catch(e) { console.error('Shaka fail', e); }
     }
   }
 }
 
+
 function renderUI(data){
-  channels=data;
+  // Ensure we are using the array from your JSON
+  channels = Array.isArray(data) ? data : data.channels || [];
+  
   if(!gridContainer) return;
-  gridContainer.style.minHeight='auto'; gridContainer.innerHTML='';
-  const createCard=(ch,i)=>{
-    const priority=i<8?'fetchpriority="high"':'loading="lazy"';
-    const logo=ch.logo||"https://mstvnet.netlify.app";
-    return `<div class="channel-card" onclick="playChannel(${i})">
-              <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app';">
-              <div class="channel-name">${ch.name}</div>
-            </div>`;
+  gridContainer.innerHTML = '';
+
+  const createCard = (ch, index) => {
+    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+    // Fallback logo logic
+    const logo = ch.logo || "https://mstvnet.netlify.app";
+    
+    return `
+      <div class="channel-card" onclick="playChannel(${index})">
+        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+             onerror="this.src='https://mstvnet.netlify.app';">
+        <div class="channel-name">${ch.name}</div>
+      </div>`;
   };
-  gridContainer.innerHTML=data.slice(0,12).map(createCard).join('');
-  setTimeout(()=>{gridContainer.insertAdjacentHTML('beforeend',data.slice(12).map(createCard).join('')); 
-  const hash=decodeURIComponent(window.location.hash.substring(1)); 
-  const startIdx=data.findIndex(c=>c.name===hash); if(startIdx!==-1) playChannel(startIdx);},50);
+
+  // Render initial cards
+  gridContainer.innerHTML = channels.map(createCard).join('');
+
+  // Auto-play from Hash if exists
+  const hash = decodeURIComponent(window.location.hash.substring(1)); 
+  const startIdx = channels.findIndex(c => c.name === hash); 
+  if(startIdx !== -1) playChannel(startIdx);
 }
 
-let searchTimer;
-searchInput.addEventListener('input', e=>{
-  clearTimeout(searchTimer);
-  searchTimer=setTimeout(()=>{
-    const term=e.target.value.toLowerCase();
-    document.querySelectorAll('.channel-card').forEach(card=>{
-      card.style.display=card.innerText.toLowerCase().includes(term)?'flex':'none';
-    });
-  },150);
-},{passive:true});
+// Search Logic
+searchInput.addEventListener('input', e => {
+  const term = e.target.value.toLowerCase();
+  document.querySelectorAll('.channel-card').forEach(card => {
+    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+  });
+});
 
-if(v){ v.onplaying=()=>{if(l) l.style.display='none';}; v.onwaiting=()=>{if(l) l.style.display='block';} }
-if(i) i.onload=()=>{if(i.src!=='about:blank' && l) l.style.display='none'; }
-
-(async()=>{
-  try{
-    const res=await fetch(JSON_URL,{cache:'default'});
-    if(res.ok) renderUI(await res.json());
-  }catch(e){console.log('Init error');}
+// Initialization
+(async () => {
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-store' }); // Prevent cached JSON issues
+    if(res.ok) {
+      const data = await res.json();
+      renderUI(data);
+    }
+  } catch(e) { console.log('Init error:', e); }
 })();
 </script>
+  <!-- GoatCounter Analytics -->
+<script async data-goatcounter="https://mstv.goatcounter.com/count"
+src="https://gc.zgo.at/count.js"></script>
 
-<!-- Analytics -->
-<script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 </body>
 </html>

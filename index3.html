@@ -175,128 +175,98 @@ video, iframe {
 <script defer src="./shaka/hls.min.js"></script>
 <script>
 const el = (id) => document.getElementById(id);
-
-const v = el('main-video'),
-      i = el('main-iframe'),
-      p = el('placeholder'),
-      l = el('loading'),
-      gridContainer = el('channel-list-container'),
-      searchInput = el('channel-search');
-const JSON_URL = 'https://mstvnetwork.github.io/mstv/channels.json';
-
+const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
+const gridContainer = el('channel-list-container');
+const searchInput = el('channel-search');
+const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// STOP EVERYTHING CLEANLY
-async function stopAll() {
-  if (l) l.style.display = 'none';
-
-  if (hls) {
-    hls.detachMedia();
-    hls.destroy();
-    hls = null;
-  }
-
-  if (shakaPlayer) {
-    await shakaPlayer.detach();
-    await shakaPlayer.destroy();
-    shakaPlayer = null;
-  }
-
-  if (v) {
-    v.pause();
-    v.removeAttribute('src');
-    v.load();
-    v.style.display = 'none';
-  }
-
-  if (i) {
-    i.src = 'about:blank';
-    i.style.display = 'none';
-  }
-
-  if (p) p.style.display = 'flex';
+// Hide loading once playback starts
+if (v) {
+  v.addEventListener('playing', () => {
+    if (l) l.style.display = 'none';
+  });
 }
 
-// PLAY CHANNEL
-async function playChannel(idx) {
-  const ch = channels[idx];
-  if (!ch) return;
+async function stopAll() {
+  if(l) l.style.display='none';
+  
+  // 1. Completely destroy HLS instance
+  if(hls){ 
+    hls.detachMedia();
+    hls.destroy(); 
+    hls = null; 
+  }
+  
+  // 2. Completely destroy Shaka instance
+  if(shakaPlayer){ 
+    await shakaPlayer.detach();
+    await shakaPlayer.destroy(); 
+    shakaPlayer = null; 
+  }
+  
+  // 3. Reset Video Element to stop background buffering
+  if(v){ 
+    v.pause(); 
+    v.removeAttribute('src'); 
+    v.load(); 
+    v.style.display='none'; 
+  }
+  
+  // 4. Reset Iframe
+  if(i){ 
+    i.src = 'about:blank'; 
+    i.style.display = 'none'; 
+  }
+  
+  if(p) p.style.display = 'flex';
+}
+
+async function playChannel(idx){
+  const ch = channels[idx]; 
+  if(!ch) return;
 
   window.location.hash = encodeURIComponent(ch.name);
-
+  
   await stopAll();
+  
+  v.scrollIntoView({behavior:'smooth', block:'start'});
+  if(l) l.style.display = 'block'; 
+  if(p) p.style.display = 'none';
 
-  v.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-  if (l) l.style.display = 'block';
-  if (p) p.style.display = 'none';
-
-  // LOADER CONTROL (FIXED)
-  const hideLoader = () => {
-    if (l) l.style.display = 'none';
-
-    v.removeEventListener('playing', hideLoader);
-    v.removeEventListener('loadeddata', hideLoader);
-    v.removeEventListener('canplay', hideLoader);
-  };
-
-  v.addEventListener('playing', hideLoader);
-  v.addEventListener('loadeddata', hideLoader);
-  v.addEventListener('canplay', hideLoader);
-
-  // fallback safety
-  setTimeout(hideLoader, 8000);
-
-  if (ch.type === 'iframe') {
-    i.style.display = 'block';
-    i.src = ch.url;
-
-    i.onload = () => {
-      hideLoader();
-    };
-    return;
+  if(ch.type === 'iframe'){ 
+    i.style.display = 'block'; 
+    i.src = ch.url; 
+    return; 
   }
 
   v.style.display = 'block';
-
   const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
-  if (isHls) {
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls({
-        enableWorker: true,
+  if(isHls){
+    if(window.Hls && Hls.isSupported()){
+      hls = new Hls({ 
+        autoStartLoad: false, 
+        enableWorker: true, 
         lowLatencyMode: true,
-        capLevelToPlayerSize: true
+        capLevelToPlayerSize: true 
       });
-
       hls.attachMedia(v);
-
       hls.on(Hls.Events.MEDIA_ATTACHED, () => {
         hls.loadSource(ch.url);
+        hls.startLoad(); 
       });
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        v.play().catch(hideLoader);
-      });
-
-      // important: hide loader when first chunk loads
-      hls.on(Hls.Events.FRAG_LOADED, hideLoader);
-
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) hideLoader();
-      });
-
-    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      v.src = ch.url;
-      v.play().catch(hideLoader);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
+    } else if(v.canPlayType('application/vnd.apple.mpegurl')){ 
+      v.src = ch.url; 
+      v.play().catch(() => {}); 
     }
-
   } else {
-    if (window.shaka && shaka.Player.isBrowserSupported()) {
+    if(window.shaka && shaka.Player.isBrowserSupported()){
       shaka.polyfilled.installAll();
       shakaPlayer = new shaka.Player(v);
-
+      
       shakaPlayer.configure({
         streaming: {
           bufferingGoal: 10,
@@ -305,32 +275,27 @@ async function playChannel(idx) {
         }
       });
 
-      try {
-        await shakaPlayer.load(ch.url);
-        v.play().catch(hideLoader);
-      } catch (e) {
-        console.error('Shaka error:', e);
-        hideLoader();
-      }
+      try { 
+        await shakaPlayer.load(ch.url); 
+        v.play().catch(() => {}); 
+      } catch(e) { console.error('Shaka fail', e); }
     }
   }
 }
 
-// UI RENDER
-function renderUI(data) {
+function renderUI(data){
   channels = Array.isArray(data) ? data : data.channels || [];
-
-  if (!gridContainer) return;
-
+  
+  if(!gridContainer) return;
   gridContainer.innerHTML = '';
 
   const createCard = (ch, index) => {
     const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
     const logo = ch.logo || "https://mstvnet.netlify.app";
-
+    
     return `
       <div class="channel-card" onclick="playChannel(${index})">
-        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority}
+        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
              onerror="this.src='https://mstvnet.netlify.app';">
         <div class="channel-name">${ch.name}</div>
       </div>`;
@@ -338,32 +303,26 @@ function renderUI(data) {
 
   gridContainer.innerHTML = channels.map(createCard).join('');
 
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  const startIdx = channels.findIndex(c => c.name === hash);
-  if (startIdx !== -1) playChannel(startIdx);
+  const hash = decodeURIComponent(window.location.hash.substring(1)); 
+  const startIdx = channels.findIndex(c => c.name === hash); 
+  if(startIdx !== -1) playChannel(startIdx);
 }
 
-// SEARCH
-if (searchInput) {
-  searchInput.addEventListener('input', e => {
-    const term = e.target.value.toLowerCase();
-    document.querySelectorAll('.channel-card').forEach(card => {
-      card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
-    });
+searchInput.addEventListener('input', e => {
+  const term = e.target.value.toLowerCase();
+  document.querySelectorAll('.channel-card').forEach(card => {
+    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
   });
-}
+});
 
-// INIT
 (async () => {
   try {
-    const res = await fetch(JSON_URL, { cache: 'no-store' });
-    if (res.ok) {
+    const res = await fetch(JSON_URL, { cache: 'no-store' }); 
+    if(res.ok) {
       const data = await res.json();
       renderUI(data);
     }
-  } catch (e) {
-    console.log('Init error:', e);
-  }
+  } catch(e) { console.log('Init error:', e); }
 })();
 </script>
 </body>

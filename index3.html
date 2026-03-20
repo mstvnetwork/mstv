@@ -223,14 +223,13 @@ async function playChannel(idx){
 
   window.location.hash = encodeURIComponent(ch.name);
   
-  // Stop previous playback BEFORE starting new one
+  // Kill everything first to free up CPU/Network
   await stopAll();
   
   v.scrollIntoView({behavior:'smooth', block:'start'});
   if(l) l.style.display = 'block'; 
   if(p) p.style.display = 'none';
 
-  // Handle IFRAME types
   if(ch.type === 'iframe'){ 
     i.style.display = 'block'; 
     i.src = ch.url; 
@@ -238,24 +237,42 @@ async function playChannel(idx){
   }
 
   v.style.display = 'block';
-  // Check if HLS (m3u8) or DASH
   const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
   if(isHls){
     if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-      hls.loadSource(ch.url);
+      // Configured for fast start and ZERO pre-loading
+      hls = new Hls({ 
+        autoStartLoad: false, 
+        enableWorker: true, 
+        lowLatencyMode: true,
+        capLevelToPlayerSize: true 
+      });
       hls.attachMedia(v);
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls.loadSource(ch.url);
+        hls.startLoad(); // Only start downloading segments NOW
+      });
       hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
     } else if(v.canPlayType('application/vnd.apple.mpegurl')){ 
       v.src = ch.url; 
       v.play().catch(() => {}); 
     }
   } else {
-    // Shaka for DASH/Other
+    // DASH/Other: Shaka only initializes when this block is hit
     if(window.shaka && shaka.Player.isBrowserSupported()){
       shaka.polyfilled.installAll();
       shakaPlayer = new shaka.Player(v);
+      
+      // Fast-start config for Shaka
+      shakaPlayer.configure({
+        streaming: {
+          bufferingGoal: 10,
+          rebufferingGoal: 2,
+          bufferBehind: 0
+        }
+      });
+
       try { 
         await shakaPlayer.load(ch.url); 
         v.play().catch(() => {}); 
@@ -263,6 +280,7 @@ async function playChannel(idx){
     }
   }
 }
+
 
 function renderUI(data){
   // Ensure we are using the array from your JSON

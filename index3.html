@@ -87,76 +87,30 @@ video, iframe {
 
 <script src="./shaka.js" defer></script>
 <script src="./shaka/hls.min.js" defer></script>
-
 <script>
-const video = document.getElementById("video");
-const iframe = document.getElementById("iframe");
-const placeholder = document.getElementById("placeholder");
-const grid = document.getElementById("grid");
-const search = document.getElementById("search");
-
-const JSON_URL = "./channels.json";
+const select = document.getElementById('channel-select');
+const video = document.getElementById('video-player');
+const iframe = document.getElementById('iframe-player');
+const placeholder = document.getElementById('placeholder');
+const loader = document.getElementById('loading');
+const liveStamp = document.getElementById('live-stamp');
+const gridContainer = document.getElementById('channel-list-container');
+const searchInput = document.getElementById('channel-search');
+const JSON_URL = './channels.json';
 
 let channels = [];
 let hls = null;
 let shakaPlayer = null;
 
-/* STOP PLAYER */
-async function stopAll(){
-  if(hls){ hls.destroy(); hls=null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer=null; }
-
-  video.pause();
-  video.src="";
-  video.style.display="none";
-
-  iframe.src="about:blank";
-  iframe.style.display="none";
-
-  placeholder.style.display="flex";
-}
-
-async function playChannel(index){
-  const channel = channels[index];
-  if(!channel) return;
-  await stopAll();
-  if(loader) loader.style.display = 'block';
-  placeholder.style.display = 'none';
-  liveStamp.style.display = channel.isLive ? 'block' : 'none';
-
-  if(channel.type === 'iframe'){
-    iframe.style.display = 'block'; iframe.src = channel.url;
-    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
-    return;
-  }
-
-  video.style.display = 'block';
-  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.loadSource(channel.url); hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
-    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
-      video.src = channel.url; video.play();
-    }
-  } else if(window.shaka && shaka.Player.isBrowserSupported()){
-    shaka.polyfill.installAll();
-    shakaPlayer = new shaka.Player(video);
-    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
-  }
-}
-
-video.onplaying = () => { if(loader) loader.style.display = 'none'; };
-loadChannels();
-
-/* CREATE CARD */
-function createCard(ch){
-  return `
-  <div class="channel-card" data-name="${ch.name}">
-    <img src="${ch.logo}" alt="${ch.name}" loading="lazy">
-    <div>${ch.name}</div>
-  </div>`;
+async function stopAll() {
+  if(loader) loader.style.display = 'none';
+  liveStamp.style.display = 'none';
+  if(hls){ hls.destroy(); hls = null; }
+  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer = null; }
+  video.pause(); video.removeAttribute('src'); video.load();
+  iframe.removeAttribute('src'); iframe.src = 'about:blank';
+  video.style.display = 'none'; iframe.style.display = 'none';
+  placeholder.style.display = 'flex';
 }
 
 function renderUI(data) {
@@ -194,27 +148,56 @@ function renderUI(data) {
 }
 
 
-/* SEARCH */
-search.addEventListener("input", e=>{
-  const term = e.target.value.toLowerCase();
-  document.querySelectorAll(".channel-card").forEach(card=>{
-    card.style.display =
-      card.dataset.name.toLowerCase().includes(term) ? "block" : "none";
-  });
-});
 
-/* INIT */
-(async()=>{
-  try{
-    const res = await fetch(JSON_URL);
+async function loadChannels(){
+  const cached = localStorage.getItem("channels_cache");
+  if(cached) renderUI(JSON.parse(cached));
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-cache' });
     const data = await res.json();
-    console.log("Loaded channels:", data.length);
-    render(data);
-  }catch(err){
-    console.error("JSON load failed", err);
+    localStorage.setItem('channels_cache', JSON.stringify(data));
+    renderUI(data);
+  } catch(e){ console.error('Load fail', e); }
+}
+
+async function playChannel(index){
+  const channel = channels[index];
+  if(!channel) return;
+  await stopAll();
+  if(loader) loader.style.display = 'block';
+  placeholder.style.display = 'none';
+  liveStamp.style.display = channel.isLive ? 'block' : 'none';
+
+  if(channel.type === 'iframe'){
+    iframe.style.display = 'block'; iframe.src = channel.url;
+    iframe.onload = () => { if(loader) loader.style.display = 'none'; };
+    return;
   }
-})();
+
+  video.style.display = 'block';
+  const isHls = channel.type === 'hls' || channel.url.includes('.m3u8');
+  if(isHls){
+    if(window.Hls && Hls.isSupported()){
+      hls = new Hls({ enableWorker:true, lowLatencyMode:true });
+      hls.loadSource(channel.url); hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=> video.play());
+    } else if(video.canPlayType('application/vnd.apple.mpegurl')){
+      video.src = channel.url; video.play();
+    }
+  } else if(window.shaka && shaka.Player.isBrowserSupported()){
+    shaka.polyfill.installAll();
+    shakaPlayer = new shaka.Player(video);
+    try{ await shakaPlayer.load(channel.url); video.play(); } catch(e){ console.error(e); }
+  }
+}
+
+video.onplaying = () => { if(loader) loader.style.display = 'none'; };
+loadChannels();
 </script>
 
 </body>
 </html>
+
+
+
+

@@ -176,88 +176,121 @@ video, iframe {
 
 <script>
 const el = (id) => document.getElementById(id);
-const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
+const v = el('video-player');
+const i = el('iframe-player');
+const p = el('placeholder');
+const l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
-const JSON_URL = './channels.json';
+const JSON_URL = 'https://raw.githubusercontent.com/mstvnetwork/mstv/main/channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
+// STOP ALL PLAYERS
 async function stopAll() {
-  if(l) l.style.display='none';
-  if(hls){ hls.destroy(); hls=null; }
-  if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer=null; }
-  if(v){ v.pause(); v.src=''; v.load(); v.style.display='none'; }
-  if(i){ i.src='about:blank'; i.style.display='none'; }
-  if(p) p.style.display='flex';
+    if(l) l.style.display='none';
+    if(hls){ hls.destroy(); hls=null; }
+    if(shakaPlayer){ await shakaPlayer.destroy(); shakaPlayer=null; }
+    if(v){ v.pause(); v.src=''; v.load(); v.style.display='none'; }
+    if(i){ i.src='about:blank'; i.style.display='none'; }
+    if(p) p.style.display='flex';
 }
 
+// PLAY CHANNEL BY JSON NAME
+async function playChannelByName(name){
+    const idx = channels.findIndex(c => c.name === name);
+    if(idx !== -1) await playChannel(idx);
+}
+
+// MAIN PLAY FUNCTION
 async function playChannel(idx){
-  const ch=channels[idx]; if(!ch) return;
-  window.location.hash=encodeURIComponent(ch.name);
-  await stopAll();
-  v.scrollIntoView({behavior:'smooth', block:'start'});
-  if(l) l.style.display='block'; if(p) p.style.display='none';
+    const ch = channels[idx];
+    if(!ch) return;
+    window.location.hash = encodeURIComponent(ch.name);
+    await stopAll();
+    v.scrollIntoView({behavior:'smooth', block:'start'});
+    if(l) l.style.display='block';
+    if(p) p.style.display='none';
 
-  if(ch.type==='iframe'){ i.style.display='block'; i.src=ch.url; return; }
-
-  v.style.display='block';
-  const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
-
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls=new Hls({ enableWorker:true, lowLatencyMode:true });
-      hls.attachMedia(v);
-      hls.on(Hls.Events.MEDIA_ATTACHED, ()=>hls.loadSource(ch.url));
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=>v.play().catch(()=>{}));
-    } else if(v.canPlayType('application/vnd.apple.mpegurl')){ v.src=ch.url; v.play().catch(()=>{}); }
-  } else {
-    if(window.shaka && shaka.Player.isBrowserSupported()){
-      shaka.polyfilled.installAll();
-      shakaPlayer=new shaka.Player();
-      await shakaPlayer.attach(v);
-      try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); }catch(e){console.error('Shaka fail', e);}
+    if(ch.type === 'iframe'){
+        i.style.display='block';
+        i.src = ch.url;
+        return;
     }
-  }
+
+    v.style.display='block';
+    const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+
+    if(isHls){
+        if(window.Hls && Hls.isSupported()){
+            hls = new Hls({enableWorker:true, lowLatencyMode:true});
+            hls.attachMedia(v);
+            hls.on(Hls.Events.MEDIA_ATTACHED, ()=> hls.loadSource(ch.url));
+            hls.on(Hls.Events.MANIFEST_PARSED, ()=> v.play().catch(()=>{}));
+        } else if(v.canPlayType('application/vnd.apple.mpegurl')){
+            v.src = ch.url; v.play().catch(()=>{});
+        }
+    } else {
+        if(window.shaka && shaka.Player.isBrowserSupported()){
+            shaka.polyfilled.installAll();
+            shakaPlayer = new shaka.Player();
+            await shakaPlayer.attach(v);
+            try { await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } 
+            catch(e){ console.error('Shaka fail', e); if(l) l.style.display='none'; }
+        }
+    }
 }
 
+// CREATE CARD FROM JSON OBJECT
+function createCard(ch){
+    return `
+    <div class="channel-card" data-name="${ch.name}">
+        <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" loading="lazy"
+             onerror="this.src='https://mstvnet.netlify.app';">
+        <div class="channel-name">${ch.name}</div>
+    </div>`;
+}
+
+// RENDER UI FROM JSON
 function renderUI(data){
-  channels=data;
-  if(!gridContainer) return;
-  gridContainer.style.minHeight='auto'; gridContainer.innerHTML='';
-  const createCard=(ch,i)=>{
-    const priority=i<8?'fetchpriority="high"':'loading="lazy"';
-    const logo=ch.logo||"https://mstvnet.netlify.app";
-    return `<div class="channel-card" onclick="playChannel(${i})">
-              <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app';">
-              <div class="channel-name">${ch.name}</div>
-            </div>`;
-  };
-  gridContainer.innerHTML=data.slice(0,12).map(createCard).join('');
-  setTimeout(()=>{gridContainer.insertAdjacentHTML('beforeend',data.slice(12).map(createCard).join('')); 
-  const hash=decodeURIComponent(window.location.hash.substring(1)); 
-  const startIdx=data.findIndex(c=>c.name===hash); if(startIdx!==-1) playChannel(startIdx);},50);
+    channels = data;
+    if(!gridContainer) return;
+    gridContainer.innerHTML = data.map(createCard).join('');
+
+    // Attach click listener (delegated)
+    gridContainer.addEventListener('click', (e) => {
+        const card = e.target.closest('.channel-card');
+        if(!card) return;
+        playChannelByName(card.dataset.name);
+    });
+
+    // Check for hash deep link
+    const hash = decodeURIComponent(window.location.hash.substring(1));
+    if(hash) playChannelByName(hash);
 }
 
+// SEARCH FILTER
 let searchTimer;
-searchInput.addEventListener('input', e=>{
-  clearTimeout(searchTimer);
-  searchTimer=setTimeout(()=>{
-    const term=e.target.value.toLowerCase();
-    document.querySelectorAll('.channel-card').forEach(card=>{
-      card.style.display=card.innerText.toLowerCase().includes(term)?'flex':'none';
-    });
-  },150);
+searchInput.addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(()=>{
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.channel-card').forEach(card => {
+            card.style.display = card.dataset.name.toLowerCase().includes(term) ? 'flex' : 'none';
+        });
+    },150);
 },{passive:true});
 
-if(v){ v.onplaying=()=>{if(l) l.style.display='none';}; v.onwaiting=()=>{if(l) l.style.display='block';} }
-if(i) i.onload=()=>{if(i.src!=='about:blank' && l) l.style.display='none'; }
+// HIDE LOADING SPINNER ON PLAY
+if(v){ v.onplaying = ()=>{ if(l) l.style.display='none'; }; v.onwaiting = ()=>{ if(l) l.style.display='block'; }; }
+if(i) i.onload = ()=>{ if(i.src!=='about:blank' && l) l.style.display='none'; };
 
+// INITIAL FETCH
 (async()=>{
-  try{
-    const res=await fetch(JSON_URL,{cache:'default'});
-    if(res.ok) renderUI(await res.json());
-  }catch(e){console.log('Init error');}
+    try{
+        const res = await fetch(JSON_URL, {cache:'default'});
+        if(res.ok) renderUI(await res.json());
+    }catch(e){ console.error('Failed to load channels.json', e); }
 })();
 </script>
 

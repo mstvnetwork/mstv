@@ -213,7 +213,7 @@ async function stopAll() {
   if(p) p.style.display = 'flex';
 }
 
-q(idx){
+async function playChannel(idx){
   const ch = channels[idx]; 
   if(!ch) return;
 
@@ -223,21 +223,31 @@ q(idx){
   await stopAll();
   
   v.scrollIntoView({behavior:'smooth', block:'start'});
+
+  // 1. Show Loading, Hide Placeholder
   if(l) l.style.display = 'block'; 
   if(p) p.style.display = 'none';
+
+  // Helper to hide loader once playback starts
+  const hideLoader = () => { if(l) l.style.display = 'none'; };
 
   if(ch.type === 'iframe'){ 
     i.style.display = 'block'; 
     i.src = ch.url; 
+    // Hide loader when the iframe finished loading its content
+    i.onload = hideLoader;
     return; 
   }
 
   v.style.display = 'block';
+  
+  // 2. Set up event listener to hide loader only when video ACTUALLY starts playing
+  v.onplaying = hideLoader;
+
   const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
   if(isHls){
     if(window.Hls && Hls.isSupported()){
-      // Configured for fast start and ZERO pre-loading
       hls = new Hls({ 
         autoStartLoad: false, 
         enableWorker: true, 
@@ -247,20 +257,24 @@ q(idx){
       hls.attachMedia(v);
       hls.on(Hls.Events.MEDIA_ATTACHED, () => {
         hls.loadSource(ch.url);
-        hls.startLoad(); // Only start downloading segments NOW
+        hls.startLoad(); 
       });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
+      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(hideLoader));
+      
+      // Fallback: hide loader if there's a fatal error
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if(data.fatal) hideLoader();
+      });
+
     } else if(v.canPlayType('application/vnd.apple.mpegurl')){ 
       v.src = ch.url; 
-      v.play().catch(() => {}); 
+      v.play().catch(hideLoader); 
     }
   } else {
-    // DASH/Other: Shaka only initializes when this block is hit
     if(window.shaka && shaka.Player.isBrowserSupported()){
       shaka.polyfilled.installAll();
       shakaPlayer = new shaka.Player(v);
       
-      // Fast-start config for Shaka
       shakaPlayer.configure({
         streaming: {
           bufferingGoal: 10,
@@ -271,11 +285,15 @@ q(idx){
 
       try { 
         await shakaPlayer.load(ch.url); 
-        v.play().catch(() => {}); 
-      } catch(e) { console.error('Shaka fail', e); }
+        v.play().catch(hideLoader); 
+      } catch(e) { 
+        console.error('Shaka fail', e); 
+        hideLoader();
+      }
     }
   }
 }
+
 
 
 function renderUI(data){

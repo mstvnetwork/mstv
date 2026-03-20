@@ -262,6 +262,34 @@ async function playChannel(idx){
       v.src = ch.url; 
       v.play().catch(() => {}); 
     }
+    if(ch.type === 'iframe'){ 
+  i.style.display = 'block'; 
+  i.src = ch.url; 
+
+  // Hide loader when iframe content fully loads
+  i.onload = () => { if(l) l.style.display = 'none'; };
+  return; 
+}
+
+// DASH/Other: Shaka
+if(window.shaka && shaka.Player.isBrowserSupported()){
+  shaka.polyfilled.installAll();
+  shakaPlayer = new shaka.Player(v);
+
+  shakaPlayer.configure({
+    streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 0 }
+  });
+
+  // Hide loader when Shaka reports playback has started
+  shakaPlayer.addEventListener('buffering', (e) => {
+    if(!e.buffering && l) l.style.display = 'none';
+  });
+
+  try { 
+    await shakaPlayer.load(ch.url); 
+    v.play().catch(() => {}); 
+  } catch(e) { console.error('Shaka fail', e); }
+}
   } else {
     if(window.shaka && shaka.Player.isBrowserSupported()){
       shaka.polyfilled.installAll();

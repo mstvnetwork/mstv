@@ -6,11 +6,7 @@
     <title>MSTV Network | Live Stream</title>
     <meta name="description" content="Watch MSTV Network live streaming channels.">
     
-<!-- Player Libraries -->
-    <!-- DASH ENGINE (Local) -->
-    <link rel="stylesheet" href="shaka-ui.css">
-    <script src="shaka-player.ui.min.js"></script>
-        
+
     <style>
         :root { --bg: #0b0d0e; --accent: #00ffa3; --card: #161a1d; --white: #ffffff; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -68,91 +64,188 @@
 
     <footer>&copy; 2025 MSTV Network</footer>
 
-    <script>
-                const video = document.getElementById('main-video');
-const title = document.getElementById('channel-title');
-const grid = document.getElementById('grid');
+        <!-- Player Libraries -->
+<script defer src="./shaka.js"></script>
+<script defer src="./shaka/hls.min.js"></script>
+<script>
+const el = (id) => document.getElementById(id);
+const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
+const gridContainer = el('channel-list-container');
+const searchInput = el('channel-search');
+const JSON_URL = './channels.json';
 
-let hls = null;
-let shakaPlayer = null;
+let channels = [], hls = null, shakaPlayer = null;
 
-// Initialize Shaka Polyfills
-if (window.shaka) {
-    shaka.polyfill.installAll();
+// Hide loading once playback starts
+if (v) {
+  v.addEventListener('playing', () => {
+    if (l) l.style.display = 'none';
+  });
 }
 
-async function clearPlayers() {
-    if (hls) {
-        hls.destroy();
-        hls = null;
-    }
-    if (shakaPlayer) {
-        await shakaPlayer.destroy();
-        shakaPlayer = null;
-    }
-    video.pause();
-    video.removeAttribute('src'); 
-    video.load();
+async function stopAll() {
+  if(l) l.style.display='none';
+  
+  // 1. Completely destroy HLS instance
+  if(hls){ 
+    hls.detachMedia();
+    hls.destroy(); 
+    hls = null; 
+  }
+  
+  // 2. Completely destroy Shaka instance
+  if(shakaPlayer){ 
+    await shakaPlayer.detach();
+    await shakaPlayer.destroy(); 
+    shakaPlayer = null; 
+  }
+  
+  // 3. Reset Video Element to stop background buffering
+  if(v){ 
+    v.pause(); 
+    v.removeAttribute('src'); 
+    v.load(); 
+    v.style.display='none'; 
+  }
+  
+  // 4. Reset Iframe
+  if(i){ 
+    i.src = 'about:blank'; 
+    i.style.display = 'none'; 
+  }
+  
+  if(p) p.style.display = 'flex';
 }
 
-async function playChannel(url, name, isAutoPlay = false) {
-    await clearPlayers();
-    title.textContent = name;
+async function playChannel(idx) {
+  const ch = channels[idx];
+  if (!ch) return;
 
-    // FIX: Mute video for autoplay to work without user interaction error
-    if (isAutoPlay) {
-        video.muted = true;
+  window.location.hash = encodeURIComponent(ch.name);
+
+  // Stop any previous playback
+  await stopAll();
+
+  v.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (l) l.style.display = 'block';
+  if (p) p.style.display = 'none';
+
+  // Helper to hide loader safely
+  const hideLoader = () => { if (l) l.style.display = 'none'; };
+
+  // IFRAME playback
+  if (ch.type === 'iframe') {
+    i.style.display = 'block';
+    i.src = ch.url;
+
+    // Hide loader when iframe finishes loading
+    i.onload = hideLoader;
+    return;
+  }
+
+  // VIDEO element playback
+  v.style.display = 'block';
+  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+
+  // HLS playback
+  if (isHls) {
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls({
+        autoStartLoad: false,
+        enableWorker: true,
+        lowLatencyMode: true,
+        capLevelToPlayerSize: true
+      });
+      hls.attachMedia(v);
+
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        hls.loadSource(ch.url);
+        hls.startLoad();
+      });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        v.play().catch(() => {});
+      });
+
+      // Hide loader when video actually starts playing
+      v.addEventListener('playing', hideLoader, { once: true });
+
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      v.src = ch.url;
+      v.play().catch(() => {});
+      v.addEventListener('playing', hideLoader, { once: true });
     }
+    return;
+  }
 
-    if (url.includes('.mpd')) {
-        if (shaka.Player.isBrowserSupported()) {
-            shakaPlayer = new shaka.Player(video);
-            try {
-                await shakaPlayer.load(url);
-                // Attempt play; catch error if browser still blocks it
-                video.play().catch(e => console.log("Autoplay blocked, waiting for user click."));
-            } catch (e) { console.error("Shaka Load Error:", e); }
-        }
-    } 
-    else if (url.includes('.m3u8')) {
-        if (Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => console.log("Autoplay blocked, waiting for user click."));
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = url;
-            video.play().catch(e => {});
-        }
-    }
-}
+  // DASH / Other streams via Shaka
+  if (window.shaka && shaka.Player.isBrowserSupported()) {
+    shaka.polyfilled.installAll();
+    shakaPlayer = new shaka.Player(v);
 
-async function loadData() {
+    shakaPlayer.configure({
+      streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 0 }
+    });
+
+    // Hide loader when Shaka buffering ends (playback starts)
+    shakaPlayer.addEventListener('buffering', (e) => {
+      if (!e.buffering) hideLoader();
+    });
+
     try {
-        const res = await fetch('https://mstvnet.netlify.app/channels.json');
-        const data = await res.json();
-        
-        grid.innerHTML = data.map(ch => `
-            <div class="card" onclick="playChannel('${ch.url}', '${ch.name}', false)" role="button" aria-label="Play ${ch.name}">
-                <img src="${ch.logo}" alt="${ch.name}" loading="lazy" width="80" height="80">
-                <span>${ch.name}</span>
-            </div>
-        `).join('');
-        
-        // Auto-play first channel (Passed 'true' for isAutoPlay)
-        if (data.length > 0) {
-            playChannel(data[0].url, data[0].name, true);
-        }
-    } catch (err) {
-        grid.innerHTML = "<p>Failed to load channels.</p>";
+      await shakaPlayer.load(ch.url);
+      v.play().catch(() => {});
+    } catch (e) {
+      console.error('Shaka fail', e);
+      hideLoader(); // hide loader even if loading fails
     }
+  }
 }
 
-document.addEventListener('DOMContentLoaded', loadData);
+function renderUI(data){
+  channels = Array.isArray(data) ? data : data.channels || [];
+  
+  if(!gridContainer) return;
+  gridContainer.innerHTML = '';
 
+  const createCard = (ch, index) => {
+    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+    const logo = ch.logo || "https://mstvnet.netlify.app";
+    
+    return `
+      <div class="channel-card" onclick="playChannel(${index})">
+        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+             onerror="this.src='https://mstvnet.netlify.app';">
+        <div class="channel-name">${ch.name}</div>
+      </div>`;
+  };
 
-    </script>
+  gridContainer.innerHTML = channels.map(createCard).join('');
+
+  const hash = decodeURIComponent(window.location.hash.substring(1)); 
+  const startIdx = channels.findIndex(c => c.name === hash); 
+  if(startIdx !== -1) playChannel(startIdx);
+}
+
+searchInput.addEventListener('input', e => {
+  const term = e.target.value.toLowerCase();
+  document.querySelectorAll('.channel-card').forEach(card => {
+    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+  });
+});
+
+(async () => {
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-store' }); 
+    if(res.ok) {
+      const data = await res.json();
+      renderUI(data);
+    }
+  } catch(e) { console.log('Init error:', e); }
+})();
+      </script>
+  <!-- GoatCounter Analytics -->
+<script async data-goatcounter="https://mstv.goatcounter.com/count"
+src="https://gc.zgo.at/count.js"></script>
 </body>
 </html>

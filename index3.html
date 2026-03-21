@@ -208,31 +208,86 @@ async function stopAll() {
   if(p) p.style.display = 'flex';
 }
 
-async function playChannel(idx) {
-  const ch = channels[idx];
-  if (!ch) return;
-
-  // DYNAMIC LOADING: Only load the library needed for this specific stream
-  if (ch.type === 'hls' && !window.Hls) {
-    console.log("Loading Hls.js dynamically...");
-    await loadScript('https://cdn.jsdelivr.net');
-  } else if (ch.type === 'dash' && !window.shaka) {
-    console.log("Loading Shaka Player dynamically...");
-    await loadScript('https://cdnjs.cloudflare.com');
-  }
-
-  // ... continue with your existing play logic ...
-}
-
-// Helper to load scripts on-demand
+// Helper to load external scripts dynamically
 function loadScript(src) {
   return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) return resolve(); // Already loading/loaded
     const s = document.createElement('script');
     s.src = src;
     s.onload = resolve;
     s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+async function playChannel(idx) {
+  const ch = channels[idx];
+  if (!ch) return;
+
+  window.location.hash = encodeURIComponent(ch.name);
+  await stopAll(); // Cleans up previous instances
+
+  v.style.display = 'none';
+  if (p) p.style.display = 'none';
+  if (l) l.style.display = 'block';
+
+  const hideLoader = () => { if (l) l.style.display = 'none'; };
+
+  // 1. Handle Iframe
+  if (ch.type === 'iframe') {
+    i.style.display = 'block';
+    i.src = ch.url;
+    i.onload = hideLoader;
+    return;
+  }
+
+  // 2. Handle HLS
+  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+  if (isHls) {
+    // Load Hls.js dynamically if not present
+    if (!window.Hls) {
+      await loadScript('https://cdn.jsdelivr.net');
+    }
+    
+    v.style.display = 'block';
+    if (Hls.isSupported()) {
+      hls = new Hls({ autoStartLoad: true });
+      hls.loadSource(ch.url);
+      hls.attachMedia(v);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        v.play().catch(e => console.error("Autoplay blocked", e));
+        hideLoader();
+      });
+    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native Safari support
+      v.src = ch.url;
+      v.addEventListener('loadedmetadata', () => {
+        v.play();
+        hideLoader();
+      });
+    }
+    return;
+  }
+
+  // 3. Handle DASH (Shaka Player)
+  if (ch.type === 'dash' || (ch.url && ch.url.includes('.mpd'))) {
+    if (!window.shaka) {
+      await loadScript('https://cdnjs.cloudflare.com');
+    }
+    
+    v.style.display = 'block';
+    shaka.polyfilled.installAll();
+    shakaPlayer = new shaka.Player(v);
+    
+    try {
+      await shakaPlayer.load(ch.url);
+      v.play();
+      hideLoader();
+    } catch (e) {
+      console.error('Shaka Error', e);
+      hideLoader();
+    }
+  }
 }
 
 

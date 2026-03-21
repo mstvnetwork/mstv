@@ -67,21 +67,18 @@
     <footer>&copy; 2025 MSTV Network</footer>
 
     <script>
-        const video = document.getElementById('main-video');
+                const video = document.getElementById('main-video');
 const title = document.getElementById('channel-title');
 const grid = document.getElementById('grid');
 
 let hls = null;
 let shakaPlayer = null;
 
-// 1. Initialize Shaka Polyfills (Required for DASH support)
+// Initialize Shaka Polyfills
 if (window.shaka) {
     shaka.polyfill.installAll();
 }
 
-/**
- * Reset and Destroy active players to prevent memory leaks and playback conflicts.
- */
 async function clearPlayers() {
     if (hls) {
         hls.destroy();
@@ -96,66 +93,63 @@ async function clearPlayers() {
     video.load();
 }
 
-/**
- * Main playback logic: Switches engine based on file extension.
- */
-async function playChannel(url, name) {
+async function playChannel(url, name, isAutoPlay = false) {
     await clearPlayers();
     title.textContent = name;
-    
-    // DASH Playback (.mpd)
+
+    // FIX: Mute video for autoplay to work without user interaction error
+    if (isAutoPlay) {
+        video.muted = true;
+    }
+
     if (url.includes('.mpd')) {
         if (shaka.Player.isBrowserSupported()) {
             shakaPlayer = new shaka.Player(video);
             try {
                 await shakaPlayer.load(url);
-                console.log("Playing DASH via Shaka Player");
-            } catch (e) {
-                console.error("Shaka Load Error:", e);
-            }
-        } else {
-            console.error("Browser does not support Shaka/DASH");
+                // Attempt play; catch error if browser still blocks it
+                video.play().catch(e => console.log("Autoplay blocked, waiting for user click."));
+            } catch (e) { console.error("Shaka Load Error:", e); }
         }
     } 
-    // HLS Playback (.m3u8)
     else if (url.includes('.m3u8')) {
         if (Hls.isSupported()) {
             hls = new Hls();
             hls.loadSource(url);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-            console.log("Playing HLS via Hls.js");
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(e => console.log("Autoplay blocked, waiting for user click."));
+            });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native Safari fallback
             video.src = url;
-            video.play();
+            video.play().catch(e => {});
         }
     }
 }
 
-/**
- * Fetch and Build Grid
- */
 async function loadData() {
     try {
-        const res = await fetch('https://mstvnet.netlify.app/channels.json');
+        const res = await fetch('https://mstvnet.netlify.app');
         const data = await res.json();
         
         grid.innerHTML = data.map(ch => `
-            <div class="card" onclick="playChannel('${ch.url}', '${ch.name}')" role="button" aria-label="Play ${ch.name}">
+            <div class="card" onclick="playChannel('${ch.url}', '${ch.name}', false)" role="button" aria-label="Play ${ch.name}">
                 <img src="${ch.logo}" alt="${ch.name}" loading="lazy" width="80" height="80">
                 <span>${ch.name}</span>
             </div>
         `).join('');
         
-        // Auto-play the first channel found in the JSON
-        if (data.length > 0) playChannel(data[0].url, data[0].name);
+        // Auto-play first channel (Passed 'true' for isAutoPlay)
+        if (data.length > 0) {
+            playChannel(data[0].url, data[0].name, true);
+        }
     } catch (err) {
         grid.innerHTML = "<p>Failed to load channels.</p>";
     }
 }
 
 document.addEventListener('DOMContentLoaded', loadData);
+
 
     </script>
 </body>

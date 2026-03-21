@@ -67,109 +67,87 @@
         <!-- Player Libraries -->
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
-<script>
+
+  <script>
+// 1. Core Utilities & Element Selectors
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
-const searchInput = el('channel-search');
 const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// Hide loading once playback starts
-if (v) {
-  v.addEventListener('playing', () => {
-    if (l) l.style.display = 'none';
-  });
-}
-
+/**
+ * 2. Player Cleanup Logic
+ * Essential for switching between HLS and DASH without conflicts.
+ */
 async function stopAll() {
-  if(l) l.style.display='none';
+  if (l) l.style.display = 'none';
   
-  // 1. Completely destroy HLS instance
-  if(hls){ 
+  if (hls) { 
     hls.detachMedia();
     hls.destroy(); 
     hls = null; 
   }
   
-  // 2. Completely destroy Shaka instance
-  if(shakaPlayer){ 
+  if (shakaPlayer) { 
     await shakaPlayer.detach();
     await shakaPlayer.destroy(); 
     shakaPlayer = null; 
   }
   
-  // 3. Reset Video Element to stop background buffering
-  if(v){ 
+  if (v) { 
     v.pause(); 
     v.removeAttribute('src'); 
     v.load(); 
-    v.style.display='none'; 
+    v.style.display = 'none'; 
   }
   
-  // 4. Reset Iframe
-  if(i){ 
+  if (i) { 
     i.src = 'about:blank'; 
     i.style.display = 'none'; 
   }
   
-  if(p) p.style.display = 'flex';
+  if (p) p.style.display = 'flex';
 }
 
+/**
+ * 3. Main Playback Logic
+ * Detects stream type and initializes the correct local library.
+ */
 async function playChannel(idx) {
   const ch = channels[idx];
   if (!ch) return;
 
   window.location.hash = encodeURIComponent(ch.name);
-
-  // Stop any previous playback
   await stopAll();
 
   v.scrollIntoView({ behavior: 'smooth', block: 'start' });
   if (l) l.style.display = 'block';
   if (p) p.style.display = 'none';
 
-  // Helper to hide loader safely
   const hideLoader = () => { if (l) l.style.display = 'none'; };
 
-  // IFRAME playback
+  // IFRAME Engine
   if (ch.type === 'iframe') {
     i.style.display = 'block';
     i.src = ch.url;
-
-    // Hide loader when iframe finishes loading
     i.onload = hideLoader;
     return;
   }
 
-  // VIDEO element playback
+  // VIDEO Element Engines
   v.style.display = 'block';
   const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
 
-  // HLS playback
+  // A. HLS.js Engine
   if (isHls) {
     if (window.Hls && Hls.isSupported()) {
-      hls = new Hls({
-        autoStartLoad: false,
-        enableWorker: true,
-        lowLatencyMode: true,
-        capLevelToPlayerSize: true
-      });
+      hls = new Hls({ autoStartLoad: true, enableWorker: true });
       hls.attachMedia(v);
-
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        hls.loadSource(ch.url);
-        hls.startLoad();
-      });
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        v.play().catch(() => {});
-      });
-
-      // Hide loader when video actually starts playing
+      hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(ch.url));
+      hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
       v.addEventListener('playing', hideLoader, { once: true });
-
     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
       v.src = ch.url;
       v.play().catch(() => {});
@@ -178,77 +156,75 @@ async function playChannel(idx) {
     return;
   }
 
-  // DASH / Other streams via Shaka
+  // B. Shaka Player Engine (DASH)
   if (window.shaka && shaka.Player.isBrowserSupported()) {
-    shaka.polyfilled.installAll();
+    shaka.polyfill.installAll(); // Required for DASH stability
     shakaPlayer = new shaka.Player(v);
-
-    shakaPlayer.configure({
-      streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 0 }
-    });
-
-    // Hide loader when Shaka buffering ends (playback starts)
-    shakaPlayer.addEventListener('buffering', (e) => {
-      if (!e.buffering) hideLoader();
-    });
+    
+    shakaPlayer.addEventListener('buffering', (e) => { if (!e.buffering) hideLoader(); });
 
     try {
       await shakaPlayer.load(ch.url);
       v.play().catch(() => {});
     } catch (e) {
-      console.error('Shaka fail', e);
-      hideLoader(); // hide loader even if loading fails
+      console.error('Shaka Playback Failed', e);
+      hideLoader();
     }
   }
 }
 
-function renderUI(data){
+/**
+ * 4. UI Rendering
+ */
+function renderUI(data) {
   channels = Array.isArray(data) ? data : data.channels || [];
-  
-  if(!gridContainer) return;
-  gridContainer.innerHTML = '';
+  if (!gridContainer) return;
 
-  const createCard = (ch, index) => {
+  gridContainer.innerHTML = channels.map((ch, index) => {
     const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-    const logo = ch.logo || "https://mstvnet.netlify.app";
-    
+    const logo = ch.logo || "https://mstvnet.netlify.app/channels.json";
     return `
-      <div class="channel-card" onclick="playChannel(${index})">
+      <div class="channel-card" onclick="playChannel(${index})" role="button">
         <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
              onerror="this.src='https://mstvnet.netlify.app';">
         <div class="channel-name">${ch.name}</div>
       </div>`;
-  };
+  }).join('');
 
-  gridContainer.innerHTML = channels.map(createCard).join('');
-
+  // Handle URL Deep Linking
   const hash = decodeURIComponent(window.location.hash.substring(1)); 
   const startIdx = channels.findIndex(c => c.name === hash); 
-  if(startIdx !== -1) playChannel(startIdx);
+  if (startIdx !== -1) playChannel(startIdx);
 }
 
-searchInput.addEventListener('input', e => {
-  const term = e.target.value.toLowerCase(); // Added .toLowerCase() here for better matching
-  // ... your filtering logic ...
-}); // <--- This was missing
+/**
+ * 5. Event Listeners & Initialization
+ * Wrapped in DOMContentLoaded to fix the 'null' element errors.
+ */
+document.addEventListener('DOMContentLoaded', () => {
+  const searchInput = el('channel-search');
 
-  document.querySelectorAll('.channel-card').forEach(card => {
-    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
-  });
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      const term = e.target.value.toLowerCase();
+      document.querySelectorAll('.channel-card').forEach(card => {
+        const name = card.querySelector('.channel-name').innerText.toLowerCase();
+        card.style.display = name.includes(term) ? 'flex' : 'none';
+      });
+    });
+  }
 
-
-(async () => {
-  try {
-    const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-    if(res.ok) {
-      const data = await res.json();
-      renderUI(data);
-    }
-  } catch(e) { console.log('Init error:', e); }
-})();
-      </script>
-  <!-- GoatCounter Analytics -->
-<script async data-goatcounter="https://mstv.goatcounter.com/count"
-src="https://gc.zgo.at/count.js"></script>
+  // Initial Data Fetch
+  (async () => {
+    try {
+      const res = await fetch(JSON_URL, { cache: 'no-store' }); 
+      if (res.ok) {
+        const data = await res.json();
+        renderUI(data);
+      }
+    } catch(e) { console.log('Init error:', e); }
+  })();
+});
+</script>
 </body>
 </html>

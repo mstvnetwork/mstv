@@ -71,68 +71,70 @@
 const title = document.getElementById('channel-title');
 const grid = document.getElementById('grid');
 
-let hlsInstance = null;
-let shakaInstance = null;
+let hls = null;
+let shakaPlayer = null;
 
-// Initialize Shaka Polyfills (Critical for DASH)
+// 1. Initialize Shaka Polyfills (Required for DASH support)
 if (window.shaka) {
     shaka.polyfill.installAll();
 }
 
 /**
- * 1. Cleanup Function
- * Destroys existing instances to free up the video element
+ * Reset and Destroy active players to prevent memory leaks and playback conflicts.
  */
 async function clearPlayers() {
-    if (hlsInstance) {
-        hlsInstance.destroy();
-        hlsInstance = null;
+    if (hls) {
+        hls.destroy();
+        hls = null;
     }
-    if (shakaInstance) {
-        await shakaInstance.destroy();
-        shakaInstance = null;
+    if (shakaPlayer) {
+        await shakaPlayer.destroy();
+        shakaPlayer = null;
     }
-    video.src = '';
+    video.pause();
+    video.removeAttribute('src'); 
     video.load();
 }
 
 /**
- * 2. Engine Switching Logic
+ * Main playback logic: Switches engine based on file extension.
  */
 async function playChannel(url, name) {
-    await clearPlayers(); // Reset before new playback
+    await clearPlayers();
     title.textContent = name;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-
-    // Detect DASH (.mpd)
+    
+    // DASH Playback (.mpd)
     if (url.includes('.mpd')) {
         if (shaka.Player.isBrowserSupported()) {
-            shakaInstance = new shaka.Player(video);
+            shakaPlayer = new shaka.Player(video);
             try {
-                await shakaInstance.load(url);
-                console.log('Playing via Shaka (DASH)');
+                await shakaPlayer.load(url);
+                console.log("Playing DASH via Shaka Player");
             } catch (e) {
-                console.error('Shaka Error:', e);
+                console.error("Shaka Load Error:", e);
             }
         } else {
-            alert("DASH is not supported in this browser.");
+            console.error("Browser does not support Shaka/DASH");
         }
     } 
-    // Detect HLS (.m3u8)
+    // HLS Playback (.m3u8)
     else if (url.includes('.m3u8')) {
         if (Hls.isSupported()) {
-            hlsInstance = new Hls();
-            hlsInstance.loadSource(url);
-            hlsInstance.attachMedia(video);
-            console.log('Playing via HLS.js');
+            hls = new Hls();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            console.log("Playing HLS via Hls.js");
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = url; // Native Safari support
+            // Native Safari fallback
+            video.src = url;
+            video.play();
         }
     }
 }
 
 /**
- * 3. Fetch and Render
+ * Fetch and Build Grid
  */
 async function loadData() {
     try {
@@ -146,11 +148,10 @@ async function loadData() {
             </div>
         `).join('');
         
-        // Auto-play first channel
-        if(data.length > 0) playChannel(data[0].url, data[0].name);
+        // Auto-play the first channel found in the JSON
+        if (data.length > 0) playChannel(data[0].url, data[0].name);
     } catch (err) {
-        console.error("Fetch Error:", err);
-        grid.innerHTML = "<p>Error loading channels.</p>";
+        grid.innerHTML = "<p>Failed to load channels.</p>";
     }
 }
 

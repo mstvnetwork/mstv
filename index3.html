@@ -68,63 +68,94 @@
 
     <script>
         const video = document.getElementById('main-video');
-        const title = document.getElementById('channel-title');
-        const grid = document.getElementById('grid');
-        let shakaPlayer;
+const title = document.getElementById('channel-title');
+const grid = document.getElementById('grid');
 
-        // Initialize Shaka
-        async function initShaka() {
-            shaka.polyfill.installAll();
-            if (shaka.Player.isBrowserSupported()) {
-                shakaPlayer = new shaka.Player(video);
-                shakaPlayer.addEventListener('error', (e) => console.error('Shaka Error:', e));
-            }
-        }
+let hlsInstance = null;
+let shakaInstance = null;
 
-        // Play Logic
-        async function playChannel(url, name) {
-            title.textContent = name;
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+// Initialize Shaka Polyfills (Critical for DASH)
+if (window.shaka) {
+    shaka.polyfill.installAll();
+}
 
-            // 1. Try Shaka Player first (Best for stability)
+/**
+ * 1. Cleanup Function
+ * Destroys existing instances to free up the video element
+ */
+async function clearPlayers() {
+    if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+    }
+    if (shakaInstance) {
+        await shakaInstance.destroy();
+        shakaInstance = null;
+    }
+    video.src = '';
+    video.load();
+}
+
+/**
+ * 2. Engine Switching Logic
+ */
+async function playChannel(url, name) {
+    await clearPlayers(); // Reset before new playback
+    title.textContent = name;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Detect DASH (.mpd)
+    if (url.includes('.mpd')) {
+        if (shaka.Player.isBrowserSupported()) {
+            shakaInstance = new shaka.Player(video);
             try {
-                await shakaPlayer.load(url);
+                await shakaInstance.load(url);
+                console.log('Playing via Shaka (DASH)');
             } catch (e) {
-                // 2. Fallback to HLS.js if Shaka fails or for specific HLS needs
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = url;
-                }
+                console.error('Shaka Error:', e);
             }
+        } else {
+            alert("DASH is not supported in this browser.");
         }
-
-        // Fetch & Render
-        async function loadData() {
-            try {
-                const res = await fetch('https://mstvnet.netlify.app/channels.json');
-                const data = await res.json();
-                
-                grid.innerHTML = data.map(ch => `
-                    <div class="card" onclick="playChannel('${ch.url}', '${ch.name}')" role="button" aria-label="Play ${ch.name}">
-                        <img src="${ch.logo}" alt="${ch.name}" loading="lazy" width="80" height="80">
-                        <span>${ch.name}</span>
-                    </div>
-                `).join('');
-                
-                // Play first channel by default
-                if(data.length > 0) playChannel(data[0].url, data[0].name);
-            } catch (err) {
-                grid.innerHTML = "<p>Error loading channels.</p>";
-            }
+    } 
+    // Detect HLS (.m3u8)
+    else if (url.includes('.m3u8')) {
+        if (Hls.isSupported()) {
+            hlsInstance = new Hls();
+            hlsInstance.loadSource(url);
+            hlsInstance.attachMedia(video);
+            console.log('Playing via HLS.js');
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url; // Native Safari support
         }
+    }
+}
 
-        document.addEventListener('DOMContentLoaded', () => {
-            initShaka();
-            loadData();
-        });
+/**
+ * 3. Fetch and Render
+ */
+async function loadData() {
+    try {
+        const res = await fetch('https://mstvnet.netlify.app');
+        const data = await res.json();
+        
+        grid.innerHTML = data.map(ch => `
+            <div class="card" onclick="playChannel('${ch.url}', '${ch.name}')" role="button" aria-label="Play ${ch.name}">
+                <img src="${ch.logo}" alt="${ch.name}" loading="lazy" width="80" height="80">
+                <span>${ch.name}</span>
+            </div>
+        `).join('');
+        
+        // Auto-play first channel
+        if(data.length > 0) playChannel(data[0].url, data[0].name);
+    } catch (err) {
+        console.error("Fetch Error:", err);
+        grid.innerHTML = "<p>Error loading channels.</p>";
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadData);
+
     </script>
 </body>
 </html>

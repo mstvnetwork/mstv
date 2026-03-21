@@ -22,7 +22,7 @@ body { margin:0; font-family:Arial,sans-serif; font-display:swap; background:#E8
 header { position:sticky; top:0; z-index:1000; background:#111419; height:var(--header-h); display:flex; align-items:center; justify-content:space-between; padding:0 5%; border-bottom:1px solid #222; }
 .logo-section { display:flex; flex-direction:column; }
 .brand-name { font-size:1.4rem; font-weight:bold; background:linear-gradient(90deg,#90EE90,#00FFA3); -webkit-background-clip:text; color:transparent; line-height:1; }
-.slogan { font-size:0.7rem; color:yellow; margin-top:4px; }
+.slogan { font-size:0.7rem; color:#FFD700; font-weight:bold; margin-top:4px; }
 .search-container { flex-grow:0.4; max-width:350px; }
 .search-container input { width:100%; padding:10px 15px; border-radius:25px; border:1px solid #333; background:#1A1D20; color:white; outline:none; }
 
@@ -57,7 +57,7 @@ video, iframe { position:absolute; inset:0; width:100%; height:100%; border:none
     <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
   </div>
   <div class="search-container">
-    <input type="text" id="channel-search" placeholder="Search channels...">
+    <input type="text" id="channel-search" placeholder="Search channels..." aria-label="Search channels by name">
   </div>
 </header>
 
@@ -70,7 +70,7 @@ video, iframe { position:absolute; inset:0; width:100%; height:100%; border:none
     <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media"></iframe>
   </div>
 
-  <div class="ticker" aria-label="Scrolling ticker">
+  <div class="ticker" aria-label="Scrolling ticker" aria-live="polite">
     <div class="ticker-track">
       <div class="ticker-content">
         No channel play, use free VPN from 
@@ -95,19 +95,19 @@ video, iframe { position:absolute; inset:0; width:100%; height:100%; border:none
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
 <script>
-const v = document.getElementById('video-player');
-const i = document.getElementById('iframe-player');
-const p = document.getElementById('placeholder');
-const l = document.getElementById('loading');
+const v=document.getElementById('video-player');
+const i=document.getElementById('iframe-player');
+const p=document.getElementById('placeholder');
+const l=document.getElementById('loading');
 
-let channels = [], hls=null, shakaPlayer=null;
+let channels=[], hls=null, shakaPlayer=null;
 
-const CARD_WIDTH = 120, CARD_HEIGHT = 160, GAP = 10;
-const grid = document.getElementById('channel-grid');
-const wrapper = document.getElementById('virtual-wrapper');
+const CARD_WIDTH=120, CARD_HEIGHT=160, GAP=10;
+const grid=document.getElementById('channel-grid');
+const wrapper=document.getElementById('virtual-wrapper');
 
-// ----------------------- Playback -----------------------
-async function stopAll() {
+// Playback
+async function stopAll(){
   if(l) l.style.display='none';
   if(hls){ hls.destroy(); hls=null; }
   if(shakaPlayer){ shakaPlayer.destroy(); shakaPlayer=null; }
@@ -117,61 +117,62 @@ async function stopAll() {
 }
 
 async function playChannel(idx){
-  const ch = channels[idx];
+  const ch=channels[idx];
   if(!ch) return;
   await stopAll();
-  window.location.hash = encodeURIComponent(ch.name);
+  window.location.hash=encodeURIComponent(ch.name);
   if(l) l.style.display='block'; if(p) p.style.display='none';
   const hideLoader=()=>{if(l) l.style.display='none';};
 
-  if(ch.type==='iframe'){
-    i.src=ch.url; i.style.display='block'; i.onload=hideLoader; return;
-  }
+  if(ch.type==='iframe'){ i.src=ch.url; i.style.display='block'; i.setAttribute('aria-label', `Play ${ch.name}`); i.onload=hideLoader; return; }
 
   v.style.display='block';
-  const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
+  const isHls=ch.type==='hls'||(ch.url&&ch.url.includes('.m3u8'));
   if(isHls && window.Hls && Hls.isSupported()){
-    hls=new Hls({autoStartLoad:false,enableWorker:true,lowLatencyMode:true,capLevelToPlayerSize:true});
+    hls=new Hls({autoStartLoad:false, enableWorker:true, lowLatencyMode:true, capLevelToPlayerSize:true});
     hls.attachMedia(v);
-    hls.on(Hls.Events.MEDIA_ATTACHED,()=>{hls.loadSource(ch.url);hls.startLoad();});
-    v.addEventListener('playing',hideLoader,{once:true});
+    hls.on(Hls.Events.MEDIA_ATTACHED,()=>{hls.loadSource(ch.url); hls.startLoad();});
+    v.addEventListener('playing', hideLoader, {once:true});
   } else if(isHls && v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src=ch.url; v.play().catch(()=>{}); v.addEventListener('playing',hideLoader,{once:true});
+    v.src=ch.url; v.play().catch(()=>{}); v.addEventListener('playing', hideLoader,{once:true});
   } else if(window.shaka && shaka.Player.isBrowserSupported()){
     shaka.polyfilled.installAll(); shakaPlayer=new shaka.Player(v);
     shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}});
     shakaPlayer.addEventListener('buffering',(e)=>{if(!e.buffering) hideLoader();});
-    try{await shakaPlayer.load(ch.url);v.play().catch(()=>{});}catch(e){console.error(e); hideLoader();}
+    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); }catch(e){ console.error(e); hideLoader(); }
   }
 }
 
-// ----------------------- Virtual Grid -----------------------
+// Virtualized grid
 function renderVirtual(){
   const scrollTop=grid.scrollTop, viewHeight=grid.clientHeight;
-  const cols = Math.floor(grid.clientWidth/(CARD_WIDTH+GAP));
-  const startIdx = Math.floor(scrollTop/(CARD_HEIGHT+GAP))*cols;
-  const visibleRows = Math.ceil(viewHeight/(CARD_HEIGHT+GAP));
-  const endIdx = Math.min(channels.length,startIdx+visibleRows*cols+cols);
+  const cols=Math.floor(grid.clientWidth/(CARD_WIDTH+GAP));
+  const startIdx=Math.floor(scrollTop/(CARD_HEIGHT+GAP))*cols;
+  const visibleRows=Math.ceil(viewHeight/(CARD_HEIGHT+GAP));
+  const endIdx=Math.min(channels.length,startIdx+visibleRows*cols+cols);
   wrapper.innerHTML='';
   for(let i=startIdx;i<endIdx;i++){
     const ch=channels[i]; const col=i%cols; const row=Math.floor(i/cols);
     const card=document.createElement('div'); card.className='channel-card';
     card.style.top=row*(CARD_HEIGHT+GAP)+'px'; card.style.left=col*(CARD_WIDTH+GAP)+'px';
-    card.style.width=CARD_WIDTH+'px'; card.style.height=CARD_HEIGHT+'px'; card.onclick=()=>playChannel(i);
+    card.style.width=CARD_WIDTH+'px'; card.style.height=CARD_HEIGHT+'px';
+    card.onclick=()=>playChannel(i);
+    card.setAttribute('role','button'); card.setAttribute('aria-label', `Play ${ch.name} channel`);
     const img=document.createElement('img'); img.src=ch.logo||''; img.alt=ch.name; img.loading='lazy'; img.decoding='async';
     const name=document.createElement('div'); name.className='channel-name'; name.textContent=ch.name;
     card.appendChild(img); card.appendChild(name); wrapper.appendChild(card);
   }
   wrapper.style.height=Math.ceil(channels.length/cols)*(CARD_HEIGHT+GAP)+'px';
 }
-grid.addEventListener('scroll',renderVirtual);
 
-// ----------------------- Init -----------------------
+grid.addEventListener('scroll', renderVirtual);
+
 document.getElementById('channel-search').addEventListener('input', e=>{
   const term=e.target.value.toLowerCase();
-  channels.forEach((c,i)=>renderVirtual()); // Rerender virtual grid to apply search
+  channels.forEach((c,i)=>renderVirtual());
 });
 
+// Load channels
 (async ()=>{
   try{
     const res=await fetch('./channels.json'); 
@@ -179,11 +180,11 @@ document.getElementById('channel-search').addEventListener('input', e=>{
       const data=await res.json();
       channels = Array.isArray(data)?data:data.channels||[];
       renderVirtual();
-      const hash = decodeURIComponent(window.location.hash.substring(1));
-      const startIdx = channels.findIndex(c=>c.name===hash);
+      const hash=decodeURIComponent(window.location.hash.substring(1));
+      const startIdx=channels.findIndex(c=>c.name===hash);
       if(startIdx!==-1) playChannel(startIdx);
     }
-  }catch(e){console.error(e);}
+  }catch(e){ console.error(e);}
 })();
 </script>
 </body>

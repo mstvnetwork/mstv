@@ -320,14 +320,14 @@ Hindi entertainment channels, religious broadcasts and free cricket streaming.
 <!-- Player Libraries -->
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
-<script>
+        <script>
 const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
 
-// UPDATED JSON URL
-const JSON_URL = 'https://mstv.netlify.app/channels.json';
+// THE SOURCE JSON URL
+const JSON_URL = 'https://mstv.netlify.app';
 
 let channels = [], hls = null, shakaPlayer = null;
 
@@ -335,12 +335,7 @@ async function stopAll() {
     if(l) l.style.display='none';
     if(hls){ hls.detachMedia(); hls.destroy(); hls = null; }
     if(shakaPlayer){ await shakaPlayer.unload(); await shakaPlayer.destroy(); shakaPlayer = null; }
-    if(v){ 
-        v.pause(); 
-        v.removeAttribute('src'); 
-        v.load(); 
-        v.style.display='none'; 
-    }
+    if(v){ v.pause(); v.removeAttribute('src'); v.load(); v.style.display='none'; }
     if(i){ i.src = 'about:blank'; i.style.display = 'none'; }
     if(p) p.style.display = 'flex';
 }
@@ -351,29 +346,22 @@ async function playChannel(idx) {
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
 
-    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    
-    // 1. Device Detection
     const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // 2. IPAD / IOS Logic: Use your working embed page directly
     if (isApple && ch.url.includes('index.html')) {
         i.style.display = 'block';
         i.src = ch.url;
-        // Essential for DASH/DRM inside iframes
         i.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
         if (p) p.style.display = 'none';
         i.onload = () => { if (l) l.style.display = 'none'; };
         return; 
     }
 
-    // 3. ANDROID / PC Logic: Your ORIGINAL working code
     if (!isApple) {
         v.style.display = 'block';
         if (l) l.style.display = 'block';
         if (p) p.style.display = 'none';
-
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
             shakaPlayer = new shaka.Player(v);
@@ -381,11 +369,10 @@ async function playChannel(idx) {
                 await shakaPlayer.load(ch.url);
                 v.play().catch(() => {});
                 return;
-            } catch (e) { console.warn("Android DASH failed", e); }
+            } catch (e) { console.warn("Android DASH fail", e); }
         }
     }
 
-    // 4. FALLBACK: Native HLS (for direct .m3u8 links or iPad failure)
     v.style.display = 'block';
     const hlsUrl = ch.url.includes('.mpd') ? ch.url.replace('.mpd', '.m3u8') : ch.url;
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -405,7 +392,6 @@ function renderUI(data) {
                 <div class="channel-name">${ch.name}</div>
             </div>`;
     }).join('');
-
     const hash = decodeURIComponent(window.location.hash.substring(1)); 
     const startIdx = channels.findIndex(c => c.name === hash); 
     if(startIdx !== -1) playChannel(startIdx);
@@ -421,6 +407,7 @@ searchInput.addEventListener('input', e => {
 (async () => {
     try {
         const res = await fetch(JSON_URL, { 
+            mode: 'cors', // Explicitly enable CORS mode
             cache: 'no-store',
             headers: { 'Accept': 'application/json' }
         }); 
@@ -429,6 +416,7 @@ searchInput.addEventListener('input', e => {
     } catch(e) { console.error('Init error:', e); }
 })();
 </script>
+
 
 
 </body>

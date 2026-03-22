@@ -326,8 +326,8 @@ const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l 
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
 
-// Use the absolute URL to ensure Netlify finds the file correctly
-const JSON_URL = 'https://mstvnet.netlify.app';
+// UPDATED JSON URL
+const JSON_URL = 'https://mstv.netlify.app/channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
@@ -335,7 +335,12 @@ async function stopAll() {
     if(l) l.style.display='none';
     if(hls){ hls.detachMedia(); hls.destroy(); hls = null; }
     if(shakaPlayer){ await shakaPlayer.unload(); await shakaPlayer.destroy(); shakaPlayer = null; }
-    if(v){ v.pause(); v.removeAttribute('src'); v.load(); v.style.display='none'; }
+    if(v){ 
+        v.pause(); 
+        v.removeAttribute('src'); 
+        v.load(); 
+        v.style.display='none'; 
+    }
     if(i){ i.src = 'about:blank'; i.style.display = 'none'; }
     if(p) p.style.display = 'flex';
 }
@@ -346,24 +351,29 @@ async function playChannel(idx) {
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
 
+    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // 1. Device Detection
     const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // iPad/iOS Logic: Iframe for embeds
+    // 2. IPAD / IOS Logic: Use your working embed page directly
     if (isApple && ch.url.includes('index.html')) {
         i.style.display = 'block';
         i.src = ch.url;
+        // Essential for DASH/DRM inside iframes
         i.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
         if (p) p.style.display = 'none';
         i.onload = () => { if (l) l.style.display = 'none'; };
         return; 
     }
 
-    // Android Logic: Original Shaka code
+    // 3. ANDROID / PC Logic: Your ORIGINAL working code
     if (!isApple) {
         v.style.display = 'block';
         if (l) l.style.display = 'block';
         if (p) p.style.display = 'none';
+
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
             shakaPlayer = new shaka.Player(v);
@@ -371,11 +381,11 @@ async function playChannel(idx) {
                 await shakaPlayer.load(ch.url);
                 v.play().catch(() => {});
                 return;
-            } catch (e) { console.warn("Android DASH fail", e); }
+            } catch (e) { console.warn("Android DASH failed", e); }
         }
     }
 
-    // Fallback HLS
+    // 4. FALLBACK: Native HLS (for direct .m3u8 links or iPad failure)
     v.style.display = 'block';
     const hlsUrl = ch.url.includes('.mpd') ? ch.url.replace('.mpd', '.m3u8') : ch.url;
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -385,20 +395,13 @@ async function playChannel(idx) {
 }
 
 function renderUI(data) {
-    // Ensure we have an array
     channels = Array.isArray(data) ? data : (data.channels || []);
     if(!gridContainer) return;
-    
-    if (channels.length === 0) {
-        gridContainer.innerHTML = '<p style="color:white;padding:20px;">No channels found.</p>';
-        return;
-    }
-
     gridContainer.innerHTML = channels.map((ch, index) => {
-        const logo = ch.logo || "https://mstvnet.netlify.app";
+        const logo = ch.logo || "https://mstv.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${index})">
-                <img src="${logo}" alt="${ch.name}" width="95" height="64" onerror="this.src='https://mstvnet.netlify.app';">
+                <img src="${logo}" alt="${ch.name}" width="95" height="64" onerror="this.src='https://mstv.netlify.app';">
                 <div class="channel-name">${ch.name}</div>
             </div>`;
     }).join('');
@@ -415,29 +418,17 @@ searchInput.addEventListener('input', e => {
     });
 });
 
-// INITIALIZE WITH SAFE FETCH
 (async () => {
     try {
-        const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-        if(!res.ok) throw new Error(`HTTP ${res.status}`);
-        
-        // Verify it is JSON before parsing
-        const contentType = res.headers.get("content-type");
-        if (!contentType || !contentType.includes("application/json")) {
-            const text = await res.text();
-            console.error("Received HTML instead of JSON. First 100 chars:", text.substring(0, 100));
-            throw new TypeError("Server returned HTML, not JSON.");
-        }
-
-        const data = await res.json();
-        renderUI(data);
-    } catch(e) { 
-        console.error('Grid load error:', e);
-        if(gridContainer) gridContainer.innerHTML = `<p style="color:white;padding:20px;">Error: ${e.message}</p>`;
-    }
+        const res = await fetch(JSON_URL, { 
+            cache: 'no-store',
+            headers: { 'Accept': 'application/json' }
+        }); 
+        if(!res.ok) throw new Error("JSON Fetch Failed");
+        renderUI(await res.json());
+    } catch(e) { console.error('Init error:', e); }
 })();
 </script>
-
 
 
 </body>

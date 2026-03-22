@@ -321,31 +321,27 @@ Hindi entertainment channels, religious broadcasts and free cricket streaming.
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
 <script>
-
-        const el = (id) => document.getElementById(id);
+const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
-
-// Ensure this URL is correct for your hosting
-const JSON_URL = 'https://mstvnet.netlify.app/channels.json';
+const JSON_URL = 'https://mstvnet.netlify.app';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// NEW: Universal extraction for embed strings
+// Extraction helper for iPad/iOS only
 async function getManifestUrl(ch) {
     if (!ch.url) return null;
-    if (ch.url.includes('.mpd') || ch.url.includes('.m3u8')) return { dash: ch.url.includes('.mpd') ? ch.url : null, hls: ch.url.includes('.m3u8') ? ch.url : null };
-
+    if (ch.url.includes('.mpd') || ch.url.includes('.m3u8')) {
+        return { dash: ch.url.includes('.mpd') ? ch.url : null, hls: ch.url.includes('.m3u8') ? ch.url : null };
+    }
     try {
         const response = await fetch(ch.url);
         const html = await response.text();
-        const dashMatch = html.match(/["'](https?:\/\/[^"']+\.mpd[^"']*)["']/i);
-        const hlsMatch = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
-        return { dash: dashMatch ? dashMatch[1] : null, hls: hlsMatch ? hlsMatch[1] : null };
-    } catch (e) {
-        return { dash: null, hls: ch.url.includes('.m3u8') ? ch.url : null };
-    }
+        const d = html.match(/["'](https?:\/\/[^"']+\.mpd[^"']*)["']/i);
+        const h = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
+        return { dash: d ? d[1] : null, hls: h ? h[1] : null };
+    } catch (e) { return { dash: null, hls: null }; }
 }
 
 async function stopAll() {
@@ -360,19 +356,19 @@ async function stopAll() {
 async function playChannel(idx) {
     const ch = channels[idx];
     if (!ch) return;
-
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
 
+    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
     v.style.display = 'block';
     if (l) l.style.display = 'block';
     if (p) p.style.display = 'none';
 
-    // 1. Detect Device Type
+    // Device Detection
     const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // --- LOGIC FOR ANDROID / PC (Original Working Logic) ---
+    // 1. ANDROID / PC Logic (Your original working code)
     if (!isApple) {
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
@@ -381,44 +377,14 @@ async function playChannel(idx) {
                 await shakaPlayer.load(ch.url);
                 v.play().catch(() => {});
                 return;
-            } catch (e) { console.error('Android DASH failed', e); }
+            } catch (e) { console.error('Android Dash Fail', e); }
         }
     }
 
-    // --- LOGIC FOR IOS / IPAD (Universal Fix) ---
+    // 2. IOS / IPAD Logic (Extraction + Native Fallback)
     const streams = await getManifestUrl(ch);
-    const dashUrl = streams?.dash;
     const hlsUrl = streams?.hls || ch.url;
 
-    // Try DASH on iPad first
-    if (isApple && dashUrl && window.shaka && shaka.Player.isBrowserSupported()) {
-        shaka.polyfill.installAll();
-        shakaPlayer = new shaka.Player(v);
-        try {
-            await shakaPlayer.load(dashUrl);
-            v.play();
-            return;
-        } catch (e) {
-            if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
-        }
-    }
-
-    // Ultimate Fallback to HLS (Required for all iPhones and many iPads)
-    if (v.canPlayType('application/vnd.apple.mpegurl')) {
-        v.src = hlsUrl;
-        v.play();
-    } else if (window.Hls && Hls.isSupported()) {
-        hls = new Hls();
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(v);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-    }
-}
-
-
-
-    // PRIORITY 2: HLS (Native Safari/iPhone fallback)
-    const hlsUrl = streams?.hls || ch.url;
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
         v.src = hlsUrl;
         v.play().catch(() => {});
@@ -427,21 +393,19 @@ async function playChannel(idx) {
         hls.loadSource(hlsUrl);
         hls.attachMedia(v);
         hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
+    } else {
+        if (l) l.style.display = 'none';
     }
 }
 
-// RESTORED: UI Rendering Logic
 function renderUI(data) {
     channels = Array.isArray(data) ? data : data.channels || [];
     if(!gridContainer) return;
-    gridContainer.innerHTML = '';
-
     gridContainer.innerHTML = channels.map((ch, index) => {
-        const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
         const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
             <div class="channel-card" onclick="playChannel(${index})">
-                <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app';">
+                <img src="${logo}" alt="${ch.name}" width="95" height="64" onerror="this.src='https://mstvnet.netlify.app';">
                 <div class="channel-name">${ch.name}</div>
             </div>`;
     }).join('');
@@ -451,7 +415,6 @@ function renderUI(data) {
     if(startIdx !== -1) playChannel(startIdx);
 }
 
-// RESTORED: Search Logic
 searchInput.addEventListener('input', e => {
     const term = e.target.value.toLowerCase();
     document.querySelectorAll('.channel-card').forEach(card => {
@@ -459,18 +422,14 @@ searchInput.addEventListener('input', e => {
     });
 });
 
-// INITIALIZE: Load JSON
 (async () => {
     try {
         const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-        if(res.ok) {
-            const data = await res.json();
-            renderUI(data);
-        }
+        if(res.ok) renderUI(await res.json());
     } catch(e) { console.error('Init error:', e); }
 })();
+</script>
 
-      </script>
   <!-- GoatCounter Analytics -->
 <script async data-goatcounter="https://mstv.goatcounter.com/count"
 src="https://gc.zgo.at/count.js"></script>

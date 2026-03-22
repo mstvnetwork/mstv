@@ -364,32 +364,57 @@ async function playChannel(idx) {
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
 
-    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    v.style.display = 'block';
     if (l) l.style.display = 'block';
     if (p) p.style.display = 'none';
 
-    if (ch.type === 'iframe' && !ch.url.includes('index.html')) {
-        i.style.display = 'block';
-        i.src = ch.url;
-        i.onload = () => l.style.display = 'none';
-        return;
+    // 1. Detect Device Type
+    const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    // --- LOGIC FOR ANDROID / PC (Original Working Logic) ---
+    if (!isApple) {
+        if (window.shaka && shaka.Player.isBrowserSupported()) {
+            shaka.polyfill.installAll();
+            shakaPlayer = new shaka.Player(v);
+            try {
+                await shakaPlayer.load(ch.url);
+                v.play().catch(() => {});
+                return;
+            } catch (e) { console.error('Android DASH failed', e); }
+        }
     }
 
-    v.style.display = 'block';
+    // --- LOGIC FOR IOS / IPAD (Universal Fix) ---
     const streams = await getManifestUrl(ch);
-    
-    // PRIORITY 1: DASH (Modern iPads/PC)
-    if (streams?.dash && window.shaka && shaka.Player.isBrowserSupported()) {
+    const dashUrl = streams?.dash;
+    const hlsUrl = streams?.hls || ch.url;
+
+    // Try DASH on iPad first
+    if (isApple && dashUrl && window.shaka && shaka.Player.isBrowserSupported()) {
         shaka.polyfill.installAll();
         shakaPlayer = new shaka.Player(v);
         try {
-            await shakaPlayer.load(streams.dash);
-            v.play().catch(() => {});
+            await shakaPlayer.load(dashUrl);
+            v.play();
             return;
         } catch (e) {
             if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
         }
     }
+
+    // Ultimate Fallback to HLS (Required for all iPhones and many iPads)
+    if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = hlsUrl;
+        v.play();
+    } else if (window.Hls && Hls.isSupported()) {
+        hls = new Hls();
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
+    }
+}
+
 
     // PRIORITY 2: HLS (Native Safari/iPhone fallback)
     const hlsUrl = streams?.hls || ch.url;

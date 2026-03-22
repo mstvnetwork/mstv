@@ -374,45 +374,47 @@ async function playChannel(idx) {
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
 
-    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    v.style.display = 'block';
-    if (l) l.style.display = 'block';
-    if (p) p.style.display = 'none';
-
-    // 1. Device Detection
+    // 1. Detect iPad/iPhone
     const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // 2. ANDROID / PC Logic (Uses your original working code)
+    // 2. ANDROID / PC: Keep using your original working DASH logic
     if (!isApple) {
+        v.style.display = 'block';
+        if (l) l.style.display = 'block';
+        if (p) p.style.display = 'none';
+
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
             shakaPlayer = new shaka.Player(v);
             try {
                 await shakaPlayer.load(ch.url);
                 v.play().catch(() => {});
-                return; // Play success on Android
-            } catch (e) { console.warn('Android Shaka fail', e); }
+                return;
+            } catch (e) { console.warn("Android DASH failed", e); }
         }
     }
 
-    // 3. IOS / IPAD Logic (Extraction + Native HLS Fallback)
-    const streams = await getManifestUrl(ch);
-    const hlsUrl = streams?.hls || ch.url.replace('.mpd', '.m3u8'); // Smart guess for fallback
+    // 3. IPAD / IOS: Use the Iframe directly for DASH embeds
+    // Since you said the embed works on its own, we load it as an iframe
+    // so it uses its own internal player logic.
+    if (isApple && ch.url.includes('index.html')) {
+        i.style.display = 'block';
+        i.src = ch.url;
+        if (p) p.style.display = 'none';
+        i.onload = () => { if (l) l.style.display = 'none'; };
+        return;
+    }
 
+    // 4. FALLBACK: Native HLS (for direct .m3u8 links)
+    v.style.display = 'block';
+    const hlsUrl = ch.url.replace('.mpd', '.m3u8');
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
         v.src = hlsUrl;
         v.play().catch(() => {});
-    } else if (window.Hls && Hls.isSupported()) {
-        hls = new Hls();
-        hls.loadSource(hlsUrl);
-        hls.attachMedia(v);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-    } else {
-        if (l) l.style.display = 'none';
-        console.error("No supported playback format found for this device.");
     }
 }
+
 
 function renderUI(data) {
     // Handle both array and object-wrapped JSON

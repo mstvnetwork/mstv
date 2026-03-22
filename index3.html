@@ -325,30 +325,45 @@ const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
-const JSON_URL = 'https://mstvnet.netlify.app';
+
+// YOUR CORRECT JSON URL
+const JSON_URL = 'https://mstvnet.netlify.app/channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// Extraction helper for iPad/iOS only
+// Helper to extract URLs (used for iPad/iOS fallback)
 async function getManifestUrl(ch) {
     if (!ch.url) return null;
+    // If already a direct link, return it immediately
     if (ch.url.includes('.mpd') || ch.url.includes('.m3u8')) {
-        return { dash: ch.url.includes('.mpd') ? ch.url : null, hls: ch.url.includes('.m3u8') ? ch.url : null };
+        return { 
+            dash: ch.url.includes('.mpd') ? ch.url : null, 
+            hls: ch.url.includes('.m3u8') ? ch.url : null 
+        };
     }
     try {
+        // Try to fetch the embed page and scrape the stream link
         const response = await fetch(ch.url);
+        if (!response.ok) return null;
         const html = await response.text();
         const d = html.match(/["'](https?:\/\/[^"']+\.mpd[^"']*)["']/i);
         const h = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
         return { dash: d ? d[1] : null, hls: h ? h[1] : null };
-    } catch (e) { return { dash: null, hls: null }; }
+    } catch (e) { 
+        return { dash: null, hls: null }; 
+    }
 }
 
 async function stopAll() {
     if(l) l.style.display='none';
     if(hls){ hls.detachMedia(); hls.destroy(); hls = null; }
     if(shakaPlayer){ await shakaPlayer.unload(); await shakaPlayer.destroy(); shakaPlayer = null; }
-    if(v){ v.pause(); v.removeAttribute('src'); v.load(); v.style.display='none'; }
+    if(v){ 
+        v.pause(); 
+        v.removeAttribute('src'); 
+        v.load(); 
+        v.style.display='none'; 
+    }
     if(i){ i.src = 'about:blank'; i.style.display = 'none'; }
     if(p) p.style.display = 'flex';
 }
@@ -364,11 +379,11 @@ async function playChannel(idx) {
     if (l) l.style.display = 'block';
     if (p) p.style.display = 'none';
 
-    // Device Detection
+    // 1. Device Detection
     const isApple = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-    // 1. ANDROID / PC Logic (Your original working code)
+    // 2. ANDROID / PC Logic (Uses your original working code)
     if (!isApple) {
         if (window.shaka && shaka.Player.isBrowserSupported()) {
             shaka.polyfill.installAll();
@@ -376,14 +391,14 @@ async function playChannel(idx) {
             try {
                 await shakaPlayer.load(ch.url);
                 v.play().catch(() => {});
-                return;
-            } catch (e) { console.error('Android Dash Fail', e); }
+                return; // Play success on Android
+            } catch (e) { console.warn('Android Shaka fail', e); }
         }
     }
 
-    // 2. IOS / IPAD Logic (Extraction + Native Fallback)
+    // 3. IOS / IPAD Logic (Extraction + Native HLS Fallback)
     const streams = await getManifestUrl(ch);
-    const hlsUrl = streams?.hls || ch.url;
+    const hlsUrl = streams?.hls || ch.url.replace('.mpd', '.m3u8'); // Smart guess for fallback
 
     if (v.canPlayType('application/vnd.apple.mpegurl')) {
         v.src = hlsUrl;
@@ -395,12 +410,15 @@ async function playChannel(idx) {
         hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
     } else {
         if (l) l.style.display = 'none';
+        console.error("No supported playback format found for this device.");
     }
 }
 
 function renderUI(data) {
-    channels = Array.isArray(data) ? data : data.channels || [];
+    // Handle both array and object-wrapped JSON
+    channels = Array.isArray(data) ? data : (data.channels || []);
     if(!gridContainer) return;
+    
     gridContainer.innerHTML = channels.map((ch, index) => {
         const logo = ch.logo || "https://mstvnet.netlify.app";
         return `
@@ -410,11 +428,13 @@ function renderUI(data) {
             </div>`;
     }).join('');
 
+    // Handle deep linking via hash
     const hash = decodeURIComponent(window.location.hash.substring(1)); 
     const startIdx = channels.findIndex(c => c.name === hash); 
     if(startIdx !== -1) playChannel(startIdx);
 }
 
+// Search Functionality
 searchInput.addEventListener('input', e => {
     const term = e.target.value.toLowerCase();
     document.querySelectorAll('.channel-card').forEach(card => {
@@ -422,12 +442,20 @@ searchInput.addEventListener('input', e => {
     });
 });
 
+// Initialization: Fetch the JSON data
 (async () => {
     try {
         const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-        if(res.ok) renderUI(await res.json());
-    } catch(e) { console.error('Init error:', e); }
+        if(!res.ok) throw new Error("Could not load JSON file");
+        
+        const data = await res.json();
+        renderUI(data);
+    } catch(e) { 
+        console.error('Initialization error:', e);
+        if(gridContainer) gridContainer.innerHTML = '<p style="color:white;padding:20px;">Failed to load channels.</p>';
+    }
 })();
 </script>
+
 </body>
 </html>

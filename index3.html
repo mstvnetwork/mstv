@@ -322,35 +322,29 @@ Hindi entertainment channels, religious broadcasts and free cricket streaming.
 <script defer src="./shaka/hls.min.js"></script>
 <script>
 
-const el = (id) => document.getElementById(id);
+    const el = (id) => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
-const JSON_URL = './channels.json';
+
+// Ensure this URL is correct for your hosting
+const JSON_URL = 'https://mstvnet.netlify.app/channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// NEW: Enhanced Extraction Logic for Embed URLs
+// NEW: Universal extraction for embed strings
 async function getManifestUrl(ch) {
-    // If it's already a direct link, return it
-    if (ch.url.includes('.mpd') || ch.url.includes('.m3u8')) return ch.url;
+    if (!ch.url) return null;
+    if (ch.url.includes('.mpd') || ch.url.includes('.m3u8')) return { dash: ch.url.includes('.mpd') ? ch.url : null, hls: ch.url.includes('.m3u8') ? ch.url : null };
 
     try {
-        // Fetch the embed page to find the hidden manifest link
         const response = await fetch(ch.url);
         const html = await response.text();
-        
-        // Look for .mpd or .m3u8 inside the embed page's code
         const dashMatch = html.match(/["'](https?:\/\/[^"']+\.mpd[^"']*)["']/i);
         const hlsMatch = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
-        
-        return {
-            dash: dashMatch ? dashMatch[1] : null,
-            hls: hlsMatch ? hlsMatch[1] : null
-        };
+        return { dash: dashMatch ? dashMatch[1] : null, hls: hlsMatch ? hlsMatch[1] : null };
     } catch (e) {
-        console.error("Extraction failed", e);
-        return null;
+        return { dash: null, hls: ch.url.includes('.m3u8') ? ch.url : null };
     }
 }
 
@@ -367,11 +361,13 @@ async function playChannel(idx) {
     const ch = channels[idx];
     if (!ch) return;
 
+    window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
+
+    v.scrollIntoView({ behavior: 'smooth', block: 'start' });
     if (l) l.style.display = 'block';
     if (p) p.style.display = 'none';
 
-    // 1. Handle Iframes (if you want to keep them as backups)
     if (ch.type === 'iframe' && !ch.url.includes('index.html')) {
         i.style.display = 'block';
         i.src = ch.url;
@@ -379,39 +375,74 @@ async function playChannel(idx) {
         return;
     }
 
-    // 2. Extract Real Stream Links
     v.style.display = 'block';
     const streams = await getManifestUrl(ch);
-    const dashUrl = streams?.dash;
-    const hlsUrl = streams?.hls;
-
-    // 3. Try DASH (iPadOS 13+ support via Shaka)
-    if (dashUrl && window.shaka && shaka.Player.isBrowserSupported()) {
+    
+    // PRIORITY 1: DASH (Modern iPads/PC)
+    if (streams?.dash && window.shaka && shaka.Player.isBrowserSupported()) {
         shaka.polyfill.installAll();
         shakaPlayer = new shaka.Player(v);
         try {
-            await shakaPlayer.load(dashUrl);
-            return; // Success!
+            await shakaPlayer.load(streams.dash);
+            v.play().catch(() => {});
+            return;
         } catch (e) {
-            console.warn("DASH failed on iPad, falling back to HLS...");
             if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
         }
     }
 
-    // 4. Universal HLS Fallback (Native Safari / iPad)
-    if (hlsUrl || ch.url) {
-        const finalUrl = hlsUrl || ch.url;
-        if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = finalUrl;
-            v.play();
-        } else if (window.Hls && Hls.isSupported()) {
-            hls = new Hls();
-            hls.loadSource(finalUrl);
-            hls.attachMedia(v);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
-        }
+    // PRIORITY 2: HLS (Native Safari/iPhone fallback)
+    const hlsUrl = streams?.hls || ch.url;
+    if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        v.src = hlsUrl;
+        v.play().catch(() => {});
+    } else if (window.Hls && Hls.isSupported()) {
+        hls = new Hls();
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(v);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play());
     }
 }
+
+// RESTORED: UI Rendering Logic
+function renderUI(data) {
+    channels = Array.isArray(data) ? data : data.channels || [];
+    if(!gridContainer) return;
+    gridContainer.innerHTML = '';
+
+    gridContainer.innerHTML = channels.map((ch, index) => {
+        const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        const logo = ch.logo || "https://mstvnet.netlify.app";
+        return `
+            <div class="channel-card" onclick="playChannel(${index})">
+                <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} onerror="this.src='https://mstvnet.netlify.app';">
+                <div class="channel-name">${ch.name}</div>
+            </div>`;
+    }).join('');
+
+    const hash = decodeURIComponent(window.location.hash.substring(1)); 
+    const startIdx = channels.findIndex(c => c.name === hash); 
+    if(startIdx !== -1) playChannel(startIdx);
+}
+
+// RESTORED: Search Logic
+searchInput.addEventListener('input', e => {
+    const term = e.target.value.toLowerCase();
+    document.querySelectorAll('.channel-card').forEach(card => {
+        card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+    });
+});
+
+// INITIALIZE: Load JSON
+(async () => {
+    try {
+        const res = await fetch(JSON_URL, { cache: 'no-store' }); 
+        if(res.ok) {
+            const data = await res.json();
+            renderUI(data);
+        }
+    } catch(e) { console.error('Init error:', e); }
+})();
 
       </script>
   <!-- GoatCounter Analytics -->

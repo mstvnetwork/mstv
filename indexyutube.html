@@ -3,90 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Channel Hub</title>
+    <title>Stream Hub</title>
+    <!-- Your Local Libraries -->
+    <script src="./shaka.js"></script>
+    <script src="./shaka/hls.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; background: #121212; color: white; margin: 0; padding: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
-        .card { background: #1e1e1e; padding: 15px; border-radius: 10px; text-align: center; cursor: pointer; transition: 0.3s; text-decoration: none; color: inherit; display: block; }
-        .card:hover { transform: scale(1.05); background: #333; }
-        .card img { width: 100%; border-radius: 5px; margin-bottom: 10px; }
-        .player-container { max-width: 900px; margin: auto; text-align: center; }
-        .video-placeholder { width: 100%; aspect-ratio: 16/9; background: black; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
-        .hidden { display: none; }
-        /* Embed Mode */
-        body.embed { padding: 0; overflow: hidden; background: transparent; }
-        .embed .video-placeholder { height: 100vh; border: none; }
+        body { font-family: sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        #video-container { width: 100%; max-width: 900px; aspect-ratio: 16/9; background: #000; position: relative; border-radius: 8px; overflow: hidden; }
+        video, iframe { width: 100%; height: 100%; border: none; }
+        #channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 15px; width: 100%; max-width: 900px; margin-top: 25px; }
+        .card { background: #222; padding: 10px; border-radius: 8px; text-align: center; cursor: pointer; border: 2px solid transparent; }
+        .card:hover { border-color: #007bff; }
+        .card img { width: 60px; height: 60px; object-fit: contain; }
+        
+        /* Embed View (?id=1&embed) */
+        body.is-embed { padding: 0; overflow: hidden; background: transparent; }
+        body.is-embed #video-container { max-width: 100%; border-radius: 0; height: 100vh; }
+        body.is-embed h1, body.is-embed #channel-grid { display: none; }
     </style>
 </head>
 <body>
 
-    <div id="gallery-view">
-        <h1>Available Channels</h1>
-        <div id="channel-grid" class="grid"></div>
-    </div>
-
-    <div id="player-view" class="hidden">
-        <a href="?" id="back-btn" style="color: #aaa; text-decoration: none;">← Back to Gallery</a>
-        <div class="player-container">
-            <h2 id="channel-name"></h2>
-            <div class="video-placeholder">
-                <p>Streaming from: <br><code id="channel-url"></code></p>
-            </div>
-        </div>
-    </div>
+    <h1>Channel Hub</h1>
+    <div id="video-container"></div>
+    <div id="channel-grid"></div>
 
     <script>
+        let shakaPlayer = null;
+        let hlsInstance = null;
+
         async function init() {
-            try {
-                const response = await fetch('channels2.json'); // Fetch local or remote JSON
-                const channels = await response.json();
-                
-                const params = new URLSearchParams(window.location.search);
-                const chId = params.get('id');
-                const isEmbed = params.get('embed') === 'true';
+            const response = await fetch('channels2.json');
+            const channels = await response.json();
+            
+            const params = new URLSearchParams(window.location.search);
+            const channelId = params.get('id');
+            if (params.has('embed')) document.body.classList.add('is-embed');
 
-                if (chId) {
-                    showPlayer(channels, chId, isEmbed);
-                } else {
-                    showGallery(channels);
-                }
-            } catch (err) {
-                console.error("Error loading channels:", err);
-            }
-        }
-
-        function showGallery(channels) {
-            const grid = document.getElementById('channel-grid');
+            // Build UI
             channels.forEach(ch => {
-                const card = document.createElement('a');
-                card.className = 'card';
-                card.href = `?id=${ch.id}`;
-                card.innerHTML = `
-                    <img src="${ch.logo}" alt="${ch.name}">
-                    <strong>${ch.name}</strong>
-                `;
-                grid.appendChild(card);
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = `<img src="${ch.logo}"><p>${ch.name}</p>`;
+                div.onclick = () => loadChannel(ch);
+                document.getElementById('channel-grid').appendChild(div);
             });
+
+            // Auto-play if ID in URL
+            if (channelId) {
+                const active = channels.find(c => c.id == channelId);
+                if (active) loadChannel(active);
+            }
         }
 
-        function showPlayer(channels, id, embed) {
-            const channel = channels.find(c => c.id === id);
-            if (!channel) return;
+        async function loadChannel(channel) {
+            const container = document.getElementById('video-container');
+            
+            // Clean up existing players
+            if (shakaPlayer) await shakaPlayer.destroy();
+            if (hlsInstance) hlsInstance.destroy();
+            container.innerHTML = '';
 
-            document.getElementById('gallery-view').classList.add('hidden');
-            document.getElementById('player-view').classList.remove('hidden');
+            if (channel.type === 'iframe') {
+                container.innerHTML = `<iframe src="${channel.url}" allowfullscreen allow="autoplay"></iframe>`;
+            } else {
+                const video = document.createElement('video');
+                video.controls = true;
+                video.autoplay = true;
+                container.appendChild(video);
 
-            if (embed) {
-                document.body.classList.add('embed');
-                document.getElementById('back-btn').classList.add('hidden');
-                document.getElementById('channel-name').classList.add('hidden');
+                if (channel.type === 'dash') {
+                    shakaPlayer = new shaka.Player(video);
+                    await shakaPlayer.load(channel.url);
+                } else if (channel.type === 'hls') {
+                    if (Hls.isSupported()) {
+                        hlsInstance = new Hls();
+                        hlsInstance.loadSource(channel.url);
+                        hlsInstance.attachMedia(video);
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = channel.url;
+                    }
+                }
             }
 
-            document.getElementById('channel-name').innerText = channel.name;
-            document.getElementById('channel-url').innerText = channel.url;
-            // To actually play streams, integrate a player like HLS.js or Video.js here.
+            // Update URL without refresh
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('id', channel.id);
+            window.history.pushState({}, '', newUrl);
         }
 
+        shaka.polyfill.installAll();
         init();
     </script>
 </body>

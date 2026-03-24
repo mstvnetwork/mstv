@@ -42,125 +42,64 @@
 <script defer src="./shaka/hls.min.js"></script>
 
 <script>
-    const el = id => document.getElementById(id);
-const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
-const gridContainer = el('channel-list-container');
-const searchInput = el('channel-search');
-const JSON_URL = './channels.json';
+    // URL of your JSON file
+    const JSON_URL = "https://mstvnet.netlify.app/channels.json";
 
-let channels = [], hls = null, shakaPlayer = null;
+    async function initApp() {
+        const video = document.getElementById('video');
+        
+        try {
+            // 1. Fetch the channels from the external URL
+            const response = await fetch(JSON_URL);
+            const streamList = await response.json();
 
-// NEW: Get the channel index from the URL Hash (#1, #2, etc.)
-function getIndexFromHash() {
-  const hash = window.location.hash; // Gets "#1"
-  const num = parseInt(hash.replace('#', '')); // Converts to 1
-  return isNaN(num) ? -1 : num - 1; // Returns array index (0-based)
-}
+            // 2. Identify the stream based on URL hash
+            const hash = window.location.hash.substring(1);
+            let index = (parseInt(hash, 10) || 1) - 1;
+            const stream = streamList[index] || streamList[0];
 
-// Stop all playback
-async function stopAll(){
-  if(l) l.style.display='none';
-  if(hls){ hls.detachMedia(); hls.destroy(); hls=null; }
-  if(shakaPlayer){ await shakaPlayer.detach(); await shakaPlayer.destroy(); shakaPlayer=null; }
-  if(v){ v.pause(); v.removeAttribute('src'); v.load(); v.style.display='none'; }
-  if(i){ i.src='about:blank'; i.style.display='none'; }
-  if(p) p.style.display='flex';
-}
+            if (!stream) return;
 
-// Play a channel by index
-async function playChannel(idx){
-  const ch = channels[idx]; if(!ch) return;
+            // --- 3. HLS ENGINE (STRICTLY NON-SHAKA) ---
+            if (stream.type === "hls") {
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = stream.url;
+                } 
+                else if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(stream.url);
+                    hls.attachMedia(video);
+                } 
+                return; 
+            }
 
-  // NEW: Update the URL hash to #1, #2, etc.
-  window.location.hash = (idx + 1); 
-  
-  await stopAll();
+            // --- 4. DASH ENGINE (STRICTLY SHAKA) ---
+            if (stream.type === "dash") {
+                if (typeof shaka === 'undefined') return;
 
-  if(l) l.style.display='block';
-  if(p) p.style.display='none';
-  v.scrollIntoView({behavior:'smooth', block:'start'});
+                shaka.polyfill.installAll();
+                const player = new shaka.Player(video);
 
-  const hideLoader = ()=>{if(l) l.style.display='none';};
+                if (stream.drm) {
+                    player.configure({ 
+                        drm: { clearKeys: stream.drm } 
+                    });
+                }
 
-  if(ch.type === 'iframe'){
-    i.style.display='block';
-    i.src = ch.url;
-    i.onload = hideLoader;
-    return;
-  }
-
-  v.style.display='block';
-  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
-
-  if(isHls){
-    if(window.Hls && Hls.isSupported()){
-      hls = new Hls({autoStartLoad:false, enableWorker:true, lowLatencyMode:true, capLevelToPlayerSize:true});
-      hls.attachMedia(v);
-      hls.on(Hls.Events.MEDIA_ATTACHED, ()=>{ hls.loadSource(ch.url); hls.startLoad(); });
-      hls.on(Hls.Events.MANIFEST_PARSED, ()=>{ v.play().catch(()=>{}); });
-      v.addEventListener('playing', hideLoader, {once:true});
-    } else if(v.canPlayType('application/vnd.apple.mpegurl')){
-      v.src = ch.url;
-      v.play().catch(()=>{});
-      v.addEventListener('playing', hideLoader, {once:true});
+                try {
+                    await player.load(stream.url);
+                } catch (e) {
+                    console.error('DASH Load Error', e);
+                }
+            }
+        } catch (error) {
+            console.error("Error fetching stream data:", error);
+        }
     }
-    return;
-  }
 
-  if(window.shaka && shaka.Player.isBrowserSupported()){
-    shaka.polyfilled.installAll();
-    shakaPlayer = new shaka.Player(v);
-    shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}});
-    shakaPlayer.addEventListener('buffering', e => {if(!e.buffering) hideLoader();});
-    try { await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } 
-    catch(e){ console.error('Shaka load error', e); hideLoader(); }
-  }
-}
-
-// Render UI
-function renderUI(data){
-  channels = Array.isArray(data) ? data : data.channels || [];
-
-  if(!gridContainer) return;
-  gridContainer.innerHTML = channels.map((ch,i)=>`
-    <div class="channel-card" onclick="playChannel(${i})">
-      <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${i<8?'fetchpriority="high"':'loading="lazy"'}
-           onerror="this.src='https://mstvnet.netlify.app';">
-      <div class="channel-name">#${i+1} ${ch.name}</div>
-    </div>`).join('');
-
-  // NEW: Check hash on load
-  const startIdx = getIndexFromHash();
-  if(startIdx >= 0 && startIdx < channels.length) {
-    playChannel(startIdx);
-  }
-}
-
-// Search filter
-searchInput.addEventListener('input', e => {
-  const term = e.target.value.toLowerCase();
-  document.querySelectorAll('.channel-card').forEach(card => {
-    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
-  });
-});
-
-// NEW: Listen for URL hash changes (back/forward or manual edit)
-window.addEventListener('hashchange', ()=>{
-  const idx = getIndexFromHash();
-  if(idx >= 0 && idx < channels.length) playChannel(idx);
-});
-
-// Initialize
-(async ()=>{
-  try {
-    const res = await fetch(JSON_URL,{cache:'no-store'});
-    if(res.ok){
-      const data = await res.json();
-      renderUI(data);
-    }
-  } catch(e){ console.error('Init error:', e); }
-})();
-
+    window.addEventListener('hashchange', () => window.location.reload());
+    window.onload = initApp;
 </script>
+
 </body>
 </html>

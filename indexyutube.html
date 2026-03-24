@@ -348,78 +348,108 @@ const placeholder=document.getElementById('placeholder');
 const loading=document.getElementById('loading');
 const liveStamp=document.getElementById('live-stamp');
 const search=document.getElementById('channel-search');
-let channels=[],scrollPos=0;
+let channels=[], scrollPos=0;
 
-function slugify(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
+// Converts channel name to URL-friendly slug
+function slugify(name){
+  return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+}
 
+// Stop all active playback
 async function stopAll(){ 
- if(loading) loading.style.display='none';
- if(placeholder) placeholder.style.display='flex';
- if(liveStamp) liveStamp.style.display='none';
- if(v){ v.pause(); v.src=''; v.style.display='none'; }
- if(i){ i.src='about:blank'; i.style.display='none'; }
+  if(loading) loading.style.display='none';
+  if(placeholder) placeholder.style.display='flex';
+  if(liveStamp) liveStamp.style.display='none';
+  if(v){ v.pause(); v.src=''; v.style.display='none'; }
+  if(i){ i.src='about:blank'; i.style.display='none'; }
 }
 
+// Play a channel by index
 async function playChannel(idx){
- const ch=channels[idx]; if(!ch) return;
- scrollPos=document.querySelector('.channel-grid').scrollTop;
- await stopAll();
- if(loading) loading.style.display='block';
- if(placeholder) placeholder.style.display='none';
- if(liveStamp){ liveStamp.style.display='block'; liveStamp.textContent=`Now Playing: ${ch.name}`; }
+  const ch=channels[idx]; if(!ch) return;
 
- const slug=slugify(ch.name);
- history.replaceState(null,null,"/watch/"+slug);
+  // Save scroll position of the grid
+  scrollPos=document.querySelector('.channel-grid').scrollTop;
 
- const canon=document.querySelector("link[rel='canonical']");
- if(canon){ canon.href="https://mstvnet.netlify.app/watch/"+slug; }
+  await stopAll();
+  if(loading) loading.style.display='block';
+  if(placeholder) placeholder.style.display='none';
+  if(liveStamp){
+    liveStamp.style.display='block';
+    liveStamp.textContent=`Now Playing: ${ch.name}`;
+  }
 
- document.title=ch.name+" Live | MSTV Network";
- document.querySelector('meta[name="description"]').setAttribute(
-   "content","Watch "+ch.name+" live streaming online for free on MSTV Network."
- );
+  // Update URL slug and SEO
+  const slug=slugify(ch.name);
+  history.replaceState(null,null,"/watch/"+slug);
+  const canon=document.querySelector("link[rel='canonical']");
+  if(canon){ canon.href="https://mstvnet.netlify.app/watch/"+slug; }
+  document.title=ch.name+" Live | MSTV Network";
+  document.querySelector('meta[name="description"]').setAttribute(
+    "content","Watch "+ch.name+" live streaming online for free on MSTV Network."
+  );
 
- document.querySelectorAll('.channel-card').forEach(c=>c.classList.remove('active'));
- document.querySelector(`[data-i="${idx}"]`)?.classList.add('active');
+  // Highlight active channel
+  document.querySelectorAll('.channel-card').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`[data-i="${idx}"]`)?.classList.add('active');
 
- if(ch.type==='iframe'){ i.style.display='block'; v.style.display='none'; i.src=ch.url; i.onload=()=>{if(loading)loading.style.display='none';} }
- else { v.style.display='block'; v.src=ch.url; v.play().catch(()=>{}); }
+  // Load player
+  if(ch.type==='iframe'){
+    i.style.display='block'; 
+    v.style.display='none'; 
+    i.src=ch.url; 
+    i.onload=()=>{if(loading)loading.style.display='none';};
+  } else {
+    v.style.display='block'; 
+    i.style.display='none';
+    v.src=ch.url; 
+    v.play().catch(()=>{});
+  }
 
- requestAnimationFrame(()=>{ document.querySelector('.channel-grid').scrollTop=scrollPos; });
+  // Restore scroll
+  requestAnimationFrame(()=>{ document.querySelector('.channel-grid').scrollTop=scrollPos; });
 }
 
+// Render channel cards in grid
 function renderUI(data){
- channels=Array.isArray(data)?data:data.channels||[];
- grid.innerHTML=channels.map((ch,i)=>`
-   <div class="channel-card" data-i="${i}" role="button" tabindex="0">
-     <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
-     <div class="channel-name">${ch.name}</div>
-   </div>
- `).join('');
- document.querySelectorAll('.channel-card').forEach(card=>{
-   card.onclick=()=>playChannel(card.dataset.i);
-   card.onkeypress=e=>{if(e.key==='Enter')playChannel(card.dataset.i);}
- });
+  channels=Array.isArray(data)?data:data.channels||[];
+  grid.innerHTML=channels.map((ch,i)=>`
+    <div class="channel-card" data-i="${i}" role="button" tabindex="0">
+      <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
+      <div class="channel-name">${ch.name}</div>
+    </div>
+  `).join('');
 
- const path=location.pathname.split("/watch/")[1]||"";
- if(path){
-   const idx=channels.findIndex(c=>slugify(c.name)===path);
-   if(idx!==-1) playChannel(idx);
- }
+  document.querySelectorAll('.channel-card').forEach(card=>{
+    card.onclick=()=>playChannel(card.dataset.i);
+    card.onkeypress=e=>{if(e.key==='Enter')playChannel(card.dataset.i);}
+  });
+
+  // Handle direct /watch/{slug} URL
+  const pathSlug = location.pathname.split("/watch/")[1] || "";
+  if(pathSlug){
+    const idx=channels.findIndex(c=>slugify(c.name)===pathSlug);
+    if(idx!==-1) playChannel(idx);
+  }
 }
 
+// Search filter
 search.addEventListener('input', e=>{
- const term=e.target.value.toLowerCase();
- document.querySelectorAll(".channel-card").forEach((card, idx)=>{
-   card.style.display=channels[idx].name.toLowerCase().includes(term)?"flex":"none";
- });
+  const term=e.target.value.toLowerCase();
+  document.querySelectorAll(".channel-card").forEach((card, idx)=>{
+    card.style.display=channels[idx].name.toLowerCase().includes(term)?"flex":"none";
+  });
 });
 
+// Load channels JSON and initialize
 (async()=>{
- try{
-   const res=await fetch(JSON_URL,{cache:'no-store'});
-   if(res.ok){ const data=await res.json(); renderUI(data); }
- }catch(e){ console.error('JSON load error:',e); }
+  try{
+    const res=await fetch(JSON_URL,{cache:'no-store'});
+    if(res.ok){ 
+      const data=await res.json(); 
+      renderUI(data); 
+    }
+  }catch(e){ console.error('JSON load error:',e); }
 })();
 </script>
 </body>

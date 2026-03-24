@@ -1,105 +1,93 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>MSTV Network | Indian TV Channels Live</title>
-<meta name="description" content="Watch Indian, Punjabi & religious TV channels online free. Live cricket streaming available now.">
-
-<link rel="canonical" href="https://mstvnet.netlify.app/">
-
-<!-- Favicon -->
-<link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Channel Hub</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121212; color: white; margin: 0; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .card { background: #1e1e1e; padding: 15px; border-radius: 10px; text-align: center; cursor: pointer; transition: 0.3s; text-decoration: none; color: inherit; display: block; }
+        .card:hover { transform: scale(1.05); background: #333; }
+        .card img { width: 100%; border-radius: 5px; margin-bottom: 10px; }
+        .player-container { max-width: 900px; margin: auto; text-align: center; }
+        .video-placeholder { width: 100%; aspect-ratio: 16/9; background: black; display: flex; align-items: center; justify-content: center; border: 1px solid #444; }
+        .hidden { display: none; }
+        /* Embed Mode */
+        body.embed { padding: 0; overflow: hidden; background: transparent; }
+        .embed .video-placeholder { height: 100vh; border: none; }
+    </style>
 </head>
 <body>
 
-<header>
-  <div class="logo-section">
-    <div class="brand-name">MSTV NETWORK</div>
-    <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
-  </div>
-  <div class="search-container">
-    <input type="text" id="channel-search" placeholder="Search channels...">
-  </div>
-</header>
+    <div id="gallery-view">
+        <h1>Available Channels</h1>
+        <div id="channel-grid" class="grid"></div>
+    </div>
 
-<div class="sticky-player-wrapper">
-  <div class="player-container">
-    <div id="loading">🌀 Buffering...</div>
-    <div id="live-stamp">MSTV Network</div>
-    <div id="placeholder">📺</div>
-    <video id="video-player" autoplay playsinline controls></video>
-    <iframe id="iframe-player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; encrypted-media"></iframe>
-  </div>
-</div>
+    <div id="player-view" class="hidden">
+        <a href="?" id="back-btn" style="color: #aaa; text-decoration: none;">← Back to Gallery</a>
+        <div class="player-container">
+            <h2 id="channel-name"></h2>
+            <div class="video-placeholder">
+                <p>Streaming from: <br><code id="channel-url"></code></p>
+            </div>
+        </div>
+    </div>
 
-<main>
-  <div class="channel-grid" id="channel-list-container"></div>
-</main>
+    <script>
+        async function init() {
+            try {
+                const response = await fetch('channels.json'); // Fetch local or remote JSON
+                const channels = await response.json();
+                
+                const params = new URLSearchParams(window.location.search);
+                const chId = params.get('id');
+                const isEmbed = params.get('embed') === 'true';
 
-<script defer src="./shaka.js"></script>
-<script defer src="./shaka/hls.min.js"></script>
-
-<script>
-    // URL of your JSON file
-    const JSON_URL = "https://mstvnet.netlify.app/channels.json";
-
-    async function initApp() {
-        const video = document.getElementById('video');
-        
-        try {
-            // 1. Fetch the channels from the external URL
-            const response = await fetch(JSON_URL);
-            const streamList = await response.json();
-
-            // 2. Identify the stream based on URL hash
-            const hash = window.location.hash.substring(1);
-            let index = (parseInt(hash, 10) || 1) - 1;
-            const stream = streamList[index] || streamList[0];
-
-            if (!stream) return;
-
-            // --- 3. HLS ENGINE (STRICTLY NON-SHAKA) ---
-            if (stream.type === "hls") {
-                if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = stream.url;
-                } 
-                else if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(stream.url);
-                    hls.attachMedia(video);
-                } 
-                return; 
-            }
-
-            // --- 4. DASH ENGINE (STRICTLY SHAKA) ---
-            if (stream.type === "dash") {
-                if (typeof shaka === 'undefined') return;
-
-                shaka.polyfill.installAll();
-                const player = new shaka.Player(video);
-
-                if (stream.drm) {
-                    player.configure({ 
-                        drm: { clearKeys: stream.drm } 
-                    });
+                if (chId) {
+                    showPlayer(channels, chId, isEmbed);
+                } else {
+                    showGallery(channels);
                 }
-
-                try {
-                    await player.load(stream.url);
-                } catch (e) {
-                    console.error('DASH Load Error', e);
-                }
+            } catch (err) {
+                console.error("Error loading channels:", err);
             }
-        } catch (error) {
-            console.error("Error fetching stream data:", error);
         }
-    }
 
-    window.addEventListener('hashchange', () => window.location.reload());
-    window.onload = initApp;
-</script>
+        function showGallery(channels) {
+            const grid = document.getElementById('channel-grid');
+            channels.forEach(ch => {
+                const card = document.createElement('a');
+                card.className = 'card';
+                card.href = `?id=${ch.id}`;
+                card.innerHTML = `
+                    <img src="${ch.logo}" alt="${ch.name}">
+                    <strong>${ch.name}</strong>
+                `;
+                grid.appendChild(card);
+            });
+        }
 
+        function showPlayer(channels, id, embed) {
+            const channel = channels.find(c => c.id === id);
+            if (!channel) return;
+
+            document.getElementById('gallery-view').classList.add('hidden');
+            document.getElementById('player-view').classList.remove('hidden');
+
+            if (embed) {
+                document.body.classList.add('embed');
+                document.getElementById('back-btn').classList.add('hidden');
+                document.getElementById('channel-name').classList.add('hidden');
+            }
+
+            document.getElementById('channel-name').innerText = channel.name;
+            document.getElementById('channel-url').innerText = channel.url;
+            // To actually play streams, integrate a player like HLS.js or Video.js here.
+        }
+
+        init();
+    </script>
 </body>
 </html>

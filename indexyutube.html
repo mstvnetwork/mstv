@@ -7,8 +7,6 @@
 <title>Free Live TV Streaming Online | MSTV Network</title>
 <meta name="description" content="Watch free live TV online with 50+ Indian, Pakistani and international channels. No signup required. Stream instantly on MSTV Network.">
 <meta name="robots" content="index, follow">
-
-<!-- 🔴 Replace with your final domain -->
 <link rel="canonical" href="https://mstvnet.netlify.app">
 
 <!-- Open Graph -->
@@ -20,6 +18,10 @@
 
 <meta name="theme-color" content="#111419">
 
+<!-- Shaka Player & HLS.js libraries -->
+<script defer src="./shaka.js"></script>
+<script defer src="./shaka/hls.min.js"></script>
+
 <style>
 :root {
   --bg-dark: #0F1115;
@@ -28,91 +30,41 @@
   --text-dim: #555;
   --max-content-width: 500px;
 }
-
-/* Base styles */
-html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 220px); }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h)+220px); }
 body { margin:0; font-family:Arial,sans-serif; min-height:100dvh; overflow-x:hidden; background:#E8E4C9; }
-
-/* Sticky header */
-header {
-  position: sticky; top:0; z-index:1000;
-  background:#111419; height:var(--header-h);
-  display:flex; align-items:center; justify-content:space-between;
-  padding:0 5%; border-bottom:1px solid #222;
-}
+header { position:sticky; top:0; z-index:1000; background:#111419; height:var(--header-h); display:flex; align-items:center; justify-content:space-between; padding:0 5%; border-bottom:1px solid #222; }
 .logo-section { display:flex; flex-direction:column; }
 .brand-name { font-size:1.4rem; font-weight:bold; background:linear-gradient(90deg,#90EE90,#00FFA3); -webkit-background-clip:text; color:transparent; margin:0; }
 .slogan { font-size:0.7rem; color:yellow; margin-top:4px; }
 .search-container { flex-grow:0.4; max-width:350px; }
 .search-container input { width:100%; padding:10px 15px; border-radius:25px; border:1px solid #333; background:#1A1D20; color:white; outline:none; }
 
-/* Sticky Player wrapper */
-.sticky-player-wrapper {
-  position: sticky;
-  top: var(--header-h);
-  z-index: 900;
-  background: #E8E4C9;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  border-bottom: 1px solid #ccc;
-  padding: 12px 0;
-}
-
-/* Player container */
-.player-container {
-  position: relative;
-  width: 92%;
-  max-width: var(--max-content-width);
-  aspect-ratio:16/9;
-  background:black;
-  border-radius:12px;
-  overflow:hidden;
-  box-shadow:0 10px 30px rgba(0,0,0,0.3);
-  margin:0 auto;
-}
+.sticky-player-wrapper { position:sticky; top:var(--header-h); z-index:900; background:#E8E4C9; width:100%; display:flex; flex-direction:column; align-items:center; border-bottom:1px solid #ccc; padding:12px 0; }
+.player-container { position:relative; width:92%; max-width:var(--max-content-width); aspect-ratio:16/9; background:black; border-radius:12px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3); margin:0 auto; }
 video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; object-fit:cover; border:none; display:none; }
-
 #placeholder { height:100%; display:flex; align-items:center; justify-content:center; font-size:4rem; color:var(--accent); }
-#loading { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); z-index:100; background:rgba(0,0,0,0.8); padding:10px; border-radius:50%; border:1px solid var(--accent); color:var(--accent); display:none; }
+#loading { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:100; background:rgba(0,0,0,0.8); padding:10px; border-radius:50%; border:1px solid var(--accent); color:var(--accent); display:none; }
 #live-stamp { position:absolute; top:10px; left:10px; background:#E50914; color:white; padding:4px 10px; border-radius:4px; font-size:0.7rem; font-weight:bold; z-index:50; display:none; }
 
-/* Ticker */
 .ticker { overflow:hidden; width:92%; max-width:var(--max-content-width); background:red; color:white; height:34px; display:flex; align-items:center; margin-top:10px; border-radius:4px; }
 .ticker-track { display:flex; width:max-content; animation:ticker-loop 20s linear infinite; }
 .ticker-content { white-space:nowrap; padding-right:60px; display:inline-flex; align-items:center; font-size:0.85rem; }
 @keyframes ticker-loop {0%{transform:translateX(0);}100%{transform:translateX(-50%);}}
 .play-icon { height:16px; margin:0 6px; }
 
-/* Channel grid */
-.channel-grid {
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
-  gap:15px;
-  padding:25px 4%;
-  max-width:900px;
-  margin:0 auto;
-}
-.channel-card { background:#F5F1DC; border-radius:12px; padding:0; text-align:center; cursor:pointer; border:1px solid #d6d6d6; overflow:hidden; display:flex; flex-direction:column; transition:transform 0.2s,box-shadow 0.2s; }
+.channel-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:15px; padding:25px 4%; max-width:900px; margin:0 auto; }
+.channel-card { background:#F5F1DC; border-radius:12px; padding:0; text-align:center; cursor:pointer; border:1px solid #d6d6d6; overflow:hidden; display:flex; flex-direction:column; transition:transform 0.2s, box-shadow 0.2s; }
 .channel-card img { width:100%; aspect-ratio:95/64; object-fit:cover; display:block; }
 .channel-name { padding:8px 4px; font-size:0.85rem; font-weight:bold; background:#fff; width:100%; }
 
-/* Footer */
 .site-footer { padding:30px 5%; text-align:center; font-size:0.85rem; color:#666; border-top:1px solid #ddd; }
-
-/* Main and text fixes */
 main { max-width:var(--max-content-width); margin:0 auto; }
 h1,h2,p { text-align:left; margin-top:0; }
 section { padding:15px 5%; }
-
-/* Landscape fix for mobile only */
 @media (max-width:900px) and (orientation:landscape) { header,.sticky-player-wrapper{position:relative; top:0;} .player-container{width:80vw;height:auto;} }
 </style>
-
 </head>
 <body>
-
 <a href="#main" style="position:absolute;left:-9999px;">Skip to content</a>
 
 <header>
@@ -171,75 +123,104 @@ section { padding:15px 5%; }
 </main>
 
 <footer class="site-footer">
-  © 2026 MSTV Network. All Rights Reserved.
+© 2026 MSTV Network. All Rights Reserved.
 </footer>
 
 <script>
-const JSON_URL = "./channels.json"; 
-const DEFAULT_LOGO = "https://mstvnet.netlify.app/mstv-thumbnail.png"; // 🔴 Replace with your own placeholder
+const JSON_URL = "./channels.json"; // 🔴 replace with full URL if needed
+const DEFAULT_LOGO = "https://mstvnet.netlify.app/mstv-thumbnail.png"; // 🔴 replace placeholder
 
 const v = document.getElementById('video-player');
 const i = document.getElementById('iframe-player');
+const placeholder = document.getElementById('placeholder');
+const loading = document.getElementById('loading');
+const liveStamp = document.getElementById('live-stamp');
 const grid = document.getElementById('channel-list-container');
 const search = document.getElementById('channel-search');
 
-let channels = [];
+let channels=[], hls=null, shakaPlayer=null;
 
-/* STOP PLAYER */
-function stopAll() {
-  v.pause(); v.src = "";
-  i.src = "";
+/* Stop all playback */
+async function stopAll() {
+  loading.style.display='none';
+  placeholder.style.display='flex';
+  liveStamp.style.display='none';
+  
+  if(hls){ hls.destroy(); hls=null; }
+  if(shakaPlayer){ await shakaPlayer.detach(); await shakaPlayer.destroy(); shakaPlayer=null; }
+  
+  v.pause(); v.src=''; v.style.display='none';
+  i.src='about:blank'; i.style.display='none';
 }
 
-/* PLAY CHANNEL */
-function playChannel(index) {
-  const ch = channels[index];
-  if(!ch) return;
+/* Play channel */
+async function playChannel(idx){
+  const ch = channels[idx]; if(!ch) return;
+  window.location.hash = encodeURIComponent(ch.name);
 
-  stopAll();
+  await stopAll();
+  loading.style.display='block';
+  placeholder.style.display='none';
 
-  if(ch.type === "iframe") {
-    i.style.display = "block";
-    v.style.display = "none";
-    i.src = ch.url; // 🔴 Replace with iframe URL from JSON
-  } else {
-    v.style.display = "block";
-    i.style.display = "none";
-    v.src = ch.url; // 🔴 Replace with HLS/video URL from JSON
-    v.play();
+  liveStamp.style.display='block';
+
+  if(ch.type==='iframe'){
+    i.style.display='block'; i.src=ch.url; i.onload=()=>loading.style.display='none';
+    return;
+  }
+
+  v.style.display='block';
+  const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
+
+  if(isHls && window.Hls && Hls.isSupported()){
+    hls=new Hls({autoStartLoad:true,enableWorker:true,lowLatencyMode:true,capLevelToPlayerSize:true});
+    hls.attachMedia(v);
+    hls.on(Hls.Events.MEDIA_ATTACHED,()=>{hls.loadSource(ch.url);});
+    v.addEventListener('playing',()=>loading.style.display='none',{once:true});
+  } else if(isHls && v.canPlayType('application/vnd.apple.mpegurl')){
+    v.src=ch.url; v.play().catch(()=>{}); v.addEventListener('playing',()=>loading.style.display='none',{once:true});
+  } else if(window.shaka && shaka.Player.isBrowserSupported()){
+    shaka.polyfilled.installAll();
+    shakaPlayer=new shaka.Player(v);
+    shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}});
+    shakaPlayer.addEventListener('buffering', e=>{ if(!e.buffering) loading.style.display='none'; });
+    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } catch(e){ console.error(e); loading.style.display='none'; }
   }
 }
 
-/* RENDER CHANNELS */
-function render(data){
-  channels = data.channels || data;
-
+/* Render channels */
+function renderUI(data){
+  channels = Array.isArray(data)?data:data.channels||[];
   grid.innerHTML = channels.map((ch,index)=>`
     <div class="channel-card" onclick="playChannel(${index})">
       <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
       <div class="channel-name">${ch.name}</div>
     </div>
   `).join('');
-
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  const startIdx = channels.findIndex(c=>c.name===hash);
+  
+  const hash=decodeURIComponent(window.location.hash.substring(1));
+  const startIdx=channels.findIndex(c=>c.name===hash);
   if(startIdx!==-1) playChannel(startIdx);
 }
 
-/* SEARCH */
-search.addEventListener("input", e=>{
-  const term = e.target.value.toLowerCase();
+/* Search */
+search.addEventListener('input', e=>{
+  const term=e.target.value.toLowerCase();
   document.querySelectorAll(".channel-card").forEach(card=>{
-    card.style.display = card.innerText.toLowerCase().includes(term)?"flex":"none";
+    card.style.display=card.innerText.toLowerCase().includes(term)?"flex":"none";
   });
 });
 
-/* LOAD JSON */
-fetch(JSON_URL)
-  .then(res=>res.json())
-  .then(render)
-  .catch(err=>console.log(err));
+/* Load JSON */
+(async()=>{
+  try{
+    const res=await fetch(JSON_URL,{cache:'no-store'});
+    if(res.ok){
+      const data=await res.json();
+      renderUI(data);
+    }
+  } catch(e){ console.log('JSON load error:',e); }
+})();
 </script>
-
 </body>
 </html>

@@ -121,21 +121,21 @@ section { padding:15px 5%; }
 </footer>
 
 <script>
-const JSON_URL="./channels.json",DEFAULT_LOGO="https://mstvnet.netlify.app/mstv-thumbnail.png",v=document.getElementById("video-player"),i=document.getElementById("iframe-player"),placeholder=document.getElementById("placeholder"),loading=document.getElementById("loading"),liveStamp=document.getElementById("live-stamp"),grid=document.getElementById("channel-list-container"),search=document.getElementById("channel-search");let channels=[],hls=null,shakaPlayer=null;async function stopAll(){loading.style.display="none",placeholder.style.display="flex",liveStamp.style.display="none",hls&&(hls.destroy(),hls=null),shakaPlayer&&(await shakaPlayer.detach(),await shakaPlayer.destroy(),shakaPlayer=null),v.pause(),v.src="",v.style.display="none",i.src="about:blank",i.style.display="none"}async function playChannel(t){const e=channels[t];if(!e)return;window.location.hash=encodeURIComponent(e.name),await stopAll(),loading.style.display="block",placeholder.style.display="none",liveStamp.style.display="block","iframe"===e.type?(i.style.display="block",i.src=e.url,i.onload=()=>loading.style.display="none"):(v.style.display="block",function(t){const e=t.type==="hls"||t.url.includes(".m3u8");if(e&&window.Hls&&Hls.isSupported()){hls=new Hls({autoStartLoad:!0,enableWorker:!0,lowLatencyMode:!0,capLevelToPlayerSize:!0}),hls.attachMedia(v),hls.on(Hls.Events.MEDIA_ATTACHED,()=>{hls.loadSource(t.url)}),v.addEventListener("playing",()=>loading.style.display="none",{once:!0})}else e&&v.canPlayType("application/vnd.apple.mpegurl")?(v.src=t.url,v.play().catch(()=>{}),v.addEventListener("playing",()=>loading.style.display="none",{once:!0})):window.shaka&&shaka.Player.isBrowserSupported()&&(shaka.polyfilled.installAll(),shakaPlayer=new shaka.Player(v),shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}}),shakaPlayer.addEventListener("buffering",e=>{e.buffering|| (loading.style.display="none")}),shakaPlayer.load(t.url).then(()=>v.play().catch(()=>{})).catch(e=>{console.error(e),loading.style.display="none"}))}(e))}function renderUI(t){channels=Array.isArray(t)?t:t.channels||[],grid.innerHTML=channels.map((t,e)=>`<div class="channel-card" onclick="playChannel(${e})"><img src="${t.logo||DEFAULT_LOGO}" alt="${t.name} channel logo" loading="lazy"><div class="channel-name">${t.name}</div></div>`).join("");const e=decodeURIComponent(window.location.hash.substring(1)),n=channels.findIndex(t=>t.name===e);n!==-1&&playChannel(n)}search.addEventListener("input",t=>{const e=t.target.value.toLowerCase();document.querySelectorAll(".channel-card").forEach(t=>{t.style.display=t.innerText.toLowerCase().includes(e)?"flex":"none"})}),async function(){try{const t=await fetch(JSON_URL,{cache:"no-store"});if(t.ok){const e=await t.json();renderUI(e)}}catch(t){console.log("JSON load error:",t)}}();
-const DEFAULT_LOGO = "https://mstvnet.netlify.app/mstv-thumbnail.png"; // 🔴 replace placeholder
+const JSON_URL="./channels.json"; // 🔴 replace with your JSON path or full URL
+const DEFAULT_LOGO="https://mstvnet.netlify.app/mstv-thumbnail.png"; // 🔴 replace with real placeholder/logo
 
-const v = document.getElementById('video-player');
-const i = document.getElementById('iframe-player');
-const placeholder = document.getElementById('placeholder');
-const loading = document.getElementById('loading');
-const liveStamp = document.getElementById('live-stamp');
-const grid = document.getElementById('channel-list-container');
-const search = document.getElementById('channel-search');
+const v=document.getElementById("video-player");
+const i=document.getElementById("iframe-player");
+const placeholder=document.getElementById("placeholder");
+const loading=document.getElementById("loading");
+const liveStamp=document.getElementById("live-stamp");
+const grid=document.getElementById("channel-list-container");
+const search=document.getElementById("channel-search");
 
 let channels=[], hls=null, shakaPlayer=null;
 
 /* Stop all playback */
-async function stopAll() {
+async function stopAll(){
   loading.style.display='none';
   placeholder.style.display='flex';
   liveStamp.style.display='none';
@@ -147,57 +147,60 @@ async function stopAll() {
   i.src='about:blank'; i.style.display='none';
 }
 
-/* Play channel */
+/* Play selected channel */
 async function playChannel(idx){
-  const ch = channels[idx]; if(!ch) return;
-  window.location.hash = encodeURIComponent(ch.name);
+  const ch=channels[idx]; if(!ch) return;
+  window.location.hash=encodeURIComponent(ch.name);
 
   await stopAll();
   loading.style.display='block';
   placeholder.style.display='none';
-
   liveStamp.style.display='block';
 
   if(ch.type==='iframe'){
-    i.style.display='block'; i.src=ch.url; i.onload=()=>loading.style.display='none';
+    i.style.display='block';
+    i.src=ch.url;
+    i.onload=()=>loading.style.display='none';
     return;
   }
 
   v.style.display='block';
-  const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
+  const isHls=ch.type==='hls'||(ch.url&&ch.url.includes('.m3u8'));
 
   if(isHls && window.Hls && Hls.isSupported()){
-    hls=new Hls({autoStartLoad:true,enableWorker:true,lowLatencyMode:true,capLevelToPlayerSize:true});
+    hls=new Hls({autoStartLoad:true, enableWorker:true, lowLatencyMode:true, capLevelToPlayerSize:true});
     hls.attachMedia(v);
     hls.on(Hls.Events.MEDIA_ATTACHED,()=>{hls.loadSource(ch.url);});
     v.addEventListener('playing',()=>loading.style.display='none',{once:true});
   } else if(isHls && v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src=ch.url; v.play().catch(()=>{}); v.addEventListener('playing',()=>loading.style.display='none',{once:true});
+    v.src=ch.url; v.play().catch(()=>{});
+    v.addEventListener('playing',()=>loading.style.display='none',{once:true});
   } else if(window.shaka && shaka.Player.isBrowserSupported()){
     shaka.polyfilled.installAll();
     shakaPlayer=new shaka.Player(v);
-    shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}});
+    shakaPlayer.configure({streaming:{bufferingGoal:10, rebufferingGoal:2, bufferBehind:0}});
     shakaPlayer.addEventListener('buffering', e=>{ if(!e.buffering) loading.style.display='none'; });
-    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } catch(e){ console.error(e); loading.style.display='none'; }
+    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); } 
+    catch(e){ console.error(e); loading.style.display='none'; }
   }
 }
 
 /* Render channels */
 function renderUI(data){
-  channels = Array.isArray(data)?data:data.channels||[];
-  grid.innerHTML = channels.map((ch,index)=>`
+  channels=Array.isArray(data)?data:data.channels||[];
+  grid.innerHTML=channels.map((ch,index)=>`
     <div class="channel-card" onclick="playChannel(${index})">
       <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
       <div class="channel-name">${ch.name}</div>
     </div>
   `).join('');
-  
+
   const hash=decodeURIComponent(window.location.hash.substring(1));
   const startIdx=channels.findIndex(c=>c.name===hash);
   if(startIdx!==-1) playChannel(startIdx);
 }
 
-/* Search */
+/* Search filter */
 search.addEventListener('input', e=>{
   const term=e.target.value.toLowerCase();
   document.querySelectorAll(".channel-card").forEach(card=>{
@@ -205,7 +208,7 @@ search.addEventListener('input', e=>{
   });
 });
 
-/* Load JSON */
+/* Load channels JSON */
 (async()=>{
   try{
     const res=await fetch(JSON_URL,{cache:'no-store'});
@@ -213,8 +216,6 @@ search.addEventListener('input', e=>{
       const data=await res.json();
       renderUI(data);
     }
-  } catch(e){ console.log('JSON load error:',e); }
+  } catch(e){ console.log('JSON load error:', e); }
 })();
 </script>
-</body>
-</html>

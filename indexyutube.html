@@ -17,7 +17,7 @@
 
 <meta name="theme-color" content="#111419">
 
-<!-- Structured Data -->
+<!-- Structured Data for SEO -->
 <script type="application/ld+json">
 {
   "@context": "https://schema.org",
@@ -102,12 +102,7 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; objec
   <section>
     <h2>Available Channels</h2>
     <div class="channel-grid" id="channel-list-container">
-      <!-- Pre-render first few channels for SEO -->
-      <div class="channel-card" role="button" tabindex="0">
-        <img src="https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/9xjalwa.webp" alt="9x Jalwa channel logo" loading="lazy">
-        <div class="channel-name">9x Jalwa</div>
-      </div>
-      <!-- Additional channel cards will be dynamically populated via JSON -->
+      <!-- Channel cards will be dynamically preloaded from JSON for SEO -->
     </div>
   </section>
 </main>
@@ -116,21 +111,42 @@ video, iframe { position:absolute; top:0; left:0; width:100%; height:100%; objec
   © 2026 MSTV Network. All Rights Reserved.
 </footer>
 
+<!-- SEO preload JS -->
 <script defer>
 const JSON_URL = "https://mstvnet.netlify.app/channels.json";
 const DEFAULT_LOGO = "https://mstvnet.netlify.app/mstv-thumbnail.png";
+const grid = document.getElementById('channel-list-container');
 
+async function preloadChannelsForSEO() {
+  try {
+    const res = await fetch(JSON_URL, { cache: 'no-store' });
+    if(!res.ok) return;
+    const data = await res.json();
+    const channels = Array.isArray(data) ? data : data.channels || [];
+    
+    grid.innerHTML = channels.map(ch => `
+      <div class="channel-card" role="button" tabindex="0">
+        <img src="${ch.logo || DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
+        <div class="channel-name">${ch.name}</div>
+      </div>
+    `).join('');
+  } catch(e) { console.error('SEO preload error:', e); }
+}
+
+preloadChannelsForSEO();
+</script>
+
+<!-- Original dynamic playback JS -->
+<script defer>
 const v = document.getElementById('video-player');
 const i = document.getElementById('iframe-player');
 const placeholder = document.getElementById('placeholder');
 const loading = document.getElementById('loading');
 const liveStamp = document.getElementById('live-stamp');
-const grid = document.getElementById('channel-list-container');
 const search = document.getElementById('channel-search');
-
 let channels=[], hls=null, shakaPlayer=null;
 
-async function stopAll(){
+async function stopAll(){ 
   if(loading) loading.style.display='none';
   if(placeholder) placeholder.style.display='flex';
   if(liveStamp) liveStamp.style.display='none';
@@ -140,89 +156,72 @@ async function stopAll(){
   if(i){ i.src='about:blank'; i.style.display='none'; }
 }
 
-async function playChannel(idx) {
-  const ch = channels[idx];
-  if(!ch) return;
-
+async function playChannel(idx){
+  const ch = channels[idx]; if(!ch) return;
   window.location.hash = encodeURIComponent(ch.name);
   await stopAll();
   if(loading) loading.style.display='block';
   if(placeholder) placeholder.style.display='none';
   if(liveStamp) { liveStamp.style.display='block'; liveStamp.textContent = `Now Playing: ${ch.name}`; }
-
   window.scrollTo({ top:0, behavior:'smooth' });
 
-  if(ch.type==='iframe'){
-    i.style.display='block';
-    v.style.display='none';
-    i.src = ch.url;
-    i.onload = ()=>{ if(loading) loading.style.display='none'; };
-    return;
-  }
+  if(ch.type==='iframe'){ i.style.display='block'; v.style.display='none'; i.src=ch.url; i.onload=()=>{if(loading)loading.style.display='none';}; return; }
 
   v.style.display='block';
   const isHls = ch.type==='hls' || (ch.url && ch.url.includes('.m3u8'));
-
   if(isHls && window.Hls && Hls.isSupported()){
-    hls = new Hls({ autoStartLoad:true, enableWorker:true, lowLatencyMode:true, capLevelToPlayerSize:true });
+    hls=new Hls({autoStartLoad:true,enableWorker:true,lowLatencyMode:true,capLevelToPlayerSize:true});
     hls.attachMedia(v);
     hls.on(Hls.Events.MEDIA_ATTACHED, ()=>{ hls.loadSource(ch.url); });
     v.addEventListener('playing', ()=>{ if(loading) loading.style.display='none'; }, {once:true});
   } else if(isHls && v.canPlayType('application/vnd.apple.mpegurl')){
-    v.src = ch.url;
-    v.play().catch(()=>{});
+    v.src=ch.url; v.play().catch(()=>{});
     v.addEventListener('playing', ()=>{ if(loading) loading.style.display='none'; }, {once:true});
   } else if(window.shaka && shaka.Player.isBrowserSupported()){
     shaka.polyfilled.installAll();
-    shakaPlayer = new shaka.Player(v);
+    shakaPlayer=new shaka.Player(v);
     shakaPlayer.configure({streaming:{bufferingGoal:10,rebufferingGoal:2,bufferBehind:0}});
-    shakaPlayer.addEventListener('buffering', e => { if(!e.buffering && loading) loading.style.display='none'; });
-    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{}); }catch(e){ console.error(e); if(loading) loading.style.display='none'; }
+    shakaPlayer.addEventListener('buffering', e=>{if(!e.buffering && loading) loading.style.display='none';});
+    try{ await shakaPlayer.load(ch.url); v.play().catch(()=>{});}catch(e){console.error(e); if(loading) loading.style.display='none';}
   }
 }
 
 function renderUI(data){
-  channels = Array.isArray(data)?data:data.channels||[];
-  const cards = document.querySelectorAll('.channel-card');
+  channels=Array.isArray(data)?data:data.channels||[];
+  const cards=document.querySelectorAll('.channel-card');
   channels.forEach((ch,index)=>{
     if(cards[index]){
-      const card = cards[index];
-      card.onclick = ()=>playChannel(index);
-      card.onkeypress = e=>{ if(e.key==='Enter') playChannel(index); };
-      const img = card.querySelector('img');
-      if(img) img.src = ch.logo || img.src;
+      const card=cards[index];
+      card.onclick=()=>playChannel(index);
+      card.onkeypress=e=>{if(e.key==='Enter')playChannel(index);}
+      const img=card.querySelector('img'); if(img) img.src=ch.logo||img.src;
     } else {
-      const div = document.createElement('div');
-      div.className = 'channel-card';
-      div.setAttribute('role','button');
-      div.tabIndex = 0;
-      div.onclick = ()=>playChannel(index);
-      div.onkeypress = e=>{ if(e.key==='Enter') playChannel(index); };
-      div.innerHTML = `<img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy"><div class="channel-name">${ch.name}</div>`;
+      const div=document.createElement('div');
+      div.className='channel-card'; div.setAttribute('role','button'); div.tabIndex=0;
+      div.onclick=()=>playChannel(index); div.onkeypress=e=>{if(e.key==='Enter')playChannel(index);}
+      div.innerHTML=`<img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy"><div class="channel-name">${ch.name}</div>`;
       grid.appendChild(div);
     }
   });
-
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  const startIdx = channels.findIndex(c=>c.name===hash);
+  const hash=decodeURIComponent(window.location.hash.substring(1));
+  const startIdx=channels.findIndex(c=>c.name===hash);
   if(startIdx!==-1) playChannel(startIdx);
 }
 
 search.addEventListener('input', e=>{
-  const term = e.target.value.toLowerCase();
+  const term=e.target.value.toLowerCase();
   document.querySelectorAll(".channel-card").forEach((card, idx)=>{
-    card.style.display = channels[idx].name.toLowerCase().includes(term)?"flex":"none";
+    card.style.display=channels[idx].name.toLowerCase().includes(term)?"flex":"none";
   });
 });
 
 (async()=>{
   try{
-    const res = await fetch(JSON_URL,{cache:'no-store'});
-    if(res.ok){ const data = await res.json(); renderUI(data); }
+    const res=await fetch(JSON_URL,{cache:'no-store'});
+    if(res.ok){ const data=await res.json(); renderUI(data); }
   }catch(e){ console.error('JSON load error:',e); }
 })();
 </script>
+
 </body>
 </html>
-
-

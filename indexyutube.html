@@ -1,139 +1,182 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Channel Mobile Stream</title>
-    
-    <script src="https://unpkg.com"></script>
-    <script type="module" src="https://unpkg.com"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <style>
-        :root { --primary: #00ffA0; }
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background: #000;
-            display: flex; flex-direction: column; align-items: center;
-            overflow: hidden; font-family: sans-serif;
-        }
+<title>Free Live TV Streaming Online | MSTV Network</title>
 
-        /* Channel Navigation */
-        .channel-bar {
-            width: 100%;
-            overflow-x: auto;
-            white-space: nowrap;
-            background: #111;
-            padding: 10px 5px;
-            border-bottom: 1px solid #333;
-            display: flex; gap: 10px;
-        }
+<meta name="description" content="Watch free live TV online with 50+ Indian, Pakistani and international channels. No signup required. Stream instantly on MSTV Network.">
 
-        .channel-btn {
-            background: #222;
-            color: #fff;
-            border: 1px solid var(--primary);
-            padding: 8px 15px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 14px;
-        }
+<meta name="robots" content="index, follow">
 
-        .channel-btn.active {
-            background: var(--primary);
-            color: #000;
-            font-weight: bold;
-        }
+<!-- 🔴 REPLACE WITH YOUR FINAL DOMAIN -->
+<link rel="canonical" href="https://mstvnet.netlify.app">
 
-        .viewport {
-            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
-            overflow: hidden; position: relative;
-            border: 2px solid var(--primary);
-            background: #000;
-            margin-top: 20px;
-        }
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://mstvnet.netlify.app">
+<meta property="og:title" content="Watch Free Live TV Online">
+<meta property="og:description" content="Stream 50+ live TV channels free. No signup required.">
+<meta property="og:image" content="https://mstvnet.netlify.app/mstv-thumbnail.png">
 
-        #frameMover {
-            position: absolute; width: 100%; height: 270%; top: -155px; left: 0%;
-        }
+<!-- Theme -->
+<meta name="theme-color" content="#111419">
 
-        #captureFrame { width: 100%; height: 100%; border: none; }
+<style>
 
-        #lockLayer {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 9999; pointer-events: none;
-        }
+</style>
 
-        #lockLayer.active { pointer-events: all; }
-
-        .click-hint {
-            position: absolute; bottom: 10px; left: 10px;
-            color: var(--primary); font-size: 10px; opacity: 0.7;
-        }
-    </style>
 </head>
+
 <body>
 
-    <!-- Channel Selector -->
-    <div class="channel-bar" id="channelList">
-        <!-- Buttons will be injected here -->
-    </div>
+<!-- Skip link (accessibility) -->
+<a href="#main" style="position:absolute;left:-9999px;">Skip to content</a>
 
-    <div class="viewport" id="playerWrapper">
-        <div id="lockLayer"></div>
-        <div id="status" class="click-hint">Initialising...</div>
+<header>
+  <div>
+    <h1 style="margin:0;font-size:1.2rem;">MSTV Network</h1>
+    <p style="margin:0;font-size:0.75rem;">Live Indian, Pakistani & International Channels</p>
+  </div>
 
-        <div id="frameMover">
-            <iframe id="captureFrame" is="x-frame-bypass" src="" scrolling="no"></iframe>
-        </div>
-    </div>
+  <input 
+    type="text" 
+    id="channel-search" 
+    placeholder="Search channels..." 
+    aria-label="Search TV channels">
+</header>
+
+<!-- PLAYER SECTION -->
+<section aria-label="Video player">
+  <div class="player-container">
+    <div id="loading">Loading stream...</div>
+
+    <div id="placeholder" aria-hidden="true">📺</div>
+
+    <video id="video-player" controls playsinline></video>
+
+    <iframe 
+      id="iframe-player"
+      title="Live TV Player"
+      sandbox="allow-scripts allow-same-origin allow-presentation"
+      allow="autoplay">
+    </iframe>
+  </div>
+</section>
+
+<!-- MAIN CONTENT -->
+<main id="main">
+
+  <!-- INTRO TEXT (SEO BOOST) -->
+  <section>
+    <h2>Watch Free Live TV Online</h2>
+    <p>
+      Stream Indian, Pakistani and international TV channels live without subscription.
+      MSTV Network lets you watch news, entertainment, sports and more instantly.
+    </p>
+  </section>
+
+  <!-- CHANNEL GRID -->
+  <section>
+    <h2>Available Channels</h2>
+    <div class="channel-grid" id="channel-list-container"></div>
+  </section>
+
+  <!-- SEO CONTENT -->
+  <section>
+    <h2>What You Can Watch</h2>
+    <p>
+      Watch Hindi entertainment, Punjabi channels, live cricket, news broadcasts and religious content.
+      All streams are accessible directly in your browser.
+    </p>
+
+    <h2>How It Works</h2>
+    <p>
+      Select a channel and start watching instantly. No login, no downloads required.
+    </p>
+  </section>
+
+</main>
+
+<footer>
+  <p>© 2026 MSTV Network</p>
+</footer>
 
 <script>
-    // 1. ADD YOUR CHANNELS HERE
-    const channels = [
-        { name: "Sony TV 1", url: "https://d35j504z0x2vu2.cloudfront.net/v1/master/0bc8e8376bd8417a1b6761138aa41c26c7309312/yrf-music/master.m3u8?ads.dpname=distrotv&ads.rnd=znuv&ads.env_i=b6426123-3ac3-458f-9963-7cf54ffe4e58&ads.env_u=&ads.name=DistroTV&ads.bundle=&ads.storeurl=&ads.appCategory=entertainment&ads.app_version=202105131041&ads.width=313&ads.height=176&ads.deviceId=&ads.deviceDNT=0&ads.gdpr=0&ads.us_privacy=0&ads.aid=&ads.deviceMake=Web&ads.deviceIdType=localStorage&ads.deviceConnectionType=2&ads.deviceCategory=web&ads.client_ip=120.21.215.90&ads.geo=AU&ads.lat=-37.78690&ads.long=144.91720&ads.dma=&ads.geoType=2&ads.contentid=23146&ads.content_duration=18000&ads.episode_id=126108&ads.show_id=5049&ads.showCategories=IAB1&ads.episodeCategories=IAB1&ads.genre=Music%2CBollywood%2CAsian&ads.showRating=TV-PG&ads.episodeRating=TV-PG&ads.language=hi&ads.showtitle=YRF%20Music&ads.episodetitle=YRF%20Music&ads.keywords=YRF%20Music%2CNew%20Music%20Releases%2CTop%20Hits%2CLatest%20Music%2CHindi%20Songs%2CNew%20Songs%2CBollywood%20Songs%2CIndian%20Songs%2CNew%20Movie%20Songs%2CHindi%20Music&ads.contenturl=https%3A%2F%2Fwww.google.com%2F&ads.gdprConsent=&ads.paln=&ads.tagname=dtv&ads.islive=1&ads.streamtype=live&ads.vf=3Pd2UUJ5lqi" },
-        { name: "Channel 2", url: "https://d35j504z0x2vu2.cloudfront.net/v1/manifest/0bc8e8376bd8417a1b6761138aa41c26c7309312/shemaroo-filmigaane/10e8f1a8-b99c-4a06-b478-eaa4be34ba11/4.m3u8" },
-        { name: "Channel 3", url: "https://mstvnet.netlify.app" }
-    ];
+const JSON_URL = "YOUR_JSON_URL_HERE"; 
+// 🔴 IMPORTANT: replace with:
+// "./channels.json"
+// OR full URL like:
+// "https://yourdomain.com/channels.json"
 
-    const frame = document.getElementById('captureFrame');
-    const channelList = document.getElementById('channelList');
+const DEFAULT_LOGO = "YOUR_FALLBACK_IMAGE_URL_HERE";
+// 🔴 replace with a real image URL (your logo or placeholder image)
 
-    // 2. BUILD CHANNEL BUTTONS
-    channels.forEach((ch, index) => {
-        const btn = document.createElement('button');
-        btn.className = 'channel-btn';
-        btn.innerText = ch.name;
-        btn.onclick = () => loadChannel(index, btn);
-        channelList.appendChild(btn);
-        
-        // Load first channel by default
-        if(index === 0) loadChannel(0, btn);
-    });
+const v = document.getElementById('video-player');
+const i = document.getElementById('iframe-player');
+const grid = document.getElementById('channel-list-container');
+const search = document.getElementById('channel-search');
 
-    function loadChannel(index, btn) {
-        // Update UI
-        document.querySelectorAll('.channel-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        
-        // Update Iframe
-        frame.src = channels[index].url;
-        document.getElementById('status').innerText = "Playing: " + channels[index].name;
-    }
+let channels = [];
 
-    // Lock Layer Logic
-    document.addEventListener("DOMContentLoaded", function() {
-        const shield = document.getElementById('lockLayer');
-        let clickCount = 0;
-        
-        document.getElementById('playerWrapper').addEventListener('click', function() {
-            clickCount++;
-            if (clickCount >= 4) {
-                shield.classList.add('active');
-                document.getElementById('status').innerText = "CONTROLS LOCKED";
-            }
-        });
-    });
+/* STOP PLAYER */
+function stopAll(){
+  v.pause();
+  v.src = "";
+  i.src = "";
+}
+
+/* PLAY CHANNEL */
+function playChannel(index){
+  const ch = channels[index];
+  if(!ch) return;
+
+  stopAll();
+
+  if(ch.type === "iframe"){
+    i.style.display = "block";
+    v.style.display = "none";
+    i.src = ch.url; // 🔴 your iframe stream URL comes from JSON
+  } else {
+    v.style.display = "block";
+    i.style.display = "none";
+    v.src = ch.url; // 🔴 your video/HLS URL comes from JSON
+    v.play();
+  }
+}
+
+/* RENDER CHANNELS */
+function render(data){
+  channels = data.channels || data;
+
+  grid.innerHTML = channels.map((ch, index) => `
+    <div class="channel-card" onclick="playChannel(${index})">
+      <img 
+        src="${ch.logo || DEFAULT_LOGO}" 
+        alt="${ch.name} channel logo"
+        loading="lazy"
+      >
+      <div>${ch.name}</div>
+    </div>
+  `).join('');
+}
+
+/* SEARCH */
+search.addEventListener("input", e => {
+  const term = e.target.value.toLowerCase();
+  document.querySelectorAll(".channel-card").forEach(card => {
+    card.style.display = card.innerText.toLowerCase().includes(term) ? "block" : "none";
+  });
+});
+
+/* LOAD JSON */
+fetch(JSON_URL)
+  .then(res => res.json())
+  .then(render)
+  .catch(err => console.log(err));
+
 </script>
+
 </body>
 </html>

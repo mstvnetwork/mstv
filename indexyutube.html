@@ -42,7 +42,7 @@
 <script defer src="./shaka/hls.min.js"></script>
 
 <script>
-const el = id => document.getElementById(id);
+    const el = id => document.getElementById(id);
 const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
 const gridContainer = el('channel-list-container');
 const searchInput = el('channel-search');
@@ -50,14 +50,11 @@ const JSON_URL = './channels.json';
 
 let channels = [], hls = null, shakaPlayer = null;
 
-// Generate URL-friendly slug from channel name
-function generateSlug(name){
-  return name.toLowerCase().trim().replace(/[^\w\s-]/g,'').replace(/\s+/g,'-');
-}
-
-// Get slug from current path
-function getSlugFromPath(){
-  return window.location.pathname.replace("/","");
+// NEW: Get the channel index from the URL Hash (#1, #2, etc.)
+function getIndexFromHash() {
+  const hash = window.location.hash; // Gets "#1"
+  const num = parseInt(hash.replace('#', '')); // Converts to 1
+  return isNaN(num) ? -1 : num - 1; // Returns array index (0-based)
 }
 
 // Stop all playback
@@ -74,7 +71,9 @@ async function stopAll(){
 async function playChannel(idx){
   const ch = channels[idx]; if(!ch) return;
 
-  history.replaceState(null, "", "/" + ch.slug); // update URL without reload
+  // NEW: Update the URL hash to #1, #2, etc.
+  window.location.hash = (idx + 1); 
+  
   await stopAll();
 
   if(l) l.style.display='block';
@@ -118,22 +117,23 @@ async function playChannel(idx){
   }
 }
 
-// Render the channel grid and auto-play slug channel if present
+// Render UI
 function renderUI(data){
-  channels = (Array.isArray(data)?data:data.channels||[]).map(ch => ({...ch, slug: generateSlug(ch.name)}));
+  channels = Array.isArray(data) ? data : data.channels || [];
 
   if(!gridContainer) return;
   gridContainer.innerHTML = channels.map((ch,i)=>`
     <div class="channel-card" onclick="playChannel(${i})">
       <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${i<8?'fetchpriority="high"':'loading="lazy"'}
            onerror="this.src='https://mstvnet.netlify.app';">
-      <div class="channel-name">${ch.name}</div>
+      <div class="channel-name">#${i+1} ${ch.name}</div>
     </div>`).join('');
 
-  // Play channel if URL slug matches
-  const slug = getSlugFromPath();
-  const startIdx = channels.findIndex(c => c.slug === slug);
-  if(startIdx !== -1) playChannel(startIdx);
+  // NEW: Check hash on load
+  const startIdx = getIndexFromHash();
+  if(startIdx >= 0 && startIdx < channels.length) {
+    playChannel(startIdx);
+  }
 }
 
 // Search filter
@@ -144,14 +144,13 @@ searchInput.addEventListener('input', e => {
   });
 });
 
-// Handle browser back/forward buttons
-window.addEventListener('popstate', ()=>{
-  const slug = getSlugFromPath();
-  const idx = channels.findIndex(c => c.slug === slug);
-  if(idx !== -1) playChannel(idx);
+// NEW: Listen for URL hash changes (back/forward or manual edit)
+window.addEventListener('hashchange', ()=>{
+  const idx = getIndexFromHash();
+  if(idx >= 0 && idx < channels.length) playChannel(idx);
 });
 
-// Initialize: fetch JSON and render UI
+// Initialize
 (async ()=>{
   try {
     const res = await fetch(JSON_URL,{cache:'no-store'});
@@ -161,6 +160,7 @@ window.addEventListener('popstate', ()=>{
     }
   } catch(e){ console.error('Init error:', e); }
 })();
+
 </script>
 </body>
 </html>

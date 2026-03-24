@@ -2,15 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>MSTV Network | Watch Indian TV Channels Live</title>
 <meta name="description" content="Watch Indian, Punjabi, religious TV channels and live cricket streaming online for free.">
 <meta name="robots" content="index, follow, max-image-preview:large">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<!-- OPTIONAL: replace -->
+<!-- Optional: Google Verification -->
 <meta name="google-site-verification" content="YOUR_GOOGLE_VERIFICATION_CODE">
 
+<!-- Canonical -->
 <link rel="canonical" href="https://mstvnet.netlify.app/">
 
 <!-- Open Graph -->
@@ -24,11 +25,10 @@
 <link rel="preconnect" href="https://mstvnet.netlify.app">
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
 
-<!-- GoatCounter -->
-<script async data-goatcounter="https://mstv.goatcounter.com/count"
-src="https://gc.zgo.at/count.js"></script>
+<!-- GoatCounter Analytics -->
+<script async data-goatcounter="https://mstv.goatcounter.com/count" src="https://gc.zgo.at/count.js"></script>
 
-<!-- Schema -->
+<!-- Structured Data -->
 <script type="application/ld+json">
 {
  "@context":"https://schema.org",
@@ -47,11 +47,12 @@ src="https://gc.zgo.at/count.js"></script>
  "logo":"https://mstvnet.netlify.app/mstv-thumbnail.png"
 }
 </script>
+
 <style>
 :root {
   --bg-dark: #0F1115;
   --accent: #90EE90;
-  --header-h: 50px; /* reduced from 70px */
+  --header-h: 48px;
   --text-dim: #555;
   --max-content-width: 500px;
 }
@@ -70,49 +71,46 @@ html, body {
   box-sizing: border-box;
 }
 
-/* Header */
+/* HEADER */
 header { 
-  position:sticky; 
-  top:0; 
-  z-index:1000; 
+  position: sticky; 
+  top: 0; 
+  z-index: 1000; 
   background:#111419; 
-  height:var(--header-h); 
+  height: var(--header-h); 
+  padding: 2px 12px; 
   display:flex; 
   align-items:center; 
   justify-content:space-between; 
-  padding:0 12px; /* smaller padding */
   border-bottom:1px solid #222; 
 }
 
 .logo-section { 
   display:flex; 
   align-items:center; 
-  gap:6px; /* compact spacing */
+  gap:8px; 
 }
 
 .brand-name { 
-  font-size:0.75rem; 
+  font-size:0.85rem; 
   font-weight:bold; 
-  background:linear-gradient(90deg,#90EE90,#00FFA3); 
+  line-height:1; 
+  background: linear-gradient(90deg,#90EE90,#00FFA3); 
   -webkit-background-clip:text; 
   color:transparent; 
-  line-height:1; 
 }
 
 .slogan { 
-  font-size:0.55rem; 
+  font-size:0.65rem; 
   color:#FFD700; 
-  margin:0; /* remove extra spacing */ 
+  white-space: nowrap; 
 }
 
-/* Hide slogan on small screens */
 @media(max-width:600px){
-  .slogan{
-    display:none;
-  }
+  .slogan{ display:none; }
 }
 
-/* Player */
+/* PLAYER */
 .sticky-player-wrapper { 
   position:sticky; 
   top:var(--header-h); 
@@ -255,148 +253,125 @@ video, iframe {
     width:80vw; 
     height:auto; 
   } 
-   }
-
-/* FOOTER */
-footer{padding:20px;text-align:center}
+}
 </style>
 </head>
 
 <body>
-
 <header>
-<h1>MSTV Network</h1>
-<input id="search" placeholder="Search channels">
+  <div class="logo-section">
+    <h1 class="brand-name">MSTV NETWORK</h1>
+    <div class="slogan">LIVE INDIAN, PAKISTANI & ENGLISH CHANNELS</div>
+  </div>
+  <div class="search-container">
+    <input type="text" id="channel-search" placeholder="Search channels..." aria-label="Search channels">
+  </div>
 </header>
 
-<div class="player-wrap">
-  <div class="player">
-    <video id="video" controls playsinline></video>
-    <iframe id="frame"></iframe>
+<section class="sticky-player-wrapper" aria-label="Video player">
+  <div class="player-container">
+    <div id="loading" aria-live="assertive">Loading stream...</div>
+    <div id="placeholder" aria-hidden="true">📺</div>
+    <div id="live-stamp" aria-live="polite"></div>
+    <video id="video-player" controls playsinline></video>
+    <iframe id="iframe-player" title="Live TV Player" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay"></iframe>
   </div>
-</div>
+</section>
 
-<div class="grid-wrap">
-  <div class="grid" id="grid"></div>
-</div>
+<main id="main">
+  <section>
+    <h2>Available Channels</h2>
+    <div class="channel-grid" id="channel-list-container"></div>
+  </section>
+</main>
 
-<footer>
-<h2>Watch Live Indian TV Channels Online</h2>
-<p>
-Stream Indian, Punjabi, religious channels and cricket matches online for free.
-Works on mobile, tablet and desktop.
-</p>
+<footer class="site-footer">
+  © 2026 MSTV Network. All Rights Reserved.
 </footer>
 
 <script>
 const JSON_URL="./channels.json";
+const DEFAULT_LOGO="https://mstvnet.netlify.app/mstv-thumbnail.png";
+const grid=document.getElementById('channel-list-container');
+const v=document.getElementById('video-player');
+const i=document.getElementById('iframe-player');
+const placeholder=document.getElementById('placeholder');
+const loading=document.getElementById('loading');
+const liveStamp=document.getElementById('live-stamp');
+const search=document.getElementById('channel-search');
+let channels=[],scrollPos=0;
 
-let channels=[];
-let scrollPos=0;
+function slugify(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');}
 
-const grid=document.getElementById('grid');
-const video=document.getElementById('video');
-const frame=document.getElementById('frame');
-
-/* slug generator */
-function slugify(name){
- return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+async function stopAll(){ 
+ if(loading) loading.style.display='none';
+ if(placeholder) placeholder.style.display='flex';
+ if(liveStamp) liveStamp.style.display='none';
+ if(v){ v.pause(); v.src=''; v.style.display='none'; }
+ if(i){ i.src='about:blank'; i.style.display='none'; }
 }
 
-/* stop player */
-function stop(){
- video.pause();
- video.src="";
- video.style.display="none";
-
- frame.src="";
- frame.style.display="none";
-}
-
-/* play channel */
-function play(index){
- const ch=channels[index];
- if(!ch) return;
-
- scrollPos=document.querySelector('.grid-wrap').scrollTop;
-
- stop();
+async function playChannel(idx){
+ const ch=channels[idx]; if(!ch) return;
+ scrollPos=document.querySelector('.channel-grid').scrollTop;
+ await stopAll();
+ if(loading) loading.style.display='block';
+ if(placeholder) placeholder.style.display='none';
+ if(liveStamp){ liveStamp.style.display='block'; liveStamp.textContent=`Now Playing: ${ch.name}`; }
 
  const slug=slugify(ch.name);
-
-/* SEO URL */
  history.replaceState(null,null,"/watch/"+slug);
 
-/* Canonical update */
  const canon=document.querySelector("link[rel='canonical']");
- if(canon){
-  canon.href="https://mstvnet.netlify.app/watch/"+slug;
- }
+ if(canon){ canon.href="https://mstvnet.netlify.app/watch/"+slug; }
 
-/* Dynamic SEO */
  document.title=ch.name+" Live | MSTV Network";
-
  document.querySelector('meta[name="description"]').setAttribute(
-  "content","Watch "+ch.name+" live streaming online for free on MSTV Network."
+   "content","Watch "+ch.name+" live streaming online for free on MSTV Network."
  );
 
-/* highlight */
- document.querySelectorAll('.card').forEach(c=>c.classList.remove('active'));
- document.querySelector(`[data-i="${index}"]`).classList.add('active');
+ document.querySelectorAll('.channel-card').forEach(c=>c.classList.remove('active'));
+ document.querySelector(`[data-i="${idx}"]`)?.classList.add('active');
 
-/* play */
- if(ch.type==="iframe"){
-  frame.style.display="block";
-  frame.src=ch.url;
- }else{
-  video.style.display="block";
-  video.src=ch.url;
-  video.play().catch(()=>{});
- }
+ if(ch.type==='iframe'){ i.style.display='block'; v.style.display='none'; i.src=ch.url; i.onload=()=>{if(loading)loading.style.display='none';} }
+ else { v.style.display='block'; v.src=ch.url; v.play().catch(()=>{}); }
 
-/* restore scroll */
- requestAnimationFrame(()=>{
-  document.querySelector('.grid-wrap').scrollTop=scrollPos;
- });
+ requestAnimationFrame(()=>{ document.querySelector('.channel-grid').scrollTop=scrollPos; });
 }
 
-/* render channels */
-function render(data){
- channels=Array.isArray(data)?data:data.channels;
-
+function renderUI(data){
+ channels=Array.isArray(data)?data:data.channels||[];
  grid.innerHTML=channels.map((ch,i)=>`
-  <div class="card" data-i="${i}">
-    <img src="${ch.logo}" loading="lazy" decoding="async">
-    <div style="padding:6px;text-align:center;font-size:0.85rem">${ch.name}</div>
-  </div>
- `).join("");
-
- document.querySelectorAll('.card').forEach(card=>{
-  card.onclick=()=>play(card.dataset.i);
+   <div class="channel-card" data-i="${i}" role="button" tabindex="0">
+     <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
+     <div class="channel-name">${ch.name}</div>
+   </div>
+ `).join('');
+ document.querySelectorAll('.channel-card').forEach(card=>{
+   card.onclick=()=>playChannel(card.dataset.i);
+   card.onkeypress=e=>{if(e.key==='Enter')playChannel(card.dataset.i);}
  });
 
-/* load from URL */
  const path=location.pathname.split("/watch/")[1]||"";
  if(path){
-  const idx=channels.findIndex(c=>slugify(c.name)===path);
-  if(idx>-1) play(idx);
+   const idx=channels.findIndex(c=>slugify(c.name)===path);
+   if(idx!==-1) playChannel(idx);
  }
 }
 
-/* search */
-document.getElementById('search').oninput=e=>{
- const t=e.target.value.toLowerCase();
- document.querySelectorAll('.card').forEach((c,i)=>{
-  c.style.display=channels[i].name.toLowerCase().includes(t)?"block":"none";
+search.addEventListener('input', e=>{
+ const term=e.target.value.toLowerCase();
+ document.querySelectorAll(".channel-card").forEach((card, idx)=>{
+   card.style.display=channels[idx].name.toLowerCase().includes(term)?"flex":"none";
  });
-};
+});
 
-/* load JSON */
-fetch(JSON_URL)
-.then(r=>r.json())
-.then(render)
-.catch(()=>console.log("channels load error"));
+(async()=>{
+ try{
+   const res=await fetch(JSON_URL,{cache:'no-store'});
+   if(res.ok){ const data=await res.json(); renderUI(data); }
+ }catch(e){ console.error('JSON load error:',e); }
+})();
 </script>
-
 </body>
 </html>

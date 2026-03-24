@@ -2,32 +2,53 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>MSTV Network | Free Live Indian, Pakistani & International TV</title>
-<meta name="description" content="Watch MSTV Network for free 24/7 live streaming of Indian, Pakistani, and International TV channels.">
-<meta name="robots" content="index, follow">
-<link rel="canonical" href="https://mstvnet.netlify.app">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>MSTV Network | Watch Indian TV Channels Live</title>
+<meta name="description" content="Watch Indian, Punjabi, religious TV channels and live cricket streaming online for free.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+
+<!-- Optional: Google Verification -->
+<meta name="google-site-verification" content="YOUR_GOOGLE_VERIFICATION_CODE">
+
+<!-- Canonical -->
+<link rel="canonical" href="https://mstvnet.netlify.app/">
 
 <!-- Open Graph -->
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://mstvnet.netlify.app">
-<meta property="og:title" content="MSTV Network | Free Live Indian & Pakistani TV">
-<meta property="og:description" content="Stream your favorite International TV channels for free 24/7 on MSTV Network.">
+<meta property="og:title" content="MSTV Network Live TV">
+<meta property="og:description" content="Stream Indian TV channels free online.">
 <meta property="og:image" content="https://mstvnet.netlify.app/mstv-thumbnail.png">
-<meta property="og:image:width" content="1200">
-<meta property="og:image:height" content="630">
+<meta property="og:url" content="https://mstvnet.netlify.app/">
+<meta property="og:type" content="website">
 
-<!-- Twitter -->
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="MSTV Network | Free Live Indian & Pakistani TV">
-<meta name="twitter:description" content="Watch your favorite International TV channels for free on MSTV Network.">
-<meta name="twitter:image" content="https://mstvnet.netlify.app/mstv-thumbnail.png">
+<!-- Performance -->
+<link rel="preconnect" href="https://mstvnet.netlify.app">
+<link rel="preconnect" href="https://cdn.jsdelivr.net">
 
-<meta name="theme-color" content="#111419">
-<meta name="google-site-verification" content="36a9620cce1db39f">
+<!-- GoatCounter Analytics -->
+<script async data-goatcounter="https://mstv.goatcounter.com/count" src="https://gc.zgo.at/count.js"></script>
 
-  
- <style>
+<!-- Structured Data -->
+<script type="application/ld+json">
+{
+ "@context":"https://schema.org",
+ "@type":"WebSite",
+ "name":"MSTV Network",
+ "url":"https://mstvnet.netlify.app"
+}
+</script>
+
+<script type="application/ld+json">
+{
+ "@context":"https://schema.org",
+ "@type":"Organization",
+ "name":"MSTV Network",
+ "url":"https://mstvnet.netlify.app",
+ "logo":"https://mstvnet.netlify.app/mstv-thumbnail.png"
+}
+</script>
+
+<style>
 :root {
   --bg-dark: #0F1115;
   --accent: #90EE90;
@@ -317,188 +338,119 @@ Hindi entertainment channels, religious broadcasts and free cricket streaming.
 
 </footer>
 
-<!-- Player Libraries -->
-<script defer src="./shaka.js"></script>
-<script defer src="./shaka/hls.min.js"></script>
 <script>
-const el = (id) => document.getElementById(id);
-const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
-const gridContainer = el('channel-list-container');
-const searchInput = el('channel-search');
-const JSON_URL = './channels.json';
+const JSON_URL="./channels.json";
+const DEFAULT_LOGO="https://mstvnet.netlify.app/mstv-thumbnail.png";
+const grid=document.getElementById('channel-list-container');
+const v=document.getElementById('video-player');
+const i=document.getElementById('iframe-player');
+const placeholder=document.getElementById('placeholder');
+const loading=document.getElementById('loading');
+const liveStamp=document.getElementById('live-stamp');
+const search=document.getElementById('channel-search');
+let channels=[], scrollPos=0;
 
-let channels = [], hls = null, shakaPlayer = null;
-
-// Hide loading once playback starts
-if (v) {
-  v.addEventListener('playing', () => {
-    if (l) l.style.display = 'none';
-  });
+// Converts channel name to URL-friendly slug
+function slugify(name){
+  return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
 }
 
-async function stopAll() {
-  if(l) l.style.display='none';
-  
-  // 1. Completely destroy HLS instance
-  if(hls){ 
-    hls.detachMedia();
-    hls.destroy(); 
-    hls = null; 
-  }
-  
-  // 2. Completely destroy Shaka instance
-  if(shakaPlayer){ 
-    await shakaPlayer.detach();
-    await shakaPlayer.destroy(); 
-    shakaPlayer = null; 
-  }
-  
-  // 3. Reset Video Element to stop background buffering
-  if(v){ 
-    v.pause(); 
-    v.removeAttribute('src'); 
-    v.load(); 
-    v.style.display='none'; 
-  }
-  
-  // 4. Reset Iframe
-  if(i){ 
-    i.src = 'about:blank'; 
-    i.style.display = 'none'; 
-  }
-  
-  if(p) p.style.display = 'flex';
+// Stop all active playback
+async function stopAll(){ 
+  if(loading) loading.style.display='none';
+  if(placeholder) placeholder.style.display='flex';
+  if(liveStamp) liveStamp.style.display='none';
+  if(v){ v.pause(); v.src=''; v.style.display='none'; }
+  if(i){ i.src='about:blank'; i.style.display='none'; }
 }
 
-async function playChannel(idx) {
-  const ch = channels[idx];
-  if (!ch) return;
+// Play a channel by index
+async function playChannel(idx){
+  const ch=channels[idx]; if(!ch) return;
 
-  window.location.hash = encodeURIComponent(ch.name);
+  // Save scroll position of the grid
+  scrollPos=document.querySelector('.channel-grid').scrollTop;
 
-  // Stop any previous playback
   await stopAll();
-
-  v.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  if (l) l.style.display = 'block';
-  if (p) p.style.display = 'none';
-
-  // Helper to hide loader safely
-  const hideLoader = () => { if (l) l.style.display = 'none'; };
-
-  // IFRAME playback
-  if (ch.type === 'iframe') {
-    i.style.display = 'block';
-    i.src = ch.url;
-
-    // Hide loader when iframe finishes loading
-    i.onload = hideLoader;
-    return;
+  if(loading) loading.style.display='block';
+  if(placeholder) placeholder.style.display='none';
+  if(liveStamp){
+    liveStamp.style.display='block';
+    liveStamp.textContent=`Now Playing: ${ch.name}`;
   }
 
-  // VIDEO element playback
-  v.style.display = 'block';
-  const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+  // Update URL slug and SEO
+  const slug=slugify(ch.name);
+  history.replaceState(null,null,"/watch/"+slug);
+  const canon=document.querySelector("link[rel='canonical']");
+  if(canon){ canon.href="https://mstvnet.netlify.app/watch/"+slug; }
+  document.title=ch.name+" Live | MSTV Network";
+  document.querySelector('meta[name="description"]').setAttribute(
+    "content","Watch "+ch.name+" live streaming online for free on MSTV Network."
+  );
 
-  // HLS playback
-  if (isHls) {
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls({
-        autoStartLoad: false,
-        enableWorker: true,
-        lowLatencyMode: true,
-        capLevelToPlayerSize: true
-      });
-      hls.attachMedia(v);
+  // Highlight active channel
+  document.querySelectorAll('.channel-card').forEach(c=>c.classList.remove('active'));
+  document.querySelector(`[data-i="${idx}"]`)?.classList.add('active');
 
-      hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-        hls.loadSource(ch.url);
-        hls.startLoad();
-      });
-
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        v.play().catch(() => {});
-      });
-
-      // Hide loader when video actually starts playing
-      v.addEventListener('playing', hideLoader, { once: true });
-
-    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      v.src = ch.url;
-      v.play().catch(() => {});
-      v.addEventListener('playing', hideLoader, { once: true });
-    }
-    return;
+  // Load player
+  if(ch.type==='iframe'){
+    i.style.display='block'; 
+    v.style.display='none'; 
+    i.src=ch.url; 
+    i.onload=()=>{if(loading)loading.style.display='none';};
+  } else {
+    v.style.display='block'; 
+    i.style.display='none';
+    v.src=ch.url; 
+    v.play().catch(()=>{});
   }
 
-  // DASH / Other streams via Shaka
-  if (window.shaka && shaka.Player.isBrowserSupported()) {
-    shaka.polyfilled.installAll();
-    shakaPlayer = new shaka.Player(v);
-
-    shakaPlayer.configure({
-      streaming: { bufferingGoal: 10, rebufferingGoal: 2, bufferBehind: 0 }
-    });
-
-    // Hide loader when Shaka buffering ends (playback starts)
-    shakaPlayer.addEventListener('buffering', (e) => {
-      if (!e.buffering) hideLoader();
-    });
-
-    try {
-      await shakaPlayer.load(ch.url);
-      v.play().catch(() => {});
-    } catch (e) {
-      console.error('Shaka fail', e);
-      hideLoader(); // hide loader even if loading fails
-    }
-  }
+  // Restore scroll
+  requestAnimationFrame(()=>{ document.querySelector('.channel-grid').scrollTop=scrollPos; });
 }
 
+// Render channel cards in grid
 function renderUI(data){
-  channels = Array.isArray(data) ? data : data.channels || [];
-  
-  if(!gridContainer) return;
-  gridContainer.innerHTML = '';
+  channels=Array.isArray(data)?data:data.channels||[];
+  grid.innerHTML=channels.map((ch,i)=>`
+    <div class="channel-card" data-i="${i}" role="button" tabindex="0">
+      <img src="${ch.logo||DEFAULT_LOGO}" alt="${ch.name} channel logo" loading="lazy">
+      <div class="channel-name">${ch.name}</div>
+    </div>
+  `).join('');
 
-  const createCard = (ch, index) => {
-    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-    const logo = ch.logo || "https://mstvnet.netlify.app";
-    
-    return `
-      <div class="channel-card" onclick="playChannel(${index})">
-        <img src="${logo}" alt="${ch.name}" width="95" height="64" ${priority} 
-             onerror="this.src='https://mstvnet.netlify.app';">
-        <div class="channel-name">${ch.name}</div>
-      </div>`;
-  };
+  document.querySelectorAll('.channel-card').forEach(card=>{
+    card.onclick=()=>playChannel(card.dataset.i);
+    card.onkeypress=e=>{if(e.key==='Enter')playChannel(card.dataset.i);}
+  });
 
-  gridContainer.innerHTML = channels.map(createCard).join('');
-
-  const hash = decodeURIComponent(window.location.hash.substring(1)); 
-  const startIdx = channels.findIndex(c => c.name === hash); 
-  if(startIdx !== -1) playChannel(startIdx);
+  // Handle direct /watch/{slug} URL
+  const pathSlug = location.pathname.split("/watch/")[1] || "";
+  if(pathSlug){
+    const idx=channels.findIndex(c=>slugify(c.name)===pathSlug);
+    if(idx!==-1) playChannel(idx);
+  }
 }
 
-searchInput.addEventListener('input', e => {
-  const term = e.target.value.toLowerCase();
-  document.querySelectorAll('.channel-card').forEach(card => {
-    card.style.display = card.innerText.toLowerCase().includes(term) ? 'flex' : 'none';
+// Search filter
+search.addEventListener('input', e=>{
+  const term=e.target.value.toLowerCase();
+  document.querySelectorAll(".channel-card").forEach((card, idx)=>{
+    card.style.display=channels[idx].name.toLowerCase().includes(term)?"flex":"none";
   });
 });
 
-(async () => {
-  try {
-    const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-    if(res.ok) {
-      const data = await res.json();
-      renderUI(data);
+// Load channels JSON and initialize
+(async()=>{
+  try{
+    const res=await fetch(JSON_URL,{cache:'no-store'});
+    if(res.ok){ 
+      const data=await res.json(); 
+      renderUI(data); 
     }
-  } catch(e) { console.log('Init error:', e); }
+  }catch(e){ console.error('JSON load error:',e); }
 })();
-      </script>
-  <!-- GoatCounter Analytics -->
-<script async data-goatcounter="https://mstv.goatcounter.com/count"
-src="https://gc.zgo.at/count.js"></script>
+</script>
 </body>
 </html>

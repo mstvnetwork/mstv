@@ -2,57 +2,152 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Live TV Player</title>
+<title>Live TV Streaming</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <!-- Player Libraries -->
-<script defer src="./shaka.js"></script>
-<script defer src="./shaka/hls.min.js"></script>
+<script defer src="/shaka.js"></script>
+<script defer src="/shaka/hls.min.js"></script>
 
 <style>
-body { margin:0; background:#111; color:#fff; font-family:Arial }
-#video, #iframePlayer { width:100%; height:60vh; background:#000 }
-.channels { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; padding:10px }
-.channel { background:#1c1c1c; padding:10px; text-align:center; border-radius:10px; cursor:pointer }
-.channel img { width:60px; height:60px; object-fit:contain }
-.embedBox { padding:10px; background:#000 }
-textarea { width:100%; height:60px }
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background: #0b0b0b;
+  color: #fff;
+}
+
+/* HEADER */
+header {
+  padding: 15px 20px;
+  background: #111;
+  border-bottom: 1px solid #222;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+/* MAIN CONTAINER */
+.container {
+  max-width: 1200px;
+  margin: auto;
+  padding: 20px;
+}
+
+/* PLAYER */
+.player-box {
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+video, iframe {
+  width: 100%;
+  height: 60vh;
+  border: none;
+}
+
+/* TITLE */
+.channel-title {
+  font-size: 18px;
+  padding: 10px 0;
+}
+
+/* EMBED BOX */
+textarea {
+  width: 100%;
+  height: 80px;
+  background: #111;
+  color: #0f0;
+  border: 1px solid #333;
+  margin-top: 10px;
+  padding: 10px;
+  font-size: 12px;
+}
+
+/* GRID */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* CHANNEL CARD */
+.channel {
+  background: #111;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.channel:hover {
+  background: #1a1a1a;
+}
+
+.channel img {
+  width: 100%;
+  height: 60px;
+  object-fit: contain;
+  margin-bottom: 5px;
+}
+
+/* FOOTER */
+footer {
+  margin-top: 30px;
+  padding: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: #888;
+  border-top: 1px solid #222;
+}
 </style>
 </head>
 
 <body>
 
-<video id="video" controls autoplay muted playsinline></video>
-<iframe id="iframePlayer" style="display:none;border:none;" allowfullscreen></iframe>
+<header>
+  📺 Live TV Streaming
+</header>
 
-<div class="embedBox">
-<strong>Embed Code:</strong>
-<textarea id="embedCode" readonly></textarea>
+<div class="container">
+
+  <!-- PLAYER -->
+  <div class="player-box">
+    <video id="video" controls></video>
+    <iframe id="iframePlayer" allowfullscreen></iframe>
+  </div>
+
+  <div class="channel-title" id="title">Loading...</div>
+
+  <!-- EMBED -->
+  <textarea id="embedCode" readonly></textarea>
+
+  <!-- CHANNEL GRID -->
+  <div class="grid" id="channelList"></div>
+
 </div>
 
-<div class="channels" id="channelList"></div>
+<footer>
+  © 2026 Live Streaming • All rights reserved
+</footer>
 
 <script>
-const jsonFile = 'channels2.json';
+const jsonFile = '/channels.json';
 
 let video = document.getElementById('video');
 let iframe = document.getElementById('iframePlayer');
 let embedBox = document.getElementById('embedCode');
+let titleBox = document.getElementById('title');
 
 let hlsInstance = null;
 let shakaPlayer = null;
 
-// ✅ Robust URL parser (FIXED)
+// URL PARAM FIX
 function getChannelIndex() {
-  const search = window.location.search;
-
-  const match = search.match(/=(\d+)/);
-
-  if (match && match[1]) {
-    return parseInt(match[1]);
-  }
-
-  return 0;
+  const match = window.location.search.match(/=(\d+)/);
+  return match ? parseInt(match[1]) : 0;
 }
 
 function destroyPlayers() {
@@ -72,7 +167,6 @@ function playStream(url, type) {
   video.style.display = 'none';
   iframe.style.display = 'none';
 
-  // IFRAME
   if (type === 'iframe') {
     iframe.style.display = 'block';
     iframe.src = url;
@@ -81,7 +175,6 @@ function playStream(url, type) {
 
   video.style.display = 'block';
 
-  // HLS
   if (url.includes('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       hlsInstance = new Hls();
@@ -90,16 +183,10 @@ function playStream(url, type) {
     } else {
       video.src = url;
     }
-  }
-
-  // DASH
-  else if (url.includes('.mpd')) {
+  } else if (url.includes('.mpd')) {
     shakaPlayer = new shaka.Player(video);
     shakaPlayer.load(url);
-  }
-
-  // Normal MP4
-  else {
+  } else {
     video.src = url;
   }
 }
@@ -119,22 +206,22 @@ async function init() {
 
     playStream(ch.url, ch.type || 'auto');
 
+    // Update UI
+    titleBox.innerText = ch.name + ' Live Stream';
+    document.title = ch.name + ' Live Stream';
+
     // Update URL
     history.replaceState(null, '', '?=' + index);
 
-    // Update title (SEO)
-    document.title = ch.name + ' Live Stream';
-
-    // Generate embed (FULL UI)
+    // Embed code
     const embedURL = window.location.origin + window.location.pathname + '?=' + index;
 
-    embedBox.value = `<iframe src="${embedURL}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
+    embedBox.value =
+      `<iframe src="${embedURL}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
   }
 
-  // Load initial channel
   play(id);
 
-  // Build channel list
   channels.forEach((ch, i) => {
     const div = document.createElement('div');
     div.className = 'channel';
@@ -149,7 +236,6 @@ async function init() {
 
 init();
 </script>
-
 
 </body>
 </html>

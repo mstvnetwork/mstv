@@ -33,7 +33,26 @@ header {
   -webkit-background-clip: text; color: transparent; line-height: 1;
 }
 .slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
+.search-box {
+  margin: 15px 0;
+  display: flex;
+  justify-content: center;
+}
 
+#searchInput {
+  width: 100%;
+  max-width: 400px;
+  padding: 10px 15px;
+  border-radius: 25px;
+  border: 1px solid #ccc;
+  outline: none;
+  font-size: 14px;
+  background: #fff;
+}
+
+#searchInput:focus {
+  border-color: #888;
+}
 
 /* ===== CONTAINER ===== */
 .container {
@@ -185,6 +204,9 @@ footer {
 
   <!-- EMBED BOX -->
   <textarea id="embedCode" readonly placeholder="Embed code will appear here"></textarea>
+  <div class="search-box">
+  <input type="text" id="searchInput" placeholder="Search channels...">
+  </div>
 
   <!-- HORIZONTAL CHANNEL GRID -->
   <div class="grid" id="channelList"></div>
@@ -287,16 +309,39 @@ async function init() {
 
   play(id);
 
-  channels.forEach((ch, i) => {
+  const searchInput = document.getElementById('searchInput');
+
+// function to render channels
+function renderChannels(filteredChannels) {
+  list.innerHTML = ''; // clear grid
+
+  filteredChannels.forEach(({ ch, index }) => {
     const div = document.createElement('div');
     div.className = 'channel';
     div.innerHTML = `
       <img src="${ch.logo}" alt="${ch.name}">
       <div>${ch.name}</div>
     `;
-    div.onclick = () => play(i);
+    div.onclick = () => play(index);
     list.appendChild(div);
   });
+}
+
+// initial render
+renderChannels(channels.map((ch, i) => ({ ch, index: i })));
+
+// search listener
+searchInput.addEventListener('input', function () {
+  const value = this.value.toLowerCase();
+
+  const filtered = channels
+    .map((ch, i) => ({ ch, index: i }))
+    .filter(item =>
+      item.ch.name.toLowerCase().includes(value)
+    );
+
+  renderChannels(filtered);
+});
 }
 
 init();

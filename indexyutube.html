@@ -3,297 +3,178 @@
 <head>
 <meta charset="UTF-8">
 <title>Live TV Streaming</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
 <!-- Player Libraries -->
 <script defer src="/shaka.js"></script>
 <script defer src="/shaka/hls.min.js"></script>
 
 <style>
-/* ===== BODY ===== */
-body {
-  margin: 0;
+/* ===== 1. CORE LAYOUT: NO SCROLLING ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body, html {
+  height: 100%;
+  width: 100%;
+  overflow: hidden; /* Prevents the whole page from scrolling */
   font-family: 'Helvetica Neue', Arial, sans-serif;
-  background: #f0f0e6; /* Muddy white */
+  background: #f0f0e6;
   color: #111;
 }
 
-/* Sticky header */
-header {
-  position: flexible; top: 0; z-index: 1000;
-  background: #111419; height: var(--header-h);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 5%; border-bottom: 1px solid #222;
-}
-
-.logo-section { display: flex; flex-direction: column; }
-.brand-name {
-  font-size: 1.4rem; font-weight: bold;
-  background: linear-gradient(90deg, #90EE90, #00FFA3);
-  -webkit-background-clip: text; color: transparent; line-height: 1;
-}
-.slogan { font-size: 0.7rem; color: yellow; margin-top: 4px; }
-.search-box {
-  margin: 15px 0;
+/* Flex Container for the entire app */
+.app-wrapper {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
 }
 
-#searchInput {
-  width: 100%;
-  max-width: 400px;
+/* ===== 2. HEADER (Fixed height) ===== */
+header {
+  flex-shrink: 0;
+  background: #111419;
   padding: 10px 15px;
-  border-radius: 25px;
-  border: 1px solid #ccc;
-  outline: none;
-  font-size: 14px;
-  background: #fff;
+  border-bottom: 1px solid #222;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
-#searchInput:focus {
-  border-color: #888;
+.brand-name {
+  font-size: 1.2rem; font-weight: bold;
+  background: linear-gradient(90deg, #90EE90, #00FFA3);
+  -webkit-background-clip: text; color: transparent;
+}
+.slogan { font-size: 0.65rem; color: yellow; margin-bottom: 5px; }
+
+.search-box { width: 100%; max-width: 400px; }
+#searchInput {
+  width: 100%; padding: 8px 15px;
+  border-radius: 20px; border: none; outline: none;
+  font-size: 14px; background: #fff;
 }
 
-/* ===== CONTAINER ===== */
-.container {
-  max-width: 1300px;
-  margin: auto;
-  padding: 20px;
-}
-
-/* ===== STICKY PLAYER ===== */
-.player-box {
-  background: #000;
-  border-radius: 12px;
+/* ===== 3. PLAYER AREA (Flexible center) ===== */
+.main-viewer {
+  flex-grow: 1; /* Takes all remaining vertical space */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 10px;
+  background: #000; /* Theater background */
   overflow: hidden;
-  position: sticky;
-  top: 70px; /* below header */
-  z-index: 999;
-  width: 100%;
 }
 
-/* 16:9 RESPONSIVE PLAYER */
-.player-box::before {
-  content: "";
-  display: block;
-  padding-top: 56.25%; /* 16:9 aspect ratio */
+.player-box {
+  width: 100%;
+  max-width: 1000px; /* Adjust based on preference */
+  aspect-ratio: 16 / 9;
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 5px 25px rgba(0,0,0,0.5);
 }
 
 video, iframe {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%; border: none;
 }
 
-/* ===== CHANNEL TITLE ===== */
 .channel-title {
-  margin: 15px 0;
-  font-size: 20px;
-  font-weight: 600;
-  text-align: center;
-}
-
-/* ===== EMBED BOX ===== */
-textarea {
-  width: 100%;
-  height: 80px;
-  background: #e8e6dd;
-  color: #111;
-  border: 1px solid #ccc;
-  margin-top: 10px;
-  padding: 10px;
-  font-size: 12px;
-  border-radius: 6px;
-  resize: none;
-}
-  #embedCode {
-  display: none;
-  }
-
-/* ===== GRID CONTAINER ===== */
-.grid {
-  /* 1. Vertical Locking */
-  position: -webkit-sticky; /* Support for Safari */
-  position: sticky; 
-  top: 60px;               /* IMPORTANT: Change this to match your header's height */
-  z-index: 100;            /* Ensures it stays above general page content */
-  background-color: #fff;  /* Prevents other content from showing through while sticky */
-  
-  /* 2. Horizontal Scroll Setup */
-  display: flex;           /* Aligns channels in a row */
-  flex-direction: row;
-  overflow-x: auto;        /* Enables the horizontal scrollbar */
-  overflow-y: hidden;      /* Disables vertical scrolling inside the grid */
-  padding: 20px 10px;      /* Space for the hover scale effect */
-  gap: 16px;               /* Space between channel cards */
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
-}
-
-/* ===== CUSTOM SCROLLBAR (CHROME/SAFARI) ===== */
-.grid::-webkit-scrollbar {
-  height: 8px;
-}
-
-.grid::-webkit-scrollbar-thumb {
-  background-color: #aaa;
-  border-radius: 4px;
-}
-
-/* ===== CHANNEL CARDS ===== */
-.channel {
-  flex: 0 0 160px;         /* Prevents cards from shrinking */
-  height: 160px;           /* Fixed square aspect */
-  position: relative;
-  border-radius: 12px;
-  cursor: pointer;
-  overflow: hidden;
-  transition: transform 0.2s, box-shadow 0.2s;
-  background: #e2e0d9;
-}
-
-.channel:hover {
-  transform: scale(1.05);
-  box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-  z-index: 101;            /* Keeps hovered card above neighbors */
-}
-
-.channel img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.channel div {
-  position: absolute;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
-  background: rgba(0,0,0,0.5);
   color: #fff;
-  font-size: 12px;
-  padding: 4px 0;
+  margin-top: 10px;
+  font-size: 16px;
+  font-weight: 500;
 }
 
-/* ===== FOOTER ===== */
-footer {
-  margin-top: 40px;
-  padding: 20px;
-  text-align: center;
-  font-size: 13px;
-  color: #555;
+/* ===== 4. CHANNEL LIST (Bottom horizontal scroll) ===== */
+.grid-wrapper {
+  flex-shrink: 0;
+  background: #f0f0e6;
+  padding: 10px 0;
   border-top: 1px solid #ccc;
 }
 
+.grid {
+  display: flex;
+  flex-direction: row;
+  overflow-x: auto;
+  overflow-y: hidden;
+  gap: 12px;
+  padding: 0 15px 10px 15px;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Hide horizontal scrollbar for clean look */
+.grid::-webkit-scrollbar { display: none; }
+.grid { -ms-overflow-style: none; scrollbar-width: none; }
+
+.channel {
+  flex: 0 0 110px;
+  height: 110px;
+  background: #fff;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  transition: transform 0.2s;
+}
+
+.channel:active { transform: scale(0.95); }
+
+.channel img { width: 100%; height: 100%; object-fit: cover; }
+.channel div {
+  position: absolute; bottom: 0; width: 100%;
+  background: rgba(0,0,0,0.7); color: #fff;
+  font-size: 10px; padding: 4px 0; text-align: center;
+}
+
+/* Footer hidden for app-mode (Optional) */
+.site-footer { display: none; }
+
+/* Responsive tweaks for mobile landscape or small heights */
+@media (max-height: 500px) {
+  .brand-name, .slogan { display: none; }
+  .channel { flex: 0 0 80px; height: 80px; }
+}
 </style>
 </head>
 
 <body>
 
-<header>
-  <div class="logo-section">
+<div class="app-wrapper">
+  <header>
     <div class="brand-name">🎬 MSTV NETWORK</div>
-     <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
-      <div class="search-box">
-  <input type="text" id="searchInput" placeholder="Search channels...">
-      </div>
-  </div>
-  
-</header>
-  
+    <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="Search channels...">
+    </div>
+  </header>
 
-<div class="container">
-
-  <!-- FEATURED PLAYER -->
-  <div class="player-box">
-    <video id="video" controls></video>
-    <iframe id="iframePlayer" allowfullscreen sandbox="allow-scripts allow-same-origin"></iframe>
+  <div class="main-viewer">
+    <div class="player-box">
+      <video id="video" controls></video>
+      <iframe id="iframePlayer" allowfullscreen sandbox="allow-scripts allow-same-origin"></iframe>
+    </div>
+    <div class="channel-title" id="title">Loading...</div>
   </div>
 
-  <div class="channel-title" id="title">Loading Channel...</div>
-
-  <!-- EMBED BOX -->
-  <textarea id="embedCode" readonly placeholder="Embed code will appear here"></textarea>
-
-
-  <!-- HORIZONTAL CHANNEL GRID -->
-  <div class="grid" id="channelList"></div>
-
+  <div class="grid-wrapper">
+    <div class="grid" id="channelList"></div>
+  </div>
 </div>
-<footer class="site-footer">
-<div class="container">
-
-<h2>Watch Live Indian TV Channels Online</h2>
-
-<p>
-MSTV Network provides free streaming of Indian TV channels including Hindi entertainment,
-Punjabi channels, religious broadcasts and live cricket matches. Enjoy smooth playback
-on mobile, tablet and desktop without registration.
-</p>
-
-<h2>Live Punjabi TV & Religious Channels</h2>
-
-<p>
-Watch Punjabi TV live including gurbani, kirtan and spiritual programs.
-You can stream devotional channels and daily religious broadcasts anytime
-with fast loading HD video.
-</p>
-
-<h2>Live Cricket Streaming</h2>
-
-<p>
-Follow international cricket matches including T20 tournaments and major
-sports broadcasts. MSTV Network allows users to watch cricket streaming
-along with Indian entertainment and news channels online.
-</p>
-
-<h2>Technical Instructions</h2>
-
-<p style="border-left:3px solid #444;padding-left:10px;margin-top:15px;font-style:italic;">
-If a channel does not load, try using a VPN to access Indian or Pakistani channels for uninterrupted streaming.
-</p>
-
-<p>
-Popular searches include watching Indian TV online, Punjabi TV live streaming,
-Hindi entertainment channels, religious broadcasts and free cricket streaming.
-</p>
-
-<div class="copyright">
-© 2026 MSTV Network. All Rights Reserved.
-</div>
-</footer>
-
-
 
 <script>
-// ===== CONFIG =====
 const jsonFile = '/channels.json';
+const video = document.getElementById('video');
+const iframe = document.getElementById('iframePlayer');
+const list = document.getElementById('channelList');
+const searchInput = document.getElementById('searchInput');
+const titleDisplay = document.getElementById('title');
 
-// ===== SAFE ELEMENT GETTER =====
-function getOrCreate(id, tag, parent = document.body) {
-  let el = document.getElementById(id);
-  if (!el) {
-    el = document.createElement(tag);
-    el.id = id;
-    parent.appendChild(el);
-  }
-  return el;
-}
-
-// ===== ELEMENTS =====
-const video = getOrCreate('video', 'video');
-const iframe = getOrCreate('iframePlayer', 'iframe');
-const embedBox = getOrCreate('embedCode', 'textarea');
-const list = getOrCreate('channelList', 'div');
-
-video.controls = true;
-iframe.allowFullscreen = true;
-
-// ===== PLAYER LOGIC =====
 let hlsInstance = null;
 let shakaPlayer = null;
 
@@ -309,96 +190,77 @@ function destroyPlayers() {
 
 function playStream(url, type) {
   destroyPlayers();
-  if (video) video.style.display = 'none';
-  if (iframe) iframe.style.display = 'none';
+  video.style.display = 'none';
+  iframe.style.display = 'none';
+  video.src = '';
+  iframe.src = '';
 
   if (type === 'iframe') {
-    if (iframe) { iframe.style.display = 'block'; iframe.src = url; }
+    iframe.style.display = 'block';
+    iframe.src = url;
     return;
   }
 
-  if (video) video.style.display = 'block';
-
+  video.style.display = 'block';
   if (url.includes('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       hlsInstance = new Hls();
       hlsInstance.loadSource(url);
       hlsInstance.attachMedia(video);
+      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(()=>{}));
     } else {
       video.src = url;
     }
   } else if (url.includes('.mpd')) {
     shakaPlayer = new shaka.Player(video);
-    shakaPlayer.load(url);
+    shakaPlayer.load(url).catch(console.error);
   } else {
     video.src = url;
   }
 }
 
-// ===== INIT =====
 async function init() {
-  const res = await fetch(jsonFile, { cache: 'no-store' });
-  const channels = await res.json();
+  try {
+    const res = await fetch(jsonFile, { cache: 'no-store' });
+    const channels = await res.json();
 
-  let id = getChannelIndex();
+    function play(index) {
+      const ch = channels[index];
+      if (!ch) return;
+      playStream(ch.url, ch.type || 'auto');
+      document.title = ch.name + ' Live';
+      titleDisplay.innerText = ch.name + ' Live Stream';
+      history.replaceState(null, '', '?=' + index);
+    }
 
-  function play(index) {
-    if (!channels[index]) index = 0;
+    function renderChannels(filtered) {
+      list.innerHTML = '';
+      filtered.forEach(({ ch, index }) => {
+        const div = document.createElement('div');
+        div.className = 'channel';
+        div.innerHTML = `<img src="${ch.logo}"><div>${ch.name}</div>`;
+        div.onclick = () => play(index);
+        list.appendChild(div);
+      });
+    }
 
-    const ch = channels[index];
+    renderChannels(channels.map((ch, i) => ({ ch, index: i })));
+    play(getChannelIndex());
 
-    playStream(ch.url, ch.type || 'auto');
+    searchInput.addEventListener('input', (e) => {
+      const val = e.target.value.toLowerCase();
+      const filtered = channels
+        .map((ch, i) => ({ ch, index: i }))
+        .filter(item => item.ch.name.toLowerCase().includes(val));
+      renderChannels(filtered);
+    });
 
-    document.title = ch.name + ' Live Stream';
-    if (document.getElementById('title')) document.getElementById('title').innerText = ch.name + ' Live Stream';
-
-    history.replaceState(null, '', '?=' + index);
-
-    const embedURL = window.location.origin + window.location.pathname + '?=' + index;
-
-    embedBox.value = `<iframe src="${embedURL}" width="100%" height="600" frameborder="0" allowfullscreen></iframe>`;
+  } catch (e) {
+    console.error("Initialization failed", e);
   }
-
-  play(id);
-
-  const searchInput = document.getElementById('searchInput');
-
-// function to render channels
-function renderChannels(filteredChannels) {
-  list.innerHTML = ''; // clear grid
-
-  filteredChannels.forEach(({ ch, index }) => {
-    const div = document.createElement('div');
-    div.className = 'channel';
-    div.innerHTML = `
-      <img src="${ch.logo}" alt="${ch.name}">
-      <div>${ch.name}</div>
-    `;
-    div.onclick = () => play(index);
-    list.appendChild(div);
-  });
-}
-
-// initial render
-renderChannels(channels.map((ch, i) => ({ ch, index: i })));
-
-// search listener
-searchInput.addEventListener('input', function () {
-  const value = this.value.toLowerCase();
-
-  const filtered = channels
-    .map((ch, i) => ({ ch, index: i }))
-    .filter(item =>
-      item.ch.name.toLowerCase().includes(value)
-    );
-
-  renderChannels(filtered);
-});
 }
 
 init();
-  
 </script>
-
 </body>
 </html>

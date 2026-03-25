@@ -375,104 +375,68 @@ Hindi entertainment channels, religious broadcasts and free cricket streaming.
 <!-- Player Libraries -->
 <script defer src="./shaka.js"></script>
 <script defer src="./shaka/hls.min.js"></script>
-      <script>
-const el = (id) => document.getElementById(id);
-const v = el('video-player'), i = el('iframe-player'), p = el('placeholder'), l = el('loading');
-const gridContainer = el('channel-list-container');
-const searchInput = el('channel-search');
-const JSON_URL = './channels.json';
+ <script>
+const jsonFile = 'channels.json'; 
+const video = document.getElementById('video');
+const iframe = document.getElementById('iframePlayer');
+const list = document.getElementById('channelList');
+const searchInput = document.getElementById('searchInput');
+const titleEl = document.getElementById('title');
 
-let channels = [], hls = null, shakaPlayer = null;
+let hls = null;
 
-// Helper to create SEO-friendly slugs (e.g. "Star Sports 1" -> "star-sports-1")
-const createSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+function playStream(url, type) {
+  if(hls) { hls.destroy(); hls = null; }
+  video.style.display = 'none'; iframe.style.display = 'none';
+  video.src = ''; iframe.src = '';
 
-async function stopAll() {
-  if(l) l.style.display='none';
-  if(hls){ hls.detachMedia(); hls.destroy(); hls = null; }
-  if(shakaPlayer){ await shakaPlayer.detach(); await shakaPlayer.destroy(); shakaPlayer = null; }
-  if(v){ v.pause(); v.removeAttribute('src'); v.load(); v.style.display='none'; }
-  if(i){ i.src = 'about:blank'; i.style.display = 'none'; }
-  if(p) p.style.display = 'flex';
-}
-
-async function playChannel(idx, pushHistory = true) {
-  const ch = channels[idx];
-  if (!ch) return;
-
-  const slug = createSlug(ch.name);
-
-  // 1. UPDATE SEO METADATA
-  document.title = `${ch.name} - Watch Live on MSTV Network`;
-  const metaDesc = document.querySelector('meta[name="description"]');
-  if (metaDesc) metaDesc.setAttribute('content', `Watch ${ch.name} live stream online for free. High quality Punjabi, Indian, and Pakistani TV on MSTV Network.`);
-
-  // 2. UPDATE URL (SEO Friendly Path)
-  if (pushHistory) {
-    const newPath = `${window.location.origin}/${slug}`;
-    window.history.pushState({ index: idx }, ch.name, newPath);
+  if (type === 'iframe') {
+    iframe.style.display = 'block'; iframe.src = url;
+    return;
   }
 
-  await stopAll();
-  if (l) l.style.display = 'block';
-  if (p) p.style.display = 'none';
-
-  const hideLoader = () => { if (l) l.style.display = 'none'; };
-
-  // Playback Logic
-  if (ch.type === 'iframe') {
-    i.style.display = 'block';
-    i.src = ch.url;
-    i.onload = hideLoader;
-  } else {
-    v.style.display = 'block';
-    const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
-    if (isHls) {
-      if (window.Hls && Hls.isSupported()) {
-        hls = new Hls({ autoStartLoad: true });
-        hls.attachMedia(v);
-        hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(ch.url));
-        hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(() => {}));
-        v.addEventListener('playing', hideLoader, { once: true });
-      }
-    }
-  }
+  video.style.display = 'block';
+  if (url.includes('.m3u8')) {
+    if (window.Hls && Hls.isSupported()) {
+      hls = new Hls(); hls.loadSource(url); hls.attachMedia(video);
+    } else { video.src = url; }
+  } else { video.src = url; }
 }
 
-// 3. HANDLE BROWSER BACK/FORWARD BUTTONS
-window.onpopstate = (event) => {
-  if (event.state && event.state.index !== undefined) {
-    playChannel(event.state.index, false);
-  }
-};
-
-function renderUI(data){
-  channels = Array.isArray(data) ? data : data.channels || [];
-  if(!gridContainer) return;
-
-  gridContainer.innerHTML = channels.map((ch, index) => {
-    const logo = ch.logo || "https://mstvnet.netlify.app";
-    // Using real <a> tags for SEO crawlability
-    return `
-      <a href="/${createSlug(ch.name)}" class="channel-card" 
-         onclick="event.preventDefault(); playChannel(${index})">
-        <img src="${logo}" alt="${ch.name}">
-        <div class="channel-name">${ch.name}</div>
-      </a>`;
-  }).join('');
-
-  // Initial load based on URL path
-  const currentSlug = window.location.pathname.substring(1);
-  const startIdx = channels.findIndex(c => createSlug(c.name) === currentSlug);
-  if(startIdx !== -1) playChannel(startIdx, false);
-}
-
-(async () => {
+async function init() {
   try {
-    const res = await fetch(JSON_URL, { cache: 'no-store' }); 
-    if(res.ok) renderUI(await res.json());
-  } catch(e) { console.log('Init error:', e); }
-})();
+    const res = await fetch(jsonFile);
+    const channels = await res.json();
+    function render(data) {
+      list.innerHTML = '';
+      data.forEach(({ ch, index }) => {
+        const div = document.createElement('div');
+        div.className = 'channel';
+        div.innerHTML = `<img src="${ch.logo}"><div>${ch.name}</div>`;
+        div.onclick = () => {
+          playStream(ch.url, ch.type);
+          titleEl.innerText = ch.name;
+          history.replaceState(null, '', '?=' + index);
+        };
+        list.appendChild(div);
+      });
+    }
+    render(channels.map((ch, i) => ({ ch, index: i })));
+    let id = parseInt(window.location.search.replace('?=', '')) || 0;
+    if(channels[id]) {
+      playStream(channels[id].url, channels[id].type);
+      titleEl.innerText = channels[id].name;
+    }
+    searchInput.oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
+    };
+  } catch(e) { console.error(e); }
+}
+init();
 </script>
+</body>
+</html>
+
 </body>
 </html>

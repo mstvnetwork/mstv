@@ -2,38 +2,39 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>MSTV NETWORK</title>
+<title>MSTV NETWORK - Live</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
 <!-- Player Libraries -->
 <script defer src="https://cdn.jsdelivr.net"></script>
 
 <style>
-/* 1. RESET & LOCK VIEWPORT */
+/* 1. RESET & VIEWPORT LOCK */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body, html {
   height: 100vh;
-  height: 100dvh; /* Fix for mobile browser bars */
+  height: 100dvh; /* Dynamic height for mobile */
   width: 100vw;
-  overflow: hidden; 
+  overflow: hidden; /* Lock the screen */
   font-family: 'Helvetica Neue', Arial, sans-serif;
-  background: #000; /* Dark background to blend with player */
+  background: #000;
   color: #eee;
 }
 
-/* 2. TIGHT GRID LAYOUT */
+/* 2. THE STACK (Zero Gaps) */
 .app-container {
-  display: grid;
-  grid-template-rows: auto auto 1fr auto; /* Header, Search, Player, List */
+  display: flex;
+  flex-direction: column;
   height: 100%;
   width: 100%;
 }
 
-/* 3. HEADER (Minimized Padding) */
+/* 3. HEADER & SEARCH (Fixed heights) */
 header {
+  flex-shrink: 0;
   background: #111419;
-  padding: 8px 15px 4px 15px;
+  padding: 10px 15px 5px 15px;
   text-align: center;
   border-bottom: 1px solid #222;
 }
@@ -43,29 +44,30 @@ header {
   background: linear-gradient(90deg, #90EE90, #00FFA3);
   -webkit-background-clip: text; color: transparent;
 }
-.slogan { font-size: 0.6rem; color: yellow; }
+.slogan { font-size: 0.6rem; color: #ffd700; margin-bottom: 4px; }
 
-/* 4. SEARCH BOX (Reduced Margins) */
-.search-container {
+.search-box {
   background: #111419;
-  padding: 5px 15px 10px 15px;
+  padding-bottom: 10px;
   display: flex;
   justify-content: center;
 }
 
 #searchInput {
-  width: 100%; max-width: 450px;
-  padding: 6px 15px; border-radius: 20px;
+  width: 90%; max-width: 400px;
+  padding: 8px 15px; border-radius: 20px;
   border: none; outline: none; font-size: 14px;
 }
 
-/* 5. PLAYER AREA (Zero extra gaps) */
+/* 4. MAIN VIEWER (The remaining space) */
 .viewer-section {
+  flex-grow: 1; 
   display: flex;
   flex-direction: column;
-  background: #000;
-  width: 100%;
+  justify-content: flex-start; /* Push player to the top of its area */
   align-items: center;
+  background: #000;
+  overflow: hidden;
 }
 
 .player-box {
@@ -82,15 +84,15 @@ video, iframe {
 }
 
 #title {
-  padding: 6px 0;
+  padding: 8px 0;
   font-size: 0.9rem;
-  font-weight: 500;
   color: #fff;
-  text-align: center;
+  font-weight: 500;
 }
 
-/* 6. CHANNEL LIST (Bottom Anchored) */
+/* 5. CHANNEL LIST (Anchored to bottom) */
 .list-section {
+  flex-shrink: 0;
   background: #1a1d23;
   padding: 5px 0 10px 0;
   border-top: 1px solid #333;
@@ -99,34 +101,35 @@ video, iframe {
 .grid {
   display: flex;
   overflow-x: auto;
-  gap: 10px;
-  padding: 0 10px;
+  gap: 12px;
+  padding: 0 15px;
+  scrollbar-width: none; /* Hide scrollbar Firefox */
 }
-
-/* Hide scrollbar for aesthetics */
-.grid::-webkit-scrollbar { display: none; }
+.grid::-webkit-scrollbar { display: none; } /* Hide scrollbar Chrome/Safari */
 
 .channel {
   flex: 0 0 90px;
   height: 90px;
   background: #252a33;
-  border-radius: 6px;
+  border-radius: 8px;
   position: relative;
   cursor: pointer;
   overflow: hidden;
+  transition: transform 0.1s;
 }
 
+.channel:active { transform: scale(0.95); }
 .channel img { width: 100%; height: 100%; object-fit: cover; }
 .channel div {
   position: absolute; bottom: 0; width: 100%;
   background: rgba(0,0,0,0.8); color: #fff;
-  font-size: 9px; padding: 3px 2px; text-align: center;
+  font-size: 9px; padding: 4px 2px; text-align: center;
 }
 
-/* MOBILE LANDSCAPE / SMALL HEIGHT FIX */
+/* MOBILE LANDSCAPE TWEAKS */
 @media (max-height: 500px) {
   .slogan, #title { display: none; }
-  header { padding: 4px; }
+  header { padding: 5px; }
   .channel { flex: 0 0 70px; height: 70px; }
 }
 </style>
@@ -140,13 +143,13 @@ video, iframe {
     <div class="slogan">LIVE INDIAN PAKISTANI & ENGLISH CHANNELS</div>
   </header>
 
-  <div class="search-container">
+  <div class="search-box">
     <input type="text" id="searchInput" placeholder="Search channels...">
   </div>
 
   <main class="viewer-section">
     <div class="player-box">
-      <video id="video" controls autoplay></video>
+      <video id="video" controls autoplay playsinline></video>
       <iframe id="iframePlayer" style="display:none;" allowfullscreen></iframe>
     </div>
     <div id="title">Loading Channel...</div>
@@ -158,7 +161,6 @@ video, iframe {
 </div>
 
 <script>
-// Use your existing JSON logic here
 const jsonFile = 'channels.json'; 
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
@@ -213,8 +215,11 @@ async function init() {
 
     render(channels.map((ch, i) => ({ ch, index: i })));
 
-    // Load initial
-    let id = parseInt(window.location.search.replace('?=', '')) || 0;
+    // Handle Deep Linking
+    let urlParams = new URLSearchParams(window.location.search);
+    let id = 0;
+    for (let pair of urlParams.entries()) { id = parseInt(pair[0]); break; } 
+    
     if(channels[id]) {
       playStream(channels[id].url, channels[id].type);
       titleEl.innerText = channels[id].name;
@@ -224,11 +229,10 @@ async function init() {
       const val = e.target.value.toLowerCase();
       render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
     };
-  } catch(e) { console.error("Error loading channels:", e); }
+  } catch(e) { console.error("Data error:", e); }
 }
 
 init();
 </script>
-
 </body>
 </html>

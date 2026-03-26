@@ -328,20 +328,33 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // 2. DASH LOGIC (Shaka Player)
+  // 2. DASH LOGIC (Shaka Player - Optimized for Speed)
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
       shakaPlayer = new shaka.Player(video);
+      
+      // PERFORMANCE TUNING: Stop the "Laziness"
+      shakaPlayer.configure({
+        streaming: {
+          bufferingGoal: 10,           // Don't wait for a huge buffer
+          rebufferingGoal: 2,          // Resume faster if it stutters
+          bufferBehind: 0,             // Don't waste memory on what we already watched
+          jumpLargeGaps: true,         // Skip bad segments instantly
+          lowLatencyMode: true         // Use modern fast-start tech
+        }
+      });
+
       try {
         await shakaPlayer.load(ch.url);
         video.play().catch(() => {});
         loading.style.display = 'none';
       } catch (e) { console.error('Shaka DASH Error', e); }
     } else {
-      alert("DASH streams are not supported in this browser.");
+      alert("DASH streams not supported.");
     }
     return;
   }
+
 
   // 3. HLS LOGIC (HLS.js)
   if (ch.url.includes('.m3u8')) {

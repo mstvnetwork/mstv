@@ -288,39 +288,61 @@ const loading = document.getElementById('loading');
 const placeholder = document.getElementById('placeholder');
 
 let hls = null;
+let allChannels = []; // Store for global access
 
-function playStream(url, type) {
+// Helper to create clean URL slugs for SEO
+const getSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
+// Function to update Browser Title and Meta Description for SEO
+function updateMetadata(ch) {
+  const metaTitle = `${ch.name} Live Stream | MSTV Network`;
+  const metaDesc = `Watch ${ch.name} live stream online for free. High quality Punjabi, Indian, and Pakistani TV on MSTV Network.`;
+  
+  document.title = metaTitle;
+  let descTag = document.querySelector('meta[name="description"]');
+  if (descTag) {
+    descTag.setAttribute("content", metaDesc);
+  }
+}
+
+function playStream(ch) {
+  if (!ch) return;
+  
   if(hls) { hls.destroy(); hls = null; }
   video.style.display = 'none'; iframe.style.display = 'none';
   video.src = ''; iframe.src = '';
   placeholder.style.display = 'none';
   loading.style.display = 'block';
 
-  if (type === 'iframe') {
+  // Update Page Elements
+  if(titleEl) titleEl.innerText = ch.name + " Live Stream";
+  updateMetadata(ch);
+
+  if (ch.type === 'iframe') {
     iframe.style.display = 'block'; 
-    iframe.src = url;
+    iframe.src = ch.url;
     iframe.onload = () => loading.style.display = 'none';
     return;
   }
 
   video.style.display = 'block';
-  if (url.includes('.m3u8')) {
+  if (ch.url.includes('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       hls = new Hls(); 
-      hls.loadSource(url); 
+      hls.loadSource(ch.url); 
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
+          video.play().catch(() => {});
           loading.style.display = 'none';
       });
     } else { 
-      video.src = url; 
-      video.play();
+      video.src = ch.url; 
+      video.play().catch(() => {});
       loading.style.display = 'none';
     }
   } else { 
-    video.src = url; 
-    video.play();
+    video.src = ch.url; 
+    video.play().catch(() => {});
     loading.style.display = 'none';
   }
 }
@@ -328,20 +350,19 @@ function playStream(url, type) {
 async function init() {
   try {
     const res = await fetch(jsonFile);
-    const channels = await res.json();
+    const rawData = await res.json();
     
-    // Helper to create the same slug as your sitemap
-    const getSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    // Standardize data structure
+    allChannels = rawData.map((ch, i) => ({ ch, index: i }));
 
     function render(data) {
       list.innerHTML = '';
       data.forEach(({ ch, index }) => {
         const div = document.createElement('div');
         div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}"> <div class="channel-name">${ch.name}</div>`;
+        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
         div.onclick = () => {
-          playStream(ch.url, ch.type);
-          titleEl.innerText = ch.name + " Live Stream";
+          playStream(ch);
           // Update URL to clean SEO path
           history.pushState({index}, ch.name, `/${getSlug(ch.name)}`);
         };
@@ -349,36 +370,43 @@ async function init() {
       });
     }
 
-    render(channels.map((ch, i) => ({ ch, index: i })));
+    // 1. Render the grid
+    render(allChannels);
 
-    // --- SEO URL DETECTION LOGIC ---
-    // 1. Check for old style ?=ID
+    // 2. SEO URL / ID Detection
     let id = parseInt(window.location.search.replace('?=', ''));
+    const currentPath = window.location.pathname.substring(1).replace('.html', '');
     
-    // 2. Check for new SEO path (e.g., /b4u-movies)
-    const currentPath = window.location.pathname.substring(1); // removes the "/"
-    
-    if (isNaN(id) && currentPath) {
-      id = channels.findIndex(ch => getSlug(ch.name) === currentPath);
+    if (isNaN(id) && currentPath && currentPath !== 'index') {
+      id = allChannels.findIndex(item => getSlug(item.ch.name) === currentPath);
     }
 
-    // Default to first channel if nothing found
+    // Default to first channel if not found
     if (id === -1 || isNaN(id)) id = 0;
 
-    if(channels[id]) {
-      playStream(channels[id].url, channels[id].type);
-      titleEl.innerText = channels[id].name + " Live Stream";
+    if(allChannels[id]) {
+      playStream(allChannels[id].ch);
     }
 
+    // 3. Search Logic
     searchInput.oninput = (e) => {
       const val = e.target.value.toLowerCase();
-      render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
+      const filtered = allChannels.filter(item => item.ch.name.toLowerCase().includes(val));
+      render(filtered);
     };
-  } catch(e) { console.error(e); }
+
+    // 4. Handle Browser Back Button
+    window.onpopstate = (event) => {
+      if (event.state && event.state.index !== undefined) {
+        playStream(allChannels[event.state.index].ch);
+      }
+    };
+
+  } catch(e) { console.error("MSTV Init Error:", e); }
 }
 
 init();
-
 </script>
+
 </body>
 </html>

@@ -330,64 +330,54 @@ async function init() {
     const res = await fetch(jsonFile);
     const channels = await res.json();
     
-    // Helper to create clean URL slugs
+    // Helper to create the same slug as your sitemap
     const getSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
     function render(data) {
-      if (!list) return; // Guard against missing grid element
       list.innerHTML = '';
-      data.forEach((item) => {
-        const ch = item.ch;
-        const index = item.index;
+      data.forEach(({ ch, index }) => {
         const div = document.createElement('div');
         div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/mstv-thumbnail.png'"> <div class="channel-name">${ch.name}</div>`;
+        div.innerHTML = `<img src="${ch.logo}"> <div class="channel-name">${ch.name}</div>`;
         div.onclick = () => {
           playStream(ch.url, ch.type);
-          if(titleEl) titleEl.innerText = ch.name + " Live Stream";
+          titleEl.innerText = ch.name + " Live Stream";
           // Update URL to clean SEO path
-          history.pushState({index}, ch.name, '/' + getSlug(ch.name));
+          history.pushState({index}, ch.name, `/${getSlug(ch.name)}`);
         };
         list.appendChild(div);
       });
     }
 
-    // 1. ALWAYS RENDER GRID FIRST
-    const mappedChannels = channels.map((ch, i) => ({ ch, index: i }));
-    render(mappedChannels);
+    render(channels.map((ch, i) => ({ ch, index: i })));
 
-    // 2. CHANNEL DETECTION LOGIC
-    let id = -1;
-    const currentPath = window.location.pathname.substring(1); // e.g. "b4u-movies"
-    const searchQuery = window.location.search.replace('?=', ''); // e.g. "5"
-
-    if (searchQuery && !isNaN(parseInt(searchQuery))) {
-      id = parseInt(searchQuery); // Old ?= style
-    } else if (currentPath && currentPath !== 'index.html') {
-      id = channels.findIndex(ch => getSlug(ch.name) === currentPath); // New SEO path
+    // --- SEO URL DETECTION LOGIC ---
+    // 1. Check for old style ?=ID
+    let id = parseInt(window.location.search.replace('?=', ''));
+    
+    // 2. Check for new SEO path (e.g., /b4u-movies)
+    const currentPath = window.location.pathname.substring(1); // removes the "/"
+    
+    if (isNaN(id) && currentPath) {
+      id = channels.findIndex(ch => getSlug(ch.name) === currentPath);
     }
 
-    // 3. PLAY DETECTED CHANNEL (or default to index 0)
-    if (id === -1 || !channels[id]) id = 0;
+    // Default to first channel if nothing found
+    if (id === -1 || isNaN(id)) id = 0;
 
     if(channels[id]) {
       playStream(channels[id].url, channels[id].type);
-      if(titleEl) titleEl.innerText = channels[id].name + " Live Stream";
+      titleEl.innerText = channels[id].name + " Live Stream";
     }
 
-    // 4. SEARCH FUNCTIONALITY
-    if(searchInput) {
-        searchInput.oninput = (e) => {
-          const val = e.target.value.toLowerCase();
-          const filtered = mappedChannels.filter(item => item.ch.name.toLowerCase().includes(val));
-          render(filtered);
-        };
-    }
-  } catch(e) { 
-    console.error("Init Error:", e);
-  }
+    searchInput.oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
+    };
+  } catch(e) { console.error(e); }
 }
 
+init();
 
 </script>
 </body>

@@ -330,6 +330,9 @@ async function init() {
     const res = await fetch(jsonFile);
     const channels = await res.json();
     
+    // Helper to create the same slug as your sitemap
+    const getSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
     function render(data) {
       list.innerHTML = '';
       data.forEach(({ ch, index }) => {
@@ -339,7 +342,8 @@ async function init() {
         div.onclick = () => {
           playStream(ch.url, ch.type);
           titleEl.innerText = ch.name + " Live Stream";
-          history.replaceState(null, '', '?=' + index);
+          // Update URL to clean SEO path
+          history.pushState({index}, ch.name, `/${getSlug(ch.name)}`);
         };
         list.appendChild(div);
       });
@@ -347,7 +351,20 @@ async function init() {
 
     render(channels.map((ch, i) => ({ ch, index: i })));
 
-    let id = parseInt(window.location.search.replace('?=', '')) || 0;
+    // --- SEO URL DETECTION LOGIC ---
+    // 1. Check for old style ?=ID
+    let id = parseInt(window.location.search.replace('?=', ''));
+    
+    // 2. Check for new SEO path (e.g., /b4u-movies)
+    const currentPath = window.location.pathname.substring(1); // removes the "/"
+    
+    if (isNaN(id) && currentPath) {
+      id = channels.findIndex(ch => getSlug(ch.name) === currentPath);
+    }
+
+    // Default to first channel if nothing found
+    if (id === -1 || isNaN(id)) id = 0;
+
     if(channels[id]) {
       playStream(channels[id].url, channels[id].type);
       titleEl.innerText = channels[id].name + " Live Stream";
@@ -360,7 +377,6 @@ async function init() {
   } catch(e) { console.error(e); }
 }
 
-init();
 </script>
 </body>
 </html>

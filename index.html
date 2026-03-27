@@ -3,6 +3,7 @@
 <head>
 <script src="./shaka/hls2.min.js" defer></script>
 <script src="./shaka/shaka-player.ui.min.js" defer></script>
+<link rel="stylesheet" href="./shaka/shaka-ui.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -170,8 +171,42 @@ video, iframe {
 }
 
 #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 5rem; color: var(--accent); }
-#loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 100; color: var(--accent); background: rgba(0,0,0,0.6); padding: 5px 10px; border-radius: 5px; display: none; }
+#loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  display: none; /* Hidden by default */
+}
 
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border-top-color: #007bff; /* MSTV Primary Blue */
+  animation: spin 0.8s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+ /* Toast Notifications */
+.mstv-toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(30, 30, 30, 0.95);
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 8px;
+  border-left: 4px solid #007bff;
+  z-index: 10000;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  transition: opacity 0.5s ease;
+}
 /* TICKER */
 .ticker {
   overflow: hidden; width: 94%; max-width: var(--max-width);
@@ -251,7 +286,9 @@ video, iframe {
 
 <div class="sticky-player-wrapper">
     <div class="player-container">
-      <div id="loading"></div>
+      <div id="loading">
+  <div class="spinner"></div>
+      </div>
       <div id="placeholder">📺</div>
       <video id="video" autoplay playsinline controls></video>
       <iframe id="iframePlayer" 
@@ -299,209 +336,184 @@ video, iframe {
 
   </main>
 </div>
-   <script>
+<script>
 /**
- * 1. CONFIGURATION & LIBRARY LOADER
+ * MSTV NETWORK - HEAD-READY CORE
+ * Optimized for scripts placed in the <head> with 'defer'.
  */
-const videoLibraries = [
-  "./shaka/hls2.min.js",           
-  "./shaka/shaka-player.ui.min.js" 
-];
 
-// Load local Shaka UI CSS
-const link = document.createElement('link');
-link.rel = 'stylesheet';
-link.href = "./shaka/shaka-ui.css";
-document.head.appendChild(link);
+// 1. GLOBAL VARIABLES
+const videoLibraries = ["./shaka/hls2.min.js", "./shaka/shaka-player.ui.min.js"];
+const placeholderUrl = "https://mstvnet.netlify.app/placeholder-player.png";
 
-let scriptLoadCount = 0;
 let libsReady = false;
 let allChannels = [];
 let hlsEngine = null;
 let dashEngine = null;
+let loadTimeout = null;
 
-// DOM Elements
-const video = document.getElementById('video');
-const iframe = document.getElementById('iframePlayer');
-const list = document.getElementById('channelList');
-const searchInput = document.getElementById('searchInput');
-const titleEl = document.getElementById('title');
-const loading = document.getElementById('loading');
+// This will be populated once the DOM is ready
+let video, iframe, list, searchInput, titleEl, loading;
 
-const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+// 2. DOM READINESS WRAPPER
+document.addEventListener('DOMContentLoaded', () => {
+    // Link DOM elements
+    video = document.getElementById('video');
+    iframe = document.getElementById('iframePlayer');
+    list = document.getElementById('channelList');
+    searchInput = document.getElementById('searchInput');
+    titleEl = document.getElementById('title');
+    loading = document.getElementById('loading');
 
-function startVideoApp() {
-  videoLibraries.forEach(src => {
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.onload = () => {
-      scriptLoadCount++;
-      if (scriptLoadCount === videoLibraries.length) {
-        if (window.shaka) shaka.polyfill.installAll();
-        libsReady = true;
-        init(true); 
-      }
-    };
-    document.head.appendChild(script);
-  });
+    // Add global listener for spinner removal
+    if (video) {
+        video.addEventListener('playing', () => {
+            clearTimeout(loadTimeout);
+            if (loading) loading.style.display = 'none';
+            video.removeAttribute('poster');
+        });
+    }
+
+    // Start library check & Init
+    checkLibsAndStart();
+});
+
+// 3. LIBRARY & DATA SYNC
+function checkLibsAndStart() {
+    // Since scripts are in <head> with 'defer', they might be ready or loading
+    const check = setInterval(() => {
+        if (window.Hls && window.shaka) {
+            clearInterval(check);
+            shaka.polyfill.installAll();
+            libsReady = true;
+            init(true);
+        }
+    }, 100);
 }
 
-startVideoApp();
-
-/**
- * 2. REAL-TIME SYNC & TOAST NOTIFICATION
- */
 async function init(isFirstLoad = false) {
-  try {
-    const jsonUrl = 'channels.json?v=' + new Date().getTime();
-    const res = await fetch(jsonUrl);
-    const newData = await res.json();
+    try {
+        const res = await fetch(`channels.json?v=${Date.now()}`);
+        const newData = await res.json();
 
-    // Check if data actually changed since last fetch
-    if (allChannels.length > 0 && JSON.stringify(newData) !== JSON.stringify(allChannels)) {
-      showToast("Channel list updated!");
-    }
+        if (allChannels.length > 0 && JSON.stringify(newData) !== JSON.stringify(allChannels)) {
+            showToast("Channel list updated!");
+        }
 
-    if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
-      allChannels = newData;
-      renderGrid(allChannels);
-    }
-
-    if (isFirstLoad) {
-      handleDeepLinking();
-    }
-  } catch (e) {
-    console.error("Sync Error:", e);
-  }
+        if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
+            allChannels = newData;
+            renderGrid(allChannels);
+        }
+        if (isFirstLoad) handleDeepLinking();
+    } catch (e) { console.error("Sync Failed", e); }
 }
 
-// Check for updates every 5 minutes
-setInterval(() => init(false), 300000); 
+setInterval(() => init(false), 300000); // 5-minute background sync
 
-function showToast(message) {
-  const toast = document.createElement('div');
-  toast.style = "position:fixed; bottom:20px; right:20px; background:#333; color:#fff; padding:12px 20px; border-radius:8px; z-index:9999; box-shadow:0 4px 12px rgba(0,0,0,0.5); font-family:sans-serif; transition: opacity 0.5s;";
-  toast.innerText = message;
-  document.body.appendChild(toast);
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    setTimeout(() => toast.remove(), 500);
-  }, 4000);
+function showToast(msg, isError = false) {
+    const t = document.createElement('div');
+    t.className = "mstv-toast";
+    if (isError) t.style.borderLeftColor = "#ff4444";
+    t.innerText = msg;
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 4000);
 }
 
-/**
- * 3. PLAYER ENGINE LOGIC (TRIGGERED ON SELECTION)
- */
+// 4. PLAYER ENGINE (THE "BRAIN")
 async function resetPlayer() {
-  if (loading) loading.style.display = 'block';
-  if (video) video.style.display = 'none';
-  if (iframe) iframe.style.display = 'none';
+    clearTimeout(loadTimeout);
+    if (loading) loading.style.display = 'block';
+    if (video) {
+        video.style.display = 'none';
+        video.setAttribute('poster', placeholderUrl);
+        video.pause(); video.removeAttribute('src'); video.load();
+    }
+    if (iframe) { iframe.style.display = 'none'; iframe.src = "about:blank"; }
 
-  if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
-  if (dashEngine) {
-    await dashEngine.detach();
-    await dashEngine.destroy();
-    dashEngine = null;
-  }
-
-  if (video) {
-    video.pause();
-    video.removeAttribute('src'); 
-    video.load();
-  }
-  if (iframe) iframe.src = "about:blank";
+    if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
+    if (dashEngine) { await dashEngine.detach(); await dashEngine.destroy(); dashEngine = null; }
 }
 
 async function playStream(ch) {
-  if (!ch || !libsReady) return;
-  await resetPlayer(); 
-  if (titleEl) titleEl.innerText = ch.name;
-  document.title = `${ch.name} | MSTV`;
+    if (!ch || !libsReady) return;
+    await resetPlayer();
+    
+    if (titleEl) titleEl.innerText = ch.name;
+    document.title = `${ch.name} | MSTV`;
 
-  if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
-    iframe.style.display = 'block';
-    iframe.src = ch.url;
-    iframe.onload = () => { if (loading) loading.style.display = 'none'; };
-    return;
-  }
+    // Start Error Timer (15 seconds)
+    loadTimeout = setTimeout(() => {
+        if (loading && loading.style.display !== 'none') {
+            showToast("Stream taking too long. It might be offline.", true);
+            loading.style.display = 'none';
+        }
+    }, 15000);
 
-  video.style.display = 'block';
-
-  // DASH ENGINE (Only triggers if .mpd selected)
-  if (ch.url.includes('.mpd')) {
-    if (window.shaka && shaka.Player.isBrowserSupported()) {
-      dashEngine = new shaka.Player();
-      try {
-        await dashEngine.attach(video);
-        await dashEngine.load(ch.url);
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      } catch (e) { console.error("DASH Error:", e); }
+    if (ch.type === 'iframe' || ch.url.includes('youtube.com')) {
+        iframe.style.display = 'block';
+        iframe.src = ch.url;
+        iframe.onload = () => { clearTimeout(loadTimeout); loading.style.display = 'none'; };
+        return;
     }
-    return;
-  }
 
-  // HLS ENGINE (Only triggers if .m3u8 selected)
-  if (ch.url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
-      hlsEngine = new Hls();
-      hlsEngine.loadSource(ch.url);
-      hlsEngine.attachMedia(video);
-      hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      });
-    } 
-    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = ch.url;
-      video.addEventListener('loadedmetadata', () => {
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      }, { once: true });
+    video.style.display = 'block';
+
+    if (ch.url.includes('.mpd')) {
+        dashEngine = new shaka.Player();
+        try {
+            await dashEngine.attach(video);
+            await dashEngine.load(ch.url);
+            video.play().catch(() => {});
+        } catch (e) { showToast("DASH Load Error", true); }
+        return;
     }
-    return;
-  }
+
+    if (ch.url.includes('.m3u8')) {
+        if (window.Hls && Hls.isSupported()) {
+            hlsEngine = new Hls();
+            hlsEngine.loadSource(ch.url);
+            hlsEngine.attachMedia(video);
+            hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = ch.url;
+            video.addEventListener('loadedmetadata', () => video.play().catch(() => {}), { once: true });
+        }
+        return;
+    }
 }
 
-/**
- * 4. UI HANDLING
- */
+// 5. UI HANDLERS
+const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+
 function renderGrid(data) {
-  if (!list) return;
-  list.innerHTML = '';
-  data.forEach((ch) => {
-    const div = document.createElement('div');
-    div.className = 'channel-card';
-    div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> <div class="channel-name">${ch.name}</div>`;
-    div.onclick = () => {
-      playStream(ch);
-      history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    };
-    list.appendChild(div);
-  });
+    if (!list) return;
+    list.innerHTML = '';
+    data.forEach((ch) => {
+        const div = document.createElement('div');
+        div.className = 'channel-card';
+        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> <div class="channel-name">${ch.name}</div>`;
+        div.onclick = () => {
+            playStream(ch);
+            history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        list.appendChild(div);
+    });
 }
 
 function handleDeepLinking() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const channelSlug = urlParams.get('ch');
-  let startChannel = allChannels;
+    const urlParams = new URLSearchParams(window.location.search);
+    const chSlug = urlParams.get('ch');
+    const startCh = chSlug ? allChannels.find(c => getSlug(c.name) === chSlug) : allChannels;
+    if (startCh) playStream(startCh);
 
-  if (channelSlug) {
-    const found = allChannels.find(c => getSlug(c.name) === channelSlug);
-    if (found) startChannel = found;
-  }
-
-  if (startChannel) playStream(startChannel);
-
-  if (searchInput) {
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    };
-  }
+    if (searchInput) {
+        searchInput.oninput = (e) => {
+            const val = e.target.value.toLowerCase();
+            renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+        };
+    }
 }
- </script> 
- </body>
+</script>
+</body>
 </html>

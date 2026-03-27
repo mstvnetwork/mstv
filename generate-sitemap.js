@@ -69,11 +69,12 @@ channels.forEach(ch => {
 });
 
 // 5. SAVE SITEMAP.XML
-// Ensure NO extra spaces or lines exist before the <?xml tag
+// The xmlns MUST use http:// and match this exact string
 const sitemapContent = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${sitemapEntries.join('\n')}
 </urlset>`;
 
+// .trim() is essential to ensure NO hidden spaces or lines appear before the <?xml tag
 fs.writeFileSync('./sitemap.xml', sitemapContent.trim());
 console.log(`✅ Success: ${channels.length} pages built & Sitemap updated!`);

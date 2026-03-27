@@ -10,7 +10,6 @@ const channels = JSON.parse(fs.readFileSync('./channels.json', 'utf8'));
 // 3. SETUP FOLDER (Clean & Recreate)
 const pagesDir = path.join(__dirname, 'channels_pages');
 
-// If it exists as a file or folder, remove it to ensure a clean directory
 if (fs.existsSync(pagesDir)) {
     fs.rmSync(pagesDir, { recursive: true, force: true });
 }
@@ -19,7 +18,21 @@ fs.mkdirSync(pagesDir);
 // Helper to make URLs clean: "9x Jalwa " -> "9x-jalwa"
 const getSlug = (text) => text.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
-let sitemapEntries = [`<url><loc>${DOMAIN}/</loc></url>`];
+// Helper to fix the "EntityRef" error by escaping special characters for XML
+const escapeXml = (unsafe) => {
+    return unsafe.replace(/[<>&"']/g, (m) => {
+        switch (m) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case '"': return '&quot;';
+            case "'": return '&apos;';
+            default: return m;
+        }
+    });
+};
+
+let sitemapEntries = [`    <url><loc>${DOMAIN}/</loc></url>`];
 
 // 4. GENERATE INDIVIDUAL SEO PAGES
 channels.forEach(ch => {
@@ -43,19 +56,24 @@ channels.forEach(ch => {
     <img src="${ch.logo}" alt="${ch.name} logo" width="150">
     <h1>${ch.name} Live</h1>
     <p>You are viewing the SEO preview for ${ch.name}.</p>
-    
-    <!-- Link back to the main player with the auto-load parameter -->
     <a href="/?ch=${slug}" class="player-btn">OPEN IN LIVE PLAYER</a>
-
     <p><br><a href="/" style="color: #888;">View All Channels</a></p>
 </body>
 </html>`;
 
     fs.writeFileSync(path.join(pagesDir, fileName), htmlTemplate);
-    sitemapEntries.push(`<url><loc>${DOMAIN}/channels_pages/${fileName}</loc></url>`);
+    
+    // Use escapeXml on the URL to prevent "EntityRef" errors in Google Search Console
+    const safeUrl = escapeXml(`${DOMAIN}/channels_pages/${fileName}`);
+    sitemapEntries.push(`    <url><loc>${safeUrl}</loc></url>`);
 });
+
 // 5. SAVE SITEMAP.XML
+// Ensure NO extra spaces or lines exist before the <?xml tag
 const sitemapContent = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org">
 ${sitemapEntries.join('\n')}
 </urlset>`;
+
+fs.writeFileSync('./sitemap.xml', sitemapContent.trim());
+console.log(`✅ Success: ${channels.length} pages built & Sitemap updated!`);

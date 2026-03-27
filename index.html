@@ -300,14 +300,15 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER (FIXED URLs)
+ * 1. CDN LIBRARY LOADER (FIXED)
+ * Uses high-availability CDN links to bypass local 404/MIME errors.
  */
 const libs = [
-  // HLS.js
+  // HLS Engine
   "https://cdnjs.cloudflare.com",
-  // Shaka Player (Main Engine)
+  // Shaka Engine (DASH)
   "https://cdnjs.cloudflare.com",
-  // Shaka Player UI (Styles - fixes the MIME error)
+  // Shaka UI Styles
   "https://cdnjs.cloudflare.com"
 ];
 
@@ -327,14 +328,22 @@ libs.forEach(src => {
   el.onload = () => {
     loadedCount++;
     if (loadedCount === libs.length) {
-      if (window.shaka) shaka.polyfill.installAll();
-      init(); 
+      if (window.shaka) {
+        shaka.polyfill.installAll();
+        // Critical: Check if the browser supports DASH
+        if (shaka.Player.isBrowserSupported()) {
+          init(); 
+        } else {
+          console.error("DASH is not supported in this browser.");
+          init(); // Still load grid
+        }
+      }
     }
   };
 
   el.onerror = () => {
-    console.error("Failed to load resource:", src);
-    loadedCount++; // Still increment to prevent the grid from hanging
+    console.error("Failed to load library: " + src);
+    loadedCount++;
     if (loadedCount === libs.length) init();
   };
 

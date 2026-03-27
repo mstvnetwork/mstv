@@ -302,28 +302,44 @@ video, iframe {
 /**
  * 1. CDN LIBRARY LOADER
  * Injects HLS.js and Shaka Player automatically. 
- * This fixes the "ReferenceError" and "SyntaxError" for good.
  */
 const libs = [
-  "https://cdn.jsdelivr.net",
-  "https://cdnjs.cloudflare.com"
+  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
 ];
 
 let loadedCount = 0;
+
 libs.forEach(src => {
   const s = document.createElement('script');
   s.src = src;
+  s.async = true; // Best practice for dynamic scripts
   s.onload = () => {
     loadedCount++;
     if (loadedCount === libs.length) {
-      if (window.shaka) shaka.polyfill.installAll();
-      init(); // Start the app once libraries are ready
+      // Initialize Shaka polyfills (required for browser compatibility)
+      if (window.shaka) {
+        shaka.polyfill.installAll();
+      }
+      
+      // Start your application logic
+      init(); 
     }
   };
+  
+  s.onerror = () => console.error(`Failed to load script: ${src}`);
   document.head.appendChild(s);
 });
 
 /**
+ * 2. APP INITIALIZATION
+ */
+function init() {
+  console.log("Libraries loaded. Shaka version:", window.shaka?.Player.version);
+  console.log("HLS.js supported:", Hls.isSupported());
+  
+  // Your player setup code goes here
+}
  * 2. MAIN PLAYER LOGIC
  */
 const jsonFile = 'channels.json?v=' + new Date().getTime();

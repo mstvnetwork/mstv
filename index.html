@@ -298,23 +298,24 @@ video, iframe {
 
   </main>
 </div>
-<script>
+    <script>
 /**
  * 1. LOCAL LIBRARY LOADER
- * Uses your local repository files for both HLS and Shaka.
+ * Loads libraries immediately, but does NOT initialize any players yet.
  */
 const videoLibraries = [
-  "./shaka/hls2.min.js",           // Your local HLS library
-  "./shaka/shaka-player.ui.min.js" // Your local Shaka JS
+  "./shaka/hls2.min.js",
+  "./shaka/shaka-player.ui.min.js"
 ];
 
-// Load local Shaka UI CSS
+// Load CSS for Shaka UI
 const link = document.createElement('link');
 link.rel = 'stylesheet';
 link.href = "./shaka/shaka-ui.css";
 document.head.appendChild(link);
 
 let scriptLoadCount = 0;
+let libsReady = false;
 
 function startVideoApp() {
   videoLibraries.forEach(src => {
@@ -325,12 +326,9 @@ function startVideoApp() {
       scriptLoadCount++;
       if (scriptLoadCount === videoLibraries.length) {
         if (window.shaka) shaka.polyfill.installAll();
-        init(); // Start the app
+        libsReady = true;
+        init(); // Only build the channel grid
       }
-    };
-    script.onerror = () => {
-      console.error("Could not find local file: " + src);
-      init(); // Load grid anyway
     };
     document.head.appendChild(script);
   });
@@ -355,18 +353,20 @@ let allChannels = [];
 
 const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
+// COMPLETE CLEANUP: Destroys everything before switching
 async function resetPlayer() {
   if (loading) loading.style.display = 'block';
   if (video) video.style.display = 'none';
   if (iframe) iframe.style.display = 'none';
 
+  // Kill HLS Engine
   if (hlsEngine) {
     hlsEngine.destroy();
     hlsEngine = null;
   }
 
+  // Kill DASH Engine
   if (dashEngine) {
-    // Standard practice: detach before destroying
     await dashEngine.detach();
     await dashEngine.destroy();
     dashEngine = null;
@@ -377,15 +377,15 @@ async function resetPlayer() {
     video.removeAttribute('src'); 
     video.load();
   }
-  if (iframe) iframe.src = "about:blank";
 }
 
 async function playStream(ch) {
-  if (!ch) return;
+  if (!ch || !libsReady) return;
+  
   await resetPlayer(); 
   if (titleEl) titleEl.innerText = ch.name;
 
-  // 1. IFRAME PLAYER (YouTube/Dailymotion)
+  // --- 1. IFRAME HANDLER ---
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
     iframe.style.display = 'block';
     iframe.src = ch.url;
@@ -395,27 +395,28 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // 2. DASH PLAYER (.mpd) - MIGRATED TO .attach()
+  // --- 2. DASH HANDLER (.mpd) ---
+  // Dedicated Shaka implementation using the modern .attach() method
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
-      dashEngine = new shaka.Player(); // No video element in constructor
+      dashEngine = new shaka.Player(); // Engine created ONLY when needed
       try {
-        await dashEngine.attach(video); // New v4.x+ method
+        await dashEngine.attach(video);
         await dashEngine.load(ch.url);
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
-      } catch (e) { 
-        console.error("DASH Error:", e); 
-        if (loading) loading.style.display = 'none';
+      } catch (e) {
+        console.error("Shaka DASH Error:", e);
       }
     }
     return;
   }
 
-  // 3. HLS PLAYER (.m3u8) - USING LOCAL hls2.min.js
+  // --- 3. HLS HANDLER (.m3u8) ---
+  // Dedicated HLS.js implementation
   if (ch.url.includes('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
-      hlsEngine = new Hls();
+      hlsEngine = new Hls(); // Engine created ONLY when needed
       hlsEngine.loadSource(ch.url);
       hlsEngine.attachMedia(video);
       hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -423,6 +424,7 @@ async function playStream(ch) {
         if (loading) loading.style.display = 'none';
       });
     } 
+    // Fallback for Safari/iOS native HLS
     else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = ch.url;
       video.addEventListener('loadedmetadata', () => {
@@ -457,16 +459,15 @@ async function init() {
 
     render(allChannels);
 
+    // Deep link logic
     const urlParams = new URLSearchParams(window.location.search);
     const channelSlug = urlParams.get('ch');
-    let startChannel = allChannels;
-
     if (channelSlug) {
       const found = allChannels.find(c => getSlug(c.name) === channelSlug);
-      if (found) startChannel = found;
+      if (found) playStream(found);
+    } else if (allChannels) {
+      playStream(allChannels); // Auto-play first channel on load
     }
-
-    if (startChannel) playStream(startChannel);
 
     if (searchInput) {
       searchInput.oninput = (e) => {
@@ -474,12 +475,10 @@ async function init() {
         render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
       };
     }
-
   } catch (e) {
     console.error("Initialization failed:", e);
   }
 }
-</script>
-
+     </script>
 </body>
 </html>

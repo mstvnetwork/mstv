@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 // 1. SETTINGS - Change to your actual domain
-const DOMAIN = "https://your-site-name.netlify.app"; 
+const DOMAIN = "https://mstvnet.netlify.app"; 
 
 // 2. LOAD DATA
 const channels = JSON.parse(fs.readFileSync('./channels.json', 'utf8'));

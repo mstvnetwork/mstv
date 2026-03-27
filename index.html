@@ -301,18 +301,17 @@ video, iframe {
 <script>
 /**
  * 1. LOCAL LIBRARY LOADER
- * Updated to match your specific filenames: 
- * shaka-player.ui.min.js and shaka-ui.css
+ * Uses your local repository files for both HLS and Shaka.
  */
 const videoLibraries = [
-  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
-  "./shaka/shaka-player.ui.min.js" // YOUR LOCAL JS FILE
+  "./shaka/hls2.min.js",           // Your local HLS library
+  "./shaka/shaka-player.ui.min.js" // Your local Shaka JS
 ];
 
-// Load your local Shaka UI CSS
+// Load local Shaka UI CSS
 const link = document.createElement('link');
 link.rel = 'stylesheet';
-link.href = "./shaka/shaka-ui.css"; // YOUR LOCAL CSS FILE
+link.href = "./shaka/shaka-ui.css";
 document.head.appendChild(link);
 
 let scriptLoadCount = 0;
@@ -325,22 +324,18 @@ function startVideoApp() {
     script.onload = () => {
       scriptLoadCount++;
       if (scriptLoadCount === videoLibraries.length) {
-        // Required for DASH/Shaka to function
-        if (window.shaka) {
-          shaka.polyfill.installAll();
-        }
-        init(); // Start the grid and player
+        if (window.shaka) shaka.polyfill.installAll();
+        init(); // Start the app
       }
     };
     script.onerror = () => {
-      console.error("Critical: Could not find local file at " + src);
-      init(); // Load grid anyway so the page doesn't stay blank
+      console.error("Could not find local file: " + src);
+      init(); // Load grid anyway
     };
     document.head.appendChild(script);
   });
 }
 
-// Kick off the loading process
 startVideoApp();
 
 /**
@@ -365,13 +360,14 @@ async function resetPlayer() {
   if (video) video.style.display = 'none';
   if (iframe) iframe.style.display = 'none';
 
-  // Completely destroy previous engines to free memory and stop audio
   if (hlsEngine) {
     hlsEngine.destroy();
     hlsEngine = null;
   }
 
   if (dashEngine) {
+    // Standard practice: detach before destroying
+    await dashEngine.detach();
     await dashEngine.destroy();
     dashEngine = null;
   }
@@ -389,7 +385,7 @@ async function playStream(ch) {
   await resetPlayer(); 
   if (titleEl) titleEl.innerText = ch.name;
 
-  // 1. IFRAME PLAYER
+  // 1. IFRAME PLAYER (YouTube/Dailymotion)
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
     iframe.style.display = 'block';
     iframe.src = ch.url;
@@ -399,33 +395,24 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
- // 2. DASH PLAYER (.mpd)
+  // 2. DASH PLAYER (.mpd) - MIGRATED TO .attach()
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
-      // 1. Initialize the player WITHOUT the video element in the constructor
-      dashEngine = new shaka.Player(); 
-      
+      dashEngine = new shaka.Player(); // No video element in constructor
       try {
-        // 2. Use the .attach() method to link it to the video tag
-        await dashEngine.attach(video);
-        
-        // 3. Load the stream as usual
+        await dashEngine.attach(video); // New v4.x+ method
         await dashEngine.load(ch.url);
-        
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
-        console.log("DASH Loaded via .attach() successfully!");
       } catch (e) { 
-        console.error("DASH Load/Attach Error:", e); 
+        console.error("DASH Error:", e); 
         if (loading) loading.style.display = 'none';
       }
-    } else {
-      console.error("Shaka library not loaded or browser not supported.");
     }
     return;
- }
+  }
 
-  // 3. HLS PLAYER (.m3u8)
+  // 3. HLS PLAYER (.m3u8) - USING LOCAL hls2.min.js
   if (ch.url.includes('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       hlsEngine = new Hls();
@@ -470,7 +457,6 @@ async function init() {
 
     render(allChannels);
 
-    // Deep link support
     const urlParams = new URLSearchParams(window.location.search);
     const channelSlug = urlParams.get('ch');
     let startChannel = allChannels;
@@ -494,5 +480,6 @@ async function init() {
   }
 }
 </script>
+
 </body>
 </html>

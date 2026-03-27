@@ -300,35 +300,45 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER (FIXED)
+ * 1. CDN LIBRARY LOADER (FIXED & FAIL-SAFE)
  */
 const libs = [
-  "https://cdnjs.cloudflare.com",
-  "https://cdnjs.cloudflare.com"
+  { name: "HLS", src: "https://cdnjs.cloudflare.com" },
+  { name: "Shaka", src: "https://cdnjs.cloudflare.com" }
 ];
 
-let loadedCount = 0;
-libs.forEach(src => {
+let processedCount = 0;
+
+libs.forEach(lib => {
   const s = document.createElement('script');
-  s.src = src;
-  s.async = false; // Ensures they load in order if needed
+  s.src = lib.src;
+  
+  // Runs if script loads successfully
   s.onload = () => {
-    loadedCount++;
-    if (loadedCount === libs.length) {
-      // Initialize Shaka polyfills once the script is actually there
-      if (window.shaka) {
-        shaka.polyfill.installAll();
-        // Check if browser supports DASH
-        if (shaka.Player.isBrowserSupported()) {
-          init(); 
-        } else {
-          console.error("Browser does not support DASH.");
-        }
-      }
+    if (lib.name === "Shaka" && window.shaka) {
+      shaka.polyfill.installAll();
     }
+    checkReady();
   };
+
+  // Runs if script fails (ensures grid still shows)
+  s.onerror = () => {
+    console.warn(`${lib.name} failed to load. Some streams may not play.`);
+    checkReady();
+  };
+
   document.head.appendChild(s);
 });
+
+function checkReady() {
+  processedCount++;
+  // We call init() once all scripts have ATTEMPTED to load (success or fail)
+  if (processedCount === libs.length) {
+    init();
+  }
+}
+
+
 
  * 2. MAIN PLAYER LOGIC
  */

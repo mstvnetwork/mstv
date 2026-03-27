@@ -275,10 +275,8 @@ video, iframe {
   </main>
 </div>
 
-    <script>
-// 1. CACHE BUSTER: Ensures you always get the latest JSON instantly
+<script>
 const jsonFile = 'channels.json?v=' + new Date().getTime(); 
-
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
 const list = document.getElementById('channelList');
@@ -291,34 +289,26 @@ let hls = null;
 let shakaPlayer = null; 
 let allChannels = [];
 
-const getSlug = (name) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+// Matches the generator script exactly
+const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
 function updateMetadata(ch) {
-  const metaTitle = `${ch.name} Live Stream | MSTV Network`;
-  const metaDesc = `Watch ${ch.name} live stream online for free. High quality TV on MSTV Network.`;
-  document.title = metaTitle;
-  let descTag = document.querySelector('meta[name="description"]');
-  if (descTag) descTag.setAttribute("content", metaDesc);
+  document.title = `${ch.name} Live Stream | MSTV Network`;
 }
 
 async function playStream(ch) {
   if (!ch) return;
-  
-  // Fully stop and clean both engines before starting a new one
   if(hls) { hls.destroy(); hls = null; }
   if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
   
   video.style.display = 'none'; 
   iframe.style.display = 'none';
-  video.src = ''; 
-  iframe.src = '';
   placeholder.style.display = 'none';
   loading.style.display = 'block';
 
-  if(titleEl) titleEl.innerText = ch.name + " Live Stream";
+  if(titleEl) titleEl.innerText = ch.name;
   updateMetadata(ch);
 
-  // 1. IFRAME LOGIC
   if (ch.type === 'iframe') {
     iframe.style.display = 'block'; 
     iframe.src = ch.url;
@@ -328,37 +318,18 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // 2. DASH LOGIC (Shaka Player - Optimized for Speed)
   if (ch.url.includes('.mpd')) {
-    if (window.shaka && shaka.Player.isBrowserSupported()) {
-      shakaPlayer = new shaka.Player(video);
-      
-      // PERFORMANCE TUNING: Stop the "Laziness"
-      shakaPlayer.configure({
-        streaming: {
-          bufferingGoal: 10,           // Don't wait for a huge buffer
-          rebufferingGoal: 2,          // Resume faster if it stutters
-          bufferBehind: 0,             // Don't waste memory on what we already watched
-          jumpLargeGaps: true,         // Skip bad segments instantly
-          lowLatencyMode: true         // Use modern fast-start tech
-        }
-      });
-
-      try {
-        await shakaPlayer.load(ch.url);
-        video.play().catch(() => {});
-        loading.style.display = 'none';
-      } catch (e) { console.error('Shaka DASH Error', e); }
-    } else {
-      alert("DASH streams not supported.");
-    }
+    shakaPlayer = new shaka.Player(video);
+    try {
+      await shakaPlayer.load(ch.url);
+      video.play().catch(() => {});
+      loading.style.display = 'none';
+    } catch (e) { console.error(e); }
     return;
   }
 
-
-  // 3. HLS LOGIC (HLS.js)
   if (ch.url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
+    if (Hls.isSupported()) {
       hls = new Hls(); 
       hls.loadSource(ch.url); 
       hls.attachMedia(video);
@@ -366,39 +337,29 @@ async function playStream(ch) {
           video.play().catch(() => {});
           loading.style.display = 'none';
       });
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) console.error("HLS Fatal Error", data);
-      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native Safari support
       video.src = ch.url; 
       video.play().catch(() => {});
       loading.style.display = 'none';
     }
     return;
   }
-
-  // 4. DEFAULT FALLBACK (MP4/Direct)
-  video.src = ch.url; 
-  video.play().catch(() => {});
-  loading.style.display = 'none';
 }
 
 async function init() {
   try {
     const res = await fetch(jsonFile);
-    const rawData = await res.json();
-    allChannels = rawData.map((ch, i) => ({ ch, index: i }));
+    allChannels = await res.json();
 
     function render(data) {
       list.innerHTML = '';
-      data.forEach(({ ch, index }) => {
+      data.forEach((ch) => {
         const div = document.createElement('div');
         div.className = 'channel-card';
         div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
         div.onclick = () => {
           playStream(ch);
-          history.pushState({index}, ch.name, `/${getSlug(ch.name)}`);
+          history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
         };
         list.appendChild(div);
       });
@@ -406,31 +367,29 @@ async function init() {
 
     render(allChannels);
 
-    let id = parseInt(window.location.search.replace('?=', ''));
-    const currentPath = window.location.pathname.substring(1).replace('.html', '');
-    if (isNaN(id) && currentPath && currentPath !== 'index' && currentPath !== '') {
-      id = allChannels.findIndex(item => getSlug(item.ch.name) === currentPath);
+    // Auto-load based on URL parameter ?ch=slug
+    const urlParams = new URLSearchParams(window.location.search);
+    const channelSlug = urlParams.get('ch');
+    let startChannel = allChannels[0];
+
+    if (channelSlug) {
+      const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+      if (found) startChannel = found;
     }
-    if (id === -1 || isNaN(id)) id = 0;
-    if(allChannels[id]) playStream(allChannels[id].ch);
+
+    playStream(startChannel);
 
     searchInput.oninput = (e) => {
       const val = e.target.value.toLowerCase();
-      const filtered = allChannels.filter(item => item.ch.name.toLowerCase().includes(val));
-      render(filtered);
+      render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
     };
 
-    window.onpopstate = (event) => {
-      if (event.state && event.state.index !== undefined) {
-        playStream(allChannels[event.state.index].ch);
-      }
-    };
-  } catch(e) { console.error("MSTV Init Error:", e); }
+  } catch(e) { console.error("Init Error:", e); }
 }
 
-// Initialize Shaka polyfills once
 if (window.shaka) shaka.polyfill.installAll();
 init();
 </script>
+
 </body>
 </html>

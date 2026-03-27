@@ -301,123 +301,166 @@ video, iframe {
 </div>
 
 <script>
-const jsonFile = 'channels.json?v=' + new Date().getTime(); 
-const video = document.getElementById('video');
-const iframe = document.getElementById('iframePlayer');
-const list = document.getElementById('channelList');
-const searchInput = document.getElementById('searchInput');
-const titleEl = document.getElementById('title');
-const loading = document.getElementById('loading');
-const placeholder = document.getElementById('placeholder');
+  // External Libraries should be loaded via CDN in your <head>
+  // 1. https://cdn.jsdelivr.net
+  // 2. https://cdnjs.cloudflare.com
 
-let hls = null;
-let shakaPlayer = null; 
-let allChannels = [];
+  const jsonFile = 'channels.json?v=' + new Date().getTime();
+  const video = document.getElementById('video');
+  const iframe = document.getElementById('iframePlayer');
+  const list = document.getElementById('channelList');
+  const searchInput = document.getElementById('searchInput');
+  const titleEl = document.getElementById('title');
+  const loading = document.getElementById('loading');
+  const placeholder = document.getElementById('placeholder');
 
-// Matches the generator script exactly
-const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+  let hlsEngine = null;
+  let dashEngine = null;
+  let allChannels = [];
 
-function updateMetadata(ch) {
-  document.title = `${ch.name} Live Stream | MSTV Network`;
-}
+  const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
-async function playStream(ch) {
-  if (!ch) return;
-  if(hls) { hls.destroy(); hls = null; }
-  if(shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
-  
-  video.style.display = 'none'; 
-  iframe.style.display = 'none';
-  placeholder.style.display = 'none';
-  loading.style.display = 'block';
-
-  if(titleEl) titleEl.innerText = ch.name;
-  updateMetadata(ch);
-
-  if (ch.type === 'iframe') {
-    iframe.style.display = 'block'; 
-    iframe.src = ch.url;
-    iframe.onload = () => loading.style.display = 'none';
-    return;
+  function updateMetadata(ch) {
+    document.title = `${ch.name} Live Stream | MSTV Network`;
   }
 
-  video.style.display = 'block';
+  // CORE FIX: Clean up all engines and audio before switching
+  async function resetPlayer() {
+    loading.style.display = 'block';
+    placeholder.style.display = 'none';
+    video.style.display = 'none';
+    iframe.style.display = 'none';
 
-  if (ch.url.includes('.mpd')) {
-    shakaPlayer = new shaka.Player(video);
-    try {
-      await shakaPlayer.load(ch.url);
-      video.play().catch(() => {});
-      loading.style.display = 'none';
-    } catch (e) { console.error(e); }
-    return;
+    // Stop and destroy HLS
+    if (hlsEngine) {
+      hlsEngine.destroy();
+      hlsEngine = null;
+    }
+
+    // Stop and destroy DASH (Shaka)
+    if (dashEngine) {
+      await dashEngine.destroy();
+      dashEngine = null;
+    }
+
+    // Clear native video source and pause audio
+    video.pause();
+    video.src = "";
+    video.load();
+    
+    // Reset iFrame
+    iframe.src = "about:blank";
   }
 
-  if (ch.url.includes('.m3u8')) {
-    if (Hls.isSupported()) {
-      hls = new Hls(); 
-      hls.loadSource(ch.url); 
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+  async function playStream(ch) {
+    if (!ch) return;
+    
+    await resetPlayer(); // Run the cleanup first
+    
+    if (titleEl) titleEl.innerText = ch.name;
+    updateMetadata(ch);
+
+    // 1. IFRAME PLAYER
+    if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
+      iframe.style.display = 'block';
+      iframe.src = ch.url;
+      iframe.onload = () => loading.style.display = 'none';
+      return;
+    }
+
+    video.style.display = 'block';
+
+    // 2. DASH PLAYER (.mpd)
+    if (ch.url.includes('.mpd')) {
+      dashEngine = new shaka.Player(video);
+      dashEngine.addEventListener('error', (e) => console.error("Shaka Error", e));
+      try {
+        await dashEngine.load(ch.url);
+        video.play().catch(() => {});
+        loading.style.display = 'none';
+      } catch (e) { console.error("DASH Load Error", e); }
+      return;
+    }
+
+    // 3. HLS PLAYER (.m3u8)
+    if (ch.url.includes('.m3u8')) {
+      if (Hls.isSupported()) {
+        hlsEngine = new Hls();
+        hlsEngine.loadSource(ch.url);
+        hlsEngine.attachMedia(video);
+        hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
           video.play().catch(() => {});
           loading.style.display = 'none';
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = ch.url; 
-      video.play().catch(() => {});
-      loading.style.display = 'none';
+        });
+        hlsEngine.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) console.error("HLS Fatal Error", data);
+        });
+      } 
+      // Fallback for Safari/iOS native HLS support
+      else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = ch.url;
+        video.addEventListener('loadedmetadata', () => {
+          video.play().catch(() => {});
+          loading.style.display = 'none';
+        });
+      }
+      return;
     }
-    return;
   }
-}
 
-async function init() {
-  try {
-    const res = await fetch(jsonFile);
-    allChannels = await res.json();
+  async function init() {
+    try {
+      // Install Shaka Polyfills for browser compatibility
+      if (window.shaka) shaka.polyfill.installAll();
 
-    function render(data) {
-      list.innerHTML = '';
-      data.forEach((ch) => {
-        const div = document.createElement('div');
-        div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
-        div.onclick = () => {
-          playStream(ch);
-          history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-        };
-        list.appendChild(div);
-      });
+      const res = await fetch(jsonFile);
+      allChannels = await res.json();
+
+      function render(data) {
+        list.innerHTML = '';
+        data.forEach((ch) => {
+          const div = document.createElement('div');
+          div.className = 'channel-card';
+          div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
+          div.onclick = () => {
+            playStream(ch);
+            history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+            // Optional: Scroll to top on mobile when channel clicked
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          };
+          list.appendChild(div);
+        });
+      }
+
+      render(allChannels);
+
+      // Handle direct URL links
+      const urlParams = new URLSearchParams(window.location.search);
+      const channelSlug = urlParams.get('ch');
+      let startChannel = allChannels[0];
+
+      if (channelSlug) {
+        const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+        if (found) startChannel = found;
+      }
+
+      if (startChannel) playStream(startChannel);
+
+      // Search functionality
+      searchInput.oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+      };
+
+    } catch (e) {
+      console.error("Initialization failed:", e);
     }
+  }
 
-    render(allChannels);
-
-    // Auto-load based on URL parameter ?ch=slug
-    const urlParams = new URLSearchParams(window.location.search);
-    const channelSlug = urlParams.get('ch');
-    let startChannel = allChannels[0];
-
-    if (channelSlug) {
-      const found = allChannels.find(c => getSlug(c.name) === channelSlug);
-      if (found) startChannel = found;
-    }
-
-    playStream(startChannel);
-
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    };
-
-  } catch(e) { console.error("Init Error:", e); }
-}
-
-if (window.shaka) shaka.polyfill.installAll();
-init();
+  // Initialize the app
+  init();
 </script>
- <!-- Shaka Player Libraries -->
-<script defer src="./shaka.js"></script>
-<script defer src="./shaka/hls.min.js"></script>
+
 
 </body>
 </html>

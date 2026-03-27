@@ -300,33 +300,45 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER (FIXED)
+ * 1. CDN LIBRARY LOADER (FIXED URLs)
  */
 const libs = [
+  // HLS.js
   "https://cdnjs.cloudflare.com",
+  // Shaka Player (Main Engine)
+  "https://cdnjs.cloudflare.com",
+  // Shaka Player UI (Styles - fixes the MIME error)
   "https://cdnjs.cloudflare.com"
 ];
 
 let loadedCount = 0;
 
 libs.forEach(src => {
-  const s = document.createElement('script');
-  s.src = src;
-  s.onload = () => {
+  let el;
+  if (src.endsWith('.css')) {
+    el = document.createElement('link');
+    el.rel = 'stylesheet';
+    el.href = src;
+  } else {
+    el = document.createElement('script');
+    el.src = src;
+  }
+
+  el.onload = () => {
     loadedCount++;
     if (loadedCount === libs.length) {
-      if (window.shaka) {
-        shaka.polyfill.installAll();
-      }
-      init(); // Start the app once libraries are ready
+      if (window.shaka) shaka.polyfill.installAll();
+      init(); 
     }
   };
-  s.onerror = () => {
-    console.error("Failed to load: " + src);
-    loadedCount++;
-    if (loadedCount === libs.length) init(); // Load grid anyway even if player fails
+
+  el.onerror = () => {
+    console.error("Failed to load resource:", src);
+    loadedCount++; // Still increment to prevent the grid from hanging
+    if (loadedCount === libs.length) init();
   };
-  document.head.appendChild(s);
+
+  document.head.appendChild(el);
 });
 
 /**

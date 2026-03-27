@@ -300,19 +300,18 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER
- * Updated to use Google Hosted Libraries for maximum DASH compatibility.
+ * 1. LOCAL LIBRARY LOADER
+ * Points to the /shaka/ folder in your repository.
  */
 const videoLibraries = [
-  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
-  "https://ajax.googleapis.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
+  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js", // Keep HLS on CDN for speed
+  "./shaka/shaka-player.compiled.js" // YOUR LOCAL SHAKA JS
 ];
 
-// Load Shaka CSS dynamically to avoid MIME type errors
-const shakaCSS = "https://ajax.googleapis.com/ajax/libs/shaka-player/4.11.0/controls.css";
+// Load local Shaka CSS
 const link = document.createElement('link');
 link.rel = 'stylesheet';
-link.href = shakaCSS;
+link.href = "./shaka/controls.css"; // YOUR LOCAL SHAKA CSS
 document.head.appendChild(link);
 
 let scriptLoadCount = 0;
@@ -326,13 +325,13 @@ function startVideoApp() {
       scriptLoadCount++;
       if (scriptLoadCount === videoLibraries.length) {
         if (window.shaka) {
-          shaka.polyfill.installAll(); // Critical for DASH
+          shaka.polyfill.installAll();
         }
         init(); 
       }
     };
     script.onerror = () => {
-      console.error("Failed to load: " + src);
+      console.error("Critical: Could not find local file at " + src);
       init(); 
     };
     document.head.appendChild(script);
@@ -351,7 +350,6 @@ const list = document.getElementById('channelList');
 const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
-const placeholder = document.getElementById('placeholder');
 
 let hlsEngine = null;
 let dashEngine = null;
@@ -359,25 +357,13 @@ let allChannels = [];
 
 const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
-function updateMetadata(ch) {
-  document.title = `${ch.name} Live Stream | MSTV Network`;
-}
-
 async function resetPlayer() {
   if (loading) loading.style.display = 'block';
-  if (placeholder) placeholder.style.display = 'none';
   if (video) video.style.display = 'none';
   if (iframe) iframe.style.display = 'none';
 
-  if (hlsEngine) {
-    hlsEngine.destroy();
-    hlsEngine = null;
-  }
-
-  if (dashEngine) {
-    await dashEngine.destroy();
-    dashEngine = null;
-  }
+  if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
+  if (dashEngine) { await dashEngine.destroy(); dashEngine = null; }
 
   if (video) {
     video.pause();
@@ -391,7 +377,6 @@ async function playStream(ch) {
   if (!ch) return;
   await resetPlayer(); 
   if (titleEl) titleEl.innerText = ch.name;
-  updateMetadata(ch);
 
   // 1. IFRAME PLAYER
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
@@ -407,19 +392,16 @@ async function playStream(ch) {
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
       dashEngine = new shaka.Player(video);
-      // Listen for errors specifically for DASH
-      dashEngine.addEventListener('error', (event) => console.error('Shaka Error:', event.detail));
-      
       try {
         await dashEngine.load(ch.url);
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
       } catch (e) { 
-        console.error("DASH Load Error", e); 
+        console.error("DASH Load Error:", e); 
         if (loading) loading.style.display = 'none';
       }
     } else {
-      console.error("DASH not supported or Shaka not loaded.");
+      console.error("Local Shaka library not detected or Browser not supported.");
     }
     return;
   }
@@ -435,13 +417,6 @@ async function playStream(ch) {
         if (loading) loading.style.display = 'none';
       });
     } 
-    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = ch.url;
-      video.addEventListener('loadedmetadata', () => {
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      }, { once: true });
-    }
     return;
   }
 }
@@ -450,47 +425,34 @@ async function init() {
   try {
     const res = await fetch(jsonFile);
     allChannels = await res.json();
-
-    function render(data) {
-      if (!list) return;
-      list.innerHTML = '';
-      data.forEach((ch) => {
-        const div = document.createElement('div');
-        div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}" onerror="this.onerror=null; this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
-        div.onclick = () => {
-          playStream(ch);
-          history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-        list.appendChild(div);
-      });
-    }
-
     render(allChannels);
-
+    
     const urlParams = new URLSearchParams(window.location.search);
-    const channelSlug = urlParams.get('ch');
-    let startChannel = allChannels;
-
-    if (channelSlug) {
-      const found = allChannels.find(c => getSlug(c.name) === channelSlug);
-      if (found) startChannel = found;
-    }
-
-    if (startChannel) playStream(startChannel);
+    const chSlug = urlParams.get('ch');
+    const startCh = chSlug ? allChannels.find(c => getSlug(c.name) === chSlug) : allChannels;
+    if (startCh) playStream(startCh);
 
     if (searchInput) {
-      searchInput.oninput = (e) => {
-        const val = e.target.value.toLowerCase();
-        render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-      };
+      searchInput.oninput = (e) => render(allChannels.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     }
+  } catch (e) { console.error("Init Error:", e); }
+}
 
-  } catch (e) {
-    console.error("Initialization failed:", e);
-  }
+function render(data) {
+  if (!list) return;
+  list.innerHTML = '';
+  data.forEach((ch) => {
+    const div = document.createElement('div');
+    div.className = 'channel-card';
+    div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
+    div.onclick = () => {
+        playStream(ch);
+        history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+    };
+    list.appendChild(div);
+  });
 }
 </script>
+
 </body>
 </html>

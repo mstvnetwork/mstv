@@ -299,7 +299,11 @@ video, iframe {
   </main>
 </div>
 <script>
-
+/**
+ * 1. CDN LIBRARY LOADER
+ * Injects HLS.js and Shaka Player. 
+ * Then triggers init() to build the grid and start playback.
+ */
 const videoLibraries = [
   "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
@@ -314,17 +318,26 @@ function startVideoApp() {
     script.async = true;
     script.onload = () => {
       scriptLoadCount++;
+      // Wait until ALL libraries in the array are loaded
       if (scriptLoadCount === videoLibraries.length) {
         if (window.shaka) shaka.polyfill.installAll();
-        // Ensure your grid loading function is called here!
-        if (typeof init === 'function') init();
+        // Start the channel grid and player logic
+        init(); 
       }
+    };
+    script.onerror = () => {
+      console.error("Library failed to load: " + src);
+      // Try to load the grid anyway even if a player library fails
+      init();
     };
     document.head.appendChild(script);
   });
 }
 
+// Start the loading process immediately
 startVideoApp();
+
+/**
  * 2. MAIN PLAYER LOGIC
  */
 const jsonFile = 'channels.json?v=' + new Date().getTime();
@@ -335,6 +348,7 @@ const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
 const placeholder = document.getElementById('placeholder');
+
 let hlsEngine = null;
 let dashEngine = null;
 let allChannels = [];
@@ -347,10 +361,10 @@ function updateMetadata(ch) {
 
 // STOP AUDIO CONFLICTS: Completely destroys previous engine
 async function resetPlayer() {
-  loading.style.display = 'block';
-  placeholder.style.display = 'none';
-  video.style.display = 'none';
-  iframe.style.display = 'none';
+  if (loading) loading.style.display = 'block';
+  if (placeholder) placeholder.style.display = 'none';
+  if (video) video.style.display = 'none';
+  if (iframe) iframe.style.display = 'none';
 
   if (hlsEngine) {
     hlsEngine.destroy();
@@ -362,10 +376,12 @@ async function resetPlayer() {
     dashEngine = null;
   }
 
-  video.pause();
-  video.removeAttribute('src'); // Better than src="" to clear memory
-  video.load();
-  iframe.src = "about:blank";
+  if (video) {
+    video.pause();
+    video.removeAttribute('src'); 
+    video.load();
+  }
+  if (iframe) iframe.src = "about:blank";
 }
 
 async function playStream(ch) {
@@ -380,7 +396,7 @@ async function playStream(ch) {
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
     iframe.style.display = 'block';
     iframe.src = ch.url;
-    iframe.onload = () => loading.style.display = 'none';
+    iframe.onload = () => { if (loading) loading.style.display = 'none'; };
     return;
   }
 
@@ -388,12 +404,16 @@ async function playStream(ch) {
 
   // 2. DASH PLAYER (.mpd)
   if (ch.url.includes('.mpd')) {
-    dashEngine = new shaka.Player(video);
-    try {
-      await dashEngine.load(ch.url);
-      video.play().catch(() => {});
-      loading.style.display = 'none';
-    } catch (e) { console.error("DASH Load Error", e); }
+    if (window.shaka) {
+      dashEngine = new shaka.Player(video);
+      try {
+        await dashEngine.load(ch.url);
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      } catch (e) { console.error("DASH Load Error", e); }
+    } else {
+      console.error("Shaka Player library not loaded.");
+    }
     return;
   }
 
@@ -405,14 +425,14 @@ async function playStream(ch) {
       hlsEngine.attachMedia(video);
       hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
         video.play().catch(() => {});
-        loading.style.display = 'none';
+        if (loading) loading.style.display = 'none';
       });
     } 
     else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = ch.url;
       video.addEventListener('loadedmetadata', () => {
         video.play().catch(() => {});
-        loading.style.display = 'none';
+        if (loading) loading.style.display = 'none';
       }, { once: true });
     }
     return;
@@ -425,6 +445,7 @@ async function init() {
     allChannels = await res.json();
 
     function render(data) {
+      if (!list) return;
       list.innerHTML = '';
       data.forEach((ch) => {
         const div = document.createElement('div');
@@ -443,7 +464,7 @@ async function init() {
 
     const urlParams = new URLSearchParams(window.location.search);
     const channelSlug = urlParams.get('ch');
-    let startChannel = allChannels[0];
+    let startChannel = allChannels;
 
     if (channelSlug) {
       const found = allChannels.find(c => getSlug(c.name) === channelSlug);
@@ -452,10 +473,12 @@ async function init() {
 
     if (startChannel) playStream(startChannel);
 
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    };
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+      };
+    }
 
   } catch (e) {
     console.error("Initialization failed:", e);

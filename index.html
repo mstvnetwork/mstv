@@ -301,17 +301,18 @@ video, iframe {
 <script>
 /**
  * 1. LOCAL LIBRARY LOADER
- * Points to the /shaka/ folder in your repository.
+ * Updated to match your specific filenames: 
+ * shaka-player.ui.min.js and shaka-ui.css
  */
 const videoLibraries = [
-  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js", // Keep HLS on CDN for speed
-  "shaka.js" // YOUR LOCAL SHAKA JS
+  "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
+  "./shaka/shaka-player.ui.min.js" // YOUR LOCAL JS FILE
 ];
 
-// Load local Shaka CSS
+// Load your local Shaka UI CSS
 const link = document.createElement('link');
 link.rel = 'stylesheet';
-link.href = "./shaka/controls.css"; // YOUR LOCAL SHAKA CSS
+link.href = "./shaka/shaka-ui.css"; // YOUR LOCAL CSS FILE
 document.head.appendChild(link);
 
 let scriptLoadCount = 0;
@@ -324,20 +325,22 @@ function startVideoApp() {
     script.onload = () => {
       scriptLoadCount++;
       if (scriptLoadCount === videoLibraries.length) {
+        // Required for DASH/Shaka to function
         if (window.shaka) {
           shaka.polyfill.installAll();
         }
-        init(); 
+        init(); // Start the grid and player
       }
     };
     script.onerror = () => {
       console.error("Critical: Could not find local file at " + src);
-      init(); 
+      init(); // Load grid anyway so the page doesn't stay blank
     };
     document.head.appendChild(script);
   });
 }
 
+// Kick off the loading process
 startVideoApp();
 
 /**
@@ -362,8 +365,16 @@ async function resetPlayer() {
   if (video) video.style.display = 'none';
   if (iframe) iframe.style.display = 'none';
 
-  if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
-  if (dashEngine) { await dashEngine.destroy(); dashEngine = null; }
+  // Completely destroy previous engines to free memory and stop audio
+  if (hlsEngine) {
+    hlsEngine.destroy();
+    hlsEngine = null;
+  }
+
+  if (dashEngine) {
+    await dashEngine.destroy();
+    dashEngine = null;
+  }
 
   if (video) {
     video.pause();
@@ -391,7 +402,9 @@ async function playStream(ch) {
   // 2. DASH PLAYER (.mpd)
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
+      // Initialize Shaka Player
       dashEngine = new shaka.Player(video);
+      
       try {
         await dashEngine.load(ch.url);
         video.play().catch(() => {});
@@ -401,7 +414,7 @@ async function playStream(ch) {
         if (loading) loading.style.display = 'none';
       }
     } else {
-      console.error("Local Shaka library not detected or Browser not supported.");
+      console.error("Shaka library not loaded or browser not supported.");
     }
     return;
   }
@@ -417,6 +430,13 @@ async function playStream(ch) {
         if (loading) loading.style.display = 'none';
       });
     } 
+    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = ch.url;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      }, { once: true });
+    }
     return;
   }
 }
@@ -425,34 +445,48 @@ async function init() {
   try {
     const res = await fetch(jsonFile);
     allChannels = await res.json();
+
+    function render(data) {
+      if (!list) return;
+      list.innerHTML = '';
+      data.forEach((ch) => {
+        const div = document.createElement('div');
+        div.className = 'channel-card';
+        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
+        div.onclick = () => {
+          playStream(ch);
+          history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+        list.appendChild(div);
+      });
+    }
+
     render(allChannels);
-    
+
+    // Deep link support
     const urlParams = new URLSearchParams(window.location.search);
-    const chSlug = urlParams.get('ch');
-    const startCh = chSlug ? allChannels.find(c => getSlug(c.name) === chSlug) : allChannels;
-    if (startCh) playStream(startCh);
+    const channelSlug = urlParams.get('ch');
+    let startChannel = allChannels;
+
+    if (channelSlug) {
+      const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+      if (found) startChannel = found;
+    }
+
+    if (startChannel) playStream(startChannel);
 
     if (searchInput) {
-      searchInput.oninput = (e) => render(allChannels.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
+      searchInput.oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+      };
     }
-  } catch (e) { console.error("Init Error:", e); }
-}
 
-function render(data) {
-  if (!list) return;
-  list.innerHTML = '';
-  data.forEach((ch) => {
-    const div = document.createElement('div');
-    div.className = 'channel-card';
-    div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app'"> <div class="channel-name">${ch.name}</div>`;
-    div.onclick = () => {
-        playStream(ch);
-        history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-    };
-    list.appendChild(div);
-  });
+  } catch (e) {
+    console.error("Initialization failed:", e);
+  }
 }
 </script>
-
 </body>
 </html>

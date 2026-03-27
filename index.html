@@ -301,13 +301,19 @@ video, iframe {
 <script>
 /**
  * 1. CDN LIBRARY LOADER
- * Injects HLS.js and Shaka Player. 
- * Then triggers init() to build the grid and start playback.
+ * Updated to use Google Hosted Libraries for maximum DASH compatibility.
  */
 const videoLibraries = [
   "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
-  "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
+  "https://ajax.googleapis.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
 ];
+
+// Load Shaka CSS dynamically to avoid MIME type errors
+const shakaCSS = "https://ajax.googleapis.com/ajax/libs/shaka-player/4.11.0/controls.css";
+const link = document.createElement('link');
+link.rel = 'stylesheet';
+link.href = shakaCSS;
+document.head.appendChild(link);
 
 let scriptLoadCount = 0;
 
@@ -318,23 +324,21 @@ function startVideoApp() {
     script.async = true;
     script.onload = () => {
       scriptLoadCount++;
-      // Wait until ALL libraries in the array are loaded
       if (scriptLoadCount === videoLibraries.length) {
-        if (window.shaka) shaka.polyfill.installAll();
-        // Start the channel grid and player logic
+        if (window.shaka) {
+          shaka.polyfill.installAll(); // Critical for DASH
+        }
         init(); 
       }
     };
     script.onerror = () => {
-      console.error("Library failed to load: " + src);
-      // Try to load the grid anyway even if a player library fails
-      init();
+      console.error("Failed to load: " + src);
+      init(); 
     };
     document.head.appendChild(script);
   });
 }
 
-// Start the loading process immediately
 startVideoApp();
 
 /**
@@ -359,7 +363,6 @@ function updateMetadata(ch) {
   document.title = `${ch.name} Live Stream | MSTV Network`;
 }
 
-// STOP AUDIO CONFLICTS: Completely destroys previous engine
 async function resetPlayer() {
   if (loading) loading.style.display = 'block';
   if (placeholder) placeholder.style.display = 'none';
@@ -386,9 +389,7 @@ async function resetPlayer() {
 
 async function playStream(ch) {
   if (!ch) return;
-  
   await resetPlayer(); 
-  
   if (titleEl) titleEl.innerText = ch.name;
   updateMetadata(ch);
 
@@ -404,15 +405,21 @@ async function playStream(ch) {
 
   // 2. DASH PLAYER (.mpd)
   if (ch.url.includes('.mpd')) {
-    if (window.shaka) {
+    if (window.shaka && shaka.Player.isBrowserSupported()) {
       dashEngine = new shaka.Player(video);
+      // Listen for errors specifically for DASH
+      dashEngine.addEventListener('error', (event) => console.error('Shaka Error:', event.detail));
+      
       try {
         await dashEngine.load(ch.url);
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
-      } catch (e) { console.error("DASH Load Error", e); }
+      } catch (e) { 
+        console.error("DASH Load Error", e); 
+        if (loading) loading.style.display = 'none';
+      }
     } else {
-      console.error("Shaka Player library not loaded.");
+      console.error("DASH not supported or Shaka not loaded.");
     }
     return;
   }
@@ -485,6 +492,5 @@ async function init() {
   }
 }
 </script>
-
 </body>
 </html>

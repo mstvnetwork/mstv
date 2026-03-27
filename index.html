@@ -300,54 +300,27 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER (FIXED)
- * Uses high-availability CDN links to bypass local 404/MIME errors.
+ * 1. CDN LIBRARY LOADER
+ * Injects HLS.js and Shaka Player automatically. 
+ * This fixes the "ReferenceError" and "SyntaxError" for good.
  */
 const libs = [
-  // HLS Engine
-  "https://cdnjs.cloudflare.com",
-  // Shaka Engine (DASH)
-  "https://cdnjs.cloudflare.com",
-  // Shaka UI Styles
+  "https://cdn.jsdelivr.net",
   "https://cdnjs.cloudflare.com"
 ];
 
 let loadedCount = 0;
-
 libs.forEach(src => {
-  let el;
-  if (src.endsWith('.css')) {
-    el = document.createElement('link');
-    el.rel = 'stylesheet';
-    el.href = src;
-  } else {
-    el = document.createElement('script');
-    el.src = src;
-  }
-
-  el.onload = () => {
+  const s = document.createElement('script');
+  s.src = src;
+  s.onload = () => {
     loadedCount++;
     if (loadedCount === libs.length) {
-      if (window.shaka) {
-        shaka.polyfill.installAll();
-        // Critical: Check if the browser supports DASH
-        if (shaka.Player.isBrowserSupported()) {
-          init(); 
-        } else {
-          console.error("DASH is not supported in this browser.");
-          init(); // Still load grid
-        }
-      }
+      if (window.shaka) shaka.polyfill.installAll();
+      init(); // Start the app once libraries are ready
     }
   };
-
-  el.onerror = () => {
-    console.error("Failed to load library: " + src);
-    loadedCount++;
-    if (loadedCount === libs.length) init();
-  };
-
-  document.head.appendChild(el);
+  document.head.appendChild(s);
 });
 
 /**

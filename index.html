@@ -300,47 +300,37 @@ video, iframe {
 </div>
 <script>
 /**
- * 1. CDN LIBRARY LOADER (FIXED & FAIL-SAFE)
+ * 1. CDN LIBRARY LOADER (FIXED)
  */
 const libs = [
-  { name: "HLS", src: "https://cdnjs.cloudflare.com" },
-  { name: "Shaka", src: "https://cdnjs.cloudflare.com" }
+  "https://cdnjs.cloudflare.com",
+  "https://cdnjs.cloudflare.com"
 ];
 
-let processedCount = 0;
+let loadedCount = 0;
 
-libs.forEach(lib => {
+libs.forEach(src => {
   const s = document.createElement('script');
-  s.src = lib.src;
-  
-  // Runs if script loads successfully
+  s.src = src;
   s.onload = () => {
-    if (lib.name === "Shaka" && window.shaka) {
-      shaka.polyfill.installAll();
+    loadedCount++;
+    if (loadedCount === libs.length) {
+      if (window.shaka) {
+        shaka.polyfill.installAll();
+      }
+      init(); // Start the app once libraries are ready
     }
-    checkReady();
   };
-
-  // Runs if script fails (ensures grid still shows)
   s.onerror = () => {
-    console.warn(`${lib.name} failed to load. Some streams may not play.`);
-    checkReady();
+    console.error("Failed to load: " + src);
+    loadedCount++;
+    if (loadedCount === libs.length) init(); // Load grid anyway even if player fails
   };
-
   document.head.appendChild(s);
 });
 
-function checkReady() {
-  processedCount++;
-  // We call init() once all scripts have ATTEMPTED to load (success or fail)
-  if (processedCount === libs.length) {
-    init();
-  }
-}
-
-
-
- 2. MAIN PLAYER LOGIC
+/**
+ * 2. MAIN PLAYER LOGIC
  */
 const jsonFile = 'channels.json?v=' + new Date().getTime();
 const video = document.getElementById('video');
@@ -350,7 +340,6 @@ const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
 const placeholder = document.getElementById('placeholder');
-
 let hlsEngine = null;
 let dashEngine = null;
 let allChannels = [];

@@ -299,47 +299,32 @@ video, iframe {
   </main>
 </div>
 <script>
-/**
- * 1. CDN LIBRARY LOADER
- * Injects HLS.js and Shaka Player automatically. 
- */
-const libs = [
+
+const videoLibraries = [
   "https://cdn.jsdelivr.net/npm/hls.js@1.5.0/dist/hls.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.11.0/shaka-player.compiled.js"
 ];
 
-let loadedCount = 0;
+let scriptLoadCount = 0;
 
-libs.forEach(src => {
-  const s = document.createElement('script');
-  s.src = src;
-  s.async = true; // Best practice for dynamic scripts
-  s.onload = () => {
-    loadedCount++;
-    if (loadedCount === libs.length) {
-      // Initialize Shaka polyfills (required for browser compatibility)
-      if (window.shaka) {
-        shaka.polyfill.installAll();
+function startVideoApp() {
+  videoLibraries.forEach(src => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      scriptLoadCount++;
+      if (scriptLoadCount === videoLibraries.length) {
+        if (window.shaka) shaka.polyfill.installAll();
+        // Ensure your grid loading function is called here!
+        if (typeof init === 'function') init();
       }
-      
-      // Start your application logic
-      init(); 
-    }
-  };
-  
-  s.onerror = () => console.error(`Failed to load script: ${src}`);
-  document.head.appendChild(s);
-});
-
-/**
- * 2. APP INITIALIZATION
- */
-function init() {
-  console.log("Libraries loaded. Shaka version:", window.shaka?.Player.version);
-  console.log("HLS.js supported:", Hls.isSupported());
-  
-  // Your player setup code goes here
+    };
+    document.head.appendChild(script);
+  });
 }
+
+startVideoApp();
  * 2. MAIN PLAYER LOGIC
  */
 const jsonFile = 'channels.json?v=' + new Date().getTime();

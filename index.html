@@ -399,25 +399,31 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // 2. DASH PLAYER (.mpd)
+ // 2. DASH PLAYER (.mpd)
   if (ch.url.includes('.mpd')) {
     if (window.shaka && shaka.Player.isBrowserSupported()) {
-      // Initialize Shaka Player
-      dashEngine = new shaka.Player(video);
+      // 1. Initialize the player WITHOUT the video element in the constructor
+      dashEngine = new shaka.Player(); 
       
       try {
+        // 2. Use the .attach() method to link it to the video tag
+        await dashEngine.attach(video);
+        
+        // 3. Load the stream as usual
         await dashEngine.load(ch.url);
+        
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
+        console.log("DASH Loaded via .attach() successfully!");
       } catch (e) { 
-        console.error("DASH Load Error:", e); 
+        console.error("DASH Load/Attach Error:", e); 
         if (loading) loading.style.display = 'none';
       }
     } else {
       console.error("Shaka library not loaded or browser not supported.");
     }
     return;
-  }
+ }
 
   // 3. HLS PLAYER (.m3u8)
   if (ch.url.includes('.m3u8')) {

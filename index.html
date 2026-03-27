@@ -444,13 +444,36 @@ async function playStream(ch) {
 
     video.style.display = 'block';
 
+    // --- DASH (.mpd) via SHAKA (Optimized for Speed) ---
     if (ch.url.includes('.mpd')) {
-        dashEngine = new shaka.Player();
-        try {
-            await dashEngine.attach(video);
-            await dashEngine.load(ch.url);
-            video.play().catch(() => {});
-        } catch (e) { showToast("DASH Load Error", true); }
+        if (window.shaka && shaka.Player.isBrowserSupported()) {
+            dashEngine = new shaka.Player();
+            
+            // OPTIMIZATION: Tell Shaka to favor speed over quality initially
+            dashEngine.configure({
+                streaming: {
+                    bufferingGoal: 10,        // Reduce from 30s to 10s for faster start
+                    rebufferingGoal: 2,       // Start playing as soon as 2s is ready
+                    bufferBehind: 0,          // Don't waste memory on old data
+                }
+            });
+
+            // SPINNER LOGIC: Listen for Shaka's internal buffering events
+            dashEngine.addEventListener('buffering', (event) => {
+                if (loading) loading.style.display = event.fetching ? 'block' : 'none';
+            });
+
+            try {
+                await dashEngine.attach(video);
+                await dashEngine.load(ch.url);
+                
+                // Manually hide spinner once the manifest is loaded if 'playing' hasn't fired
+                video.play().catch(() => {});
+            } catch (e) { 
+                showToast("DASH Load Error", true);
+                if (loading) loading.style.display = 'none';
+            }
+        }
         return;
     }
 

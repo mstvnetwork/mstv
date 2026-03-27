@@ -1,17 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. SETTINGS - Change to your actual domain
+// 1. SETTINGS
 const DOMAIN = "https://mstvnet.netlify.app"; 
 
 // 2. LOAD DATA
 const channels = JSON.parse(fs.readFileSync('./channels.json', 'utf8'));
 
-// 3. SETUP FOLDER (Clean start)
+// 3. SETUP FOLDER (Clean & Recreate)
 const pagesDir = path.join(__dirname, 'channels_pages');
-if (!fs.existsSync(pagesDir)) {
-    fs.mkdirSync(pagesDir);
+
+// If it exists as a file or folder, remove it to ensure a clean directory
+if (fs.existsSync(pagesDir)) {
+    fs.rmSync(pagesDir, { recursive: true, force: true });
 }
+fs.mkdirSync(pagesDir);
 
 // Helper to make URLs clean: "9x Jalwa " -> "9x-jalwa"
 const getSlug = (text) => text.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');

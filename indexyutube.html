@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="./shaka/hls2.min.js" defer></script>
+<script src="./shaka/shaka-player.ui.min.js" defer></script>
+<link rel="stylesheet" href="./shaka/shaka-ui.css">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -248,7 +251,7 @@ video, iframe {
 
 <div class="sticky-player-wrapper">
     <div class="player-container">
-      <div id="loading">🌀 Buffering...</div>
+      <div id="loading">🌀 Loading...</div>
       <div id="placeholder">📺</div>
       <video id="video" autoplay playsinline controls></video>
       <iframe id="iframePlayer" 
@@ -297,92 +300,176 @@ video, iframe {
   </main>
 </div>
 
-   <script>
-const jsonFile = 'channels.json'; 
+<script>
+/**
+ * 1. INITIALIZATION & GLOBAL VARIABLES
+ */
+let allChannels = [];
+let hlsEngine = null;
+let dashEngine = null;
+
+// DOM Elements
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
 const list = document.getElementById('channelList');
 const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
-const placeholder = document.getElementById('placeholder');
 
-let hls = null;
+const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
-function playStream(url, type) {
-  if(hls) { hls.destroy(); hls = null; }
-  video.style.display = 'none'; iframe.style.display = 'none';
-  video.src = ''; iframe.src = '';
-  placeholder.style.display = 'none';
-  loading.style.display = 'block';
+// Initialize App once DOM and Libraries are loaded
+document.addEventListener('DOMContentLoaded', () => {
+    if (window.shaka) {
+        shaka.polyfill.installAll();
+    }
+    // Initial data fetch
+    init(true);
+});
 
-  if (type === 'iframe') {
-    iframe.style.display = 'block'; 
-    iframe.src = url;
-    iframe.onload = () => loading.style.display = 'none';
+/**
+ * 2. REAL-TIME DATA & CACHE BUSTING
+ */
+async function init(isFirstLoad = false) {
+  try {
+    const jsonUrl = 'channels.json?v=' + new Date().getTime();
+    const res = await fetch(jsonUrl);
+    const newData = await res.json();
+
+    if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
+      allChannels = newData;
+      renderGrid(allChannels);
+      console.log("Channel list updated.");
+    }
+
+    if (isFirstLoad) {
+      handleDeepLinking();
+    }
+  } catch (e) {
+    console.error("Failed to fetch channel data:", e);
+  }
+}
+
+// Auto-refresh every 5 minutes
+setInterval(() => init(false), 300000); 
+
+/**
+ * 3. PLAYER ENGINE LOGIC
+ */
+async function resetPlayer() {
+  if (loading) loading.style.display = 'block';
+  if (video) video.style.display = 'none';
+  if (iframe) iframe.style.display = 'none';
+
+  if (hlsEngine) {
+    hlsEngine.destroy();
+    hlsEngine = null;
+  }
+
+  if (dashEngine) {
+    await dashEngine.detach();
+    await dashEngine.destroy();
+    dashEngine = null;
+  }
+
+  if (video) {
+    video.pause();
+    video.removeAttribute('src'); 
+    video.load();
+  }
+  if (iframe) iframe.src = "about:blank";
+}
+
+async function playStream(ch) {
+  if (!ch) return;
+  await resetPlayer(); 
+  
+  if (titleEl) titleEl.innerText = ch.name;
+  document.title = `${ch.name} Live | MSTV Network`;
+
+  // IFRAME Logic
+  if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
+    iframe.style.display = 'block';
+    iframe.src = ch.url;
+    iframe.onload = () => { if (loading) loading.style.display = 'none'; };
     return;
   }
 
   video.style.display = 'block';
-  if (url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls(); 
-      hls.loadSource(url); 
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
-          loading.style.display = 'none';
-      });
-    } else { 
-      video.src = url; 
-      video.play();
-      loading.style.display = 'none';
+
+  // DASH (.mpd) via SHAKA
+  if (ch.url.includes('.mpd')) {
+    if (window.shaka && shaka.Player.isBrowserSupported()) {
+      dashEngine = new shaka.Player();
+      try {
+        await dashEngine.attach(video);
+        await dashEngine.load(ch.url);
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      } catch (e) { console.error("DASH Error:", e); }
     }
-  } else { 
-    video.src = url; 
-    video.play();
-    loading.style.display = 'none';
+    return;
+  }
+
+  // HLS (.m3u8) via HLS.js
+  if (ch.url.includes('.m3u8')) {
+    if (window.Hls && Hls.isSupported()) {
+      hlsEngine = new Hls();
+      hlsEngine.loadSource(ch.url);
+      hlsEngine.attachMedia(video);
+      hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      });
+    } 
+    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = ch.url;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      }, { once: true });
+    }
   }
 }
 
-async function init() {
-  try {
-    const res = await fetch(jsonFile);
-    const channels = await res.json();
-    
-    function render(data) {
-      list.innerHTML = '';
-      data.forEach(({ ch, index }) => {
-        const div = document.createElement('div');
-        div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}"> <div class="channel-name">${ch.name}</div>`;
-        div.onclick = () => {
-          playStream(ch.url, ch.type);
-          titleEl.innerText = ch.name + " Live Stream";
-          history.replaceState(null, '', '?=' + index);
-        };
-        list.appendChild(div);
-      });
-    }
-
-    render(channels.map((ch, i) => ({ ch, index: i })));
-
-    let id = parseInt(window.location.search.replace('?=', '')) || 0;
-    if(channels[id]) {
-      playStream(channels[id].url, channels[id].type);
-      titleEl.innerText = channels[id].name + " Live Stream";
-    }
-
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
+/**
+ * 4. UI & GRID RENDERING
+ */
+function renderGrid(data) {
+  if (!list) return;
+  list.innerHTML = '';
+  data.forEach((ch) => {
+    const div = document.createElement('div');
+    div.className = 'channel-card';
+    div.innerHTML = `
+      <img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> 
+      <div class="channel-name">${ch.name}</div>
+    `;
+    div.onclick = () => {
+      playStream(ch);
+      history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     };
-  } catch(e) { console.error(e); }
+    list.appendChild(div);
+  });
 }
 
-init();
+function handleDeepLinking() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const channelSlug = urlParams.get('ch');
+
+  if (channelSlug) {
+    const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+    if (found) playStream(found);
+  }
+
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+    };
+  }
+}
 </script>
 </body>
 </html>  
-
-

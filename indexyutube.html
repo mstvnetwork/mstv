@@ -359,13 +359,14 @@ document.addEventListener('DOMContentLoaded', () => {
  */
 async function init(isFirstLoad = false) {
   try {
-    const jsonUrl = 'channels2.json?v=' + new Date().getTime();
+    const jsonUrl = 'channels.json?v=' + new Date().getTime();
     const res = await fetch(jsonUrl);
     const newData = await res.json();
 
     if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
       allChannels = newData;
-      renderGrid(allChannels);
+      // CHANGE THIS LINE BELOW:
+      renderUI(allChannels); 
       console.log("Channel list updated.");
     }
 
@@ -376,7 +377,6 @@ async function init(isFirstLoad = false) {
     console.error("Failed to fetch channel data:", e);
   }
 }
-
 // Auto-refresh every 5 minutes
 setInterval(() => init(false), 300000); 
 
@@ -458,76 +458,30 @@ async function playStream(ch) {
     }
   }
 }
-
 /**
- * 4. UI & GRID RENDERING (With EPG & Special Card Logic)
+ * 4. UI & GRID RENDERING
  */
-
-// Function to fetch the current show from your GitHub schedule
-async function fetchApnaEPG(cardElement) {
-  // Replace this URL with your actual raw GitHub link to schedule.json
-  const EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json"; 
-  
-  try {
-    const res = await fetch(EPG_URL + "?v=" + Date.now());
-    if(!res.ok) return;
-    const data = await res.json();
-    const now = new Date();
-    
-    let current = null;
-    let next = null;
-
-    // Loop through the schedule in the JSON
-    for (let i = 0; i < data.schedule.length; i++) {
-      const start = new Date(data.schedule[i].start);
-      const end = new Date(data.schedule[i].end);
-      
-      if (now >= start && now < end) {
-        current = data.schedule[i];
-        next = data.schedule[i + 1]; 
-        break;
-      }
-    }
-
-    const epgDiv = cardElement.querySelector('.epg-info');
-    if (current && epgDiv) {
-      const nextTime = next ? new Date(next.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "TBA";
-      
-      epgDiv.innerHTML = `
-        <div style="color: #E50914; font-weight: bold; margin-bottom: 2px;">🔴 NOW PLAYING: ${current.title}</div>
-        <div style="color: #555; font-size: 0.75rem;">🕒 NEXT: ${next ? next.title : 'Stay Tuned'} (${nextTime})</div>
-      `;
-    }
-  } catch (e) {
-    console.error("EPG Load Error:", e);
-  }
-}
-
 function renderUI(data) {
-  channels = Array.isArray(data) ? data : data.channels || [];
-  if (!gridContainer) return;
+  // Use 'channels' if that's what your variable is named globally
+  let channelData = Array.isArray(data) ? data : data.channels || [];
+  
+  if (!gridContainer) return; // Ensure this matches your el('channel-list-container')
   gridContainer.innerHTML = '';
 
-  channels.forEach((ch, index) => {
-    // Check if this is the special Apna TV channel
+  channelData.forEach((ch, index) => {
     const isApna = ch.name.toLowerCase().includes("apna");
-    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
-    
     const card = document.createElement('div');
-    // Apply "apna-special" class for the separate look
     card.className = `channel-card ${isApna ? 'apna-special' : ''}`;
     
     card.innerHTML = `
       ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
-      <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
-           onerror="this.src='https://mstvnet.netlify.app';">
+      <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" onerror="this.src='./placeholder.png';">
       <div class="channel-name">${ch.name}</div>
       ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
     `;
 
     card.onclick = () => {
       if (isApna && ch.type === 'external') {
-        // Opens your Cinema Mode page in a new window
         window.open(ch.url, '_blank');
       } else {
         playChannel(index);
@@ -535,16 +489,10 @@ function renderUI(data) {
     };
 
     gridContainer.appendChild(card);
-
-    // If it's Apna, trigger the schedule fetch immediately
     if (isApna) fetchApnaEPG(card);
   });
-
-  // Handle URL deep linking (e.g. ?ch=9x-jalwa)
-  const hash = decodeURIComponent(window.location.hash.substring(1));
-  const startIdx = channels.findIndex(c => c.name === hash);
-  if (startIdx !== -1) playChannel(startIdx);
-                                                                                                     }
+}
+                                                                                        }
 </script>
 </body>
 </html>  

@@ -459,38 +459,99 @@ async function playStream(ch) {
   }
 }
 /**
- * 4. UI & GRID RENDERING
+ * 4. UI & GRID RENDERING (With EPG & Special Card Logic)
  */
-function renderUI(data) {
-  // Use 'channels' if that's what your variable is named globally
-  let channelData = Array.isArray(data) ? data : data.channels || [];
-  
-  if (!gridContainer) return; // Ensure this matches your el('channel-list-container')
-  gridContainer.innerHTML = '';
 
-  channelData.forEach((ch, index) => {
-    const isApna = ch.name.toLowerCase().includes("apna");
-    const card = document.createElement('div');
-    card.className = `channel-card ${isApna ? 'apna-special' : ''}`;
+// Function to fetch the current show from your GitHub schedule
+async function fetchApnaEPG(cardElement) {
+    const EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json"; 
     
-    card.innerHTML = `
-      ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
-      <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" onerror="this.src='./placeholder.png';">
-      <div class="channel-name">${ch.name}</div>
-      ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
-    `;
+    try {
+        const res = await fetch(EPG_URL + "?v=" + Date.now());
+        if(!res.ok) return;
+        const data = await res.json();
+        const now = new Date();
+        
+        let current = null;
+        let next = null;
 
-    card.onclick = () => {
-      if (isApna && ch.type === 'external') {
-        window.open(ch.url, '_blank');
-      } else {
-        playChannel(index);
-      }
-    };
+        for (let i = 0; i < data.schedule.length; i++) {
+            const start = new Date(data.schedule[i].start);
+            const end = new Date(data.schedule[i].end);
+            
+            if (now >= start && now < end) {
+                current = data.schedule[i];
+                next = data.schedule[i + 1]; 
+                break;
+            }
+        }
 
-    gridContainer.appendChild(card);
-    if (isApna) fetchApnaEPG(card);
-  });
+        const epgDiv = cardElement.querySelector('.epg-info');
+        if (current && epgDiv) {
+            const nextTime = next ? new Date(next.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "TBA";
+            
+            epgDiv.innerHTML = `
+                <div style="color: #E50914; font-weight: bold; margin-bottom: 2px;">🔴 NOW PLAYING: ${current.title}</div>
+                <div style="color: #555; font-size: 0.75rem;">🕒 NEXT: ${next ? next.title : 'Stay Tuned'} (${nextTime})</div>
+            `;
+        }
+    } catch (e) {
+        console.error("EPG Load Error:", e);
+    }
+}
+
+function renderUI(data) {
+    // Determine the correct array source
+    const channelData = Array.isArray(data) ? data : (data.channels || []);
+    
+    // Ensure gridContainer exists (should be defined at top of your script)
+    if (!gridContainer) return; 
+    gridContainer.innerHTML = '';
+
+    channelData.forEach((ch, index) => {
+        const isApna = ch.name.toLowerCase().includes("apna");
+        const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+        
+        const card = document.createElement('div');
+        card.className = `channel-card ${isApna ? 'apna-special' : ''}`;
+        
+        card.innerHTML = `
+            ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
+            <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+                 onerror="this.src='https://mstvnet.netlify.app';">
+            <div class="channel-name">${ch.name}</div>
+            ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
+        `;
+
+        card.onclick = () => {
+            if (isApna && ch.type === 'external') {
+                window.open(ch.url, '_blank');
+            } else {
+                // Ensure playChannel function exists in your script
+                if (typeof playChannel === "function") {
+                    playChannel(index);
+                }
+            }
+        };
+
+        gridContainer.appendChild(card);
+
+        // If it's Apna, trigger the schedule fetch
+        if (isApna) {
+            fetchApnaEPG(card);
+        }
+    });
+
+    // Handle URL deep linking (if hash exists)
+    const hash = decodeURIComponent(window.location.hash.substring(1));
+    if (hash) {
+        const startIdx = channelData.findIndex(c => c.name === hash);
+        if (startIdx !== -1 && typeof playChannel === "function") {
+            playChannel(startIdx);
+        }
+    }
+}
+
 </script>
 </body>
 </html>  

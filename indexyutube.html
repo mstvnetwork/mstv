@@ -204,26 +204,32 @@ video, iframe {
 }
 .channel-card img { width: 100%; aspect-ratio: 95/64; object-fit: cover; }
 .channel-name { padding: 6px 2px; font-size: 0.8rem; font-weight: bold; background: white; color: #333; }
-/* The special external card */
-.external-card {
-  border: 2px solid #e50914; /* Highlight color */
-  background: #222;
-  transform: scale(1.05); /* Make it slightly larger */
+/* 1. Makes the card take up the full top row */
+.apna-special {
+  grid-column: 1 / -1; 
+  border: 2px solid #90EE90 !important;
+  background: #FFFDF0 !important;
+  display: block !important; /* Ensures it stacks correctly */
+  margin-bottom: 15px;
 }
 
-.external-card .desc {
-  font-size: 12px;
-  color: #aaa;
-  margin-top: 5px;
+/* 2. The green "Select to watch" label */
+.special-tag {
+  background: #111419;
+  color: #90EE90;
+  font-size: 0.7rem;
+  padding: 6px;
+  font-weight: bold;
+  text-align: center;
 }
 
-/* The separator line */
-.grid-separator {
-  grid-column: 1 / -1; /* Spans across the entire grid row */
-  height: 1px;
-  background: #444;
-  margin: 20px 0;
-  width: 100%;
+/* 3. The EPG container styling */
+.epg-info {
+  padding: 12px;
+  background: #fff;
+  border-top: 1px solid #ddd;
+  text-align: left;
+  line-height: 1.5;
 }
 
 .site-footer { padding: 20px; text-align: center; font-size: 0.8rem; color: #666; border-top: 1px solid #ddd; }
@@ -454,72 +460,91 @@ async function playStream(ch) {
 }
 
 /**
- * 4. UI & GRID RENDERING
+ * 4. UI & GRID RENDERING (With EPG & Special Card Logic)
  */
-function renderGrid(data) {
-  if (!list) return;
-  list.innerHTML = '';
 
-  // 1. Separate the external "Apna Tv" channel from the rest
-  const externalChannels = data.filter(ch => ch.type === 'external');
-  const streamChannels = data.filter(ch => ch.type !== 'external');
-
-  // Function to create a card
-  const createCard = (ch, isExternal = false) => {
-    const div = document.createElement('div');
-    // Add 'external-card' class if it's the special one
-    div.className = `channel-card ${isExternal ? 'external-card' : ''}`;
+// Function to fetch the current show from your GitHub schedule
+async function fetchApnaEPG(cardElement) {
+  // Replace this URL with your actual raw GitHub link to schedule.json
+  const EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json"; 
+  
+  try {
+    const res = await fetch(EPG_URL + "?v=" + Date.now());
+    if(!res.ok) return;
+    const data = await res.json();
+    const now = new Date();
     
-    div.innerHTML = `
-      <img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> 
+    let current = null;
+    let next = null;
+
+    // Loop through the schedule in the JSON
+    for (let i = 0; i < data.schedule.length; i++) {
+      const start = new Date(data.schedule[i].start);
+      const end = new Date(data.schedule[i].end);
+      
+      if (now >= start && now < end) {
+        current = data.schedule[i];
+        next = data.schedule[i + 1]; 
+        break;
+      }
+    }
+
+    const epgDiv = cardElement.querySelector('.epg-info');
+    if (current && epgDiv) {
+      const nextTime = next ? new Date(next.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "TBA";
+      
+      epgDiv.innerHTML = `
+        <div style="color: #E50914; font-weight: bold; margin-bottom: 2px;">🔴 NOW PLAYING: ${current.title}</div>
+        <div style="color: #555; font-size: 0.75rem;">🕒 NEXT: ${next ? next.title : 'Stay Tuned'} (${nextTime})</div>
+      `;
+    }
+  } catch (e) {
+    console.error("EPG Load Error:", e);
+  }
+}
+
+function renderUI(data) {
+  channels = Array.isArray(data) ? data : data.channels || [];
+  if (!gridContainer) return;
+  gridContainer.innerHTML = '';
+
+  channels.forEach((ch, index) => {
+    // Check if this is the special Apna TV channel
+    const isApna = ch.name.toLowerCase().includes("apna");
+    const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
+    
+    const card = document.createElement('div');
+    // Apply "apna-special" class for the separate look
+    card.className = `channel-card ${isApna ? 'apna-special' : ''}`;
+    
+    card.innerHTML = `
+      ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
+      <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
+           onerror="this.src='https://mstvnet.netlify.app';">
       <div class="channel-name">${ch.name}</div>
-      ${isExternal ? `<div class="desc">${ch.description}</div>` : ''}
+      ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
     `;
 
-    div.onclick = () => {
-      if (isExternal) {
-        // Opens the URL in a new browser tab/window
+    card.onclick = () => {
+      if (isApna && ch.type === 'external') {
+        // Opens your Cinema Mode page in a new window
         window.open(ch.url, '_blank');
       } else {
-        // Normal player logic
-        playStream(ch);
-        history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        playChannel(index);
       }
     };
-    return div;
-  };
 
-  // 2. Render the External Card first (separated)
-  externalChannels.forEach(ch => list.appendChild(createCard(ch, true)));
+    gridContainer.appendChild(card);
 
-  // 3. Add a visual separator if both exist
-  if (externalChannels.length > 0 && streamChannels.length > 0) {
-    const hr = document.createElement('div');
-    hr.className = "grid-separator";
-    list.appendChild(hr);
-  }
+    // If it's Apna, trigger the schedule fetch immediately
+    if (isApna) fetchApnaEPG(card);
+  });
 
-  // 4. Render the rest of the stream channels
-  streamChannels.forEach(ch => list.appendChild(createCard(ch)));
-}
-
-function handleDeepLinking() {
-  const urlParams = new URLSearchParams(window.location.search);
-  const channelSlug = urlParams.get('ch');
-
-  if (channelSlug) {
-    const found = allChannels.find(c => getSlug(c.name) === channelSlug);
-    if (found) playStream(found);
-  }
-
-  if (searchInput) {
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    };
-  }
-}
+  // Handle URL deep linking (e.g. ?ch=9x-jalwa)
+  const hash = decodeURIComponent(window.location.hash.substring(1));
+  const startIdx = channels.findIndex(c => c.name === hash);
+  if (startIdx !== -1) playChannel(startIdx);
+                                                                                                     }
 </script>
 </body>
 </html>  

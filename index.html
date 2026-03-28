@@ -298,90 +298,209 @@ video, iframe {
 </div>
 
    <script>
-const jsonFile = 'channels.json'; 
+/**
+ * 1. LOCAL LIBRARY LOADER & INITIALIZATION
+ * Features: Lazy-loading engines, Cache-busting JSON, and Auto-refresh.
+ */
+const videoLibraries = [
+  "./shaka/hls2.min.js",           // Local HLS.js
+  "./shaka/shaka-player.ui.min.js" // Local Shaka UI
+];
+
+// Load Shaka UI CSS from local repo
+const link = document.createElement('link');
+link.rel = 'stylesheet';
+link.href = "./shaka/shaka-ui.css";
+document.head.appendChild(link);
+
+let scriptLoadCount = 0;
+let libsReady = false;
+let allChannels = [];
+let hlsEngine = null;
+let dashEngine = null;
+
+// DOM Elements
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
 const list = document.getElementById('channelList');
 const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
-const placeholder = document.getElementById('placeholder');
 
-let hls = null;
+const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
 
-function playStream(url, type) {
-  if(hls) { hls.destroy(); hls = null; }
-  video.style.display = 'none'; iframe.style.display = 'none';
-  video.src = ''; iframe.src = '';
-  placeholder.style.display = 'none';
-  loading.style.display = 'block';
+function startVideoApp() {
+  videoLibraries.forEach(src => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      scriptLoadCount++;
+      if (scriptLoadCount === videoLibraries.length) {
+        if (window.shaka) shaka.polyfill.installAll();
+        libsReady = true;
+        init(true); // Initial load with autoplay check
+      }
+    };
+    document.head.appendChild(script);
+  });
+}
 
-  if (type === 'iframe') {
-    iframe.style.display = 'block'; 
-    iframe.src = url;
-    iframe.onload = () => loading.style.display = 'none';
+// Start the loader
+startVideoApp();
+
+/**
+ * 2. REAL-TIME DATA & CACHE BUSTING
+ */
+async function init(isFirstLoad = false) {
+  try {
+    // Cache-busting URL: forces browser to ignore old cached JSON
+    const jsonUrl = 'channels.json?v=' + new Date().getTime();
+    const res = await fetch(jsonUrl);
+    const newData = await res.json();
+
+    // Only re-render if data actually changed to save performance
+    if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
+      allChannels = newData;
+      renderGrid(allChannels);
+      console.log("Channel list updated from server.");
+    }
+
+    if (isFirstLoad) {
+      handleDeepLinking();
+    }
+  } catch (e) {
+    console.error("Failed to fetch channel data:", e);
+  }
+}
+
+// AUTO-REFRESH TIMER: Checks for new channels every 5 minutes without a page refresh
+setInterval(() => {
+  init(false);
+}, 300000); 
+
+/**
+ * 3. PLAYER ENGINE LOGIC (DEDICATED & ON-DEMAND)
+ */
+async function resetPlayer() {
+  if (loading) loading.style.display = 'block';
+  if (video) video.style.display = 'none';
+  if (iframe) iframe.style.display = 'none';
+
+  if (hlsEngine) {
+    hlsEngine.destroy();
+    hlsEngine = null;
+  }
+
+  if (dashEngine) {
+    await dashEngine.detach(); // v4.x+ best practice
+    await dashEngine.destroy();
+    dashEngine = null;
+  }
+
+  if (video) {
+    video.pause();
+    video.removeAttribute('src'); 
+    video.load();
+  }
+  if (iframe) iframe.src = "about:blank";
+}
+
+async function playStream(ch) {
+  if (!ch || !libsReady) return;
+  await resetPlayer(); 
+  if (titleEl) titleEl.innerText = ch.name;
+  document.title = `${ch.name} Live | MSTV Network`;
+
+  // --- IFRAME (YT / Dailymotion) ---
+  if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
+    iframe.style.display = 'block';
+    iframe.src = ch.url;
+    iframe.onload = () => { if (loading) loading.style.display = 'none'; };
     return;
   }
 
   video.style.display = 'block';
-  if (url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
-      hls = new Hls(); 
-      hls.loadSource(url); 
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.play();
-          loading.style.display = 'none';
-      });
-    } else { 
-      video.src = url; 
-      video.play();
-      loading.style.display = 'none';
+
+  // --- DASH (.mpd) via SHAKA (Dedicated) ---
+  if (ch.url.includes('.mpd')) {
+    if (window.shaka && shaka.Player.isBrowserSupported()) {
+      dashEngine = new shaka.Player(); // Future-proof initialization
+      try {
+        await dashEngine.attach(video);
+        await dashEngine.load(ch.url);
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      } catch (e) { console.error("DASH Error:", e); }
     }
-  } else { 
-    video.src = url; 
-    video.play();
-    loading.style.display = 'none';
+    return;
+  }
+
+  // --- HLS (.m3u8) via HLS.js (Dedicated) ---
+  if (ch.url.includes('.m3u8')) {
+    if (window.Hls && Hls.isSupported()) {
+      hlsEngine = new Hls();
+      hlsEngine.loadSource(ch.url);
+      hlsEngine.attachMedia(video);
+      hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      });
+    } 
+    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      // Native Safari Fallback
+      video.src = ch.url;
+      video.addEventListener('loadedmetadata', () => {
+        video.play().catch(() => {});
+        if (loading) loading.style.display = 'none';
+      }, { once: true });
+    }
+    return;
   }
 }
 
-async function init() {
-  try {
-    const res = await fetch(jsonFile);
-    const channels = await res.json();
-    
-    function render(data) {
-      list.innerHTML = '';
-      data.forEach(({ ch, index }) => {
-        const div = document.createElement('div');
-        div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}"> <div class="channel-name">${ch.name}</div>`;
-        div.onclick = () => {
-          playStream(ch.url, ch.type);
-          titleEl.innerText = ch.name + " Live Stream";
-          history.replaceState(null, '', '?=' + index);
-        };
-        list.appendChild(div);
-      });
-    }
-
-    render(channels.map((ch, i) => ({ ch, index: i })));
-
-    let id = parseInt(window.location.search.replace('?=', '')) || 0;
-    if(channels[id]) {
-      playStream(channels[id].url, channels[id].type);
-      titleEl.innerText = channels[id].name + " Live Stream";
-    }
-
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      render(channels.map((ch, i) => ({ ch, index: i })).filter(i => i.ch.name.toLowerCase().includes(val)));
+/**
+ * 4. UI & GRID RENDERING
+ */
+function renderGrid(data) {
+  if (!list) return;
+  list.innerHTML = '';
+  data.forEach((ch) => {
+    const div = document.createElement('div');
+    div.className = 'channel-card';
+    div.innerHTML = `
+      <img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> 
+      <div class="channel-name">${ch.name}</div>
+    `;
+    div.onclick = () => {
+      playStream(ch);
+      history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     };
-  } catch(e) { console.error(e); }
+    list.appendChild(div);
+  });
 }
 
-init();
-</script>
+function handleDeepLinking() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const channelSlug = urlParams.get('ch');
+  let startChannel = allChannels;
+
+  if (channelSlug) {
+    const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+    if (found) startChannel = found;
+  }
+
+  if (startChannel) playStream(startChannel);
+
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
+    };
+  }
+}
+  </script>
 </body>
 </html>  
 

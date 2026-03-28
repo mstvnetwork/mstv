@@ -328,98 +328,75 @@ video, iframe {
 </div>
 
     
-    <script>
+<script>
 /**
- * 1. GLOBAL SETTINGS & DOM ELEMENTS
+ * 1. SETTINGS & DOM
  */
-const JSON_URL = './channels2.json'; // Updated to your new file
-const APNA_EPG_URL = "https://mstvnetwork.github.io/mstv4/schedule.json";
+const JSON_URL = './channels2.json'; 
+// Use the RAW link to bypass GitHub security blocks:
+const APNA_EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json";
 
 let allChannels = [];
 let hlsEngine = null;
 let shakaPlayer = null;
 
-// Selectors
 const el = (id) => document.getElementById(id);
 
 /**
- * 2. PLAYER CONTROL LOGIC
+ * 2. PLAYER LOGIC
  */
 async function stopAll() {
-    const video = el('video-player');
-    const iframe = el('iframe-player');
-    const loading = el('loading');
-    const placeholder = el('placeholder');
-
-    if (loading) loading.style.display = 'none';
+    const v = el('video-player'), i = el('iframe-player'), l = el('loading'), p = el('placeholder');
+    if (l) l.style.display = 'none';
     if (hlsEngine) { hlsEngine.detachMedia(); hlsEngine.destroy(); hlsEngine = null; }
     if (shakaPlayer) { await shakaPlayer.detach(); await shakaPlayer.destroy(); shakaPlayer = null; }
-    if (video) { video.pause(); video.removeAttribute('src'); video.load(); video.style.display = 'none'; }
-    if (iframe) { iframe.src = 'about:blank'; iframe.style.display = 'none'; }
-    if (placeholder) placeholder.style.display = 'flex';
+    if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.style.display = 'none'; }
+    if (i) { i.src = 'about:blank'; i.style.display = 'none'; }
+    if (p) p.style.display = 'flex';
 }
 
-async function playChannel(index) {
-    const ch = allChannels[index];
+async function playChannel(idx) {
+    const ch = allChannels[idx];
     if (!ch) return;
-
-    const video = el('video-player');
-    const iframe = el('iframe-player');
-    const loading = el('loading');
-    const placeholder = el('placeholder');
-
+    const v = el('video-player'), i = el('iframe-player'), l = el('loading'), p = el('placeholder');
     window.location.hash = encodeURIComponent(ch.name);
     await stopAll();
-
-    if (video) video.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    if (loading) loading.style.display = 'block';
-    if (placeholder) placeholder.style.display = 'none';
-
-    const hideLoader = () => { if (loading) loading.style.display = 'none'; };
+    if (v) v.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (l) l.style.display = 'block';
+    if (p) p.style.display = 'none';
 
     if (ch.type === 'iframe') {
-        iframe.style.display = 'block';
-        iframe.src = ch.url;
-        iframe.onload = hideLoader;
+        i.style.display = 'block'; i.src = ch.url;
+        i.onload = () => { if (l) l.style.display = 'none'; };
         return;
     }
 
-    video.style.display = 'block';
-    const isHls = ch.type === 'hls' || ch.url.includes('.m3u8');
-
-    if (isHls) {
+    v.style.display = 'block';
+    if (ch.type === 'hls' || ch.url.includes('.m3u8')) {
         if (window.Hls && Hls.isSupported()) {
-            hlsEngine = new Hls({ autoStartLoad: true });
-            hlsEngine.attachMedia(video);
+            hlsEngine = new Hls(); hlsEngine.attachMedia(v);
             hlsEngine.on(Hls.Events.MEDIA_ATTACHED, () => hlsEngine.loadSource(ch.url));
-            hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(()=>{}); hideLoader(); });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = ch.url;
-            video.play().catch(()=>{});
-            video.addEventListener('playing', hideLoader, { once: true });
+            hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); if(l) l.style.display='none'; });
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url; v.play().catch(()=>{});
+            v.addEventListener('playing', () => { if(l) l.style.display='none'; }, { once: true });
         }
-    } else if (window.shaka && shaka.Player.isBrowserSupported()) {
-        shaka.polyfill.installAll();
-        shakaPlayer = new shaka.Player(video);
-        try {
-            await shakaPlayer.load(ch.url);
-            video.play().catch(()=>{});
-            hideLoader();
-        } catch (e) { hideLoader(); }
     }
 }
 
 /**
- * 3. EPG & UI RENDERING
+ * 3. EPG & GRID RENDERING
  */
 async function fetchApnaEPG(cardElement) {
     try {
+        // Adding a timestamp to prevent caching
         const res = await fetch(APNA_EPG_URL + "?v=" + Date.now());
+        if (!res.ok) throw new Error("Schedule not found");
         const data = await res.json();
         const now = new Date();
         let current = null, next = null;
 
-        if (data.schedule) {
+        if (data.schedule && Array.isArray(data.schedule)) {
             for (let i = 0; i < data.schedule.length; i++) {
                 const start = new Date(data.schedule[i].start);
                 const end = new Date(data.schedule[i].end);
@@ -439,33 +416,33 @@ async function fetchApnaEPG(cardElement) {
                 <div style="color: #555; font-size: 0.75rem;">🕒 NEXT: ${next ? next.title : 'TBA'} (${nextT})</div>
             `;
         }
-    } catch (e) { console.error("EPG Error", e); }
+    } catch (e) { 
+        console.warn("EPG fail (File might be propagation):", e);
+        const epgDiv = cardElement.querySelector('.epg-info');
+        if(epgDiv) epgDiv.innerText = "Live Stream (Schedule Loading...)";
+    }
 }
 
 function renderUI(data) {
     allChannels = Array.isArray(data) ? data : (data.channels || []);
     const grid = el('channel-list-container');
     if (!grid) return;
-    
     grid.innerHTML = '';
 
     allChannels.forEach((ch, index) => {
         const isApna = ch.name.toLowerCase().includes("apna");
         const card = document.createElement('div');
         card.className = `channel-card ${isApna ? 'apna-special' : ''}`;
-        
         card.innerHTML = `
-            ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
+            ${isApna ? '<div class="special-tag">SELECT TO WATCH APNA TV</div>' : ''}
             <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" loading="lazy">
             <div class="channel-name">${ch.name}</div>
-            ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
+            ${isApna ? '<div class="epg-info">Updating Live Info...</div>' : ''}
         `;
-
         card.onclick = () => {
             if (isApna && ch.type === 'external') { window.open(ch.url, '_blank'); }
             else { playChannel(index); }
         };
-
         grid.appendChild(card);
         if (isApna) fetchApnaEPG(card);
     });
@@ -480,19 +457,18 @@ function renderUI(data) {
  */
 async function init() {
     try {
-        const res = await fetch(JSON_URL, { cache: 'no-store' });
+        const res = await fetch(JSON_URL);
         if (res.ok) {
             const data = await res.json();
             renderUI(data);
+        } else {
+            console.error("Could not find channels2.json");
         }
     } catch (e) { console.error('Init error:', e); }
 }
 
-// Ensure DOM is ready before running
 document.addEventListener('DOMContentLoaded', () => {
     init();
-
-    // Search logic
     const sInput = el('channel-search');
     if (sInput) {
         sInput.addEventListener('input', e => {
@@ -503,7 +479,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 });
-    
 </script>
 </body>
 </html>  

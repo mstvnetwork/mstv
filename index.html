@@ -159,52 +159,54 @@ header {
   box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
-video, iframe {
-  position: absolute;
-  top: 0; left: 0;
-  width: 100%;
-  height: 100%;
-  /* Changed to contain so the video frame is never cut off */
-  object-fit: contain; 
-  border: none;
-  display: none;
-}
-.player-placeholder {
+/* The Container */
+.player-wrapper {
+    position: relative;
     width: 100%;
-    height: 450px;
-    background-color: #000;
+    aspect-ratio: 16 / 9;
+    background: #111; /* Dark background */
+    border-radius: 12px;
+    overflow: hidden;
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
 }
 
-.placeholder-text {
-    color: #fff;
-    font-size: 24px;
-    font-weight: bold;
+/* The Background Text (Visible when video is hidden) */
+.player-wrapper::before {
+    content: "SELECT CHANNEL & PLAY";
+    position: absolute;
+    color: rgba(255, 255, 255, 0.2);
+    font-family: 'Segoe UI', sans-serif;
+    font-weight: 800;
+    letter-spacing: 3px;
+    font-size: 1.2rem;
+    z-index: 1;
 }
 
- #loading {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 10;
-  display: none; /* Hidden by default */
+#video, #iframePlayer {
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+    background: transparent !important;
+    display: none; /* Hidden until a channel is clicked */
 }
 
+/* Modern Spinner */
+#loading {
+    position: absolute;
+    z-index: 10;
+    display: none;
+}
 .spinner {
-  width: 50px;
-  height: 50px;
-  border: 3px solid rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-  border-top-color: #007bff; /* MSTV Primary Blue */
-  animation: spin 0.8s ease-in-out infinite;
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: #007bff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
 }
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* TICKER */
 .ticker {
@@ -337,15 +339,12 @@ video, iframe {
 
   </main>
 </div>
+
 <script>
 /**
- * MSTV NETWORK - HEAD-READY CORE
- * Optimized for scripts placed in the <head> with 'defer'.
+ * MSTV NETWORK - STABLE CORE v3.0
+ * Fixed: Undefined 'includes' error & CSS Placeholder
  */
-
-// 1. GLOBAL VARIABLES
-const videoLibraries = ["./shaka/hls2.min.js", "./shaka/shaka-player.ui.min.js"];
-const placeholderUrl = "https://mstvnet.netlify.app/mstv-thumbnail.png";
 
 let libsReady = false;
 let allChannels = [];
@@ -353,12 +352,10 @@ let hlsEngine = null;
 let dashEngine = null;
 let loadTimeout = null;
 
-// This will be populated once the DOM is ready
+// DOM Elements
 let video, iframe, list, searchInput, titleEl, loading;
 
-// 2. DOM READINESS WRAPPER
 document.addEventListener('DOMContentLoaded', () => {
-    // Link DOM elements
     video = document.getElementById('video');
     iframe = document.getElementById('iframePlayer');
     list = document.getElementById('channelList');
@@ -366,22 +363,17 @@ document.addEventListener('DOMContentLoaded', () => {
     titleEl = document.getElementById('title');
     loading = document.getElementById('loading');
 
-    // Add global listener for spinner removal
     if (video) {
         video.addEventListener('playing', () => {
             clearTimeout(loadTimeout);
             if (loading) loading.style.display = 'none';
-            video.removeAttribute('poster');
         });
     }
 
-    // Start library check & Init
     checkLibsAndStart();
 });
 
-// 3. LIBRARY & DATA SYNC
 function checkLibsAndStart() {
-    // Since scripts are in <head> with 'defer', they might be ready or loading
     const check = setInterval(() => {
         if (window.Hls && window.shaka) {
             clearInterval(check);
@@ -396,119 +388,62 @@ async function init(isFirstLoad = false) {
     try {
         const res = await fetch(`channels.json?v=${Date.now()}`);
         const newData = await res.json();
-
+        
         if (allChannels.length > 0 && JSON.stringify(newData) !== JSON.stringify(allChannels)) {
             showToast("Channel list updated!");
         }
 
-        if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
-            allChannels = newData;
-            renderGrid(allChannels);
-        }
+        allChannels = newData;
+        renderGrid(allChannels);
+
         if (isFirstLoad) handleDeepLinking();
-    } catch (e) { console.error("Sync Failed", e); }
+    } catch (e) { console.error("Data Sync Failed", e); }
 }
 
-setInterval(() => init(false), 300000); // 5-minute background sync
-
-function showToast(msg, isError = false) {
-    const t = document.createElement('div');
-    t.className = "mstv-toast";
-    if (isError) t.style.borderLeftColor = "#ff4444";
-    t.innerText = msg;
-    document.body.appendChild(t);
-    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 4000);
-}
-
-// 4. PLAYER ENGINE (THE "BRAIN")
-async function resetPlayer() {
-    clearTimeout(loadTimeout);
-    
-    // 1. Show the loading spinner
-    if (loading) loading.style.display = 'block';
-
-    if (video) {
-        // 2. Hide the video player
-        video.style.display = 'none'; 
-        
-        // 3. Show the placeholder image
-        const placeholder = document.querySelector('.player-placeholder');
-        if (placeholder) {
-            placeholder.style.display = 'flex';
-        }
-        
-        // 4. Stop any current audio/video
-        video.pause();
-        video.removeAttribute('src'); 
-        video.load(); // This forces the player to clear and show the poster
-    }
-
-    if (iframe) {
-        iframe.style.display = 'none';
-        iframe.src = "about:blank";
-    }
-
-    // Clean up engines
-    if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
-    if (dashEngine) { await dashEngine.detach(); await dashEngine.destroy(); dashEngine = null; }
-}
+// THE FIX: Added a safety check for 'ch'
 async function playStream(ch) {
-    if (!ch || !libsReady) return;
+    // SAFETY CHECK: If ch is null or undefined, stop immediately
+    if (!ch || !ch.url) {
+        console.warn("Attempted to play an undefined channel.");
+        return; 
+    }
+    if (!libsReady) return;
+
     await resetPlayer();
     
     if (titleEl) titleEl.innerText = ch.name;
     document.title = `${ch.name} | MSTV`;
 
-    // Start Error Timer (15 seconds)
+    // 15s Error Timeout
     loadTimeout = setTimeout(() => {
         if (loading && loading.style.display !== 'none') {
-            showToast("Stream taking too long. It might be offline.", true);
+            showToast("Stream offline or slow.", true);
             loading.style.display = 'none';
         }
     }, 15000);
 
+    // Iframe Handling
     if (ch.type === 'iframe' || ch.url.includes('youtube.com')) {
         iframe.style.display = 'block';
         iframe.src = ch.url;
-        iframe.onload = () => { clearTimeout(loadTimeout); loading.style.display = 'none'; };
+        iframe.onload = () => { clearTimeout(loadTimeout); if(loading) loading.style.display = 'none'; };
         return;
     }
 
     video.style.display = 'block';
 
-    // --- DASH (.mpd) via SHAKA (Optimized for Speed) ---
+    // DASH (.mpd) with Shaka v5.0 logic
     if (ch.url.includes('.mpd')) {
-        if (window.shaka && shaka.Player.isBrowserSupported()) {
-            dashEngine = new shaka.Player();
-            
-            // OPTIMIZATION: Tell Shaka to favor speed over quality initially
-            dashEngine.configure({
-                streaming: {
-                    bufferingGoal: 10,        // Reduce from 30s to 10s for faster start
-                    rebufferingGoal: 2,       // Start playing as soon as 2s is ready
-                    bufferBehind: 0,          // Don't waste memory on old data
-                }
-            });
-
-            // SPINNER LOGIC: Listen for Shaka's internal buffering events
-            dashEngine.addEventListener('buffering', (event) => {
-                if (loading) loading.style.display = event.fetching ? 'block' : 'none';
-            });
-
-            try {
-                await dashEngine.attach(video);
-                await dashEngine.load(ch.url);
-                
-                // Manually hide spinner once the manifest is loaded if 'playing' hasn't fired
-                video.play().catch(() => {});
-            } catch (e) { 
-                showToast("DASH Load Error", true);
-                if (loading) loading.style.display = 'none';
-            }
-        }
+        dashEngine = new shaka.Player();
+        try {
+            await dashEngine.attach(video);
+            await dashEngine.load(ch.url);
+            video.play().catch(() => {});
+        } catch (e) { showToast("DASH Load Error", true); }
         return;
     }
 
+    // HLS (.m3u8)
     if (ch.url.includes('.m3u8')) {
         if (window.Hls && Hls.isSupported()) {
             hlsEngine = new Hls();
@@ -517,14 +452,24 @@ async function playStream(ch) {
             hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = ch.url;
-            video.addEventListener('loadedmetadata', () => video.play().catch(() => {}), { once: true });
+            video.onloadedmetadata = () => video.play();
         }
         return;
     }
 }
 
-// 5. UI HANDLERS
-const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+async function resetPlayer() {
+    clearTimeout(loadTimeout);
+    if (loading) loading.style.display = 'block';
+    
+    if (video) {
+        video.style.display = 'none';
+        video.pause(); video.removeAttribute('src'); video.load();
+    }
+    if (iframe) { iframe.style.display = 'none'; iframe.src = "about:blank"; }
+    if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
+    if (dashEngine) { await dashEngine.detach(); await dashEngine.destroy(); dashEngine = null; }
+}
 
 function renderGrid(data) {
     if (!list) return;
@@ -532,11 +477,11 @@ function renderGrid(data) {
     data.forEach((ch) => {
         const div = document.createElement('div');
         div.className = 'channel-card';
-        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> <div class="channel-name">${ch.name}</div>`;
+        div.innerHTML = `<img src="${ch.logo}" onerror="this.src='./img/placeholder.png'"> <div class="channel-name">${ch.name}</div>`;
         div.onclick = () => {
             playStream(ch);
-            history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            const slug = ch.name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+            history.pushState(null, ch.name, `/?ch=${slug}`);
         };
         list.appendChild(div);
     });
@@ -545,16 +490,31 @@ function renderGrid(data) {
 function handleDeepLinking() {
     const urlParams = new URLSearchParams(window.location.search);
     const chSlug = urlParams.get('ch');
-    const startCh = chSlug ? allChannels.find(c => getSlug(c.name) === chSlug) : allChannels;
-    if (startCh) playStream(startCh);
+    
+    // Find the channel based on the slug
+    const startCh = allChannels.find(c => {
+        const slug = c.name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+        return slug === chSlug;
+    });
 
-    if (searchInput) {
-        searchInput.oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-        };
+    // ONLY play if a valid channel was found, otherwise stay on placeholder
+    if (startCh) {
+        playStream(startCh);
+    } else {
+        console.log("No deep-link found. Showing placeholder.");
+        if(loading) loading.style.display = 'none'; // Hide spinner on idle
     }
 }
+
+function showToast(msg, isError = false) {
+    const t = document.createElement('div');
+    t.className = "mstv-toast"; 
+    if(isError) t.style.background = "#b30000";
+    t.innerText = msg;
+    document.body.appendChild(t);
+    setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3000);
+}
 </script>
+
 </body>
 </html>

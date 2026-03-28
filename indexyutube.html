@@ -329,159 +329,133 @@ video, iframe {
 
 <script>
 /**
- * 1. INITIALIZATION & GLOBAL VARIABLES
+ * 1. GLOBAL SETTINGS & DOM ELEMENTS
  */
+const JSON_URL = './channels.json';
+const APNA_EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json";
+
+// Variables for Player Engines
 let allChannels = [];
 let hlsEngine = null;
-let dashEngine = null;
+let shakaPlayer = null;
 
-// DOM Elements
-const video = document.getElementById('video');
-const iframe = document.getElementById('iframePlayer');
-const list = document.getElementById('channelList');
-const searchInput = document.getElementById('searchInput');
-const titleEl = document.getElementById('title');
-const loading = document.getElementById('loading');
-
-const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
-
-// Initialize App once DOM and Libraries are loaded
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.shaka) {
-        shaka.polyfill.installAll();
-    }
-    // Initial data fetch
-    init(true);
-});
+// DOM Element Selectors
+const el = (id) => document.getElementById(id);
+const video = el('video-player');
+const iframe = el('iframe-player');
+const placeholder = el('placeholder');
+const loading = el('loading');
+const gridContainer = el('channel-list-container');
+const searchInput = el('channel-search');
 
 /**
- * 2. REAL-TIME DATA & CACHE BUSTING
+ * 2. PLAYER CONTROL LOGIC
  */
-async function init(isFirstLoad = false) {
-  try {
-    const jsonUrl = 'channels.json?v=' + new Date().getTime();
-    const res = await fetch(jsonUrl);
-    const newData = await res.json();
-
-    if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
-      allChannels = newData;
-      // CHANGE THIS LINE BELOW:
-      renderUI(allChannels); 
-      console.log("Channel list updated.");
-    }
-
-    if (isFirstLoad) {
-      handleDeepLinking();
-    }
-  } catch (e) {
-    console.error("Failed to fetch channel data:", e);
-  }
-}
-// Auto-refresh every 5 minutes
-setInterval(() => init(false), 300000); 
-
-/**
- * 3. PLAYER ENGINE LOGIC
- */
-async function resetPlayer() {
-  if (loading) loading.style.display = 'block';
-  if (video) video.style.display = 'none';
-  if (iframe) iframe.style.display = 'none';
-
-  if (hlsEngine) {
-    hlsEngine.destroy();
-    hlsEngine = null;
-  }
-
-  if (dashEngine) {
-    await dashEngine.detach();
-    await dashEngine.destroy();
-    dashEngine = null;
-  }
-
-  if (video) {
-    video.pause();
-    video.removeAttribute('src'); 
-    video.load();
-  }
-  if (iframe) iframe.src = "about:blank";
-}
-
-async function playStream(ch) {
-  if (!ch) return;
-  await resetPlayer(); 
-  
-  if (titleEl) titleEl.innerText = ch.name;
-  document.title = `${ch.name} Live | MSTV Network`;
-
-  // IFRAME Logic
-  if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
-    iframe.style.display = 'block';
-    iframe.src = ch.url;
-    iframe.onload = () => { if (loading) loading.style.display = 'none'; };
-    return;
-  }
-
-  video.style.display = 'block';
-
-  // DASH (.mpd) via SHAKA
-  if (ch.url.includes('.mpd')) {
-    if (window.shaka && shaka.Player.isBrowserSupported()) {
-      dashEngine = new shaka.Player();
-      try {
-        await dashEngine.attach(video);
-        await dashEngine.load(ch.url);
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      } catch (e) { console.error("DASH Error:", e); }
-    }
-    return;
-  }
-
-  // HLS (.m3u8) via HLS.js
-  if (ch.url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
-      hlsEngine = new Hls();
-      hlsEngine.loadSource(ch.url);
-      hlsEngine.attachMedia(video);
-      hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      });
-    } 
-    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = ch.url;
-      video.addEventListener('loadedmetadata', () => {
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      }, { once: true });
-    }
-  }
-}
-/**
- * 4. UI & GRID RENDERING (With EPG & Special Card Logic)
- */
-
-// Function to fetch the current show from your GitHub schedule
-async function fetchApnaEPG(cardElement) {
-    const EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv4/main/schedule.json"; 
+async function stopAll() {
+    if (loading) loading.style.display = 'none';
     
+    if (hlsEngine) { 
+        hlsEngine.detachMedia();
+        hlsEngine.destroy(); 
+        hlsEngine = null; 
+    }
+    
+    if (shakaPlayer) { 
+        await shakaPlayer.detach();
+        await shakaPlayer.destroy(); 
+        shakaPlayer = null; 
+    }
+    
+    if (video) { 
+        video.pause(); 
+        video.removeAttribute('src'); 
+        video.load(); 
+        video.style.display = 'none'; 
+    }
+    
+    if (iframe) { 
+        iframe.src = 'about:blank'; 
+        iframe.style.display = 'none'; 
+    }
+    
+    if (placeholder) placeholder.style.display = 'flex';
+}
+
+async function playChannel(index) {
+    const ch = allChannels[index];
+    if (!ch) return;
+
+    // Update URL Hash for Deep Linking
+    window.location.hash = encodeURIComponent(ch.name);
+
+    await stopAll();
+
+    if (video) video.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (loading) loading.style.display = 'block';
+    if (placeholder) placeholder.style.display = 'none';
+
+    const hideLoader = () => { if (loading) loading.style.display = 'none'; };
+
+    // --- IFRAME PLAYER ---
+    if (ch.type === 'iframe') {
+        iframe.style.display = 'block';
+        iframe.src = ch.url;
+        iframe.onload = hideLoader;
+        return;
+    }
+
+    // --- VIDEO PLAYER (HLS/DASH) ---
+    video.style.display = 'block';
+    const isHls = ch.type === 'hls' || (ch.url && ch.url.includes('.m3u8'));
+
+    if (isHls) {
+        if (window.Hls && Hls.isSupported()) {
+            hlsEngine = new Hls({ autoStartLoad: true, lowLatencyMode: true });
+            hlsEngine.attachMedia(video);
+            hlsEngine.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hlsEngine.loadSource(ch.url);
+            });
+            hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => {});
+                hideLoader();
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = ch.url;
+            video.play().catch(() => {});
+            video.addEventListener('playing', hideLoader, { once: true });
+        }
+    } else if (window.shaka && shaka.Player.isBrowserSupported()) {
+        shaka.polyfill.installAll();
+        shakaPlayer = new shaka.Player(video);
+        try {
+            await shakaPlayer.load(ch.url);
+            video.play().catch(() => {});
+            hideLoader();
+        } catch (e) {
+            console.error('Shaka Load Error', e);
+            hideLoader();
+        }
+    }
+}
+
+/**
+ * 3. EPG & UI RENDERING
+ */
+async function fetchApnaEPG(cardElement) {
     try {
-        const res = await fetch(EPG_URL + "?v=" + Date.now());
-        if(!res.ok) return;
+        const res = await fetch(APNA_EPG_URL + "?v=" + Date.now());
+        if (!res.ok) return;
         const data = await res.json();
         const now = new Date();
         
-        let current = null;
-        let next = null;
+        let current = null, next = null;
 
         for (let i = 0; i < data.schedule.length; i++) {
             const start = new Date(data.schedule[i].start);
             const end = new Date(data.schedule[i].end);
-            
             if (now >= start && now < end) {
                 current = data.schedule[i];
-                next = data.schedule[i + 1]; 
+                next = data.schedule[i + 1];
                 break;
             }
         }
@@ -489,26 +463,20 @@ async function fetchApnaEPG(cardElement) {
         const epgDiv = cardElement.querySelector('.epg-info');
         if (current && epgDiv) {
             const nextTime = next ? new Date(next.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : "TBA";
-            
             epgDiv.innerHTML = `
-                <div style="color: #E50914; font-weight: bold; margin-bottom: 2px;">🔴 NOW PLAYING: ${current.title}</div>
+                <div style="color: #E50914; font-weight: bold; margin-bottom: 2px;">🔴 NOW: ${current.title}</div>
                 <div style="color: #555; font-size: 0.75rem;">🕒 NEXT: ${next ? next.title : 'Stay Tuned'} (${nextTime})</div>
             `;
         }
-    } catch (e) {
-        console.error("EPG Load Error:", e);
-    }
+    } catch (e) { console.error("EPG Error", e); }
 }
 
 function renderUI(data) {
-    // Determine the correct array source
-    const channelData = Array.isArray(data) ? data : (data.channels || []);
-    
-    // Ensure gridContainer exists (should be defined at top of your script)
-    if (!gridContainer) return; 
+    allChannels = Array.isArray(data) ? data : (data.channels || []);
+    if (!gridContainer) return;
     gridContainer.innerHTML = '';
 
-    channelData.forEach((ch, index) => {
+    allChannels.forEach((ch, index) => {
         const isApna = ch.name.toLowerCase().includes("apna");
         const priority = index < 8 ? 'fetchpriority="high"' : 'loading="lazy"';
         
@@ -518,7 +486,7 @@ function renderUI(data) {
         card.innerHTML = `
             ${isApna ? '<div class="special-tag">Select to watch Apna Tv</div>' : ''}
             <img src="${ch.logo}" alt="${ch.name}" width="95" height="64" ${priority} 
-                 onerror="this.src='https://mstvnet.netlify.app';">
+                 onerror="this.src='https://mstvnet.netlify.app/placeholder.png';">
             <div class="channel-name">${ch.name}</div>
             ${isApna ? '<div class="epg-info">Fetching live schedule...</div>' : ''}
         `;
@@ -527,31 +495,46 @@ function renderUI(data) {
             if (isApna && ch.type === 'external') {
                 window.open(ch.url, '_blank');
             } else {
-                // Ensure playChannel function exists in your script
-                if (typeof playChannel === "function") {
-                    playChannel(index);
-                }
+                playChannel(index);
             }
         };
 
         gridContainer.appendChild(card);
-
-        // If it's Apna, trigger the schedule fetch
-        if (isApna) {
-            fetchApnaEPG(card);
-        }
+        if (isApna) fetchApnaEPG(card);
     });
 
-    // Handle URL deep linking (if hash exists)
+    // Handle Deep Linking from URL Hash
     const hash = decodeURIComponent(window.location.hash.substring(1));
-    if (hash) {
-        const startIdx = channelData.findIndex(c => c.name === hash);
-        if (startIdx !== -1 && typeof playChannel === "function") {
-            playChannel(startIdx);
-        }
-    }
+    const startIdx = allChannels.findIndex(c => c.name === hash);
+    if (startIdx !== -1) playChannel(startIdx);
 }
 
+/**
+ * 4. INITIALIZATION & SEARCH
+ */
+async function init() {
+    try {
+        const res = await fetch(JSON_URL, { cache: 'no-store' });
+        if (res.ok) {
+            const data = await res.json();
+            renderUI(data);
+        }
+    } catch (e) { console.error('Init error:', e); }
+}
+
+if (searchInput) {
+    searchInput.addEventListener('input', e => {
+        const term = e.target.value.toLowerCase();
+        document.querySelectorAll('.channel-card').forEach(card => {
+            const isMatch = card.innerText.toLowerCase().includes(term);
+            card.style.display = isMatch ? 'flex' : 'none';
+        });
+    });
+}
+
+// Run the app
+init();
 </script>
+
 </body>
 </html>  

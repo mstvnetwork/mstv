@@ -204,6 +204,27 @@ video, iframe {
 }
 .channel-card img { width: 100%; aspect-ratio: 95/64; object-fit: cover; }
 .channel-name { padding: 6px 2px; font-size: 0.8rem; font-weight: bold; background: white; color: #333; }
+/* The special external card */
+.external-card {
+  border: 2px solid #e50914; /* Highlight color */
+  background: #222;
+  transform: scale(1.05); /* Make it slightly larger */
+}
+
+.external-card .desc {
+  font-size: 12px;
+  color: #aaa;
+  margin-top: 5px;
+}
+
+/* The separator line */
+.grid-separator {
+  grid-column: 1 / -1; /* Spans across the entire grid row */
+  height: 1px;
+  background: #444;
+  margin: 20px 0;
+  width: 100%;
+}
 
 .site-footer { padding: 20px; text-align: center; font-size: 0.8rem; color: #666; border-top: 1px solid #ddd; }
 
@@ -438,20 +459,49 @@ async function playStream(ch) {
 function renderGrid(data) {
   if (!list) return;
   list.innerHTML = '';
-  data.forEach((ch) => {
+
+  // 1. Separate the external "Apna Tv" channel from the rest
+  const externalChannels = data.filter(ch => ch.type === 'external');
+  const streamChannels = data.filter(ch => ch.type !== 'external');
+
+  // Function to create a card
+  const createCard = (ch, isExternal = false) => {
     const div = document.createElement('div');
-    div.className = 'channel-card';
+    // Add 'external-card' class if it's the special one
+    div.className = `channel-card ${isExternal ? 'external-card' : ''}`;
+    
     div.innerHTML = `
       <img src="${ch.logo}" onerror="this.src='https://mstvnet.netlify.app/placeholder.png'"> 
       <div class="channel-name">${ch.name}</div>
+      ${isExternal ? `<div class="desc">${ch.description}</div>` : ''}
     `;
+
     div.onclick = () => {
-      playStream(ch);
-      history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      if (isExternal) {
+        // Opens the URL in a new browser tab/window
+        window.open(ch.url, '_blank');
+      } else {
+        // Normal player logic
+        playStream(ch);
+        history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
     };
-    list.appendChild(div);
-  });
+    return div;
+  };
+
+  // 2. Render the External Card first (separated)
+  externalChannels.forEach(ch => list.appendChild(createCard(ch, true)));
+
+  // 3. Add a visual separator if both exist
+  if (externalChannels.length > 0 && streamChannels.length > 0) {
+    const hr = document.createElement('div');
+    hr.className = "grid-separator";
+    list.appendChild(hr);
+  }
+
+  // 4. Render the rest of the stream channels
+  streamChannels.forEach(ch => list.appendChild(createCard(ch)));
 }
 
 function handleDeepLinking() {

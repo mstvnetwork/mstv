@@ -122,32 +122,51 @@ video, iframe {
 .channel-card img { width: 100%; aspect-ratio: 95/64; object-fit: cover; }
 .channel-name { padding: 6px 2px; font-size: 0.8rem; font-weight: bold; background: white; color: #333; }
 
-/* 6. APNA SPECIAL STYLES */
+/* Slimmer Apna Card */
 .apna-special {
   grid-column: 1 / -1; 
-  border: 2px solid var(--accent) !important;
-  background: #fff !important;
-  margin-bottom: 15px;
   display: flex !important;
+  flex-direction: row; /* Horizontal layout saves vertical space */
+  align-items: center;
+  height: 80px; /* Fixed height to keep it small */
+  border: 1px solid var(--accent) !important;
+  background: #fff !important;
+  margin-bottom: 10px;
+  padding-right: 10px;
 }
 
+.apna-special img {
+  width: 80px !important; /* Smaller image */
+  height: 100%;
+  object-fit: cover;
+}
+
+.apna-special .channel-name {
+  display: none; /* Hide the duplicate name to save space */
+}
+
+/* Move the tag inside the EPG area or make it a badge */
 .special-tag {
-  background: #111419; color: var(--accent);
-  font-size: 0.2rem; padding: 6px; font-weight: bold; text-align: center;
+  position: absolute;
+  top: 0; left: 0;
+  background: var(--bg-dark);
+  color: var(--accent);
+  font-size: 0.5rem;
+  padding: 2px 5px;
+  z-index: 5;
 }
 
 .epg-info {
-  padding: 12px; background: #fff; border-top: 1px solid #eee;
-  text-align: left; font-size: 0.85rem; line-height: 1.4;
+  flex-grow: 1;
+  padding: 5px 12px;
+  border-top: none; /* Removed border since it's now horizontal */
+  line-height: 1.2;
 }
 
-.live-dot {
-  height: 8px; width: 8px; background: #ff0000;
-  border-radius: 50%; display: inline-block; margin-right: 5px;
-  animation: blink 1.5s infinite;
-}
-@keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-
+/* Adjustments for the main container to handle the absolute tag */
+.channel-card {
+    position: relative;
+  }
 .site-footer { padding: 20px; text-align: center; font-size: 0.8rem; color: #666; border-top: 1px solid #ddd; }
 
 /* LANDSCAPE FIX */
@@ -260,25 +279,36 @@ async function playChannel(idx) {
         }
     }
 }
-
-/**
- * EPG LOGIC
- */
 async function fetchApnaEPG(cardElement) {
     try {
         const res = await fetch(APNA_EPG_URL + "?v=" + Date.now());
-        if (!res.ok) throw new Error();
         const data = await res.json();
         const now = new Date();
+        
+        // Helper to turn "18:00" into a real Date object for TODAY
+        const parseTime = (timeStr) => {
+            const [hrs, mins] = timeStr.split(':');
+            const d = new Date();
+            d.setHours(hrs, mins, 0, 0);
+            return d;
+        };
+
         let current = null, next = null;
 
         if (data.schedule) {
             for (let i = 0; i < data.schedule.length; i++) {
-                const start = new Date(data.schedule[i].start);
-                const end = new Date(data.schedule[i].end);
+                let start = parseTime(data.schedule[i].start);
+                let end = parseTime(data.schedule[i].end);
+
+                // Handle schedules that cross midnight (e.g., 21:00 to 06:00)
+                if (end < start) {
+                    if (now > start) end.setDate(end.getDate() + 1);
+                    else start.setDate(start.getDate() - 1);
+                }
+
                 if (now >= start && now < end) {
                     current = data.schedule[i];
-                    next = data.schedule[i + 1];
+                    next = data.schedule[(i + 1) % data.schedule.length]; // Infinite loop logic
                     break;
                 }
             }
@@ -286,20 +316,16 @@ async function fetchApnaEPG(cardElement) {
 
         const epgDiv = cardElement.querySelector('.epg-info');
         if (current && epgDiv) {
-            const nextT = next ? new Date(next.start).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "TBA";
             epgDiv.innerHTML = `
-                <div style="color: #E50914; font-weight: bold; margin-bottom: 4px;">
-                    <span class="live-dot"></span> NOW PLAYING: ${current.title}
+                <div style="font-size: 0.8rem; color: #E50914; font-weight: bold;">
+                    <span class="live-dot"></span> ${current.title}
                 </div>
-                <div style="color: #666; font-size: 0.75rem;">
-                    🕒 NEXT: ${next ? next.title : 'Stay Tuned'} (${nextT})
+                <div style="font-size: 0.7rem; color: #666;">
+                    Next: ${next.title} (${next.start})
                 </div>
             `;
         }
-    } catch (e) {
-        const eDiv = cardElement.querySelector('.epg-info');
-        if(eDiv) eDiv.innerText = "Live Stream (Schedule Loading...)";
-    }
+    } catch (e) { console.error("EPG Load Error"); }
 }
 
 /**

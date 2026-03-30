@@ -3,25 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Live Indian TV Channels</title>
+    <title>MSTV Network | Live Indian TV</title>
     
-    <meta name="description" content="Stream live Indian and Pakistani TV channels for free on MSTV Network. Optimized for mobile and desktop.">
+    <meta name="description" content="Stream live Indian and Pakistani TV channels free.">
     <meta name="theme-color" content="#111419">
-    <link rel="canonical" href="https://mstvnet.netlify.app/">
     
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        /* 1. RESET & VARIABLES (High Contrast Palette) */
+        /* 1. BASE & RESET */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #111419;
-            --accent: #2ECC71; /* Stronger green for better contrast */
+            --accent: #2ECC71;
             --header-h: 70px;
+            --ticker-h: 28px;
             --max-width: 500px; 
-            --body-bg: #F8F9FA; /* Clean white for 100% contrast */
-            --text-main: #212529;
+            --body-bg: #F8F9FA;
         }
 
         body, html {
@@ -29,49 +28,40 @@
             overflow: hidden; 
             font-family: system-ui, -apple-system, sans-serif;
             background: var(--body-bg);
-            color: var(--text-main);
+            color: #212529;
+            font-display: swap;
         }
 
-        /* 2. LAYOUT (Fixed heights to prevent CLS) */
         .app-wrapper { display: flex; flex-direction: column; height: 100vh; width: 100%; }
 
+        /* 2. HEADER (Fixed Height) */
         header {
             flex-shrink: 0; height: var(--header-h);
             background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
-            padding: 0 15px; z-index: 10;
+            padding: 0 15px;
         }
-
-        .brand-name {
-            font-size: 1.2rem; font-weight: 800;
-            color: var(--accent);
-            letter-spacing: -0.5px;
-        }
+        .brand-name { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
         .slogan { font-size: 0.65rem; color: #FFD700; font-weight: 600; text-transform: uppercase; }
 
         .search-container { flex: 0.6; max-width: 180px; }
         #searchInput {
             width: 100%; padding: 10px 15px; border-radius: 25px;
-            border: 2px solid #222; outline: none; background: #1A1D20; 
-            color: #fff; font-size: 14px;
+            border: 2px solid #222; background: #1A1D20; color: #fff; font-size: 14px;
         }
-        /* Accessibility focus */
-        #searchInput:focus { border-color: var(--accent); }
 
-        /* 3. PLAYER AREA (CLS Zeroing) */
+        /* 3. PLAYER AREA (Strict Aspect Ratio to kill CLS) */
         .sticky-player-wrapper {
             flex-shrink: 0; width: 100%;
             background: #000;
             display: flex; flex-direction: column; align-items: center;
-            padding-bottom: 10px;
         }
 
         .player-container {
             position: relative; width: 100%;
             max-width: var(--max-width);
-            aspect-ratio: 16 / 9;
+            aspect-ratio: 16 / 9; /* Reserves space perfectly */
             background: #000;
-            overflow: hidden;
         }
 
         video, iframe {
@@ -80,7 +70,7 @@
             border: none; display: none;
         }
 
-        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #333; }
+        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #222; }
         #loading { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
             z-index: 100; color: #fff; background: rgba(0,0,0,0.8); 
@@ -88,82 +78,80 @@
             font-weight: bold; border: 1px solid var(--accent);
         }
 
-        /* 4. TICKER (Contrast: White on Red) */
+        /* 4. TICKER (Fixed Height reserves space) */
         .ticker {
-            overflow: hidden; width: 100%; height: 28px;
+            overflow: hidden; width: 100%; height: var(--ticker-h);
             background: #D00000; color: #FFFFFF;
-            display: flex; align-items: center; font-weight: 600;
+            display: flex; align-items: center;
         }
         .ticker-track { display: flex; width: max-content; animation: ticker-loop 30s linear infinite; }
-        .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; }
+        .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; font-weight: 600; }
         @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-        /* 5. GRID (SEO & Accessibility) */
-        .main-content { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        /* 5. GRID AREA (CLS Prevention) */
+        .main-content { flex-grow: 1; overflow-y: auto; }
         
+        /* Pre-reserving title space */
+        .title-area {
+            height: 50px; display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 1.1rem; color: #212529;
+        }
+
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-            gap: 12px; padding: 15px;
+            gap: 12px; padding: 0 15px 15px 15px;
+            min-height: 100px; /* Prevents footer from jumping up */
         }
 
         .channel-card {
             background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
             height: 70px; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer; transition: transform 0.2s;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; padding: 10px;
         }
+        .channel-card:active { transform: scale(0.95); }
+        .channel-name { font-size: 0.9rem; font-weight: 700; color: #1a1a1a; pointer-events: none; }
 
-        .channel-card:hover, .channel-card:focus { 
-            background: #E8F5E9; border-color: var(--accent); 
-            transform: translateY(-3px); outline: none;
-        }
-
-        .channel-name { font-size: 0.9rem; font-weight: 700; color: #1a1a1a; line-height: 1.2; }
-
-        .site-footer { padding: 40px 20px; text-align: center; font-size: 0.8rem; color: #6c757d; background: #fff; }
+        .site-footer { padding: 40px 20px; text-align: center; font-size: 0.8rem; color: #6c757d; }
     </style>
 </head>
 <body>
 
 <div class="app-wrapper">
-    <header>
-        <div role="banner">
+    <header role="banner">
+        <div>
             <h1 class="brand-name">MSTV NETWORK</h1>
-            <div class="slogan">Premium Live Media Hub</div>
+            <div class="slogan">Premium Live TV</div>
         </div>
         <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search for TV channels">
+            <input type="text" id="searchInput" placeholder="Search..." aria-label="Search channels">
         </div>
     </header>
 
-    <section class="sticky-player-wrapper" aria-label="Video Player">
+    <div class="sticky-player-wrapper">
         <div class="player-container">
-            <div id="loading" role="status">🌀 Loading Stream...</div>
+            <div id="loading" role="status">🌀 Loading...</div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" autoplay playsinline controls aria-label="Live Stream"></video>
-            <iframe id="iframePlayer" title="External Content Player" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
+            <video id="video" autoplay playsinline controls aria-label="Player"></video>
+            <iframe id="iframePlayer" title="Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
         </div>
-        <div class="ticker" role="marquee">
+        <div class="ticker">
             <div class="ticker-track">
-                <div class="ticker-content">LIVE: Global News, Sports, and Entertainment • Best viewed on Chrome/Safari • Use VPN for specific regions.</div>
-                <div class="ticker-content">LIVE: Global News, Sports, and Entertainment • Best viewed on Chrome/Safari • Use VPN for specific regions.</div>
+                <div class="ticker-content">Welcome to MSTV • Use VPN for regional content • Smooth playback enabled • Select a channel below.</div>
+                <div class="ticker-content">Welcome to MSTV • Use VPN for regional content • Smooth playback enabled • Select a channel below.</div>
             </div>
         </div>
-    </section>
+    </div>
 
     <main class="main-content">
-        <h2 id="title" style="text-align:center; padding:15px; font-size: 1.1rem; color:#212529;">Select a Channel</h2>
+        <div class="title-area"><h2 id="title" style="font-size: 1.1rem;">Select a Channel</h2></div>
         <div class="channel-grid" id="channelList" role="list"></div>
-        <footer class="site-footer">
-            <p>© 2026 MSTV Network. All Rights Reserved.</p>
-            <nav style="margin-top:10px;"><a href="#" style="color:#6c757d; text-decoration:none;">Privacy Policy</a> | <a href="#" style="color:#6c757d; text-decoration:none;">Terms</a></nav>
-        </footer>
+        <footer class="site-footer">© 2026 MSTV Network.</footer>
     </main>
 </div>
 
 <script>
-    /* 1. STATE MANAGEMENT */
     let allChannels = [];
     let hlsEngine = null;
     let dashEngine = null;
@@ -175,35 +163,24 @@
     const loading = document.getElementById('loading');
     const titleEl = document.getElementById('title');
 
-    /* 2. PERFORMANCE: ASYNC SCRIPT LOADING */
     function loadScripts() {
         if (scriptsPromise) return scriptsPromise;
         scriptsPromise = new Promise((resolve) => {
             let loaded = 0;
             const check = () => { if (++loaded === 2) resolve(); };
-            
-            const s1 = document.createElement('script');
-            s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
-            s1.onload = check;
-            
-            const s2 = document.createElement('script');
-            s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-            s2.onload = () => { shaka.polyfill.installAll(); check(); };
-            
-            document.head.appendChild(s1);
-            document.head.appendChild(s2);
+            const s1 = document.createElement('script'); s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; s1.onload = check;
+            const s2 = document.createElement('script'); s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; s2.onload = () => { shaka.polyfill.installAll(); check(); };
+            document.head.appendChild(s1); document.head.appendChild(s2);
         });
         return scriptsPromise;
     }
 
-    /* 3. CORE LOGIC: STREAM SWITCHER */
     async function playStream(ch) {
         if (!ch) return;
         loading.style.display = 'block';
         document.getElementById('placeholder').style.display = 'none';
-        titleEl.innerText = `Watching: ${ch.name}`;
+        titleEl.innerText = ch.name;
 
-        // Stop all current media
         video.style.display = 'none'; video.pause(); video.src = "";
         iframe.style.display = 'none'; iframe.src = "about:blank";
         if (hlsEngine) hlsEngine.destroy();
@@ -219,49 +196,34 @@
             try {
                 await loadScripts(); 
                 video.style.display = 'block';
-
                 if (ch.url.includes('.mpd')) {
                     dashEngine = new shaka.Player(video);
                     await dashEngine.load(ch.url);
                     loading.style.display = 'none';
-                } else {
-                    if (window.Hls && Hls.isSupported()) {
-                        hlsEngine = new Hls({ capLevelToPlayerSize: true });
-                        hlsEngine.loadSource(ch.url);
-                        hlsEngine.attachMedia(video);
-                        hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
-                            video.play().catch(() => {});
-                            loading.style.display = 'none';
-                        });
-                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = ch.url;
-                        loading.style.display = 'none';
-                    }
+                } else if (window.Hls && Hls.isSupported()) {
+                    hlsEngine = new Hls();
+                    hlsEngine.loadSource(ch.url);
+                    hlsEngine.attachMedia(video);
+                    hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(()=>{}); loading.style.display = 'none'; });
                 }
-            } catch (e) { console.error(e); loading.style.display = 'none'; }
+            } catch (e) { loading.style.display = 'none'; }
         }
     }
 
-    /* 4. UI: OPTIMIZED GRID */
     function renderGrid(data) {
-        // Use document fragment for zero-reflow rendering
-        const fragment = document.createDocumentFragment();
+        const frag = document.createDocumentFragment();
         data.forEach(ch => {
             const btn = document.createElement('div');
             btn.className = 'channel-card';
             btn.setAttribute('role', 'listitem');
             btn.setAttribute('tabindex', '0');
             btn.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            btn.onclick = () => {
-                playStream(ch);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            };
-            // Accessibility: Enter key support
-            btn.onkeydown = (e) => { if(e.key === 'Enter') btn.onclick(); };
-            fragment.appendChild(btn);
+            btn.onclick = () => { playStream(ch); window.scrollTo({top:0, behavior:'smooth'}); };
+            btn.onkeydown = (e) => { if(e.key==='Enter') btn.onclick(); };
+            frag.appendChild(btn);
         });
         list.innerHTML = '';
-        list.appendChild(fragment);
+        list.appendChild(frag);
     }
 
     async function init() {
@@ -269,14 +231,12 @@
             const res = await fetch('channels.json?v=' + Date.now());
             allChannels = await res.json();
             renderGrid(allChannels);
-            
-            // Deep Linking
             const slug = new URLSearchParams(window.location.search).get('ch');
             if (slug) {
                 const found = allChannels.find(c => c.name.toLowerCase().includes(slug.replace(/-/g,' ')));
                 if (found) playStream(found);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) {}
     }
 
     document.getElementById('searchInput').oninput = (e) => {

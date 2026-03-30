@@ -2,17 +2,17 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Network | Live Indian TV</title>
     
-    <meta name="description" content="Stream live Indian and Pakistani TV channels free. Optimized for 2026.">
+    <meta name="description" content="Stream live Indian and Pakistani TV channels free.">
     <meta name="theme-color" content="#111419">
     
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        /* 1. CRITICAL RESET & ROOT */
+        /* 1. CORE RESET */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #111419;
@@ -25,44 +25,48 @@
 
         body, html {
             height: 100%; width: 100vw;
-            overflow: hidden; /* Stops whole page bounce */
+            overflow: hidden; 
             font-family: system-ui, -apple-system, sans-serif;
             background: var(--body-bg);
             color: #212529;
-            text-rendering: optimizeLegibility;
         }
 
-        /* 2. APP STRUCTURE (The 100-Score Flexbox) */
-        .app-wrapper { 
-            display: flex; 
-            flex-direction: column; 
-            height: 100vh; 
-            width: 100%; 
-        }
+        /* 1. Ensure the app wrapper is a strict flex container */
+.app-wrapper { 
+    display: flex; 
+    flex-direction: column; 
+    height: 100vh; 
+    width: 100%;
+    overflow: hidden; /* Prevents the whole page from scrolling */
+}
 
         header {
             flex-shrink: 0; height: var(--header-h);
             background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
             padding: 0 15px;
-            z-index: 10;
+            position: relative;
+            z-index: 100; /* Always on top of everything */
         }
+
         .brand-name { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
+        .search-container { flex: 0.6; max-width: 180px; }
         #searchInput {
-            width: 100%; max-width: 180px; padding: 10px 15px; border-radius: 25px;
+            width: 100%; padding: 10px 15px; border-radius: 25px;
             border: 2px solid #222; background: #1A1D20; color: #fff; font-size: 14px;
         }
 
-        /* 3. PLAYER SECTION (Static at top) */
-        .sticky-player-wrapper {
-            flex-shrink: 0; 
-            width: 100%;
-            background: #000;
-            display: flex; 
-            flex-direction: column; 
-            align-items: center;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-        }
+/* 2. Keep the player area from expanding */
+.sticky-player-wrapper {
+    flex-shrink: 0; 
+    width: 100%;
+    background: #000;
+    z-index: 90;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    /* Remove 'position: sticky' if it's there, we want 'relative' 
+       because the parent is a flexbox */
+    position: relative; 
+}
 
         .player-container {
             position: relative; width: 100%;
@@ -77,48 +81,56 @@
             border: none; display: none;
         }
 
+        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #111; }
         #loading { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 5; color: #fff; background: rgba(0,0,0,0.85); 
+            z-index: 101; color: #fff; background: rgba(0,0,0,0.85); 
             padding: 12px 24px; border-radius: 50px; display: none; 
             font-weight: bold; border: 1px solid var(--accent);
         }
 
-        /* 4. TICKER */
+        /* 4. TICKER - LOCKED HEIGHT */
         .ticker {
             overflow: hidden; width: 100%; height: var(--ticker-h);
             background: #D00000; color: #FFFFFF;
             display: flex; align-items: center;
+            contain: strict;
         }
         .ticker-track { display: flex; width: max-content; animation: ticker-loop 30s linear infinite; }
         .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; font-weight: 700; line-height: var(--ticker-h); }
         @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-
-        /* 5. INDEPENDENT SCROLLING GRID */
-        .main-content { 
-            flex-grow: 1; /* Takes up all remaining space below player */
-            overflow-y: auto; /* Grid scrolls, Player stays put */
-            -webkit-overflow-scrolling: touch;
-            background: var(--body-bg);
-        }
+/* 3. THE KEY FIX: The scrollable area needs its own scrollbar */
+.main-content { 
+    flex-grow: 1; 
+    overflow-y: auto; /* This creates the independent scroll for the grid */
+    -webkit-overflow-scrolling: touch;
+    position: relative;
+    z-index: 1;
+    background: var(--body-bg);
+}
+        /* 4. Reserve space for the Title so it's not hidden */
+.title-area {
+    height: 60px; /* Increased slightly for breathing room */
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+    font-weight: 700; 
+    font-size: 1.1rem; 
+    color: #212529;
+    background: var(--body-bg); /* Match background */
+}
         
-        .title-area {
-            height: 54px; 
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 1.1rem; color: #212529;
-            background: var(--body-bg);
-            position: sticky; top: 0; z-index: 2; /* Optional: Title stays at top of scroll */
-        }
-
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-            gap: 12px; padding: 0 15px 30px 15px;
+            gap: 12px; padding: 0 15px 15px 15px;
+            min-height: 100vh;
         }
 
         .channel-card {
             background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
-            height: 72px; display: flex; align-items: center; justify-content: center;
+            height: 72px;
+            display: flex; align-items: center; justify-content: center;
             cursor: pointer; transition: transform 0.1s ease;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; padding: 10px;
         }
@@ -132,21 +144,25 @@
 
 <div class="app-wrapper">
     <header role="banner">
-        <h1 class="brand-name">MSTV NETWORK</h1>
-        <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search channels">
+        <div>
+            <h1 class="brand-name">MSTV NETWORK</h1>
+        </div>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="Search..." aria-label="Search channels">
+        </div>
     </header>
 
     <div class="sticky-player-wrapper">
         <div class="player-container">
             <div id="loading" role="status">🌀 Loading...</div>
-            <div id="placeholder" aria-hidden="true" style="height:100%; display:flex; align-items:center; justify-content:center; font-size:3rem; color:#111;">📺</div>
-            <video id="video" autoplay playsinline controls aria-label="Live Video"></video>
+            <div id="placeholder" aria-hidden="true">📺</div>
+            <video id="video" autoplay playsinline controls aria-label="Player"></video>
             <iframe id="iframePlayer" title="Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
         </div>
         <div class="ticker">
             <div class="ticker-track">
-                <div class="ticker-content">100% Performance Score Achieved • Smooth Live Streaming • Select any channel below • Update March 2026.</div>
-                <div class="ticker-content">100% Performance Score Achieved • Smooth Live Streaming • Select any channel below • Update March 2026.</div>
+                <div class="ticker-content">MSTV Live • High Performance Streaming • Use VPN if required • Select a channel below to begin.</div>
+                <div class="ticker-content">MSTV Live • High Performance Streaming • Use VPN if required • Select a channel below to begin.</div>
             </div>
         </div>
     </div>
@@ -225,10 +241,7 @@
             btn.setAttribute('role', 'listitem');
             btn.setAttribute('tabindex', '0');
             btn.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            btn.onclick = () => { 
-                playStream(ch); 
-                document.querySelector('.main-content').scrollTo({top: 0, behavior: 'smooth'});
-            };
+            btn.onclick = () => { playStream(ch); window.scrollTo({top:0, behavior:'smooth'}); };
             btn.onkeydown = (e) => { if(e.key==='Enter') btn.onclick(); };
             frag.appendChild(btn);
         });

@@ -206,36 +206,47 @@
         return scP;
     }
 
-    async function play(ch) {
-        // Condition: If URL is insecure (HTTP), open in new tab and exit
+  async function play(ch) {
+        // Direct handling for HTTP (Insecure) links
         if (ch.url.startsWith('http://')) {
-            const confirmOpen = confirm("This channel requires an insecure connection and must be opened in a new window. Continue?");
-            if (confirmOpen) {
-                window.open(ch.url, '_blank', 'noopener,noreferrer');
-            }
-            return; // Stop execution here so the player doesn't break
+            // No message, no alert. Just open.
+            // 'noopener,noreferrer' is CRITICAL for your 100 Best Practices score.
+            window.open(ch.url, '_blank', 'noopener,noreferrer');
+            return; 
         }
 
         // Standard Player Logic for HTTPS
-        ld.style.display = 'block'; ph.style.display = 'none'; t.innerText = ch.name;
-        v.style.display = f.style.display = 'none'; f.src = "";
+        ld.style.display = 'block'; 
+        ph.style.display = 'none'; 
+        t.innerText = ch.name;
+        v.style.display = f.style.display = 'none'; 
+        f.src = "";
         
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; f.src = ch.url; 
+            f.style.display = 'block'; 
+            f.src = ch.url; 
             f.onload = () => ld.style.display = 'none';
         } else {
-            await loadS(); v.style.display = 'block';
+            await loadS(); 
+            v.style.display = 'block';
             if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v); await p.load(ch.url); ld.style.display = 'none';
+                const p = new shaka.Player(v); 
+                await p.load(ch.url); 
+                ld.style.display = 'none';
             } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls(); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); ld.style.display = 'none'; });
+                hlsE = new Hls(); 
+                hlsE.loadSource(ch.url); 
+                hlsE.attachMedia(v);
+                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                    v.play().catch(()=>{}); 
+                    ld.style.display = 'none'; 
+                });
             }
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
+  }
 
     function render(data) {
         const fr = document.createDocumentFragment();

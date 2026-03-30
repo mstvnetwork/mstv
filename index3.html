@@ -12,7 +12,7 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        /* 1. CRITICAL RESET & ZERO CLS SETUP */
+        /* 1. CORE RESET */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #111419;
@@ -29,41 +29,45 @@
             font-family: system-ui, -apple-system, sans-serif;
             background: var(--body-bg);
             color: #212529;
-            text-rendering: optimizeSpeed;
         }
 
-        .app-wrapper { display: flex; flex-direction: column; height: 100vh; width: 100%; }
+        /* 2. LAYOUT WRAPPERS */
+        .app-wrapper { 
+            display: flex; 
+            flex-direction: column; 
+            height: 100vh; 
+            width: 100%; 
+        }
 
-        /* Update your existing header style */
-header {
-    flex-shrink: 0; 
-    height: var(--header-h);
-    background: var(--bg-dark);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 15px;
-    z-index: 100; /* ADD THIS: Keeps header on very top */
-    position: relative;
-}
+        header {
+            flex-shrink: 0; height: var(--header-h);
+            background: var(--bg-dark);
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 15px;
+            position: relative;
+            z-index: 100; /* Always on top of everything */
+        }
+
         .brand-name { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
-        .slogan { font-size: 0.65rem; color: #FFD700; font-weight: 600; text-transform: uppercase; }
-
         .search-container { flex: 0.6; max-width: 180px; }
         #searchInput {
             width: 100%; padding: 10px 15px; border-radius: 25px;
             border: 2px solid #222; background: #1A1D20; color: #fff; font-size: 14px;
         }
 
-        /* Update your existing sticky-player-wrapper style */
-.sticky-player-wrapper {
-    flex-shrink: 0; 
-    width: 100%;
-    background: #000;
-    display: flex; flex-direction: column; align-items: center;
-    position: sticky; /* Ensure this is set */
-    top: 0;           /* Stick to the top of the container */
-    z-index: 90;      /* ADD THIS: Keeps player above the scrolling grid */
-    box-shadow: 0 4px 10px rgba(0,0,0,0.3); /* Optional: adds depth when cards slide under */
-}
+        /* 3. STICKY PLAYER - ZERO CLS ZONE */
+        .sticky-player-wrapper {
+            flex-shrink: 0; 
+            width: 100%;
+            background: #000;
+            display: flex; 
+            flex-direction: column; 
+            align-items: center;
+            position: relative;
+            z-index: 90; /* Higher than the grid, lower than the header */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            contain: layout size; /* Key for 100 Performance */
+        }
 
         .player-container {
             position: relative; width: 100%;
@@ -81,12 +85,12 @@ header {
         #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #111; }
         #loading { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; color: #fff; background: rgba(0,0,0,0.85); 
+            z-index: 101; color: #fff; background: rgba(0,0,0,0.85); 
             padding: 12px 24px; border-radius: 50px; display: none; 
             font-weight: bold; border: 1px solid var(--accent);
         }
 
-        /* 4. TICKER - Zero Height Shift */
+        /* 4. TICKER - LOCKED HEIGHT */
         .ticker {
             overflow: hidden; width: 100%; height: var(--ticker-h);
             background: #D00000; color: #FFFFFF;
@@ -97,33 +101,34 @@ header {
         .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; font-weight: 700; line-height: var(--ticker-h); }
         @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-        /* 5. MAIN CONTENT - Pre-sized containers */
-        .main-content { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+        /* 5. MAIN CONTENT - THE SCROLLABLE ZONE */
+        .main-content { 
+            flex-grow: 1; 
+            overflow-y: auto; 
+            -webkit-overflow-scrolling: touch;
+            position: relative;
+            z-index: 1; /* Lowest level so it slides UNDER the player */
+        }
         
         .title-area {
-            height: 54px; /* Explicit height */
+            height: 54px; 
             display: flex; align-items: center; justify-content: center;
             font-weight: 700; font-size: 1.1rem; color: #212529;
-            contain: layout size;
         }
 
-        /* Add this to your channel-grid to ensure it behaves */
-.channel-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-    gap: 12px; 
-    padding: 0 15px 15px 15px;
-    position: relative;
-    z-index: 1; /* Keep grid behind the player */
-}
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+            gap: 12px; padding: 0 15px 15px 15px;
+            min-height: 100vh;
+        }
 
         .channel-card {
             background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
-            height: 72px; /* Explicit height */
+            height: 72px;
             display: flex; align-items: center; justify-content: center;
             cursor: pointer; transition: transform 0.1s ease;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; padding: 10px;
-            contain: content;
         }
         .channel-card:active { transform: scale(0.96); }
         .channel-name { font-size: 0.9rem; font-weight: 700; color: #1a1a1a; pointer-events: none; }
@@ -135,9 +140,8 @@ header {
 
 <div class="app-wrapper">
     <header role="banner">
-        <div style="contain: content;">
+        <div>
             <h1 class="brand-name">MSTV NETWORK</h1>
-            <div class="slogan">Premium Live TV</div>
         </div>
         <div class="search-container">
             <input type="text" id="searchInput" placeholder="Search..." aria-label="Search channels">
@@ -148,13 +152,13 @@ header {
         <div class="player-container">
             <div id="loading" role="status">🌀 Loading...</div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" autoplay playsinline controls aria-label="Live Video Player"></video>
-            <iframe id="iframePlayer" title="External Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
+            <video id="video" autoplay playsinline controls aria-label="Player"></video>
+            <iframe id="iframePlayer" title="Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
         </div>
         <div class="ticker">
             <div class="ticker-track">
-                <div class="ticker-content">Welcome to MSTV • Global Live Channels • Optimized for 2026 • Free Streaming Hub • Select a channel below.</div>
-                <div class="ticker-content">Welcome to MSTV • Global Live Channels • Optimized for 2026 • Free Streaming Hub • Select a channel below.</div>
+                <div class="ticker-content">MSTV Live • High Performance Streaming • Use VPN if required • Select a channel below to begin.</div>
+                <div class="ticker-content">MSTV Live • High Performance Streaming • Use VPN if required • Select a channel below to begin.</div>
             </div>
         </div>
     </div>

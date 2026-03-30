@@ -89,24 +89,18 @@
   --header-h: 70px;
   --max-width: 500px; 
 }
-/* 1. LOCK THE OUTER BOX */
 body, html {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  width: 100%;
-  overflow: hidden; /* Prevents the whole page from bouncing */
+  margin: 0; padding: 0;
+  height: 100%; width: 100%;
+  overflow: hidden; /* Lock the background */
   background: #E8E4C9;
 }
 
-/* 2. FLEXBOX LAYOUT */
 .app-wrapper {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  height: 100dvh; /* Modern mobile height */
 }
-
 /* 3. HEADER */
 header {
   flex-shrink: 0;
@@ -188,25 +182,25 @@ video, iframe {
 /* 5. SCROLLABLE GRID AREA */
 /* UPDATED GRID STYLES */
 
-/* 4. THE GRID FIX */
 .channel-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
   gap: 12px;
   padding: 20px;
-  padding-bottom: 100px; /* Extra space so footer is reachable */
-  min-height: 100%; /* Ensures the container exists even if empty */
+  padding-bottom: 100px; /* Space for the footer */
 }
+
 .channel-card {
   background: #FDFCF0;
-  border-radius: 10px;
-  border: 1px solid #d6d6d6;
-  aspect-ratio: 1 / 1; /* Ensures cards have height immediately */
+  aspect-ratio: 1/1;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px;
+  border: 1px solid #d6d6d6;
+  border-radius: 8px;
+  cursor: pointer;
 }
+
 
 .channel-card:hover {
   background: #f0ede0;
@@ -258,12 +252,12 @@ video, iframe {
     border-radius: 0; /* Full width look in landscape */
   }
   
-/* 3. THE SCROLLABLE AREA */
+/* This is what was missing for scrolling */
 .main-content {
-  flex: 1; /* Takes up all remaining space below the player */
-  overflow-y: auto; /* Enables scrolling for the grid */
-  -webkit-overflow-scrolling: touch; /* Smooth scroll for iPhones */
-  display: block; /* Ensure it's not hidden */
+  flex: 1; 
+  overflow-y: auto; 
+  display: block;
+  -webkit-overflow-scrolling: touch;
 }
 </style>
 
@@ -335,15 +329,14 @@ video, iframe {
 
 <script src="./shaka/hls2.min.js" defer></script>
 <script src="./shaka/shaka-player.ui.min.js" defer></script>
-
-<script>
+</script>
 /**
- * 1. GLOBAL VARIABLES & DOM ELEMENTS
+ * 1. CONFIGURATION & DOM
  */
+const JSON_URL = 'https://mstvnet.netlify.app/channels.json';
 let allChannels = [];
 let hlsEngine = null;
 let dashEngine = null;
-let isLocked = false;
 
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
@@ -351,32 +344,20 @@ const list = document.getElementById('channelList');
 const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
-
-// Create Lock Layer Element
-const lockLayer = document.createElement('div');
-lockLayer.id = 'lockLayer';
-lockLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(232,228,201,0.2); display:none; z-index:999; cursor:default; align-items:flex-end; justify-content:flex-end; display:none; padding:20px;";
-lockLayer.innerHTML = `<div id="lockBtn" style="background:#fdfcf0; border:1px solid #d1d1c7; padding:12px; border-radius:50%; cursor:pointer; font-size:1.2rem; box-shadow:0 4px 10px rgba(0,0,0,0.1);">🔓</div>`;
-document.querySelector('.player-container').appendChild(lockLayer);
-
-lockLayer.querySelector('#lockBtn').onclick = (e) => {
-  e.stopPropagation();
-  toggleLock();
-};
+const mainArea = document.querySelector('.main-content');
 
 /**
- * 2. INITIALIZATION
+ * 2. INITIALIZATION (WAIT FOR DOM)
  */
-document.addEventListener('DOMContentLoaded', () => {
+window.onload = () => {
     if (window.shaka) { shaka.polyfill.installAll(); }
     init(true);
-});
+};
 
 async function init(isFirstLoad = false) {
   try {
-    // Path uses '/' to ensure Netlify finds it at root
-    const res = await fetch('/channels.json?v=' + Date.now());
-    if (!res.ok) throw new Error('Network response was not ok');
+    const res = await fetch(`${JSON_URL}?v=${Date.now()}`);
+    if (!res.ok) throw new Error("Fetch failed");
     
     allChannels = await res.json();
     renderGrid(allChannels);
@@ -386,35 +367,17 @@ async function init(isFirstLoad = false) {
       setupSearch();
     }
   } catch (e) {
-    console.error("Initialization Error:", e);
-    if (list) list.innerHTML = `<p style="text-align:center; padding:20px; color:#555;">Unable to load channels. Please refresh.</p>`;
+    console.error("Data Error:", e);
   }
 }
 
 /**
- * 3. CORE LOGIC & PLAYER
+ * 3. PLAYER ENGINES
  */
-function toggleLock() {
-  isLocked = !isLocked;
-  const playerCont = document.querySelector('.player-container');
-  const btn = document.getElementById('lockBtn');
-  
-  if (isLocked) {
-    lockLayer.style.display = 'flex';
-    playerCont.classList.add('is-locked');
-    btn.innerText = '🔒';
-  } else {
-    lockLayer.style.display = 'none';
-    playerCont.classList.remove('is-locked');
-    btn.innerText = '🔓';
-  }
-}
-
 async function resetPlayer() {
   if (loading) loading.style.display = 'block';
   if (video) video.style.display = 'none';
-  if (iframe) iframe.src = "about:blank";
-  if (iframe) iframe.style.display = 'none';
+  if (iframe) { iframe.style.display = 'none'; iframe.src = "about:blank"; }
 
   if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
   if (dashEngine) { await dashEngine.destroy(); dashEngine = null; }
@@ -431,7 +394,6 @@ async function playStream(ch) {
   if (titleEl) titleEl.innerText = ch.name;
   document.title = `${ch.name} Live | MSTV`;
 
-  // Iframe logic (YouTube/Dailymotion)
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
     iframe.style.display = 'block';
     iframe.src = ch.url;
@@ -441,20 +403,18 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // DASH (.mpd)
   if (ch.url.includes('.mpd')) {
     dashEngine = new shaka.Player(video);
     try {
       await dashEngine.load(ch.url);
       video.play().catch(() => {});
       if (loading) loading.style.display = 'none';
-    } catch (e) { console.error("Shaka Error", e); }
+    } catch (e) { console.error(e); }
     return;
   }
 
-  // HLS (.m3u8)
   if (ch.url.includes('.m3u8')) {
-    if (Hls.isSupported()) {
+    if (window.Hls && Hls.isSupported()) {
       hlsEngine = new Hls();
       hlsEngine.loadSource(ch.url);
       hlsEngine.attachMedia(video);
@@ -464,32 +424,19 @@ async function playStream(ch) {
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = ch.url;
-      video.onloadedmetadata = () => {
-        video.play();
-        if (loading) loading.style.display = 'none';
-      };
+      video.onloadedmetadata = () => { video.play(); if (loading) loading.style.display = 'none'; };
     }
   }
 }
 
 /**
- * 4. UI RENDERING (Optimized for LCP)
+ * 4. UI RENDERING
  */
 function renderGrid(data) {
-  const list = document.getElementById('channelList'); // Re-select inside the function
-  if (!list) {
-    console.error("Grid element #channelList not found in DOM");
-    return;
-  }
+  if (!list) return;
   list.innerHTML = '';
-  // ... rest of your code
-}
   
-  // Render first 15 instantly for speed, defer the rest
-  const initial = data.slice(0, 15);
-  const remaining = data.slice(15);
-
-  const createCard = (ch) => {
+  data.forEach(ch => {
     const div = document.createElement('div');
     div.className = 'channel-card';
     div.innerHTML = `<div class="channel-name">${ch.name}</div>`;
@@ -497,31 +444,17 @@ function renderGrid(data) {
       playStream(ch);
       const slug = ch.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
       history.pushState(null, ch.name, `/?ch=${slug}`);
-      document.querySelector('.main-content').scrollTo({ top: 0, behavior: 'smooth' });
-    return div;
-  };
-
-  initial.forEach(ch => list.appendChild(createCard(ch)));
-
-  if (remaining.length > 0) {
-    if ('requestIdleCallback' in window) {
-      requestIdleCallback(() => {
-        remaining.forEach(ch => list.appendChild(createCard(ch)));
-      });
-    } else {
-      setTimeout(() => {
-        remaining.forEach(ch => list.appendChild(createCard(ch)));
-      }, 200);
-    }
-  }
+      if (mainArea) mainArea.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    list.appendChild(div);
+  });
 }
 
 function setupSearch() {
   if (searchInput) {
     searchInput.oninput = (e) => {
       const val = e.target.value.toLowerCase();
-      const filtered = allChannels.filter(c => c.name.toLowerCase().includes(val));
-      renderGrid(filtered);
+      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
     };
   }
 }
@@ -531,8 +464,7 @@ function handleDeepLinking() {
   const chSlug = urlParams.get('ch');
   if (chSlug) {
     const found = allChannels.find(c => {
-       const slug = c.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
-       return slug === chSlug;
+       return c.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-') === chSlug;
     });
     if (found) playStream(found);
   }

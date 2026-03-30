@@ -329,15 +329,18 @@ video, iframe {
   </main>
 </div>
 
+<script src="./shaka/hls2.min.js" defer></script>
+<script src="./shaka/shaka-player.ui.min.js" defer></script>
+
 <script>
 /**
- * 1. INITIALIZATION & GLOBAL VARIABLES
+ * 1. GLOBAL VARIABLES & DOM ELEMENTS
  */
 let allChannels = [];
 let hlsEngine = null;
 let dashEngine = null;
+let isLocked = false;
 
-// DOM Elements
 const video = document.getElementById('video');
 const iframe = document.getElementById('iframePlayer');
 const list = document.getElementById('channelList');
@@ -345,78 +348,86 @@ const searchInput = document.getElementById('searchInput');
 const titleEl = document.getElementById('title');
 const loading = document.getElementById('loading');
 
-const getSlug = (name) => name.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+// Create Lock Layer Element
+const lockLayer = document.createElement('div');
+lockLayer.id = 'lockLayer';
+lockLayer.style.cssText = "position:absolute; top:0; left:0; width:100%; height:100%; background:rgba(232,228,201,0.2); display:none; z-index:999; cursor:default; align-items:flex-end; justify-content:flex-end; display:none; padding:20px;";
+lockLayer.innerHTML = `<div id="lockBtn" style="background:#fdfcf0; border:1px solid #d1d1c7; padding:12px; border-radius:50%; cursor:pointer; font-size:1.2rem; box-shadow:0 4px 10px rgba(0,0,0,0.1);">🔓</div>`;
+document.querySelector('.player-container').appendChild(lockLayer);
 
-// Initialize App once DOM and Libraries are loaded
+lockLayer.querySelector('#lockBtn').onclick = (e) => {
+  e.stopPropagation();
+  toggleLock();
+};
+
+/**
+ * 2. INITIALIZATION
+ */
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.shaka) {
-        shaka.polyfill.installAll();
-    }
-    // Initial data fetch
+    if (window.shaka) { shaka.polyfill.installAll(); }
     init(true);
 });
 
-/**
- * 2. REAL-TIME DATA & CACHE BUSTING
- */
 async function init(isFirstLoad = false) {
   try {
-    const jsonUrl = 'channels.json?v=' + new Date().getTime();
-    const res = await fetch('/channels.json');
-    const newData = await res.json();
-
-    if (JSON.stringify(newData) !== JSON.stringify(allChannels)) {
-      allChannels = newData;
-      renderGrid(allChannels);
-      console.log("Channel list updated.");
-    }
+    // Path uses '/' to ensure Netlify finds it at root
+    const res = await fetch('/channels.json?v=' + Date.now());
+    if (!res.ok) throw new Error('Network response was not ok');
+    
+    allChannels = await res.json();
+    renderGrid(allChannels);
 
     if (isFirstLoad) {
       handleDeepLinking();
+      setupSearch();
     }
   } catch (e) {
-    console.error("Failed to fetch channel data:", e);
+    console.error("Initialization Error:", e);
+    if (list) list.innerHTML = `<p style="text-align:center; padding:20px; color:#555;">Unable to load channels. Please refresh.</p>`;
   }
 }
 
-// Auto-refresh every 5 minutes
-setInterval(() => init(false), 300000); 
-
 /**
- * 3. PLAYER ENGINE LOGIC
+ * 3. CORE LOGIC & PLAYER
  */
+function toggleLock() {
+  isLocked = !isLocked;
+  const playerCont = document.querySelector('.player-container');
+  const btn = document.getElementById('lockBtn');
+  
+  if (isLocked) {
+    lockLayer.style.display = 'flex';
+    playerCont.classList.add('is-locked');
+    btn.innerText = '🔒';
+  } else {
+    lockLayer.style.display = 'none';
+    playerCont.classList.remove('is-locked');
+    btn.innerText = '🔓';
+  }
+}
+
 async function resetPlayer() {
   if (loading) loading.style.display = 'block';
   if (video) video.style.display = 'none';
+  if (iframe) iframe.src = "about:blank";
   if (iframe) iframe.style.display = 'none';
 
-  if (hlsEngine) {
-    hlsEngine.destroy();
-    hlsEngine = null;
-  }
+  if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
+  if (dashEngine) { await dashEngine.destroy(); dashEngine = null; }
 
-  if (dashEngine) {
-    await dashEngine.detach();
-    await dashEngine.destroy();
-    dashEngine = null;
-  }
-
-  if (video) {
-    video.pause();
-    video.removeAttribute('src'); 
-    video.load();
-  }
-  if (iframe) iframe.src = "about:blank";
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
 }
 
 async function playStream(ch) {
   if (!ch) return;
-  await resetPlayer(); 
+  await resetPlayer();
   
   if (titleEl) titleEl.innerText = ch.name;
-  document.title = `${ch.name} Live | MSTV Network`;
+  document.title = `${ch.name} Live | MSTV`;
 
-  // IFRAME Logic
+  // Iframe logic (YouTube/Dailymotion)
   if (ch.type === 'iframe' || ch.url.includes('youtube.com') || ch.url.includes('dailymotion')) {
     iframe.style.display = 'block';
     iframe.src = ch.url;
@@ -426,23 +437,20 @@ async function playStream(ch) {
 
   video.style.display = 'block';
 
-  // DASH (.mpd) via SHAKA
+  // DASH (.mpd)
   if (ch.url.includes('.mpd')) {
-    if (window.shaka && shaka.Player.isBrowserSupported()) {
-      dashEngine = new shaka.Player();
-      try {
-        await dashEngine.attach(video);
-        await dashEngine.load(ch.url);
-        video.play().catch(() => {});
-        if (loading) loading.style.display = 'none';
-      } catch (e) { console.error("DASH Error:", e); }
-    }
+    dashEngine = new shaka.Player(video);
+    try {
+      await dashEngine.load(ch.url);
+      video.play().catch(() => {});
+      if (loading) loading.style.display = 'none';
+    } catch (e) { console.error("Shaka Error", e); }
     return;
   }
 
-  // HLS (.m3u8) via HLS.js
+  // HLS (.m3u8)
   if (ch.url.includes('.m3u8')) {
-    if (window.Hls && Hls.isSupported()) {
+    if (Hls.isSupported()) {
       hlsEngine = new Hls();
       hlsEngine.loadSource(ch.url);
       hlsEngine.attachMedia(video);
@@ -450,69 +458,76 @@ async function playStream(ch) {
         video.play().catch(() => {});
         if (loading) loading.style.display = 'none';
       });
-    } 
-    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = ch.url;
-      video.addEventListener('loadedmetadata', () => {
-        video.play().catch(() => {});
+      video.onloadedmetadata = () => {
+        video.play();
         if (loading) loading.style.display = 'none';
-      }, { once: true });
+      };
     }
   }
 }
 
 /**
- * 4. UI & GRID RENDERING
+ * 4. UI RENDERING (Optimized for LCP)
  */
 function renderGrid(data) {
   if (!list) return;
   list.innerHTML = '';
   
-  // Speed Hack: Render first 20 items instantly for LCP
-  const initialBatch = data.slice(0, 20);
-  const remainingBatch = data.slice(20);
+  // Render first 15 instantly for speed, defer the rest
+  const initial = data.slice(0, 15);
+  const remaining = data.slice(15);
 
   const createCard = (ch) => {
     const div = document.createElement('div');
     div.className = 'channel-card';
-    div.innerHTML = `<div class="channel-name" style="font-size:0.75rem; font-weight:bold; color:#555;">${ch.name}</div>`;
+    div.innerHTML = `<div class="channel-name">${ch.name}</div>`;
     div.onclick = () => {
       playStream(ch);
-      history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
+      const slug = ch.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+      history.pushState(null, ch.name, `/?ch=${slug}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
     return div;
   };
 
-  // Render first batch immediately
-  initialBatch.forEach(ch => list.appendChild(createCard(ch)));
+  initial.forEach(ch => list.appendChild(createCard(ch)));
 
-  // Render the rest after the page is "interactive" (improves TBT)
-  if (remainingBatch.length > 0) {
-    requestIdleCallback(() => {
-      remainingBatch.forEach(ch => list.appendChild(createCard(ch)));
-    });
+  if (remaining.length > 0) {
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        remaining.forEach(ch => list.appendChild(createCard(ch)));
+      });
+    } else {
+      setTimeout(() => {
+        remaining.forEach(ch => list.appendChild(createCard(ch)));
+      }, 200);
+    }
+  }
+}
+
+function setupSearch() {
+  if (searchInput) {
+    searchInput.oninput = (e) => {
+      const val = e.target.value.toLowerCase();
+      const filtered = allChannels.filter(c => c.name.toLowerCase().includes(val));
+      renderGrid(filtered);
+    };
   }
 }
 
 function handleDeepLinking() {
   const urlParams = new URLSearchParams(window.location.search);
-  const channelSlug = urlParams.get('ch');
-
-  if (channelSlug) {
-    const found = allChannels.find(c => getSlug(c.name) === channelSlug);
+  const chSlug = urlParams.get('ch');
+  if (chSlug) {
+    const found = allChannels.find(c => {
+       const slug = c.name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-');
+       return slug === chSlug;
+    });
     if (found) playStream(found);
   }
-
-  if (searchInput) {
-    searchInput.oninput = (e) => {
-      const val = e.target.value.toLowerCase();
-      renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
-    };
-  }
 }
-<script src="./shaka/hls2.min.js" defer></script>
-<script src="./shaka/shaka-player.ui.min.js" async></script>
 </script>
 </body>
 </html>  

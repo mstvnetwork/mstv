@@ -146,15 +146,16 @@ header {
   border-bottom: 1px solid #ccc;
 }
 
+/* 1. Reserve Player Space */
 .player-container {
   position: relative;
   width: 94%;
   max-width: var(--max-width);
-  aspect-ratio: 16/9;
-  background: black;
+  aspect-ratio: 16 / 9; /* Mandatory for CLS */
+  background: #D6D2B1; /* Muddy white placeholder */
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+  contain: layout cycles; /* Optimization: Stops layout recalculation */
 }
 
 video, iframe {
@@ -179,31 +180,32 @@ video, iframe {
 }
 .ticker-track { display: flex; width: max-content; animation: ticker-loop 20s linear infinite; }
 .ticker-content { white-space: nowrap; padding-right: 50px; font-size: 0.75rem; display: flex; align-items: center; }
-@keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-.play-icon { height: 14px; margin-left: 5px; }
-
+@keyframes ticker-loop { 
+  0% { transform: translate3d(0, 0, 0); } 
+  100% { transform: translate3d(-50%, 0, 0); } 
+}
 /* 5. SCROLLABLE GRID AREA */
 /* UPDATED GRID STYLES */
+
+
+/* 2. Reserve Grid Space */
 .channel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); /* Slightly smaller for text */
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
   padding: 15px;
+  min-height: 500px; /* Prevents footer from jumping to the top */
 }
 
 .channel-card {
-  background: #FDFCF0; /* Lighter muddy white */
-  border-radius: 8px;
-  border: 1px solid #D6D2B1;
-  aspect-ratio: 1 / 1; /* Square cards look great with text */
+  background: #FDFCF0;
+  border-radius: 10px;
+  border: 1px solid #d6d6d6;
+  aspect-ratio: 1 / 1; /* Ensures cards have height immediately */
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 8px;
-  transition: all 0.2s ease;
-  cursor: pointer;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  padding: 10px;
 }
 
 .channel-card:hover {
@@ -464,20 +466,32 @@ async function playStream(ch) {
 function renderGrid(data) {
   if (!list) return;
   list.innerHTML = '';
-  data.forEach((ch) => {
+  
+  // Speed Hack: Render first 20 items instantly for LCP
+  const initialBatch = data.slice(0, 20);
+  const remainingBatch = data.slice(20);
+
+  const createCard = (ch) => {
     const div = document.createElement('div');
     div.className = 'channel-card';
-    
-    // TEXT-ONLY CONTENT
-    div.innerHTML = `<div class="channel-name">${ch.name}</div>`;
-    
+    div.innerHTML = `<div class="channel-name" style="font-size:0.75rem; font-weight:bold; color:#555;">${ch.name}</div>`;
     div.onclick = () => {
       playStream(ch);
       history.pushState(null, ch.name, `/?ch=${getSlug(ch.name)}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     };
-    list.appendChild(div);
-  });
+    return div;
+  };
+
+  // Render first batch immediately
+  initialBatch.forEach(ch => list.appendChild(createCard(ch)));
+
+  // Render the rest after the page is "interactive" (improves TBT)
+  if (remainingBatch.length > 0) {
+    requestIdleCallback(() => {
+      remainingBatch.forEach(ch => list.appendChild(createCard(ch)));
+    });
+  }
 }
 
 function handleDeepLinking() {

@@ -12,13 +12,13 @@
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        /* 1. BASE & RESET */
+        /* 1. CRITICAL RESET & ZERO CLS SETUP */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #111419;
             --accent: #2ECC71;
             --header-h: 70px;
-            --ticker-h: 28px;
+            --ticker-h: 30px;
             --max-width: 500px; 
             --body-bg: #F8F9FA;
         }
@@ -29,17 +29,18 @@
             font-family: system-ui, -apple-system, sans-serif;
             background: var(--body-bg);
             color: #212529;
-            font-display: swap;
+            text-rendering: optimizeSpeed;
         }
 
         .app-wrapper { display: flex; flex-direction: column; height: 100vh; width: 100%; }
 
-        /* 2. HEADER (Fixed Height) */
+        /* 2. HEADER - Fixed Height */
         header {
             flex-shrink: 0; height: var(--header-h);
             background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
             padding: 0 15px;
+            contain: layout size;
         }
         .brand-name { font-size: 1.2rem; font-weight: 800; color: var(--accent); }
         .slogan { font-size: 0.65rem; color: #FFD700; font-weight: 600; text-transform: uppercase; }
@@ -50,17 +51,18 @@
             border: 2px solid #222; background: #1A1D20; color: #fff; font-size: 14px;
         }
 
-        /* 3. PLAYER AREA (Strict Aspect Ratio to kill CLS) */
+        /* 3. PLAYER AREA - Forced Aspect Ratio */
         .sticky-player-wrapper {
             flex-shrink: 0; width: 100%;
             background: #000;
             display: flex; flex-direction: column; align-items: center;
+            contain: layout size;
         }
 
         .player-container {
             position: relative; width: 100%;
             max-width: var(--max-width);
-            aspect-ratio: 16 / 9; /* Reserves space perfectly */
+            aspect-ratio: 16 / 9; 
             background: #000;
         }
 
@@ -70,47 +72,51 @@
             border: none; display: none;
         }
 
-        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #222; }
+        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #111; }
         #loading { 
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            z-index: 100; color: #fff; background: rgba(0,0,0,0.8); 
+            z-index: 100; color: #fff; background: rgba(0,0,0,0.85); 
             padding: 12px 24px; border-radius: 50px; display: none; 
             font-weight: bold; border: 1px solid var(--accent);
         }
 
-        /* 4. TICKER (Fixed Height reserves space) */
+        /* 4. TICKER - Zero Height Shift */
         .ticker {
             overflow: hidden; width: 100%; height: var(--ticker-h);
             background: #D00000; color: #FFFFFF;
             display: flex; align-items: center;
+            contain: strict;
         }
         .ticker-track { display: flex; width: max-content; animation: ticker-loop 30s linear infinite; }
-        .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; font-weight: 600; }
+        .ticker-content { white-space: nowrap; padding-right: 60px; font-size: 0.8rem; font-weight: 700; line-height: var(--ticker-h); }
         @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 
-        /* 5. GRID AREA (CLS Prevention) */
-        .main-content { flex-grow: 1; overflow-y: auto; }
+        /* 5. MAIN CONTENT - Pre-sized containers */
+        .main-content { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
         
-        /* Pre-reserving title space */
         .title-area {
-            height: 50px; display: flex; align-items: center; justify-content: center;
-            font-weight: bold; font-size: 1.1rem; color: #212529;
+            height: 54px; /* Explicit height */
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 700; font-size: 1.1rem; color: #212529;
+            contain: layout size;
         }
 
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
             gap: 12px; padding: 0 15px 15px 15px;
-            min-height: 100px; /* Prevents footer from jumping up */
+            min-height: 100vh; /* Prevents footer jump */
         }
 
         .channel-card {
             background: #fff; border: 1px solid #dee2e6; border-radius: 10px;
-            height: 70px; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: transform 0.2s;
+            height: 72px; /* Explicit height */
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: transform 0.1s ease;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); text-align: center; padding: 10px;
+            contain: content;
         }
-        .channel-card:active { transform: scale(0.95); }
+        .channel-card:active { transform: scale(0.96); }
         .channel-name { font-size: 0.9rem; font-weight: 700; color: #1a1a1a; pointer-events: none; }
 
         .site-footer { padding: 40px 20px; text-align: center; font-size: 0.8rem; color: #6c757d; }
@@ -120,7 +126,7 @@
 
 <div class="app-wrapper">
     <header role="banner">
-        <div>
+        <div style="contain: content;">
             <h1 class="brand-name">MSTV NETWORK</h1>
             <div class="slogan">Premium Live TV</div>
         </div>
@@ -133,21 +139,21 @@
         <div class="player-container">
             <div id="loading" role="status">🌀 Loading...</div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" autoplay playsinline controls aria-label="Player"></video>
-            <iframe id="iframePlayer" title="Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
+            <video id="video" autoplay playsinline controls aria-label="Live Video Player"></video>
+            <iframe id="iframePlayer" title="External Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen; encrypted-media;"></iframe>
         </div>
         <div class="ticker">
             <div class="ticker-track">
-                <div class="ticker-content">Welcome to MSTV • Use VPN for regional content • Smooth playback enabled • Select a channel below.</div>
-                <div class="ticker-content">Welcome to MSTV • Use VPN for regional content • Smooth playback enabled • Select a channel below.</div>
+                <div class="ticker-content">Welcome to MSTV • Global Live Channels • Optimized for 2026 • Free Streaming Hub • Select a channel below.</div>
+                <div class="ticker-content">Welcome to MSTV • Global Live Channels • Optimized for 2026 • Free Streaming Hub • Select a channel below.</div>
             </div>
         </div>
     </div>
 
     <main class="main-content">
-        <div class="title-area"><h2 id="title" style="font-size: 1.1rem;">Select a Channel</h2></div>
+        <div class="title-area"><h2 id="title">Select a Channel</h2></div>
         <div class="channel-grid" id="channelList" role="list"></div>
-        <footer class="site-footer">© 2026 MSTV Network.</footer>
+        <footer class="site-footer">© 2026 MSTV Network. All Rights Reserved.</footer>
     </main>
 </div>
 

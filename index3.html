@@ -2,178 +2,285 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>MSTV Network | Watch Live Indian & Punjabi TV Channels</title>
-    <meta name="description" content="MSTV Network offers free live streaming of Indian, Punjabi, and religious TV channels. High-definition quality optimized for mobile and desktop viewing.">
-    <link rel="canonical" href="https://mstvnet.netlify.app/">
-    <meta name="theme-color" content="#111419">
-    <link rel="icon" href="/favicon.ico">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSTV Network | Live Indian TV</title>
     
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin="anonymous">
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin="anonymous">
+    <meta name="description" content="Watch Indian, Punjabi & religious TV channels online free. Live cricket streaming and high-speed HD entertainment available now on MSTV Network.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <meta name="google-site-verification" content="Yynm4uIFXwlxEdH2SfRrk6bNJnQaHIArOqV-XxrlQzI">
+    <link rel="canonical" href="https://mstvnet.netlify.app/">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <meta name="theme-color" content="#111419">
+
+    <link rel="preconnect" href="https://mstvnet.netlify.app">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preload" href="channels.json" as="fetch" crossorigin="anonymous">
 
     <style>
-        :root{--bg:#111419;--acc:#2ECC71;--h:70px;--t:30px;--mw:800px}
-        *{margin:0;padding:0;box-sizing:border-box}
-        body{font-family:system-ui,-apple-system,sans-serif;background:#f8f9fa;color:#212529;line-height:1.6;overflow-x:hidden}
-        .app-wrapper{display:flex;flex-direction:column;min-height:100vh}
-        header{height:var(--h);background:var(--bg);display:flex;align-items:center;justify-content:space-between;padding:0 15px;position:sticky;top:0;z-index:1000}
-        .brand-name{font-size:1.25rem;font-weight:800;color:var(--acc)}
-        .search-container{flex:0.6;max-width:200px}
-        #searchInput{width:100%;padding:10px 15px;border-radius:20px;border:1px solid #444;background:#1A1D20;color:#fff;font-size:16px} /* 16px prevents iOS zoom-in */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-dark: #111419;
+            --accent: #2ECC71;
+            --header-h: 70px;
+            --ticker-h: 30px;
+            --max-width: 800px;
+            --body-bg: #F8F9FA;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--body-bg);
+            color: #212529;
+            line-height: 1.6;
+            overflow-x: hidden;
+            font-display: swap;
+        }
+
+        .app-wrapper { display: flex; flex-direction: column; min-height: 100vh; }
+
+        header {
+            height: var(--header-h);
+            background: var(--bg-dark);
+            display: flex; 
+            align-items: center; 
+            justify-content: space-between;
+            padding: 0 15px;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
+        .search-container { flex: 0.6; max-width: 200px; }
+        #searchInput {
+            width: 100%; padding: 10px 15px; border-radius: 20px;
+            border: 1px solid #333; background: #1A1D20; color: #fff; font-size: 16px; /* 16px stops mobile zoom-in */
+        }
+
+        .sticky-player-wrapper {
+            position: sticky;
+            top: var(--header-h);
+            z-index: 900;
+            background: #000;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+
+        .player-container {
+            width: 100%;
+            max-width: var(--max-width);
+            aspect-ratio: 16 / 9;
+            position: relative;
+            background: #000;
+        }
+
+        video, iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; display: none; }
+        #placeholder { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 3rem; }
         
-        .sticky-player-wrapper{position:sticky;top:var(--h);z-index:900;background:#000;width:100%;display:flex;flex-direction:column;align-items:center}
-        .player-container{width:100%;max-width:var(--mw);aspect-ratio:16/9;position:relative;background:#000}
-        video,iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:none;display:none}
-        #placeholder{height:100%;display:flex;align-items:center;justify-content:center;font-size:3rem}
-        #loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:101;color:#fff;background:rgba(0,0,0,.8);padding:12px 24px;border-radius:30px;display:none;font-size:1rem}
-        
-        .ticker{width:100%;height:var(--t);background:#D00000;color:#fff;display:flex;align-items:center;overflow:hidden;font-size:0.85rem}
-        .ticker-track{display:flex;white-space:nowrap;animation:tick 40s linear infinite;will-change:transform;transform:translateZ(0)}
-        .ticker-content{padding-right:50px;font-weight:700}
-        @keyframes tick{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-        
-        .main-content{width:100%;max-width:1200px;margin:0 auto;flex-grow:1}
-        .title-area{padding:25px 15px;text-align:center}
-        .title-area h2{font-weight:700;font-size:1.2rem}
-        
-        .channel-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));grid-auto-rows:85px;gap:15px;padding:0 15px 40px;min-height:450px;content-visibility:auto}
-        .channel-card{background:#fff;border:1px solid #ddd;border-radius:12px;display:flex;align-items:center;justify-content:center;padding:12px;cursor:pointer;transition:.2s;contain:content;box-shadow:0 2px 4px rgba(0,0,0,0.05)}
-        .channel-card:hover{border-color:var(--acc);transform:translateY(-2px)}
-        .channel-name{font-size:.9rem;font-weight:700;color:#333;text-align:center}
-        
-        .site-footer{background:#111419;color:#fff;padding:45px 20px;margin-top:auto}
-        .seo-content{max-width:800px;margin:0 auto}
-        .seo-content h2{color:var(--acc);font-size:1.3rem;margin-bottom:12px}
-        .seo-content p{color:#d1d1d1; font-size:1rem; margin-bottom:20px}
-        /* SEO/Accessibility: Ensuring font-size is at least 12px for mobile legibility */
-        .disclaimer{font-size:12px;color:#ccc;padding:15px;border:1px solid #333;border-radius:8px;line-height:1.5}
-        .footer-bottom{text-align:center;margin-top:35px;font-size:13px;color:#888}
-        
-        @media (orientation:landscape) and (max-height:500px){
-            header{height:50px}.sticky-player-wrapper{top:0;position:relative}.player-container{max-width:75%}
+        #loading { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            z-index: 101; color: #fff; background: rgba(0,0,0,0.8); 
+            padding: 12px 24px; border-radius: 30px; display: none; font-size: 1rem;
+        }
+
+        .ticker { 
+            width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
+            display: flex; align-items: center; overflow: hidden; font-size: 0.85rem;
+        }
+        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 40s linear infinite; }
+        .ticker-content { padding-right: 50px; font-weight: bold; }
+        @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+        .main-content { width: 100%; max-width: 1200px; margin: 0 auto; flex-grow: 1; }
+        .title-area { padding: 25px 15px; text-align: center; }
+        .title-area h2 { font-weight: 700; font-size: 1.2rem; }
+
+        .channel-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); /* Increased for SEO tap targets */
+            grid-auto-rows: 85px; /* Increased for SEO tap targets */
+            gap: 15px;
+            padding: 0 15px 40px 15px;
+            content-visibility: auto;
+        }
+
+        .channel-card {
+            background: #fff; border: 1px solid #e0e0e0; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            padding: 12px; cursor: pointer; transition: 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            min-height: 48px; /* Critical SEO target size */
+        }
+        .channel-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+        .channel-name { font-size: 0.9rem; font-weight: 700; color: #333; text-align: center; }
+
+        .site-footer {
+            background: #111419; color: #fff; padding: 45px 20px;
+            margin-top: auto; border-top: 1px solid #222;
+        }
+        .seo-content { max-width: 800px; margin: 0 auto; }
+        .seo-content h2 { color: var(--accent); font-size: 1.3rem; margin-bottom: 12px; }
+        .seo-content p { font-size: 1rem; color: #ccc; margin-bottom: 20px; } /* Brightened for Accessibility */
+        .disclaimer { font-size: 12px; color: #aaa; padding: 15px; border: 1px solid #333; border-radius: 8px; line-height: 1.5; }
+        .footer-bottom { text-align: center; margin-top: 35px; font-size: 0.85rem; color: #666; }
+
+        @media (orientation: landscape) and (max-height: 500px) {
+            header { height: 50px; }
+            .sticky-player-wrapper { top: 0; position: relative; }
+            .player-container { max-width: 70%; }
         }
     </style>
 </head>
 <body>
+
 <div class="app-wrapper">
     <header role="banner">
         <h1 class="brand-name">MSTV NETWORK</h1>
         <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search for TV channels">
+            <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search TV channels">
         </div>
     </header>
 
     <div class="sticky-player-wrapper">
-        <section class="player-container" aria-label="Live TV Player">
-            <div id="loading" role="status">Connecting to stream...</div>
+        <section class="player-container" aria-label="TV Player">
+            <div id="loading" role="status">🌀 Loading Stream...</div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" playsinline controls aria-label="Live Player Feed"></video>
-            <iframe id="iframePlayer" title="Live Channel Stream" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay;fullscreen"></iframe>
+            <video id="video" playsinline controls aria-label="Live Video"></video>
+            <iframe id="iframePlayer" title="Live Stream" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen;"></iframe>
         </section>
-        <div class="ticker" role="status" aria-live="polite">
+        <div class="ticker" role="status">
             <div class="ticker-track">
-                <div class="ticker-content">MSTV Live • High Speed Streaming • Choose your favorite channel from the list below.</div>
-                <div class="ticker-content">MSTV Live • High Speed Streaming • Choose your favorite channel from the list below.</div>
+                <div class="ticker-content">MSTV Live • Premium High Speed Streaming • Search for your favorite channel below.</div>
+                <div class="ticker-content">MSTV Live • Premium High Speed Streaming • Search for your favorite channel below.</div>
             </div>
         </div>
     </div>
 
     <main class="main-content">
-        <article class="title-area"><h2 id="current-title">Select a Channel</h2></article>
-        <section class="channel-grid" id="channelList" role="list">
-            </section>
+        <div class="title-area"><h2 id="title">Select a Channel</h2></div>
+        
+        <div class="channel-grid" id="channelList" role="list"></div>
 
         <footer class="site-footer">
             <div class="seo-content">
-                <h2>MSTV Network: Live Streaming Hub</h2>
-                <p>Discover a wide selection of live Indian, Punjabi, and International TV channels. MSTV Network provides a seamless, high-definition streaming experience for all users.</p>
+                <h2>MSTV Network: Live Media Hub</h2>
+                <p>Enjoy free access to live Indian, Punjabi, and International TV channels. Our platform is optimized for the best HD streaming experience on all mobile and desktop devices.</p>
                 <div class="disclaimer">
-                    <strong>Notice:</strong> MSTV Network is a web directory of publicly available streams. We do not host or broadcast any content from our own servers.
+                    <strong>Notice:</strong> MSTV Network is a web directory of publicly available streams. All rights and content belong to the original owners.
                 </div>
             </div>
-            <div class="footer-bottom"><p>© 2026 MSTV Network. All Rights Reserved.</p></div>
+            <div class="footer-bottom">
+                <p>© 2026 MSTV Network. All Rights Reserved.</p>
+            </div>
         </footer>
     </main>
 </div>
 
 <script>
-    let allCh = [], hlsE = null, scP = null;
-    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), ld = document.getElementById('loading'), 
-          t = document.getElementById('current-title'), ph = document.getElementById('placeholder');
+    let allChannels = [];
+    let hlsEngine = null;
+    let dashEngine = null;
+    let scriptsPromise = null;
 
-    function loadS() {
-        if (scP) return scP;
-        scP = new Promise(res => {
-            let c = 0; const d = () => { if (++c === 2) res(); };
+    const video = document.getElementById('video');
+    const iframe = document.getElementById('iframePlayer');
+    const list = document.getElementById('channelList');
+    const loading = document.getElementById('loading');
+    const titleEl = document.getElementById('title');
+
+    function loadScripts() {
+        if (scriptsPromise) return scriptsPromise;
+        scriptsPromise = new Promise((resolve) => {
+            let loaded = 0;
+            const check = () => { if (++loaded === 2) resolve(); };
             const s1 = document.createElement('script'); 
             s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
-            s1.async = true; s1.crossOrigin = "anonymous"; s1.onload = d;
+            s1.async = true; s1.onload = check;
             const s2 = document.createElement('script'); 
             s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
-            s2.async = true; s2.crossOrigin = "anonymous";
-            s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
-            document.head.append(s1, s2);
+            s2.async = true; s2.onload = () => { shaka.polyfill.installAll(); check(); };
+            document.head.appendChild(s1); document.head.appendChild(s2);
         });
-        return scP;
+        return scriptsPromise;
     }
 
-    async function play(ch) {
-        ld.style.display = 'block'; ph.style.display = 'none'; t.innerText = ch.name;
-        v.style.display = f.style.display = 'none'; f.src = "";
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-        
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; f.src = ch.url; f.onload = () => ld.style.display = 'none';
+    async function playStream(ch) {
+        if (!ch) return;
+        loading.style.display = 'block';
+        document.getElementById('placeholder').style.display = 'none';
+        titleEl.innerText = ch.name;
+
+        video.style.display = 'none'; video.pause(); video.src = "";
+        iframe.style.display = 'none'; iframe.src = "";
+        if (hlsEngine) hlsEngine.destroy();
+        if (dashEngine) await dashEngine.destroy();
+
+        const isEmbed = ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'));
+
+        if (isEmbed) {
+            iframe.style.display = 'block';
+            iframe.src = ch.url;
+            iframe.onload = () => loading.style.display = 'none';
         } else {
-            await loadS(); v.style.display = 'block';
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v); await p.load(ch.url); ld.style.display = 'none';
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls(); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); ld.style.display = 'none'; });
-            }
+            try {
+                await loadScripts(); 
+                video.style.display = 'block';
+                if (ch.url.includes('.mpd')) {
+                    dashEngine = new shaka.Player(video);
+                    await dashEngine.load(ch.url);
+                    loading.style.display = 'none';
+                } else if (window.Hls && Hls.isSupported()) {
+                    hlsEngine = new Hls();
+                    hlsEngine.loadSource(ch.url);
+                    hlsEngine.attachMedia(video);
+                    hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(()=>{}); loading.style.display = 'none'; });
+                }
+            } catch (e) { loading.style.display = 'none'; }
         }
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function render(data) {
-        const fr = document.createDocumentFragment();
+    function renderGrid(data) {
+        const frag = document.createDocumentFragment();
         data.forEach(ch => {
-            const b = document.createElement('div'); 
-            b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
-            b.setAttribute('aria-label', `Watch ${ch.name}`);
-            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            b.onclick = () => play(ch);
-            b.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
-            fr.appendChild(b);
+            const btn = document.createElement('div');
+            btn.className = 'channel-card';
+            btn.setAttribute('role', 'listitem');
+            btn.setAttribute('tabindex', '0');
+            btn.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            btn.onclick = () => playStream(ch);
+            btn.onkeydown = (e) => { if(e.key === 'Enter') playStream(ch); };
+            frag.appendChild(btn);
         });
-        l.innerHTML = ''; l.appendChild(fr);
+        list.innerHTML = '';
+        list.appendChild(frag);
     }
 
-    document.addEventListener('DOMContentLoaded', async () => {
+    async function init() {
         try {
-            const r = await fetch('channels.json');
-            allCh = await r.json(); render(allCh);
+            const res = await fetch('channels.json');
+            allChannels = await res.json();
+            renderGrid(allChannels);
         } catch (e) {}
-        
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const s = document.createElement('script'); 
-                s.async = true; s.src = "https://gc.zgo.at/count.js"; 
-                s.setAttribute('crossorigin', 'anonymous');
-                document.head.appendChild(s);
-            }, 5000);
-        });
-    });
+
+        setTimeout(() => {
+            const s = document.createElement('script');
+            s.async = true;
+            s.src = "https://gc.zgo.at/count.js";
+            document.head.appendChild(s);
+        }, 4000);
+    }
 
     document.getElementById('searchInput').oninput = (e) => {
         const val = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+        renderGrid(allChannels.filter(c => c.name.toLowerCase().includes(val)));
     };
+
+    window.onload = init;
 </script>
 </body>
 </html>

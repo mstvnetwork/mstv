@@ -207,11 +207,24 @@
     }
 
     async function play(ch) {
+        // Condition: If URL is insecure (HTTP), open in new tab and exit
+        if (ch.url.startsWith('http://')) {
+            const confirmOpen = confirm("This channel requires an insecure connection and must be opened in a new window. Continue?");
+            if (confirmOpen) {
+                window.open(ch.url, '_blank', 'noopener,noreferrer');
+            }
+            return; // Stop execution here so the player doesn't break
+        }
+
+        // Standard Player Logic for HTTPS
         ld.style.display = 'block'; ph.style.display = 'none'; t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; f.src = "";
+        
         if (hlsE) { hlsE.destroy(); hlsE = null; }
+        
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; f.src = ch.url; f.onload = () => ld.style.display = 'none';
+            f.style.display = 'block'; f.src = ch.url; 
+            f.onload = () => ld.style.display = 'none';
         } else {
             await loadS(); v.style.display = 'block';
             if (ch.url.includes('.mpd')) {

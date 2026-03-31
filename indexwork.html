@@ -105,75 +105,70 @@
                 url:"https://v4-pan-n79-cdn-01.live.cdn.cgates.lt/live/dash/561201/index.mpd",
                 drm: { "ffa7c3ca6020428c919e13b817b7e31b": "adf163c6c1729e6f77668d4e49f32352" }
             },
+           <script>
+        // --- YOUR DATA STRUCTURE ---
+        const streamList = [
             {
-                name: "Cricc Buzz (DASH ClearKey)",
-                type: "dash",
-                url: "https://stream.kliv.fun/allplus13nov/jtv/manifest.mpd?id=1151",
-                drm: { "ee6e9f18a6c155e3855700b34fa8436f": "b670c81b0e4f7f19f1fbeac0eaa7fba8" }
+                "name": "Zoom",
+                "type": "dash",
+                "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zoom2/default/main.mpd", 
+                "drm": { "86edec9e3b7d4042a4d4a1ca14f847ee": "9def4315f0004019a3705bcb3cf30ca3" }
             }
         ];
 
-          async function initPlayer() {
-    const video = document.getElementById('video');
-    const params = new URLSearchParams(window.location.search);
-    const streamUrl = params.get('url');
-    const streamType = params.get('type') || 'hls'; // Defaults to hls if not specified
+        async function initApp() {
+            const video = document.getElementById('video');
+            const hash = window.location.hash.substring(1);
+            let index = (parseInt(hash, 10) || 1) - 1;
+            const stream = streamList[index] || streamList;
 
-    if (!streamUrl) return;
+            // 1. HIGH-QUALITY VISUAL SETTINGS (Goodness)
+            // Ensures the video fills the container perfectly without black bars
+            video.style.objectFit = 'fill'; 
 
-    // --- CASE 1: HLS STREAMS ---
-    if (streamType === "hls") {
-        // 1. Try Native Playback first (Safari / iOS / some Android)
-        if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = streamUrl;
-            video.addEventListener('loadedmetadata', () => video.play());
-        } 
-        // 2. Fallback to HLS.js (Chrome / Firefox / Edge)
-        else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 60 // Prevents memory crashes on long streams
-            });
-            hls.loadSource(streamUrl);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-        } 
-        // 3. Final Fallback: Try Shaka for HLS (as a last resort)
-        else {
-            loadWithShaka(video, streamUrl);
-        }
-    } 
-    
-    // --- CASE 2: DASH STREAMS (Always Shaka) ---
-    else if (streamType === "dash") {
-        loadWithShaka(video, streamUrl);
-    }
-}
+            // --- 1. HLS ENGINE (STRICTLY NON-SHAKA) ---
+            if (stream.type === "hls") {
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = stream.url;
+                } 
+                else if (Hls.isSupported()) {
+                    const hls = new Hls({
+                        // GOLD ITEM: User-Agent Spoofing (Handled via Hls.js config)
+                        xhrSetup: function(xhr, url) {
+                            xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
+                        }
+                    });
+                    hls.loadSource(stream.url);
+                    hls.attachMedia(video);
+                } 
+                return; 
+            }
 
-async function loadWithShaka(video, url) {
-    if (typeof shaka !== 'undefined') {
-        shaka.polyfill.installAll();
-        const player = new shaka.Player(video);
-        try {
-            await player.load(url);
-            console.log("Stream loaded with Shaka");
-        } catch (e) {
-            console.error("Shaka Load Error:", e.code);
-        }
-    }
-}
-document.addEventListener('DOMContentLoaded', initPlayer);
- // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
+            // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
             if (stream.type === "dash") {
                 if (typeof shaka === 'undefined') return;
 
                 shaka.polyfill.installAll();
                 const player = new shaka.Player(video);
 
+                // SHAKA PERFORMANCE TWEAKS (Goodness)
+                // Faster starts and lower data consumption
+                player.configure({
+                    streaming: {
+                        bufferingGoal: 8,
+                        rebufferingGoal: 1,
+                        bufferBehind: 5
+                    }
+                });
+
                 if (stream.drm) {
                     player.configure({ drm: { clearKeys: stream.drm } });
                 }
+
+                // GOLD ITEM: User-Agent Spoofing for DASH
+                player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                    request.headers['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+                });
 
                 try {
                     await player.load(stream.url);
@@ -181,6 +176,18 @@ document.addEventListener('DOMContentLoaded', initPlayer);
                     console.error('DASH Load Error', e);
                 }
             }
+
+            // SELF-HEALING LOGIC (The Loop Fix - Goodness)
+            // If the video stays stuck in buffering for 6 seconds, refresh the stream
+            video.addEventListener('waiting', () => {
+                const stallCheck = setTimeout(() => {
+                    if (video.paused === false && video.readyState < 3) {
+                        console.log("Stall detected, refreshing...");
+                        window.location.reload();
+                    }
+                }, 6000);
+                video.addEventListener('playing', () => clearTimeout(stallCheck), { once: true });
+            });
         }
 
         window.addEventListener('hashchange', () => window.location.reload());
@@ -188,8 +195,4 @@ document.addEventListener('DOMContentLoaded', initPlayer);
     </script>
 </body>
 </html>
-
-
-
-
 

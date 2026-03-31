@@ -117,34 +117,50 @@
     const video = document.getElementById('video');
     const params = new URLSearchParams(window.location.search);
     const streamUrl = params.get('url');
-    const streamType = params.get('type') || 'hls';
+    const streamType = params.get('type') || 'hls'; // Defaults to hls if not specified
 
     if (!streamUrl) return;
 
+    // --- CASE 1: HLS STREAMS ---
     if (streamType === "hls") {
-        if (Hls.isSupported()) {
+        // 1. Try Native Playback first (Safari / iOS / some Android)
+        if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = streamUrl;
+            video.addEventListener('loadedmetadata', () => video.play());
+        } 
+        // 2. Fallback to HLS.js (Chrome / Firefox / Edge)
+        else if (typeof Hls !== 'undefined' && Hls.isSupported()) {
             const hls = new Hls({
-                debug: false,
                 enableWorker: true,
-                lowLatencyMode: true
+                lowLatencyMode: true,
+                backBufferLength: 60 // Prevents memory crashes on long streams
             });
             hls.loadSource(streamUrl);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-            
-            // Critical: If HLS fails, log the specific error
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) console.error("HLS Fatal Error:", data.type);
-            });
         } 
-        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = streamUrl;
+        // 3. Final Fallback: Try Shaka for HLS (as a last resort)
+        else {
+            loadWithShaka(video, streamUrl);
         }
     } 
+    
+    // --- CASE 2: DASH STREAMS (Always Shaka) ---
     else if (streamType === "dash") {
+        loadWithShaka(video, streamUrl);
+    }
+}
+
+async function loadWithShaka(video, url) {
+    if (typeof shaka !== 'undefined') {
         shaka.polyfill.installAll();
         const player = new shaka.Player(video);
-        await player.load(streamUrl);
+        try {
+            await player.load(url);
+            console.log("Stream loaded with Shaka");
+        } catch (e) {
+            console.error("Shaka Load Error:", e.code);
+        }
     }
 }
 document.addEventListener('DOMContentLoaded', initPlayer);

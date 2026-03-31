@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSTV Player</title>
+    
+    <!-- DASH ENGINE (Local) -->
+    <link rel="stylesheet" href="shaka-ui.css">
+    <script src="shaka-player.ui.min.js"></script>
+
+    <!-- HLS ENGINE (CDN Fallback) -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <style>
+        body, html { margin: 0; padding: 0; background: #000; overflow: hidden; width: 100%; height: 100%; }
+        .container { display: flex; width: 100vw; height: 100vh; background: #000; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <video id="video" controls autoplay crossorigin="anonymous"></video>
+    </div>
+
+<script>
+        const streamList = [
+            {
+                name: "Zee TV (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+                drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" }
+            },
+            {
+                name: "Zee Anmol (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeeanmol/default/main.mpd",
+                drm: { "4023613457774cbeb71a62c339970e63": "1c3e9fce5f014542be9cd1f749181204" }
+            },
+            {
+                name: "And Tv",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd",
+                drm: { "26df86eeebb04d7fbc45c948f76e81fd": "5f3a23f1a73c4c96ababce5fffe7b06b" }
+            },
+            {
+                name: "Real IPTV",
+                type: "hls",
+                url: "https://cdn.stmify.com/out/v1/SONY_ENTERTAINMENT_TELEVISION_HD/index.m3u8"
+            },
+            {
+                name: "BozzTV",
+                type: "hls",
+                url: "https://live20.bozztv.com/giatvplayout7/giatv-209592/index.m3u8"
+            },
+            {
+                name: "Star Gold Proxy",
+                type: "hls",
+                url: "https://zee5.mchoudhry482.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8"
+            },
+            {
+                name: "And Pictures (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andpictures/default/main.mpd",
+                drm: { "8dea532cabfe471ba20f623107949": "7a214a974e4f4d1d9bb65364d5f0cb92" }
+            },
+            {
+                name: "Zee Cinema Hd",
+                type: "hls",
+                url: "https://amg17931-zee-amg17931c5-kogan-au-9521.playouts.now.amagi.tv/ts-eu-w1-n2/playlist/amg17931-asiatvusaltdfast-zeecinema-koganau/cb7c3e1a7b776f88cfca3f6cd2f940a0d10530d05d33d33d6ba056c226c3150d8ceda7c9eb1aea697ec062812b53310d0c78ce07de6c19bb8724ed193f6c662acedaed228d891309b9c874333ac23a5e0dab6940825e0a6696bc495fcb6ee3394d38c03d437a7ecdb100f62342b2d559d020309bde852366200f409e5e54fba040a3e1e14d38873ef8ed4958f67e13b6c01bd6d11fbc9ed75d8c57817ef1129dc7f0d8ce118683c47ea856e465440024289dcd2d969f0ae58f9c3c68982829742b3f95cb63785046e466761e91dedeac71ed12c28024f3125dd92fbb3f4bb41709d06e88e24ba1a3b2de382173c4961d0923d129dcb0ff6eec9dc682406b7a8ba71ff7343237e878cb3639399cf4ca5bb7da1198b33abf56087737ed9e5f9291be82a0e5c31adc6de6cefa8d25190e420a069452ab9e2d8a798638838753004c5d48a8ad50c6add04a7f371cd1ce0d82535392f3bfaef3427bc669105fa847dc580e6385744f74f722f49f733dda7f44d57b6db50875ad4dfeb120f0e7e8e4003aa7d78817ac38a1e65ca09b68ce4c325d10bcfb282d271d2daa8e6c6e612b93a585607508da6f99d7513882f3ae0a1a38fbf5f81a90dc/120/1280x720_2657600/index.m3u8"
+            },
+            {
+                name: "Zee Bollyworld (DASH ClearKey)",
+                type: "dash",
+                url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeebollywood/default/manifest.mpd",
+                drm: { "e61523260c614746b25b9a5523fe9a39": "72ddbf37f76f49acbb8e140e7279e7a1" }
+            },
+            {
+                name: "Discovery Kids(DASH ClearKey)",
+                type: "dash",
+                url:"https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoverykids2/default/manifest.mpd",
+                drm: { "601f58d4b7094d2baf78c85d1d9cb6c9": "609e0cc03198455fa36fd2cc3e7f940d" }
+            },
+            {
+                name: "Zing",
+                type: "dash",
+                url:"https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zing/default/manifest.mpd",
+                drm: { "f0fb14eebe474a6ab74c8301d55a7224": "f9f8b2e30704458b8db844a285ce32be" }
+            },
+            {
+                name: "Shemaroo Josh",
+                type: "hls",
+                url: "https://airtelapp.shemaroo.com/shemarooChumbakTV/smil:shemarooChumbakTVadp.smil/chunklist_b1628000_sleng.m3u8"
+            },
+          {
+                name: "Zee Action",
+                type: "dash",
+                url:"https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeeaction/default/manifest.mpd",
+                drm: { "9d7a1917ee3244d198193cdd1ff1feae": "3c3e8d0259f748f1830f713a769760e7" }
+            },
+            {
+                name: "Natinal Geographic Wild",
+                type: "dash",
+                url:"https://v4-pan-n79-cdn-01.live.cdn.cgates.lt/live/dash/561201/index.mpd",
+                drm: { "ffa7c3ca6020428c919e13b817b7e31b": "adf163c6c1729e6f77668d4e49f32352" }
+            },
+            {
+                name: "Cricc Buzz (DASH ClearKey)",
+                type: "dash",
+                url: "https://stream.kliv.fun/allplus13nov/jtv/manifest.mpd?id=1151",
+                drm: { "ee6e9f18a6c155e3855700b34fa8436f": "b670c81b0e4f7f19f1fbeac0eaa7fba8" }
+            }
+        ];
+
+          async function initPlayer() {
+    const video = document.getElementById('video');
+    const params = new URLSearchParams(window.location.search);
+    const streamUrl = params.get('url');
+    const streamType = params.get('type') || 'hls';
+
+    if (!streamUrl) return;
+
+    if (streamType === "hls") {
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                debug: false,
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+            hls.loadSource(streamUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            
+            // Critical: If HLS fails, log the specific error
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) console.error("HLS Fatal Error:", data.type);
+            });
+        } 
+        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = streamUrl;
+        }
+    } 
+    else if (streamType === "dash") {
+        shaka.polyfill.installAll();
+        const player = new shaka.Player(video);
+        await player.load(streamUrl);
+    }
+}
+document.addEventListener('DOMContentLoaded', initPlayer);
+ // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
+            if (stream.type === "dash") {
+                if (typeof shaka === 'undefined') return;
+
+                shaka.polyfill.installAll();
+                const player = new shaka.Player(video);
+
+                if (stream.drm) {
+                    player.configure({ drm: { clearKeys: stream.drm } });
+                }
+
+                try {
+                    await player.load(stream.url);
+                } catch (e) {
+                    console.error('DASH Load Error', e);
+                }
+            }
+        }
+
+        window.addEventListener('hashchange', () => window.location.reload());
+        window.onload = initApp;
+    </script>
+</body>
+</html>
+
+
+
+
+

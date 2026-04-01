@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Stealth Player 2026</title>
+    
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.7.11/dist/shaka-player.compiled.js"></script>
+    
+    <style>
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; }
+        .player-viewport { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        
+        /* Elements occupy the same space; script toggles 'hidden' class */
+        video, iframe { width: 100%; height: 100%; border: none; background: #000; position: absolute; top: 0; left: 0; }
+        
+        /* Aggressive Spinner */
+        #loader {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none;
+        }
+        .spinner {
+            width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1);
+            border-top: 4px solid #22c55e; border-radius: 50%;
+            animation: spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { margin-top: 15px; font-size: 10px; color: #22c55e; letter-spacing: 2px; font-weight: bold; }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<div class="player-viewport">
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loading-text">LOAD ACCELERATING...</div>
+    </div>
+    
+    <video id="video" controls muted playsinline preload="auto" class="hidden"></video>
+    
+    <iframe id="embed-frame" allowfullscreen allow="autoplay; encrypted-media" class="hidden"></iframe>
+</div>
+
+<script>
+    const video = document.getElementById('video');
+    const iframe = document.getElementById('embed-frame');
+    const loader = document.getElementById('loader');
+    
+    // --- YOUR WORKER CONFIG ---
+    const workerPrefix = "https://your-worker.workers.dev/?url=";
+
+    // --- CHANNEL DATABASE ---
+    const streams = [
+        
+{ 
+            id: 1, 
+            type: "hls", 
+            url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8", 
+            useWorker: false
+        },
+        { 
+            id: 2, 
+            type: "dash", 
+            url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd", 
+            clearkeys: { 
+                "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" 
+            },
+            useWorker: false 
+        },
+        { 
+            id: 3, 
+            type: "iframe", 
+            url: "https://www.youtube.com/embed/s160GNfLChU?si=SRZy08IghG6ENoMd", 
+            useWorker: false 
+        }
+    ];
+
+
+    let hls = null;
+    let shakaPlayer = null;
+
+    async function loadContent(id) {
+        const item = streams.find(s => s.id == id) || streams;
+        
+        // Show loader and reset players
+        loader.classList.remove('hidden');
+        video.classList.add('hidden');
+        iframe.classList.add('hidden');
+        iframe.src = "";
+
+        if (hls) { hls.destroy(); hls = null; }
+        if (shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
+
+        const finalUrl = item.useWorker ? workerPrefix + encodeURIComponent(item.url) : item.url;
+
+        // --- BRANCHING LOGIC BY TYPE ---
+        if (item.type === "iframe") {
+            iframe.src = finalUrl;
+            iframe.classList.remove('hidden');
+            loader.classList.add('hidden'); // Iframe handles its own loading
+
+        } else if (item.type === "dash") {
+            video.classList.remove('hidden');
+            shakaPlayer = new shaka.Player(video);
+            
+            // Configure DRM/ClearKeys
+            if (item.clearkeys) {
+                shakaPlayer.configure({ drm: { clearKeys: item.clearkeys } });
+            }
+
+            // Aggressive DASH Loading
+            shakaPlayer.configure({
+                streaming: {
+                    lowLatencyMode: true,
+                    bufferingGoal: 45,
+                    rebufferingGoal: 2,
+                    jumpLargeGaps: true
+                }
+            });
+
+            try {
+                await shakaPlayer.load(finalUrl);
+                video.play();
+            } catch (e) { console.error("Shaka Error", e); loader.classList.add('hidden'); }
+
+        } else if (item.type === "hls") {
+            video.classList.remove('hidden');
+            if (Hls.isSupported()) {
+                // Aggressive HLS Loading
+                hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    startFragPrefetch: true,
+                    maxBufferLength: 45,
+                    maxBufferSize: 80 * 1024 * 1024,
+                    liveSyncDurationCount: 1.5,
+                    progressive: true
+                });
+                hls.loadSource(finalUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            }
+        }
+    }
+
+    // --- SPINNER & AUTOPLAY LOGIC ---
+    video.addEventListener('playing', () => loader.classList.add('hidden'));
+    video.addEventListener('waiting', () => loader.classList.remove('hidden'));
+    video.addEventListener('loadeddata', () => loader.classList.add('hidden'));
+
+    function checkHash() {
+        const hash = window.location.hash.replace('#', '');
+        loadContent(hash || 1);
+    }
+
+    window.addEventListener('hashchange', checkHash);
+    window.addEventListener('load', () => {
+        shaka.polyfill.installAll(); // Fixes browser-specific Shaka issues
+        checkHash();
+    });
+</script>
+
+</body>
+  </html>
+
+
+
+
+
+
+
+
+
+
+
+

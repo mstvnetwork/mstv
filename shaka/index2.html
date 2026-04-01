@@ -7,6 +7,36 @@
         body { margin: 0; background: #000; color: white; font-family: sans-serif; text-align: center; overflow: hidden; }
         video { width: 100vw; height: 100vh; background: #000; }
         /* Hide buttons if you only want the player visible in an iframe */
+        /* Spinner Container */
+#loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none; /* User can click "through" it to play */
+}
+
+/* The actual spinning circle */
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 5px solid #333;
+    border-top: 5px solid #22c55e; /* Green to match your theme */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Hidden state */
+.hidden { display: none !important; }
         .controls { position: absolute; bottom: 10px; left: 10px; display: flex; gap: 5px; z-index: 10; opacity: 0.3; transition: 0.5s; }
         .controls:hover { opacity: 1; }
         button { padding: 5px 10px; cursor: pointer; border: none; border-radius: 3px; background: #222; color: #aaa; font-size: 12px; }
@@ -14,8 +44,14 @@
     </style>
 </head>
 <body>
+    <div style="position: relative; display: inline-block; width: 90%; max-width: 800px;">
+    <div id="loader">
+        <div class="spinner"></div>
+        <p style="font-size: 12px; color: #aaa; margin-top: 10px;">LOADING STREAM...</p>
+    </div>
 
-    <video id="video" controls muted playsinline></video>
+    <video id="video" controls muted playsinline style="width: 100%;"></video>
+    </div>
     <div class="controls" id="channelList"></div>
 
     <script>
@@ -33,17 +69,29 @@
  let hls;
 
     function loadStreamById(id) {
-        const streamObj = streams.find(s => s.id == id) || streams;
-        
-        // UI: Update active button
-        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-        const activeBtn = document.getElementById(`btn-${streamObj.id}`);
-        if (activeBtn) activeBtn.classList.add('active');
+    const loader = document.getElementById('loader');
+    const video = document.getElementById('video');
+    
+    // 1. Show loader immediately when a channel is chosen
+    loader.classList.remove('hidden');
 
-        // Kill existing instance to free memory
-        if (hls) {
-            hls.destroy();
-        }
+    // ... your existing HLS setup code ...
+
+    // 2. Hide loader when playback actually starts
+    video.onplaying = () => {
+        loader.classList.add('hidden');
+    };
+
+    // 3. Optional: Show loader if the video starts buffering midway
+    video.onwaiting = () => {
+        loader.classList.remove('hidden');
+    };
+    
+    // 4. Hide loader if there is a fatal error (so it doesn't spin forever)
+    hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) loader.classList.add('hidden');
+    });
+    }
 
         // --- AGGRESSIVE LOADING CONFIGURATION (2026 Optimized) ---
         const aggressiveConfig = {

@@ -25,60 +25,50 @@
          <script>
     const activeWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
 
-    const streamList = [
-        {
-            name: "Sony Pal",
-            type: "hls",
-            url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8"
-        },
-        {
-            name: "Zee TV (DASH)",
-            type: "dash",
-            url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
-            drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" }
-        }
-    ];
-
     async function initApp() {
         const video = document.getElementById('video');
+        const streamList = [
+            { name: "Sony Pal", type: "hls", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" },
+            { name: "Zee TV", type: "dash", url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd", 
+              drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" } }
+        ];
+
         const hash = window.location.hash.substring(1);
         let index = (parseInt(hash, 10) || 1) - 1;
         const stream = streamList[index] || streamList;
 
-        // --- HLS ENGINE ---
-        if (stream.type === "hls") {
-            if (Hls.isSupported()) {
-                const hls = new Hls();
-                // We proxy the main manifest, the worker handles the rest
-                hls.loadSource(activeWorker + encodeURIComponent(stream.url));
-                hls.attachMedia(video);
-            }
-        }
-
-        // --- DASH ENGINE ---
+        // --- DASH (SHAKA) ---
         if (stream.type === "dash") {
             shaka.polyfill.installAll();
             const player = new shaka.Player(video);
 
-            // KEY FIX: This forces EVERY request (segments, manifest) to use your proxy
+            // This tells Shaka to wrap every internal URL in your proxy
             player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                if (!request.uris.includes(activeWorker)) {
-                    request.uris = activeWorker + encodeURIComponent(request.uris);
+                const uri = request.uris;
+                if (!uri.startsWith(activeWorker) && !uri.startsWith('data:')) {
+                    request.uris = activeWorker + encodeURIComponent(uri);
                 }
             });
 
             if (stream.drm) player.configure({ drm: { clearKeys: stream.drm } });
-            
+
             try {
-                await player.load(stream.url); // Use raw URL, filter adds proxy
-            } catch (e) {
-                console.error("DASH Error", e);
+                await player.load(stream.url);
+            } catch (e) { console.error("DASH Error", e); }
+        }
+
+        // --- HLS (HLS.JS) ---
+        if (stream.type === "hls") {
+            if (Hls.isSupported()) {
+                const hls = new Hls();
+                hls.loadSource(activeWorker + encodeURIComponent(stream.url));
+                hls.attachMedia(video);
             }
         }
     }
 
     window.onload = initApp;
     window.onhashchange = () => window.location.reload();
-            </script>
+                                        </script>
 </body>
 </html>

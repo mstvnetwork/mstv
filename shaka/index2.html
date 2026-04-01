@@ -1,175 +1,165 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Multi-Channel HLS Player</title>
-   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Speed Stealth Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+    
     <style>
-        body { margin: 0; background: #000; color: white; font-family: sans-serif; text-align: center; overflow: hidden; }
-        video { width: 100vw; height: 100vh; background: #000; }
-        /* Hide buttons if you only want the player visible in an iframe */
-        /* Spinner Container */
-#loader {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    pointer-events: none; /* User can click "through" it to play */
-}
+        body { margin: 0; padding: 0; background: #000; color: #eee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+        
+        /* Player Container */
+        .player-wrapper { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; background: #000; outline: none; }
 
-/* The actual spinning circle */
-.spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #333;
-    border-top: 5px solid #22c55e; /* Green to match your theme */
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
+        /* Aggressive Loading Spinner */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #22c55e;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { margin-top: 15px; font-size: 12px; letter-spacing: 2px; color: #22c55e; font-weight: bold; text-transform: uppercase; }
 
-@keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+        /* Hidden State */
+        .hidden { display: none !important; }
 
-/* Hidden state */
-.hidden { display: none !important; }
-        .controls { position: absolute; bottom: 10px; left: 10px; display: flex; gap: 5px; z-index: 10; opacity: 0.3; transition: 0.5s; }
-        .controls:hover { opacity: 1; }
-        button { padding: 5px 10px; cursor: pointer; border: none; border-radius: 3px; background: #222; color: #aaa; font-size: 12px; }
-        button.active { background: #22c55e; color: white; }
+        /* Minimal Overlay Controls (Visible on Hover) */
+        .controls-overlay {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 101;
+            opacity: 0.1;
+            transition: opacity 0.3s;
+        }
+        .player-wrapper:hover .controls-overlay { opacity: 1; }
+        button {
+            background: rgba(40, 40, 40, 0.8);
+            color: #ccc;
+            border: 1px solid #444;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            transition: all 0.2s;
+        }
+        button:hover { background: #22c55e; color: white; border-color: #22c55e; }
+        button.active { background: #22c55e; color: white; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div style="position: relative; display: inline-block; width: 90%; max-width: 800px;">
-    <div id="loader">
-        <div class="spinner"></div>
-        <p style="font-size: 12px; color: #aaa; margin-top: 10px;">LOADING STREAM...</p>
-    </div>
 
-    <video id="video" controls muted playsinline style="width: 100%;"></video>
-    </div>
-    <div class="controls" id="channelList"></div>
+    <div class="player-wrapper">
+        <div id="loader">
+            <div class="spinner"></div>
+            <div class="loading-text">Optimizing Stream...</div>
+        </div>
 
-    <script>
-        const video = document.getElementById('video');
-        const channelList = document.jsElementById ? document.getElementById('channelList') : document.querySelector('#channelList');
-        const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
-        // --- CONFIGURATION ---
-        const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; // Update with your actual worker URL
-        // --- CHANNEL DATA ---
-        const streams = [
-            { id: 1, name: "Sony Pal", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8", useWorker: false },
+        <video id="video" controls muted playsinline preload="auto"></video>
+
+        <div class="controls-overlay" id="channelList"></div>
+    </div>
+<script>
+    // --- 1. DECLARE ALL VARIABLES AT THE TOP ONCE ---
+    const video = document.getElementById('video');
+    const loader = document.getElementById('loader');
+    const channelList = document.getElementById('channelList');
+    
+    // CHANGE THIS TO YOUR ACTUAL WORKER URL
+    const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
+    
+    const streams = [
+        { id: 1, name: "Sony Pal", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8", useWorker: false },
             { id: 2, name: "Star Plus", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false },
             { id: 3, name: "Colors", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false }
         ];
 
- let hls;
+    let hls = null;
 
+    // --- 2. THE LOADING LOGIC ---
     function loadStreamById(id) {
-    const loader = document.getElementById('loader');
-    const video = document.getElementById('video');
-    
-    // 1. Show loader immediately when a channel is chosen
-    loader.classList.remove('hidden');
-
-    // ... your existing HLS setup code ...
-
-    // 2. Hide loader when playback actually starts
-    video.onplaying = () => {
-        loader.classList.add('hidden');
-    };
-
-    // 3. Optional: Show loader if the video starts buffering midway
-    video.onwaiting = () => {
+        const streamObj = streams.find(s => s.id == id) || streams;
+        
+        // UI: Update Buttons
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        const activeBtn = document.getElementById(`btn-${streamObj.id}`);
+        if (activeBtn) activeBtn.classList.add('active');
+        
+        // Show Spinner
         loader.classList.remove('hidden');
-    };
-    
-    // 4. Hide loader if there is a fatal error (so it doesn't spin forever)
-    hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) loader.classList.add('hidden');
-    });
-    }
 
-        // --- AGGRESSIVE LOADING CONFIGURATION (2026 Optimized) ---
+        // Clean up old HLS instance
+        if (hls) {
+            hls.destroy();
+            hls = null;
+        }
+
         const aggressiveConfig = {
-            enableWorker: true,            // Offload processing to background thread
-            lowLatencyMode: true,          // Reduce "Time to First Frame"
-            backBufferLength: 0,           // Clean old video data instantly
-            
-            // Speed & Parallelism
-            startFragPrefetch: true,       // Download next part while playing current
-            testBandwidth: true,           // Rapidly probe connection speed
-            progressive: true,             // Show video bits as they arrive
-            
-            // Buffer "Hoarding" for VPN/Slow Connections
-            maxBufferLength: 45,           // Aim for 45s of safety buffer
-            maxMaxBufferLength: 90,        // Allow up to 90s if speed allows
-            maxBufferSize: 100 * 1024 * 1024, // Allocate 100MB RAM for caching
-            
-            // The "Live Edge" Logic
-            liveSyncDurationCount: 1.5,    // Start playback after just 1.5 segments
-            liveMaxLatencyDurationCount: 5, // Jump to live if lag > 5 segments
-            
-            // Aggressive Network Retries
-            manifestLoadingMaxRetry: 15,
-            levelLoadingMaxRetry: 15,
-            fragLoadingMaxRetry: 15,
-            fragLoadingRetryDelay: 500,    // Retry every 0.5s if a request fails
+            enableWorker: true,
+            lowLatencyMode: true,
+            startFragPrefetch: true,
+            maxBufferLength: 45,
+            maxBufferSize: 80 * 1024 * 1024,
+            liveSyncDurationCount: 1.5
         };
 
         if (Hls.isSupported()) {
             hls = new Hls(aggressiveConfig);
-            
             const finalUrl = streamObj.useWorker 
                 ? workerPrefix + encodeURIComponent(streamObj.url) 
                 : streamObj.url;
 
-            console.log(`Aggressive Load: ${streamObj.name} | Proxy: ${streamObj.useWorker}`);
-            
             hls.loadSource(finalUrl);
             hls.attachMedia(video);
 
-            // Force immediate loading even before 'Play' is clicked
-            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
-                hls.startLoad();
-            });
-
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => console.log("Autoplay blocked: Muted required."));
+                video.play().catch(() => {
+                    console.log("Autoplay blocked - Waiting for user interaction");
+                    loader.classList.add('hidden'); // Hide so user can see play button
+                });
             });
 
-            // Auto-Recover from Network Errors (Crucial for VPNs)
+            // Error Recovery
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log("Network error, retrying...");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log("Media error, recovering...");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.log("Fatal error, rebooting player...");
-                            loadStreamById(id);
-                            break;
-                    }
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
                 }
             });
         }
     }
 
-    // --- ROUTING & UI GENERATION ---
+    // --- 3. SPINNER VISIBILITY LOGIC ---
+    // These listeners work regardless of which channel is playing
+    video.addEventListener('playing', () => loader.classList.add('hidden'));
+    video.addEventListener('waiting', () => loader.classList.remove('hidden'));
+    video.addEventListener('canplay', () => loader.classList.add('hidden'));
+
+    // --- 4. INITIALIZATION ---
     function checkHash() {
         const hash = window.location.hash.replace('#', '');
         loadStreamById(hash || 1);
     }
 
+    // Build buttons only once
     streams.forEach(s => {
         const btn = document.createElement('button');
         btn.id = `btn-${s.id}`;
@@ -183,3 +173,10 @@
 </script>
 </body>
 </html>
+
+
+
+
+
+
+

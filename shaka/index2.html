@@ -1,79 +1,45 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Player</title>
-    <!-- DASH ENGINE (Local) -->
-    <link rel="stylesheet" href="shaka-ui.css">
-    <script src="shaka-player.ui.min.js"></script>
-
-    <!-- HLS ENGINE (CDN Fallback) -->
+    <title>Bare Bones Test</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
- <style>
-        body, html { margin: 0; padding: 0; background: #000; overflow: hidden; width: 100%; height: 100%; }
-        .container { display: flex; width: 100vw; height: 100vh; background: #000; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; object-fit: contain; }
+    <style>
+        body { background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        video { width: 80%; border: 2px solid white; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <video id="video" controls autoplay crossorigin="anonymous"></video>
-    </div>
-         <script>
-    const activeWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
+    <video id="video" controls autoplay></video>
 
-    const streamList = [
-        { name: "Sony Pal", type: "hls", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" },
-        { name: "Zee TV", type: "dash", url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd", 
-          drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" } }
-    ];
-
-    async function initApp() {
+    <script>
         const video = document.getElementById('video');
-        const hash = window.location.hash.substring(1);
-        let index = (parseInt(hash, 10) || 1) - 1;
-        const stream = streamList[index] || streamList;
+        
+        // YOUR WORKER URL
+        const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
+        
+        // THE TEST CHANNEL (Sony Pal)
+        const streamUrl = "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8";
 
-        // --- DASH (SHAKA PLAYER V5 COMPATIBLE) ---
-        if (stream.type === "dash") {
-            shaka.polyfill.installAll();
+        if (Hls.isSupported()) {
+            const hls = new Hls();
             
-            // New way: Initialize first, THEN attach
-            const player = new shaka.Player(); 
-            await player.attach(video); 
+            // This combines your worker + the channel
+            const finalUrl = workerPrefix + encodeURIComponent(streamUrl);
+            console.log("Loading:", finalUrl);
 
-            // FIX 1006: Check if URL is already proxied before adding it again
-            player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                const uri = request.uris;
-                if (uri && !uri.startsWith(activeWorker) && !uri.startsWith('data:')) {
-                    request.uris = activeWorker + encodeURIComponent(uri);
-                }
+            hls.loadSource(finalUrl);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                console.log("Success! Manifest loaded.");
+                video.play();
             });
 
-            if (stream.drm) {
-                player.configure({ drm: { clearKeys: stream.drm } });
-            }
-
-            try {
-                await player.load(stream.url);
-            } catch (e) { console.error("DASH Error", e); }
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                console.error("HLS Error:", data);
+            });
         }
-
-        // --- HLS (HLS.JS) ---
-        if (stream.type === "hls") {
-            if (Hls.isSupported()) {
-                const hls = new Hls();
-                hls.loadSource(activeWorker + encodeURIComponent(stream.url));
-                hls.attachMedia(video);
-            }
-        }
-    }
-
-    window.onload = initApp;
-    window.onhashchange = () => window.location.reload();
-         </script>
+    </script>
 </body>
 </html>

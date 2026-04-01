@@ -22,7 +22,7 @@
     <div class="container">
         <video id="video" controls autoplay crossorigin="anonymous"></video>
     </div>
-            <script>
+         <script>
     const activeWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
 
     const streamList = [
@@ -45,20 +45,13 @@
         let index = (parseInt(hash, 10) || 1) - 1;
         const stream = streamList[index] || streamList;
 
-        video.style.objectFit = 'fill';
-        const proxiedUrl = activeWorker + encodeURIComponent(stream.url);
-
         // --- HLS ENGINE ---
         if (stream.type === "hls") {
             if (Hls.isSupported()) {
-                const hls = new Hls(); // Removed illegal UA setting
-                hls.loadSource(proxiedUrl);
+                const hls = new Hls();
+                // We proxy the main manifest, the worker handles the rest
+                hls.loadSource(activeWorker + encodeURIComponent(stream.url));
                 hls.attachMedia(video);
-                hls.on(Hls.Events.ERROR, (e, data) => {
-                    if (data.fatal) hls.recoverMediaError();
-                });
-            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = proxiedUrl;
             }
         }
 
@@ -66,10 +59,18 @@
         if (stream.type === "dash") {
             shaka.polyfill.installAll();
             const player = new shaka.Player(video);
+
+            // KEY FIX: This forces EVERY request (segments, manifest) to use your proxy
+            player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                if (!request.uris.includes(activeWorker)) {
+                    request.uris = activeWorker + encodeURIComponent(request.uris);
+                }
+            });
+
             if (stream.drm) player.configure({ drm: { clearKeys: stream.drm } });
             
             try {
-                await player.load(proxiedUrl);
+                await player.load(stream.url); // Use raw URL, filter adds proxy
             } catch (e) {
                 console.error("DASH Error", e);
             }

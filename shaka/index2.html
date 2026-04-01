@@ -113,82 +113,94 @@
             }
         ];
 
-        async function initApp() {
-            const video = document.getElementById('video');
-            const hash = window.location.hash.substring(1);
-            let index = (parseInt(hash, 10) || 1) - 1;
-            const stream = streamList[index] || streamList;
 
-            // 1. HIGH-QUALITY VISUAL SETTINGS (Goodness)
-            // Ensures the video fills the container perfectly without black bars
-            video.style.objectFit = 'fill'; 
+    async function initApp() {
+        const video = document.getElementById('video');
+        const hash = window.location.hash.substring(1);
+        let index = (parseInt(hash, 10) || 1) - 1;
+        const stream = streamList[index];
 
-            // --- 1. HLS ENGINE (STRICTLY NON-SHAKA) ---
-            if (stream.type === "hls") {
-                if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = stream.url;
-                } 
-                else if (Hls.isSupported()) {
-                    const hls = new Hls({
-                        // GOLD ITEM: User-Agent Spoofing (Handled via Hls.js config)
-                        xhrSetup: function(xhr, url) {
-                            xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
+        if (!stream) return;
+
+        video.style.objectFit = 'fill';
+        
+        // Helper to get current proxied URL
+        const getProxiedUrl = (raw) => workerPool[currentWorkerIndex] + encodeURIComponent(raw);
+
+        // --- 2. HLS ENGINE SETUP ---
+        if (stream.type === "hls") {
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    xhrSetup: function(xhr) {
+                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
+                    }
+                });
+
+                hls.loadSource(getProxiedUrl(stream.url));
+                hls.attachMedia(video);
+
+                // SMART ERROR RECOVERY
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        console.log("HLS Error:", data.response?.code || "Generic");
+                        
+                        // If Worker is blocked (521) or limited (429), switch worker
+                        if (data.response?.code === 521 || data.response?.code === 429) {
+                            currentWorkerIndex = (currentWorkerIndex + 1) % workerPool.length;
+                            console.log("Switching to Worker Index:", currentWorkerIndex);
+                            hls.loadSource(getProxiedUrl(stream.url));
+                        } else {
+                            hls.recoverMediaError();
                         }
-                    });
-                    hls.loadSource(stream.url);
-                    hls.attachMedia(video);
-                } 
-                return; 
-            }
-
-            // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
-            if (stream.type === "dash") {
-                if (typeof shaka === 'undefined') return;
-
-                shaka.polyfill.installAll();
-                const player = new shaka.Player(video);
-
-                // SHAKA PERFORMANCE TWEAKS (Goodness)
-                // Faster starts and lower data consumption
-                player.configure({
-                    streaming: {
-                        bufferingGoal: 8,
-                        rebufferingGoal: 1,
-                        bufferBehind: 5
                     }
                 });
-
-                if (stream.drm) {
-                    player.configure({ drm: { clearKeys: stream.drm } });
-                }
-
-                // GOLD ITEM: User-Agent Spoofing for DASH
-                player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                    request.headers['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-                });
-
-                try {
-                    await player.load(stream.url);
-                } catch (e) {
-                    console.error('DASH Load Error', e);
-                }
+            } 
+            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = getProxiedUrl(stream.url);
             }
-
-            // SELF-HEALING LOGIC (The Loop Fix - Goodness)
-            // If the video stays stuck in buffering for 6 seconds, refresh the stream
-            video.addEventListener('waiting', () => {
-                const stallCheck = setTimeout(() => {
-                    if (video.paused === false && video.readyState < 3) {
-                        console.log("Stall detected, refreshing...");
-                        window.location.reload();
-                    }
-                }, 6000);
-                video.addEventListener('playing', () => clearTimeout(stallCheck), { once: true });
-            });
         }
 
-        window.addEventListener('hashchange', () => window.location.reload());
-        window.onload = initApp;
-    </script>
+        // --- 3. DASH ENGINE SETUP ---
+        if (stream.type === "dash") {
+            if (typeof shaka === 'undefined') return;
+            shaka.polyfill.installAll();
+            const player = new shaka.Player(video);
+
+            player.configure({
+                streaming: { bufferingGoal: 8, rebufferingGoal: 1, bufferBehind: 5 }
+            });
+
+            if (stream.drm) {
+                player.configure({ drm: { clearKeys: stream.drm } });
+            }
+
+            player.getNetworkingEngine().registerRequestFilter((type, request) => {
+                request.headers['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+            });
+
+            try {
+                await player.load(getProxiedUrl(stream.url));
+            } catch (e) {
+                console.warn("DASH Load Failed. Trying next worker...");
+                currentWorkerIndex = (currentWorkerIndex + 1) % workerPool.length;
+                await player.load(getProxiedUrl(stream.url));
+            }
+        }
+
+        // --- 4. GLOBAL STALL RECOVERY ---
+        video.addEventListener('waiting', () => {
+            const stallCheck = setTimeout(() => {
+                if (video.paused === false && video.readyState < 3) {
+                    console.log("Stall detected, refreshing...");
+                    window.location.reload();
+                }
+            }, 6000);
+            video.addEventListener('playing', () => clearTimeout(stallCheck), { once: true });
+        });
+    }
+
+    window.addEventListener('hashchange', () => window.location.reload());
+    window.onload = initApp;
+</script>
 </body>
 </html>

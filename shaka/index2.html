@@ -1,77 +1,88 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Sony Pal - Live Stream</title>
+    <title>Multi-Channel HLS Player</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body { background: #111; color: white; font-family: sans-serif; text-align: center; padding-top: 30px; }
-        video { width: 80%; max-width: 800px; border: 1px solid #444; background: #000; border-radius: 8px; }
-        
-        /* Stats Label Styling */
-        .stats-container {
-            margin-bottom: 15px;
-            font-size: 14px;
-            color: #aaa;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        #requestCount {
-            color: #22c55e; /* Green color for the number */
-            font-weight: bold;
-            font-family: monospace;
-            font-size: 18px;
-        }
+        body { margin: 0; background: #000; color: white; font-family: sans-serif; text-align: center; overflow: hidden; }
+        video { width: 100vw; height: 100vh; background: #000; }
+        /* Hide buttons if you only want the player visible in an iframe */
+        .controls { position: absolute; bottom: 10px; left: 10px; display: flex; gap: 5px; z-index: 10; opacity: 0.3; transition: 0.5s; }
+        .controls:hover { opacity: 1; }
+        button { padding: 5px 10px; cursor: pointer; border: none; border-radius: 3px; background: #222; color: #aaa; font-size: 12px; }
+        button.active { background: #22c55e; color: white; }
     </style>
 </head>
 <body>
 
-    <div class="stats-container">
-        Worker Requests: <span id="requestCount">0</span>
-    </div>
-    
     <video id="video" controls muted playsinline></video>
+    <div class="controls" id="channelList"></div>
 
     <script>
         const video = document.getElementById('video');
-        const countLabel = document.getElementById('requestCount');
-        
-        let requestCount = 0;
+        const channelList = document.jsElementById ? document.getElementById('channelList') : document.querySelector('#channelList');
         const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
-        const streamUrl = "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8";
-        const finalUrl = workerPrefix + encodeURIComponent(streamUrl);
 
-        function startStream() {
+        // --- CHANNEL DATA ---
+        const streams = [
+            { id: 1, name: "Sony Pal", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8", useWorker: false },
+            { id: 2, name: "Star Plus", url: "", useWorker: false },
+            { id: 3, name: "Colors", url: "", useWorker: false }
+        ];
+
+        let hls;
+
+        function loadStreamById(id) {
+            const streamObj = streams.find(s => s.id == id) || streams;
+            
+            // Update Active Button UI
+            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            const activeBtn = document.getElementById(`btn-${streamObj.id}`);
+            if (activeBtn) activeBtn.classList.add('active');
+
+            if (hls) hls.destroy();
+
+            const fastConfig = {
+                enableWorker: true,
+                lowLatencyMode: true,
+                startFragPrefetch: true,
+                liveSyncDurationCount: 1.5 // Balanced for speed and stability
+            };
+
             if (Hls.isSupported()) {
-                const hls = new Hls();
+                hls = new Hls(fastConfig);
+                const finalUrl = streamObj.useWorker ? workerPrefix + encodeURIComponent(streamObj.url) : streamObj.url;
                 
-                // --- REQUEST TRACKING LOGIC ---
-                // This event fires every time a fragment or manifest is successfully loaded
-                hls.on(Hls.Events.FRAG_LOADED, () => {
-                    requestCount++;
-                    countLabel.innerText = requestCount;
-                });
-
-                // Also count manifest updates (important for Live streams)
-                hls.on(Hls.Events.LEVEL_LOADED, () => {
-                    requestCount++;
-                    countLabel.innerText = requestCount;
-                });
-                // ------------------------------
-
                 hls.loadSource(finalUrl);
                 hls.attachMedia(video);
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    video.play().catch(() => console.log("Autoplay blocked."));
-                });
-            } 
-            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                video.src = finalUrl;
-                video.addEventListener('loadedmetadata', () => video.play());
+                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
             }
         }
 
-        window.addEventListener('DOMContentLoaded', startStream);
+        // --- HASH ROUTING LOGIC ---
+        function checkHash() {
+            const hash = window.location.hash.replace('#', '');
+            if (hash) {
+                loadStreamById(hash);
+            } else {
+                loadStreamById(1); // Default to first channel
+            }
+        }
+
+        // Generate Nav Buttons
+        streams.forEach(s => {
+            const btn = document.createElement('button');
+            btn.id = `btn-${s.id}`;
+            btn.innerText = s.name;
+            btn.onclick = () => {
+                window.location.hash = s.id; // Updates URL which triggers hashchange
+            };
+            channelList.appendChild(btn);
+        });
+
+        // Listen for URL changes without refreshing page
+        window.addEventListener('hashchange', checkHash);
+        window.addEventListener('load', checkHash);
     </script>
 </body>
 </html>

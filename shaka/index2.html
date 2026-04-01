@@ -22,8 +22,7 @@
     <div class="container">
         <video id="video" controls autoplay crossorigin="anonymous"></video>
     </div>
-<script>
-    // --- 1. CONFIGURATION ---
+            <script>
     const activeWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
 
     const streamList = [
@@ -33,7 +32,7 @@
             url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8"
         },
         {
-            name: "Zee TV (DASH ClearKey)",
+            name: "Zee TV (DASH)",
             type: "dash",
             url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
             drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" }
@@ -44,83 +43,41 @@
         const video = document.getElementById('video');
         const hash = window.location.hash.substring(1);
         let index = (parseInt(hash, 10) || 1) - 1;
-        const stream = streamList[index];
-
-        if (!stream) return;
+        const stream = streamList[index] || streamList;
 
         video.style.objectFit = 'fill';
         const proxiedUrl = activeWorker + encodeURIComponent(stream.url);
 
-        // --- 2. HLS ENGINE SETUP ---
+        // --- HLS ENGINE ---
         if (stream.type === "hls") {
             if (Hls.isSupported()) {
-                const hls = new Hls({
-                    xhrSetup: function(xhr) {
-                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1');
-                    }
-                });
-
+                const hls = new Hls(); // Removed illegal UA setting
                 hls.loadSource(proxiedUrl);
                 hls.attachMedia(video);
-
-                // ERROR RECOVERY: If Worker is blocked (521), try Direct Link
-                hls.on(Hls.Events.ERROR, function (event, data) {
-                    if (data.fatal) {
-                        if (data.response?.code === 521 || data.response?.code === 503) {
-                            console.warn("Worker blocked. Trying Direct Playback...");
-                            hls.loadSource(stream.url); // Try raw URL
-                        } else {
-                            hls.recoverMediaError();
-                        }
-                    }
+                hls.on(Hls.Events.ERROR, (e, data) => {
+                    if (data.fatal) hls.recoverMediaError();
                 });
-            } 
-            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = proxiedUrl;
             }
         }
 
-        // --- 3. DASH ENGINE SETUP ---
+        // --- DASH ENGINE ---
         if (stream.type === "dash") {
-            if (typeof shaka === 'undefined') return;
             shaka.polyfill.installAll();
             const player = new shaka.Player(video);
-
-            player.configure({
-                streaming: { bufferingGoal: 8, rebufferingGoal: 1, bufferBehind: 5 }
-            });
-
-            if (stream.drm) {
-                player.configure({ drm: { clearKeys: stream.drm } });
-            }
-
-            player.getNetworkingEngine().registerRequestFilter((type, request) => {
-                request.headers['User-Agent'] = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
-            });
-
+            if (stream.drm) player.configure({ drm: { clearKeys: stream.drm } });
+            
             try {
                 await player.load(proxiedUrl);
             } catch (e) {
-                console.error("DASH Load Failed. Retrying direct...", e);
-                await player.load(stream.url); // Direct fallback
+                console.error("DASH Error", e);
             }
         }
-
-        // --- 4. STALL PROTECTION ---
-        video.addEventListener('waiting', () => {
-            const stallCheck = setTimeout(() => {
-                if (video.paused === false && video.readyState < 3) {
-                    console.log("Stall detected, refreshing...");
-                    window.location.reload();
-                }
-            }, 6000);
-            video.addEventListener('playing', () => clearTimeout(stallCheck), { once: true });
-        });
     }
 
-    window.addEventListener('hashchange', () => window.location.reload());
     window.onload = initApp;
-</script>
+    window.onhashchange = () => window.location.reload();
+            </script>
 </body>
 </html>
-                

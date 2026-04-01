@@ -1,46 +1,141 @@
- <!DOCTYPE html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Bare Bones Test</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Speed Stealth Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+    
     <style>
-        body { background: #111; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        video { width: 80%; max-width: 800px; border: 3px solid #333; background: #000; }
-        button { padding: 15px 30px; font-size: 18px; cursor: pointer; background: #22c55e; color: white; border: none; border-radius: 5px; margin-bottom: 20px; }
+        body { margin: 0; padding: 0; background: #000; color: #eee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+        
+        /* Player Container */
+        .player-wrapper { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; background: #000; outline: none; }
+
+        /* Aggressive Loading Spinner */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: none;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #22c55e;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { margin-top: 15px; font-size: 12px; letter-spacing: 2px; color: #22c55e; font-weight: bold; text-transform: uppercase; }
+
+        /* Hidden State */
+        .hidden { display: none !important; }
+
+        
     </style>
 </head>
 <body>
 
-    <button id="playBtn">CLICK TO START SONY PAL</button><br>
-    <video id="video" controls muted></video>
+    <div class="player-wrapper">
+        <div id="loader">
+            <div class="spinner"></div>
+            <div class="loading-text">Optimizing Stream...</div>
+        </div>
 
-    <script>
-        const video = document.getElementById('video');
-        const playBtn = document.getElementById('playBtn');
-        const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
-        const streamUrl = "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8";
+        <video id="video" controls muted playsinline preload="auto"></video>
 
-        playBtn.addEventListener('click', () => {
-            if (Hls.isSupported()) {
-                const hls = new Hls();
-                const finalUrl = workerPrefix + encodeURIComponent(streamUrl);
-                
-                hls.loadSource(finalUrl);
-                hls.attachMedia(video);
-                
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    video.play();
-                    playBtn.innerText = "STREAMING...";
-                    playBtn.style.background = "#3b82f6";
+        
+    </div>
+<script>
+    // --- 1. DECLARE ALL VARIABLES AT THE TOP ONCE ---
+    const video = document.getElementById('video');
+    const loader = document.getElementById('loader');
+    const channelList = document.getElementById('channelList');
+    
+    // CHANGE THIS TO YOUR ACTUAL WORKER URL
+    const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
+    
+    const streams = [
+        { id: 1, name: "Sony Pal", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8", useWorker: false },
+            { id: 2, name: "Star Plus", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false },
+            { id: 3, name: "Colors", url: "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8", useWorker: false }
+        ];
+
+    let hls = null;
+
+    // --- 2. THE LOADING LOGIC ---
+    function loadStreamById(id) {
+        const streamObj = streams.find(s => s.id == id) || streams;
+        
+        
+        
+        // Show Spinner
+        loader.classList.remove('hidden');
+
+        // Clean up old HLS instance
+        if (hls) {
+            hls.destroy();
+            hls = null;
+        }
+
+        const aggressiveConfig = {
+            enableWorker: true,
+            lowLatencyMode: true,
+            startFragPrefetch: true,
+            maxBufferLength: 45,
+            maxBufferSize: 80 * 1024 * 1024,
+            liveSyncDurationCount: 1.5
+        };
+
+        if (Hls.isSupported()) {
+            hls = new Hls(aggressiveConfig);
+            const finalUrl = streamObj.useWorker 
+                ? workerPrefix + encodeURIComponent(streamObj.url) 
+                : streamObj.url;
+
+            hls.loadSource(finalUrl);
+            hls.attachMedia(video);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => {
+                    console.log("Autoplay blocked - Waiting for user interaction");
+                    loader.classList.add('hidden'); // Hide so user can see play button
                 });
+            });
 
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    console.log("HLS Status:", data.details);
-                });
-            }
-        });
-    </script>
+            // Error Recovery
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+                }
+            });
+        }
+    }
+
+    // --- 3. SPINNER VISIBILITY LOGIC ---
+    // These listeners work regardless of which channel is playing
+    video.addEventListener('playing', () => loader.classList.add('hidden'));
+    video.addEventListener('waiting', () => loader.classList.remove('hidden'));
+    video.addEventListener('canplay', () => loader.classList.add('hidden'));
+
+    // --- 4. INITIALIZATION ---
+    function checkHash() {
+        const hash = window.location.hash.replace('#', '');
+        loadStreamById(hash || 1);
+    }
+
+
+    window.addEventListener('hashchange', checkHash);
+    window.addEventListener('load', checkHash);
+</script>
 </body>
 </html>
-
-

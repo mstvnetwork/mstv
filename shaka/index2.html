@@ -1,20 +1,41 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Bare Bones Test</title>
+    <title>Sony Pal - Live Stream</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body { background: #111; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        /* Professional touch: Rounded corners and shadow */
-        video { width: 80%; max-width: 800px; border: 1px solid #444; background: #000; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        body { background: #111; color: white; font-family: sans-serif; text-align: center; padding-top: 30px; }
+        video { width: 80%; max-width: 800px; border: 1px solid #444; background: #000; border-radius: 8px; }
+        
+        /* Stats Label Styling */
+        .stats-container {
+            margin-bottom: 15px;
+            font-size: 14px;
+            color: #aaa;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        #requestCount {
+            color: #22c55e; /* Green color for the number */
+            font-weight: bold;
+            font-family: monospace;
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
 
+    <div class="stats-container">
+        Worker Requests: <span id="requestCount">0</span>
+    </div>
+    
     <video id="video" controls muted playsinline></video>
 
     <script>
         const video = document.getElementById('video');
+        const countLabel = document.getElementById('requestCount');
+        
+        let requestCount = 0;
         const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
         const streamUrl = "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8";
         const finalUrl = workerPrefix + encodeURIComponent(streamUrl);
@@ -22,32 +43,34 @@
         function startStream() {
             if (Hls.isSupported()) {
                 const hls = new Hls();
+                
+                // --- REQUEST TRACKING LOGIC ---
+                // This event fires every time a fragment or manifest is successfully loaded
+                hls.on(Hls.Events.FRAG_LOADED, () => {
+                    requestCount++;
+                    countLabel.innerText = requestCount;
+                });
+
+                // Also count manifest updates (important for Live streams)
+                hls.on(Hls.Events.LEVEL_LOADED, () => {
+                    requestCount++;
+                    countLabel.innerText = requestCount;
+                });
+                // ------------------------------
+
                 hls.loadSource(finalUrl);
                 hls.attachMedia(video);
                 
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    // Attempt to autoplay
-                    video.play().catch(e => {
-                        console.log("Autoplay blocked by browser. User interaction may be required.");
-                    });
-                });
-
-                hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        console.error("Fatal HLS error:", data.details);
-                    }
+                    video.play().catch(() => console.log("Autoplay blocked."));
                 });
             } 
-            // Support for Safari/iOS native HLS
             else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = finalUrl;
-                video.addEventListener('loadedmetadata', () => {
-                    video.play();
-                });
+                video.addEventListener('loadedmetadata', () => video.play());
             }
         }
 
-        // Run the function as soon as the page loads
         window.addEventListener('DOMContentLoaded', startStream);
     </script>
 </body>

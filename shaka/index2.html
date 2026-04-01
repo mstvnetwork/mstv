@@ -30,59 +30,107 @@
             { id: 3, name: "Colors", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false }
         ];
 
-        let hls;
+ let hls;
 
-        function loadStreamById(id) {
-            const streamObj = streams.find(s => s.id == id) || streams;
+    function loadStreamById(id) {
+        const streamObj = streams.find(s => s.id == id) || streams;
+        
+        // UI: Update active button
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        const activeBtn = document.getElementById(`btn-${streamObj.id}`);
+        if (activeBtn) activeBtn.classList.add('active');
+
+        // Kill existing instance to free memory
+        if (hls) {
+            hls.destroy();
+        }
+
+        // --- AGGRESSIVE LOADING CONFIGURATION (2026 Optimized) ---
+        const aggressiveConfig = {
+            enableWorker: true,            // Offload processing to background thread
+            lowLatencyMode: true,          // Reduce "Time to First Frame"
+            backBufferLength: 0,           // Clean old video data instantly
             
-            // Update Active Button UI
-            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-            const activeBtn = document.getElementById(`btn-${streamObj.id}`);
-            if (activeBtn) activeBtn.classList.add('active');
+            // Speed & Parallelism
+            startFragPrefetch: true,       // Download next part while playing current
+            testBandwidth: true,           // Rapidly probe connection speed
+            progressive: true,             // Show video bits as they arrive
+            
+            // Buffer "Hoarding" for VPN/Slow Connections
+            maxBufferLength: 45,           // Aim for 45s of safety buffer
+            maxMaxBufferLength: 90,        // Allow up to 90s if speed allows
+            maxBufferSize: 100 * 1024 * 1024, // Allocate 100MB RAM for caching
+            
+            // The "Live Edge" Logic
+            liveSyncDurationCount: 1.5,    // Start playback after just 1.5 segments
+            liveMaxLatencyDurationCount: 5, // Jump to live if lag > 5 segments
+            
+            // Aggressive Network Retries
+            manifestLoadingMaxRetry: 15,
+            levelLoadingMaxRetry: 15,
+            fragLoadingMaxRetry: 15,
+            fragLoadingRetryDelay: 500,    // Retry every 0.5s if a request fails
+        };
 
-            if (hls) hls.destroy();
+        if (Hls.isSupported()) {
+            hls = new Hls(aggressiveConfig);
+            
+            const finalUrl = streamObj.useWorker 
+                ? workerPrefix + encodeURIComponent(streamObj.url) 
+                : streamObj.url;
 
-            const fastConfig = {
-                enableWorker: true,
-                lowLatencyMode: true,
-                startFragPrefetch: true,
-                liveSyncDurationCount: 1.5 // Balanced for speed and stability
-            };
+            console.log(`Aggressive Load: ${streamObj.name} | Proxy: ${streamObj.useWorker}`);
+            
+            hls.loadSource(finalUrl);
+            hls.attachMedia(video);
 
-            if (Hls.isSupported()) {
-                hls = new Hls(fastConfig);
-                const finalUrl = streamObj.useWorker ? workerPrefix + encodeURIComponent(streamObj.url) : streamObj.url;
-                
-                hls.loadSource(finalUrl);
-                hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-            }
+            // Force immediate loading even before 'Play' is clicked
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hls.startLoad();
+            });
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => console.log("Autoplay blocked: Muted required."));
+            });
+
+            // Auto-Recover from Network Errors (Crucial for VPNs)
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log("Network error, retrying...");
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log("Media error, recovering...");
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            console.log("Fatal error, rebooting player...");
+                            loadStreamById(id);
+                            break;
+                    }
+                }
+            });
         }
+    }
 
-        // --- HASH ROUTING LOGIC ---
-        function checkHash() {
-            const hash = window.location.hash.replace('#', '');
-            if (hash) {
-                loadStreamById(hash);
-            } else {
-                loadStreamById(1); // Default to first channel
-            }
-        }
+    // --- ROUTING & UI GENERATION ---
+    function checkHash() {
+        const hash = window.location.hash.replace('#', '');
+        loadStreamById(hash || 1);
+    }
 
-        // Generate Nav Buttons
-        streams.forEach(s => {
-            const btn = document.createElement('button');
-            btn.id = `btn-${s.id}`;
-            btn.innerText = s.name;
-            btn.onclick = () => {
-                window.location.hash = s.id; // Updates URL which triggers hashchange
-            };
-            channelList.appendChild(btn);
-        });
+    streams.forEach(s => {
+        const btn = document.createElement('button');
+        btn.id = `btn-${s.id}`;
+        btn.innerText = s.name;
+        btn.onclick = () => { window.location.hash = s.id; };
+        channelList.appendChild(btn);
+    });
 
-        // Listen for URL changes without refreshing page
-        window.addEventListener('hashchange', checkHash);
-        window.addEventListener('load', checkHash);
-    </script>
+    window.addEventListener('hashchange', checkHash);
+    window.addEventListener('load', checkHash);
+</script>
 </body>
 </html>

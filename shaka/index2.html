@@ -25,32 +25,37 @@
          <script>
     const activeWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
 
+    const streamList = [
+        { name: "Sony Pal", type: "hls", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" },
+        { name: "Zee TV", type: "dash", url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd", 
+          drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" } }
+    ];
+
     async function initApp() {
         const video = document.getElementById('video');
-        const streamList = [
-            { name: "Sony Pal", type: "hls", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" },
-            { name: "Zee TV", type: "dash", url: "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd", 
-              drm: { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" } }
-        ];
-
         const hash = window.location.hash.substring(1);
         let index = (parseInt(hash, 10) || 1) - 1;
         const stream = streamList[index] || streamList;
 
-        // --- DASH (SHAKA) ---
+        // --- DASH (SHAKA PLAYER V5 COMPATIBLE) ---
         if (stream.type === "dash") {
             shaka.polyfill.installAll();
-            const player = new shaka.Player(video);
+            
+            // New way: Initialize first, THEN attach
+            const player = new shaka.Player(); 
+            await player.attach(video); 
 
-            // This tells Shaka to wrap every internal URL in your proxy
+            // FIX 1006: Check if URL is already proxied before adding it again
             player.getNetworkingEngine().registerRequestFilter((type, request) => {
                 const uri = request.uris;
-                if (!uri.startsWith(activeWorker) && !uri.startsWith('data:')) {
+                if (uri && !uri.startsWith(activeWorker) && !uri.startsWith('data:')) {
                     request.uris = activeWorker + encodeURIComponent(uri);
                 }
             });
 
-            if (stream.drm) player.configure({ drm: { clearKeys: stream.drm } });
+            if (stream.drm) {
+                player.configure({ drm: { clearKeys: stream.drm } });
+            }
 
             try {
                 await player.load(stream.url);
@@ -69,6 +74,6 @@
 
     window.onload = initApp;
     window.onhashchange = () => window.location.reload();
-                                        </script>
+         </script>
 </body>
 </html>

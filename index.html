@@ -264,8 +264,13 @@ video, iframe {
             return; 
         }
 
-        // Show emoji placeholder immediately when a new channel is clicked
-        ph.style.display = 'flex'; 
+        // --- THE CHANGE IS HERE ---
+        // We HIDE the placeholder emoji as soon as the first channel is clicked.
+        // We NEVER set it back to 'flex' in this function.
+        if (ph.style.display !== 'none') {
+            ph.style.display = 'none';
+        }
+
         t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; 
         f.src = "";
@@ -275,14 +280,13 @@ video, iframe {
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
             f.src = ch.url; 
-            f.onload = () => ph.style.display = 'none'; // Hide emoji once iframe is ready
+            // Iframe will show over the black background while loading
         } else {
             await loadS(); 
             if (ch.url.includes('.mpd')) {
                 const p = new shaka.Player(v); 
                 await p.load(ch.url); 
                 v.style.display = 'block';
-                // Note: ph.style.display = 'none' will be handled by the 'playing' listener below
             } else if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls(); 
                 hlsE.loadSource(ch.url); 
@@ -296,9 +300,10 @@ video, iframe {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // The "Magic" Cleanup: Emoji disappears only when video frames actually start
+    // Backup listener to ensure video displays correctly
     v.addEventListener('playing', () => {
-        ph.style.display = 'none';
+        v.style.display = 'block';
+        if (ph.style.display !== 'none') ph.style.display = 'none';
     });
 
     function render(data) {

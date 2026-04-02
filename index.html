@@ -101,27 +101,26 @@
             .sticky-player-wrapper { min-height: 480px; }
         }
 
-        .player-container {
-            width: 100%;
-            max-width: var(--max-width);
-            aspect-ratio: 16 / 9;
-            position: relative;
-            background: #000;
-            contain: layout;
-            overflow: hidden;
-        }
+       .player-container {
+    width: 100%;
+    /* FIX: Reserve space using aspect-ratio */
+    aspect-ratio: 16 / 9; 
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    /* Force the browser to treat this as a fixed-size block */
+    contain: size layout;
+}
 
-        video, iframe { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            border: none; 
-            display: none; 
-            object-fit: cover; 
-            z-index: 5;
-        }
+/* Ensure the video and iframe fill the reserved space perfectly */
+#video, #iframePlayer, .placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
 
         #placeholder { 
             position: absolute;
@@ -289,7 +288,7 @@
         </footer>
     </main>
 </div>
-<script>
+          <script>
     let allCh = [], hlsE = null, scP = null;
     const v = document.getElementById('video'), 
           f = document.getElementById('iframePlayer'), 
@@ -298,7 +297,6 @@
           ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
-    // VERIFIED STABLE LIBRARIES
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
@@ -318,7 +316,7 @@
         if (!ch || !ch.url) return;
         if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
 
-        // PHASE 1: NUCLEAR CLEANUP
+        // PHASE 1: CLEANUP
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause();
         v.src = ""; 
@@ -358,16 +356,13 @@
     v.addEventListener('canplay', () => ld.style.display = 'none');
 
     document.addEventListener('DOMContentLoaded', () => {
-        // PRIORITY 1: Let the browser paint the title IMMEDIATELY
-        // By not touching the title in JS here, we let the CSS 'contain' do the work
-        
-        // PRIORITY 2: Data Fetch
+        // High-Priority Data Fetch
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
             .catch(e => {});
 
-        // PRIORITY 3: Background tasks
+        // Delayed Analytics
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script'); s.async = true; 
@@ -394,6 +389,6 @@
     document.getElementById('searchInput').oninput = (e) => {
         render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
-</script>
+                    </script>
 </body>
 </html>

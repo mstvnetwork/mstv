@@ -3,139 +3,163 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>High-Speed Stealth Player</title>
+    <title>Universal Stealth Player 2026</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.7.11/dist/shaka-player.compiled.js"></script>
     
     <style>
-        body { margin: 0; padding: 0; background: #000; color: #eee; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; font-family: sans-serif; color: white; }
+        .player-viewport { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
         
-        /* Player Container */
-        .player-wrapper { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; background: #000; outline: none; }
-
-        /* Aggressive Loading Spinner */
+        video, iframe { width: 100%; height: 100%; border: none; background: #000; position: absolute; top: 0; left: 0; }
+        
+        /* Aggressive Spinner */
         #loader {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            z-index: 100;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            pointer-events: none;
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none;
         }
         .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(255, 255, 255, 0.1);
-            border-top: 4px solid #22c55e;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
+            width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.1);
+            border-top: 4px solid #22c55e; border-radius: 50%;
+            animation: spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { margin-top: 15px; font-size: 12px; letter-spacing: 2px; color: #22c55e; font-weight: bold; text-transform: uppercase; }
-
-        /* Hidden State */
-        .hidden { display: none !important; }
-
         
+        /* Interaction Overlay (Fixes Autoplay Blocks) */
+        #interaction-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); z-index: 110;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            cursor: pointer;
+        }
+        .play-btn {
+            padding: 15px 40px; background: #22c55e; color: white; 
+            border-radius: 50px; font-weight: bold; font-size: 18px; border: none;
+        }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-    <div class="player-wrapper">
-        <div id="loader">
-            <div class="spinner"></div>
-            <div class="loading-text">Optimizing Stream...</div>
-        </div>
-
-        <video id="video" controls muted playsinline preload="auto"></video>
-
-        
+<div class="player-viewport">
+    <div id="interaction-overlay">
+        <button class="play-btn">START STREAM</button>
+        <p style="margin-top: 15px; font-size: 12px; color: #888;">TAP TO INITIALIZE SECURE CONNECTION</p>
     </div>
+
+    <div id="loader" class="hidden">
+        <div class="spinner"></div>
+    </div>
+    
+    <video id="video" controls muted playsinline preload="auto" class="hidden"></video>
+    
+    <iframe id="embed-frame" allowfullscreen allow="autoplay; encrypted-media" class="hidden"></iframe>
+</div>
+
 <script>
-    // --- 1. DECLARE ALL VARIABLES AT THE TOP ONCE ---
     const video = document.getElementById('video');
+    const iframe = document.getElementById('embed-frame');
     const loader = document.getElementById('loader');
-    const channelList = document.getElementById('channelList');
+    const overlay = document.getElementById('interaction-overlay');
     
-    // CHANGE THIS TO YOUR ACTUAL WORKER URL
-    const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
-    
+    // --- CONFIRMED WORKING WORKER ---
+    const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url=";
+
     const streams = [
         { id: 1, name: "Sony Pal", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8", useWorker: false },
             { id: 2, name: "Star Plus", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false },
             { id: 3, name: "Colors", url: "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8", useWorker: false }
         ];
 
-    let hls = null;
 
-    // --- 2. THE LOADING LOGIC ---
-    function loadStreamById(id) {
-        const streamObj = streams.find(s => s.id == id) || streams;
+    let hlsInstance = null;
+    let shakaPlayer = null;
+    let currentId = null;
+
+    // Start playback only after user clicks the overlay
+    overlay.addEventListener('click', () => {
+        overlay.classList.add('hidden');
+        const hash = window.location.hash.replace('#', '') || '1';
+        loadContent(hash);
+    });
+
+    async function loadContent(id) {
+        const item = streams.find(s => s.id == id) || streams;
+        currentId = id;
         
-        
-        
-        // Show Spinner
         loader.classList.remove('hidden');
+        video.classList.add('hidden');
+        iframe.classList.add('hidden');
+        iframe.src = "";
 
-        // Clean up old HLS instance
-        if (hls) {
-            hls.destroy();
-            hls = null;
-        }
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (shakaPlayer) { await shakaPlayer.destroy(); shakaPlayer = null; }
 
-        const aggressiveConfig = {
-            enableWorker: true,
-            lowLatencyMode: true,
-            startFragPrefetch: true,
-            maxBufferLength: 45,
-            maxBufferSize: 80 * 1024 * 1024,
-            liveSyncDurationCount: 1.5
-        };
+        const finalUrl = item.useWorker ? workerPrefix + encodeURIComponent(item.url) : item.url;
 
-        if (Hls.isSupported()) {
-            hls = new Hls(aggressiveConfig);
-            const finalUrl = streamObj.useWorker 
-                ? workerPrefix + encodeURIComponent(streamObj.url) 
-                : streamObj.url;
+        if (item.type === "iframe") {
+            iframe.src = finalUrl;
+            iframe.classList.remove('hidden');
+            loader.classList.add('hidden');
 
-            hls.loadSource(finalUrl);
-            hls.attachMedia(video);
+        } else if (item.type === "dash") {
+            video.classList.remove('hidden');
+            shakaPlayer = new shaka.Player(video);
+            if (item.clearkeys) shakaPlayer.configure({ drm: { clearKeys: item.clearkeys } });
+            
+            shakaPlayer.configure({ streaming: { lowLatencyMode: true, bufferingGoal: 30 } });
+            try {
+                await shakaPlayer.load(finalUrl);
+                video.play();
+            } catch (e) { console.error("DASH Error", e); loader.classList.add('hidden'); }
 
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => {
-                    console.log("Autoplay blocked - Waiting for user interaction");
-                    loader.classList.add('hidden'); // Hide so user can see play button
+        } else if (item.type === "hls") {
+            video.classList.remove('hidden');
+            if (Hls.isSupported()) {
+                hlsInstance = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    maxBufferLength: 45,
+                    startFragPrefetch: true
                 });
-            });
-
-            // Error Recovery
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-                    else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
-                }
-            });
+                hlsInstance.loadSource(finalUrl);
+                hlsInstance.attachMedia(video);
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+            }
         }
     }
 
-    // --- 3. SPINNER VISIBILITY LOGIC ---
-    // These listeners work regardless of which channel is playing
+    // Spinner Logic
     video.addEventListener('playing', () => loader.classList.add('hidden'));
     video.addEventListener('waiting', () => loader.classList.remove('hidden'));
-    video.addEventListener('canplay', () => loader.classList.add('hidden'));
 
-    // --- 4. INITIALIZATION ---
-    function checkHash() {
-        const hash = window.location.hash.replace('#', '');
-        loadStreamById(hash || 1);
-    }
+    // Handle URL changes (switching channels via #1, #2, etc)
+    window.addEventListener('hashchange', () => {
+        const newHash = window.location.hash.replace('#', '');
+        if (newHash !== currentId) loadContent(newHash);
+    });
 
-
-    window.addEventListener('hashchange', checkHash);
-    window.addEventListener('load', checkHash);
+    window.addEventListener('load', () => {
+        shaka.polyfill.installAll();
+    });
 </script>
+
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

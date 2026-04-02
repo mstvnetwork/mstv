@@ -98,14 +98,13 @@
             .sticky-player-wrapper { min-height: 480px; }
         }
 
-    .player-container {
+.player-container {
     width: 100%;
     max-width: var(--max-width);
     aspect-ratio: 16 / 9;
     position: relative;
     background: #000;
-    /* New: Tells the browser this box's size is set in stone */
-    contain: layout; 
+    contain: layout;
     overflow: hidden;
 }
 
@@ -117,35 +116,21 @@ video, iframe {
     height: 100%; 
     border: none; 
     display: none; 
-    /* New: Ensures the video fills the 16/9 box perfectly without shifting */
     object-fit: cover; 
 }
 
 #placeholder { 
     position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%; 
     display: flex; 
     align-items: center; 
     justify-content: center; 
-    font-size: 4rem; 
+    font-size: 3rem; 
     z-index: 1;
 }
-
-#loading {
-    display: none; /* Hidden by default */
-    position: absolute;
-    top: 50%; /* Center it exactly where the emoji was */
-    left: 50%;
-    transform: translate(-50%, -50%);
-    color: #ffffff;
-    font-size: 1.2rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    z-index: 2;
-}
-
         .ticker { 
             width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
             display: flex; align-items: center; overflow: hidden; font-size: 0.8rem;
@@ -254,13 +239,8 @@ video, iframe {
     const v = document.getElementById('video'), 
           f = document.getElementById('iframePlayer'), 
           l = document.getElementById('channelList'), 
-          ld = document.getElementById('loading'), 
           t = document.getElementById('current-title'), 
           ph = document.getElementById('placeholder');
-
-    // Ensure state on fresh load
-    if (ld) ld.style.display = 'none';
-    if (ph) ph.style.display = 'flex';
 
     function loadS() {
         if (scP) return scP;
@@ -279,10 +259,8 @@ video, iframe {
             return; 
         }
 
-        // --- UI TRANSITION ---
-        ph.style.display = 'none';   // 1. Remove the Emoji immediately
-        ld.style.display = 'block';  // 2. Show the Loading text instead
-        
+        // Reset UI for new selection
+        ph.style.display = 'flex'; 
         t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; 
         f.src = "";
@@ -292,16 +270,14 @@ video, iframe {
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
             f.src = ch.url; 
-            f.onload = () => {
-                ld.style.display = 'none'; // Hide loading when iframe ready
-            };
+            f.onload = () => ph.style.display = 'none';
         } else {
             await loadS(); 
             if (ch.url.includes('.mpd')) {
                 const p = new shaka.Player(v); 
                 await p.load(ch.url); 
                 v.style.display = 'block';
-                ld.style.display = 'none'; // Hide loading for DASH
+                ph.style.display = 'none';
             } else if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls(); 
                 hlsE.loadSource(ch.url); 
@@ -315,9 +291,8 @@ video, iframe {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // This handles the immediate cleanup when the video starts
+    // Immediate cleanup when video starts playing
     v.addEventListener('playing', () => {
-        ld.style.display = 'none';
         ph.style.display = 'none';
     });
 

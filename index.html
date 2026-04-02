@@ -130,6 +130,12 @@ video, iframe {
     justify-content: center; 
     font-size: 3rem; 
     z-index: 1;
+    background: #000; /* Ensures a clean black background behind the emoji */
+}
+
+/* Ensure no other text elements are visible in the player */
+.player-container div:not(#placeholder) {
+    display: none;
 }
         .ticker { 
             width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
@@ -189,8 +195,7 @@ video, iframe {
 
     <div class="sticky-player-wrapper">
         <section class="player-container" aria-label="TV Streaming Player">
-            <div id="loading" role="status">Loading...</div>
-            <div id="placeholder" aria-hidden="true">📺</div>
+        <div id="placeholder" aria-hidden="true">📺</div>
             <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
             <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
         </section>
@@ -259,7 +264,7 @@ video, iframe {
             return; 
         }
 
-        // Reset UI for new selection
+        // Show emoji placeholder immediately when a new channel is clicked
         ph.style.display = 'flex'; 
         t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; 
@@ -270,14 +275,14 @@ video, iframe {
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
             f.src = ch.url; 
-            f.onload = () => ph.style.display = 'none';
+            f.onload = () => ph.style.display = 'none'; // Hide emoji once iframe is ready
         } else {
             await loadS(); 
             if (ch.url.includes('.mpd')) {
                 const p = new shaka.Player(v); 
                 await p.load(ch.url); 
                 v.style.display = 'block';
-                ph.style.display = 'none';
+                // Note: ph.style.display = 'none' will be handled by the 'playing' listener below
             } else if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls(); 
                 hlsE.loadSource(ch.url); 
@@ -291,7 +296,7 @@ video, iframe {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Immediate cleanup when video starts playing
+    // The "Magic" Cleanup: Emoji disappears only when video frames actually start
     v.addEventListener('playing', () => {
         ph.style.display = 'none';
     });

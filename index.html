@@ -262,45 +262,56 @@
         return scP;
     }
 
-    async function play(ch) {
-        if (ch.url.startsWith('http://')) {
-            window.open(ch.url, '_blank', 'noopener,noreferrer');
-            return; 
-        }
+async function play(ch) {
+    if (ch.url.startsWith('http://')) {
+        window.open(ch.url, '_blank', 'noopener,noreferrer');
+        return; 
+    }
 
-        // Hide emoji permanently after first interaction
-        if (ph.style.display !== 'none') ph.style.display = 'none';
+    // PARALLEL EXECUTION: UI and Logic trigger at the exact same millisecond
+    if (ph.style.display !== 'none') ph.style.display = 'none';
+    ld.style.display = 'flex'; 
+    t.innerText = ch.name;
+    v.style.display = f.style.display = 'none'; 
+    f.src = "";
+    
+    if (hlsE) { hlsE.destroy(); hlsE = null; }
+    
+    if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+        f.style.display = 'block'; 
+        f.src = ch.url; 
+        f.onload = () => ld.style.display = 'none';
+    } else {
+        // PRE-LOAD LIBRARIES: Ensuring scripts are ready
+        await loadS(); 
         
-        // Show Spinner
-        ld.style.display = 'flex';
-
-        t.innerText = ch.name;
-        v.style.display = f.style.display = 'none'; 
-        f.src = "";
-        
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-        
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; 
-            f.src = ch.url; 
-            f.onload = () => ld.style.display = 'none';
-        } else {
-            await loadS(); 
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v); 
-                await p.load(ch.url); 
+        if (ch.url.includes('.mpd')) {
+            const p = new shaka.Player(v); 
+            // Aggressive Shaka Config
+            p.configure({ streaming: { bufferingGoal: 2, rebufferingGoal: 1 } });
+            await p.load(ch.url); 
+            v.style.display = 'block';
+        } else if (window.Hls && Hls.isSupported()) {
+            // SUPERSONIC HLS CONFIG: Reduced delays for first frame
+            hlsE = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                backBufferLength: 0,
+                maxBufferLength: 10,
+                startFragPrefetch: true, // Grabs the first piece of video early
+                fpsDroppedMonitoringThreshold: 0
+            }); 
+            
+            hlsE.loadSource(ch.url); 
+            hlsE.attachMedia(v);
+            hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                v.play().catch(() => { ld.style.display = 'none'; }); 
                 v.style.display = 'block';
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls(); 
-                hlsE.loadSource(ch.url); 
-                hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(() => { ld.style.display = 'none'; }); 
-                    v.style.display = 'block';
-                });
-            }
+            });
         }
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    // Optimization: Don't wait for scroll to finish before loading
+    window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 
     v.addEventListener('playing', () => ld.style.display = 'none');

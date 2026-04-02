@@ -263,43 +263,57 @@
     }
 
 async function play(ch) {
+    if (!ch || !ch.url) return;
+
     if (ch.url.startsWith('http://')) {
         window.open(ch.url, '_blank', 'noopener,noreferrer');
         return; 
     }
 
-    // PARALLEL EXECUTION: UI and Logic trigger at the exact same millisecond
+    // 1. THE "CLEAN SLATE" LOGIC (Fixes the Double-Tap)
+    if (hlsE) { 
+        hlsE.destroy(); 
+        hlsE = null; 
+    }
+    
+    // Stop the video element and clear its source immediately
+    v.pause();
+    v.removeAttribute('src'); 
+    v.load(); 
+
+    // 2. UI TRANSITION (Supersonic Speed)
     if (ph.style.display !== 'none') ph.style.display = 'none';
     ld.style.display = 'flex'; 
     t.innerText = ch.name;
     v.style.display = f.style.display = 'none'; 
     f.src = "";
     
-    if (hlsE) { hlsE.destroy(); hlsE = null; }
-    
     if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
         f.style.display = 'block'; 
         f.src = ch.url; 
         f.onload = () => ld.style.display = 'none';
     } else {
-        // PRE-LOAD LIBRARIES: Ensuring scripts are ready
         await loadS(); 
         
         if (ch.url.includes('.mpd')) {
-            const p = new shaka.Player(v); 
-            // Aggressive Shaka Config
+            const p = new shaka.Player(v);
+            // Fix: Explicitly unload any previous shaka session
+            await p.detach(); 
+            await p.attach(v);
+            
             p.configure({ streaming: { bufferingGoal: 2, rebufferingGoal: 1 } });
-            await p.load(ch.url); 
-            v.style.display = 'block';
+            try {
+                await p.load(ch.url);
+                v.style.display = 'block';
+            } catch (e) {
+                console.error("Shaka Error", e);
+                ld.style.display = 'none';
+            }
         } else if (window.Hls && Hls.isSupported()) {
-            // SUPERSONIC HLS CONFIG: Reduced delays for first frame
             hlsE = new Hls({
                 enableWorker: true,
                 lowLatencyMode: true,
-                backBufferLength: 0,
-                maxBufferLength: 10,
-                startFragPrefetch: true, // Grabs the first piece of video early
-                fpsDroppedMonitoringThreshold: 0
+                startFragPrefetch: true
             }); 
             
             hlsE.loadSource(ch.url); 
@@ -308,9 +322,13 @@ async function play(ch) {
                 v.play().catch(() => { ld.style.display = 'none'; }); 
                 v.style.display = 'block';
             });
+            
+            // Error handling to prevent getting "stuck"
+            hlsE.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) ld.style.display = 'none';
+            });
         }
     }
-    // Optimization: Don't wait for scroll to finish before loading
     window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 

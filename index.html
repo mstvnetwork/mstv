@@ -132,24 +132,19 @@ video, iframe {
     z-index: 1;
 }
 
-/* Default state: Hide the loading text */
 #loading {
-    display: none; 
+    display: none; /* Hidden by default */
     position: absolute;
-    top: 65%;
+    top: 50%; /* Center it exactly where the emoji was */
     left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     color: #ffffff;
-    font-size: 1.1rem;
+    font-size: 1.2rem;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
-    z-index: 10;
-    }
- /* Only show it when we add this class via JS */
-.player-container.loading-active #loading {
-    display: block;
-}  
+    letter-spacing: 2px;
+    z-index: 2;
+}
 
         .ticker { 
             width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
@@ -254,7 +249,6 @@ video, iframe {
 
     </main>
 </div>
-
 <script>
     let allCh = [], hlsE = null, scP = null;
     const v = document.getElementById('video'), 
@@ -262,11 +256,11 @@ video, iframe {
           l = document.getElementById('channelList'), 
           ld = document.getElementById('loading'), 
           t = document.getElementById('current-title'), 
-          ph = document.getElementById('placeholder'),
-          pc = document.querySelector('.player-container'); // Player container for class toggling
+          ph = document.getElementById('placeholder');
 
-    // Ensure loading text is hidden on initial page load
+    // Ensure state on fresh load
     if (ld) ld.style.display = 'none';
+    if (ph) ph.style.display = 'flex';
 
     function loadS() {
         if (scP) return scP;
@@ -280,17 +274,14 @@ video, iframe {
     }
 
     async function play(ch) {
-        // Direct handling for HTTP (Insecure) links - Opens in new tab
         if (ch.url.startsWith('http://')) {
             window.open(ch.url, '_blank', 'noopener,noreferrer');
             return; 
         }
 
-        // Standard Player Logic for HTTPS
-        // 1. Show Loading UI
-        if (ld) ld.style.display = 'block'; 
-        if (pc) pc.classList.add('loading-active');
-        ph.style.display = 'flex'; // Keep placeholder visible while loading
+        // --- UI TRANSITION ---
+        ph.style.display = 'none';   // 1. Remove the Emoji immediately
+        ld.style.display = 'block';  // 2. Show the Loading text instead
         
         t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; 
@@ -302,9 +293,7 @@ video, iframe {
             f.style.display = 'block'; 
             f.src = ch.url; 
             f.onload = () => {
-                ld.style.display = 'none';
-                ph.style.display = 'none';
-                if (pc) pc.classList.remove('loading-active');
+                ld.style.display = 'none'; // Hide loading when iframe ready
             };
         } else {
             await loadS(); 
@@ -312,10 +301,7 @@ video, iframe {
                 const p = new shaka.Player(v); 
                 await p.load(ch.url); 
                 v.style.display = 'block';
-                // Shaka doesn't always trigger 'playing' immediately, so we hide loader here
-                ld.style.display = 'none';
-                ph.style.display = 'none';
-                if (pc) pc.classList.remove('loading-active');
+                ld.style.display = 'none'; // Hide loading for DASH
             } else if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls(); 
                 hlsE.loadSource(ch.url); 
@@ -329,11 +315,10 @@ video, iframe {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Listener to hide loading UI the moment video actually starts playing
+    // This handles the immediate cleanup when the video starts
     v.addEventListener('playing', () => {
-        if (ld) ld.style.display = 'none';
-        if (ph) ph.style.display = 'none';
-        if (pc) pc.classList.remove('loading-active');
+        ld.style.display = 'none';
+        ph.style.display = 'none';
     });
 
     function render(data) {
@@ -357,7 +342,6 @@ video, iframe {
             allCh = await r.json(); render(allCh);
         } catch (e) {}
         
-        // GoatCounter Delayed Loading
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script'); s.async = true; s.src = "https://gc.zgo.at/count.js"; document.head.appendChild(s);
@@ -369,19 +353,5 @@ video, iframe {
         render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
 </script>
-
-<script 
-    data-goatcounter="https://mstv.goatcounter.com/count"
-    async 
-    src="https://gc.zgo.at/count.js">
-</script>
 </body>
 </html>
-
-
-
-
-
-
-
-

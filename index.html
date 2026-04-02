@@ -243,7 +243,6 @@
         </footer>
     </main>
 </div>
-
 <script>
     let allCh = [], hlsE = null, scP = null;
     const v = document.getElementById('video'), 
@@ -273,67 +272,73 @@
         if (!ch || !ch.url) return;
         if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
 
-        // --- NUCLEAR RESET (Fixes Double-Tap & Latency) ---
+        // --- PHASE 1: NUCLEAR CLEANUP (Immediate) ---
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause();
-        v.removeAttribute("src"); // Force-kill previous network socket
-        v.load(); 
-        
-        // Immediate UI Update
-        if (ph.style.display !== 'none') ph.style.display = 'none';
-        ld.style.display = 'flex'; 
-        t.innerText = ch.name;
-        v.style.display = f.style.display = 'none'; 
-        f.src = "";
-        
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; 
-            f.src = ch.url; 
-            f.onload = () => ld.style.display = 'none';
-        } else {
-            await loadS(); 
+        v.src = ""; 
+        v.removeAttribute("src");
+        v.load(); // Resets the hardware state immediately
+
+        // --- PHASE 2: ASYNC LAUNCH (Fixes Double-Click Bug) ---
+        // 10ms delay allows the browser to finish the "Kill" phase before starting "Load"
+        setTimeout(async () => {
+            // UI Switch
+            if (ph.style.display !== 'none') ph.style.display = 'none';
+            ld.style.display = 'flex'; 
+            t.innerText = ch.name;
+            v.style.display = f.style.display = 'none'; 
+            f.src = "";
             
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v);
-                // Supersonic Shaka Config (1s Buffer Goal)
-                p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-                try {
-                    await p.load(ch.url);
-                    v.style.display = 'block';
-                } catch (e) { ld.style.display = 'none'; }
-            } else if (window.Hls && Hls.isSupported()) {
-                // High-Performance HLS Config
-                hlsE = new Hls({ 
-                    enableWorker: true, 
-                    lowLatencyMode: true, 
-                    startFragPrefetch: true,
-                    maxBufferLength: 10
-                }); 
-                hlsE.loadSource(ch.url); 
-                hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(() => { ld.style.display = 'none'; }); 
-                    v.style.display = 'block';
-                });
+            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+                f.style.display = 'block'; 
+                f.src = ch.url; 
+                f.onload = () => ld.style.display = 'none';
+            } else {
+                await loadS(); 
+                
+                if (ch.url.includes('.mpd')) {
+                    const p = new shaka.Player(v);
+                    // Low-Latency Config (1s Buffer Goal)
+                    p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
+                    try {
+                        await p.load(ch.url);
+                        v.style.display = 'block';
+                    } catch (e) { ld.style.display = 'none'; }
+                } else if (window.Hls && Hls.isSupported()) {
+                    // Supersonic HLS Config
+                    hlsE = new Hls({ 
+                        enableWorker: true, 
+                        lowLatencyMode: true, 
+                        startFragPrefetch: true,
+                        maxBufferLength: 10
+                    }); 
+                    hlsE.loadSource(ch.url); 
+                    hlsE.attachMedia(v);
+                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                        v.play().catch(() => { ld.style.display = 'none'; }); 
+                        v.style.display = 'block';
+                    });
+                }
             }
-        }
+        }, 10);
+
         window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 
-    // Visibility Logic for Spinner
+    // SPINNER VISIBILITY
     v.addEventListener('playing', () => ld.style.display = 'none');
     v.addEventListener('waiting', () => ld.style.display = 'flex');
     v.addEventListener('canplay', () => ld.style.display = 'none');
 
-    // MAIN INITIALIZATION
+    // INITIALIZATION
     document.addEventListener('DOMContentLoaded', () => {
-        // Fetch Channel Data (Ensure 'channels2.json' is preloaded in <head>)
+        // Fetch Channels (Preloaded in <head>)
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
-            .catch(e => console.error("Data Sync Error"));
+            .catch(e => console.error("Sync Error"));
 
-        // Fixed Analytics Logic (Prevents Endpoint Error)
+        // Optimized Analytics Load
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script'); 
@@ -350,7 +355,7 @@
             const b = document.createElement('div'); 
             b.className = 'channel-card';
             b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            b.onclick = () => play(ch);
+            b.onclick = () => play(ch); // Single binding
             fr.appendChild(b);
         });
         l.innerHTML = ''; l.appendChild(fr);

@@ -160,13 +160,37 @@
         }
 
         .ticker { 
-            width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
-            display: flex; align-items: center; overflow: hidden; font-size: 0.8rem;
-        }
-        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 15s linear infinite; }
-        .ticker-content { padding-right: 50px; font-weight: bold; }
-        @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+    width: 100%; 
+    height: var(--ticker-h); 
+    background: #D00000; 
+    color: #fff; 
+    display: flex; 
+    align-items: center; 
+    overflow: hidden; 
+    font-size: 0.8rem;
+    /* FIX: Ensure the ticker doesn't compete for LCP priority */
+    contain: strict; 
+    opacity: 0;
+    animation: fadeInTicker 0.5s ease-in forwards 1s; /* Delay the visual load by 1s */
+}
 
+@keyframes fadeInTicker {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.ticker-track { 
+    display: flex; 
+    white-space: nowrap; 
+    /* Optimization: Use translate3d for hardware acceleration */
+    animation: ticker-loop 15s linear infinite; 
+    will-change: transform;
+}
+
+@keyframes ticker-loop { 
+    0% { transform: translate3d(0, 0, 0); } 
+    100% { transform: translate3d(-50%, 0, 0); } 
+}
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; min-height: 500px; }
         .title-area { padding: 25px 15px; text-align: center; min-height: 78px; }
         .title-area h2 { font-weight: 700; font-size: 1.2rem; }
@@ -256,7 +280,6 @@
           ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
-    // VERIFIED STABLE LIBRARIES (Fixed 404 & MIME Errors)
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
@@ -276,17 +299,15 @@
         if (!ch || !ch.url) return;
         if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
 
-        // --- PHASE 1: NUCLEAR CLEANUP (Immediate) ---
+        // PHASE 1: NUCLEAR CLEANUP
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause();
         v.src = ""; 
         v.removeAttribute("src");
-        v.load(); // Resets the hardware state immediately
+        v.load();
 
-        // --- PHASE 2: ASYNC LAUNCH (Fixes Double-Click Bug) ---
-        // 10ms delay allows the browser to finish the "Kill" phase before starting "Load"
+        // PHASE 2: ASYNC LAUNCH (10ms Breath)
         setTimeout(async () => {
-            // UI Switch
             if (ph.style.display !== 'none') ph.style.display = 'none';
             ld.style.display = 'flex'; 
             t.innerText = ch.name;
@@ -299,56 +320,34 @@
                 f.onload = () => ld.style.display = 'none';
             } else {
                 await loadS(); 
-                
                 if (ch.url.includes('.mpd')) {
                     const p = new shaka.Player(v);
-                    // Low-Latency Config (1s Buffer Goal)
                     p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-                    try {
-                        await p.load(ch.url);
-                        v.style.display = 'block';
-                    } catch (e) { ld.style.display = 'none'; }
+                    try { await p.load(ch.url); v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
                 } else if (window.Hls && Hls.isSupported()) {
-                    // Supersonic HLS Config
-                    hlsE = new Hls({ 
-                        enableWorker: true, 
-                        lowLatencyMode: true, 
-                        startFragPrefetch: true,
-                        maxBufferLength: 10
-                    }); 
-                    hlsE.loadSource(ch.url); 
-                    hlsE.attachMedia(v);
-                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                        v.play().catch(() => { ld.style.display = 'none'; }); 
-                        v.style.display = 'block';
-                    });
+                    hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, startFragPrefetch: true, maxBufferLength: 10 }); 
+                    hlsE.loadSource(ch.url); hlsE.attachMedia(v);
+                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(() => { ld.style.display = 'none'; }); v.style.display = 'block'; });
                 }
             }
         }, 10);
-
         window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 
-    // SPINNER VISIBILITY
     v.addEventListener('playing', () => ld.style.display = 'none');
     v.addEventListener('waiting', () => ld.style.display = 'flex');
     v.addEventListener('canplay', () => ld.style.display = 'none');
 
-    // INITIALIZATION
     document.addEventListener('DOMContentLoaded', () => {
-        // Fetch Channels (Preloaded in <head>)
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
-            .catch(e => console.error("Sync Error"));
+            .catch(e => {});
 
-        // Optimized Analytics Load
         window.addEventListener('load', () => {
             setTimeout(() => {
-                const s = document.createElement('script'); 
-                s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; 
-                document.head.appendChild(s);
+                const s = document.createElement('script'); s.async = true; 
+                s.src = "https://gc.zgo.at/count.js"; document.head.appendChild(s);
             }, 5000);
         });
     });
@@ -358,28 +357,20 @@
         data.forEach(ch => {
             const b = document.createElement('div'); 
             b.className = 'channel-card';
-            // FIX: Add required ARIA roles and keyboard accessibility
+            // ACCESSIBILITY FIXES
             b.setAttribute('role', 'listitem');
             b.setAttribute('tabindex', '0');
-            
             b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            
-            // Mouse click
             b.onclick = () => play(ch);
-            
-            // Keyboard "Enter" support (Crucial for 100 Accessibility)
-            b.onkeydown = (e) => { 
-                if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    play(ch);
-                }
-            };
-            
+            b.onkeydown = (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch); } };
             fr.appendChild(b);
         });
-        l.innerHTML = ''; 
-        l.appendChild(fr);
-        }
+        l.innerHTML = ''; l.appendChild(fr);
+    }
+
+    document.getElementById('searchInput').oninput = (e) => {
+        render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
+    };
 </script>
 </body>
 </html>

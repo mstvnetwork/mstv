@@ -137,6 +137,35 @@ video, iframe {
 .player-container div:not(#placeholder) {
     display: none;
 }
+        /* Aggressive Loading Spinner */
+#loader {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    display: none; /* Hidden by default */
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+}
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.1);
+    border-top: 4px solid #22c55e; /* Your green theme */
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.loading-text { 
+    margin-top: 12px; 
+    font-size: 11px; 
+    letter-spacing: 2px; 
+    color: #22c55e; 
+    font-weight: bold; 
+    text-transform: uppercase; 
+}
         .ticker { 
             width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; 
             display: flex; align-items: center; overflow: hidden; font-size: 0.8rem;
@@ -195,6 +224,11 @@ video, iframe {
 
     <div class="sticky-player-wrapper">
         <section class="player-container" aria-label="TV Streaming Player">
+
+            <div id="loader">
+    <div class="spinner"></div>
+    <div class="loading-text">Optimizing Stream...</div>
+            </div>
         <div id="placeholder" aria-hidden="true">📺</div>
             <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
             <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
@@ -245,7 +279,8 @@ video, iframe {
           f = document.getElementById('iframePlayer'), 
           l = document.getElementById('channelList'), 
           t = document.getElementById('current-title'), 
-          ph = document.getElementById('placeholder');
+          ph = document.getElementById('placeholder'),
+          ld = document.getElementById('loader'); // New Spinner Reference
 
     function loadS() {
         if (scP) return scP;
@@ -264,12 +299,11 @@ video, iframe {
             return; 
         }
 
-        // --- THE CHANGE IS HERE ---
-        // We HIDE the placeholder emoji as soon as the first channel is clicked.
-        // We NEVER set it back to 'flex' in this function.
-        if (ph.style.display !== 'none') {
-            ph.style.display = 'none';
-        }
+        // 1. Surgical UI Logic: Remove Emoji immediately on first click
+        if (ph.style.display !== 'none') ph.style.display = 'none';
+        
+        // 2. Show the New Aggressive Spinner
+        ld.style.display = 'flex';
 
         t.innerText = ch.name;
         v.style.display = f.style.display = 'none'; 
@@ -280,19 +314,20 @@ video, iframe {
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
             f.src = ch.url; 
-            // Iframe will show over the black background while loading
+            f.onload = () => ld.style.display = 'none'; // Hide spinner when iframe loads
         } else {
             await loadS(); 
             if (ch.url.includes('.mpd')) {
                 const p = new shaka.Player(v); 
                 await p.load(ch.url); 
                 v.style.display = 'block';
+                // Shaka hides loader via the 'playing' event listener
             } else if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls(); 
                 hlsE.loadSource(ch.url); 
                 hlsE.attachMedia(v);
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(()=>{}); 
+                    v.play().catch(()=>{ ld.style.display = 'none'; }); 
                     v.style.display = 'block';
                 });
             }
@@ -300,11 +335,13 @@ video, iframe {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    // Backup listener to ensure video displays correctly
-    v.addEventListener('playing', () => {
-        v.style.display = 'block';
-        if (ph.style.display !== 'none') ph.style.display = 'none';
-    });
+    // --- SPINNER VISIBILITY LOGIC ---
+    // Hide spinner when video actually starts
+    v.addEventListener('playing', () => ld.style.display = 'none');
+    // Show spinner if video stalls/buffers during playback
+    v.addEventListener('waiting', () => ld.style.display = 'flex');
+    // Hide spinner once data is available to resume
+    v.addEventListener('canplay', () => ld.style.display = 'none');
 
     function render(data) {
         const fr = document.createDocumentFragment();

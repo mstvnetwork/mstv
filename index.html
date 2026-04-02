@@ -16,8 +16,10 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#111419">
 
-    <link rel="preconnect" href="https://cdn.jsdelivr.net">
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
+
+<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://mstvnet.netlify.app/">
     <meta property="og:title" content="MSTV Network | Live Indian & Punjabi TV">
@@ -252,14 +254,27 @@
           ld = document.getElementById('loader');
 
     function loadS() {
-        if (scP) return scP;
-        scP = new Promise(res => {
-            let c = 0; const d = () => { if (++c === 2) res(); };
-            const s1 = document.createElement('script'); s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; s1.async = true; s1.onload = d;
-            const s2 = document.createElement('script'); s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; s2.async = true; s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
-            document.head.append(s1, s2);
-        });
-        return scP;
+    if (scP) return scP;
+    scP = new Promise(res => {
+        let c = 0; const d = () => { if (++c === 2) res(); };
+        
+        // HLS.js v1.5.1 - Stable 2026 Build
+        const s1 = document.createElement('script'); 
+        s1.src = "https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.1/hls.min.js"; 
+        s1.async = true; 
+        s1.crossOrigin = "anonymous";
+        s1.onload = d;
+        
+        // Shaka Player v4.16.25 - High Performance 2026 Build
+        const s2 = document.createElement('script'); 
+        s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.16.25/shaka-player.compiled.min.js"; 
+        s2.async = true; 
+        s2.crossOrigin = "anonymous";
+        s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
+        
+        document.head.append(s1, s2);
+    });
+    return scP;
     }
 
 async function play(ch) {
@@ -366,6 +381,37 @@ async function play(ch) {
     document.getElementById('searchInput').oninput = (e) => {
         render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
+// Start warming up libraries while the user is looking at the grid
+function preWarm() {
+    if (window.requestIdleCallback) {
+        requestIdleCallback(() => loadS());
+    } else {
+        setTimeout(() => loadS(), 1500);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    preWarm();
+
+    // The 'preload' tag in the head ensures this fetch is nearly instant
+    fetch('channels2.json')
+        .then(r => r.json())
+        .then(data => {
+            allCh = data; 
+            render(allCh);
+        })
+        .catch(e => console.error("Sync Error:", e));
+    
+    // Delayed Analytics (Priority: Low)
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            const s = document.createElement('script'); 
+            s.async = true; 
+            s.src = "https://gc.zgo.at/count.js"; 
+            document.head.appendChild(s);
+        }, 4000);
+    });
+});
 </script>
 </body>
 </html>

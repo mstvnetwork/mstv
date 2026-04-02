@@ -195,19 +195,23 @@
         .title-area { 
     padding: 25px 15px; 
     text-align: center; 
-    min-height: 78px;
-    /* FIX: Performance containment for LCP */
+    /* FIX: Force the browser to treat this as an independent layer */
+    contain: layout style;
     content-visibility: auto;
+    /* Give the browser a fixed 'guess' of the height so it doesn't wait to calculate */
     contain-intrinsic-size: 78px;
+    min-height: 78px;
 }
 
 .title-area h2 { 
     font-weight: 700; 
     font-size: 1.2rem;
-    /* Ensure the text paints as soon as the font is ready */
-    font-display: swap; 
-    /* Prevent any parent transition from delaying this paint */
+    color: var(--text);
+    /* Removes any "fade-in" or movement that delays the LCP paint */
     transition: none !important;
+    animation: none !important;
+    /* Ensures the text is treated as a priority paint */
+    content-visibility: visible;
 }
         .channel-grid {
             display: grid;
@@ -294,7 +298,7 @@
           ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
-    // VERIFIED STABLE LIBRARIES (Fixed 404 & MIME Errors)
+    // VERIFIED STABLE LIBRARIES
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
@@ -314,16 +318,15 @@
         if (!ch || !ch.url) return;
         if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
 
-        // --- PHASE 1: NUCLEAR CLEANUP (Immediate) ---
+        // PHASE 1: NUCLEAR CLEANUP
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause();
         v.src = ""; 
         v.removeAttribute("src");
-        v.load(); 
+        v.load();
 
-        // --- PHASE 2: ASYNC LAUNCH (10ms Breath for Reliability) ---
+        // PHASE 2: ASYNC LAUNCH (10ms Breath)
         setTimeout(async () => {
-            // UI Switch
             if (ph.style.display !== 'none') ph.style.display = 'none';
             ld.style.display = 'flex'; 
             t.innerText = ch.name;
@@ -336,62 +339,39 @@
                 f.onload = () => ld.style.display = 'none';
             } else {
                 await loadS(); 
-                
                 if (ch.url.includes('.mpd')) {
                     const p = new shaka.Player(v);
                     p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-                    try {
-                        await p.load(ch.url);
-                        v.style.display = 'block';
-                    } catch (e) { ld.style.display = 'none'; }
+                    try { await p.load(ch.url); v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
                 } else if (window.Hls && Hls.isSupported()) {
-                    hlsE = new Hls({ 
-                        enableWorker: true, 
-                        lowLatencyMode: true, 
-                        startFragPrefetch: true,
-                        maxBufferLength: 10
-                    }); 
-                    hlsE.loadSource(ch.url); 
-                    hlsE.attachMedia(v);
-                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                        v.play().catch(() => { ld.style.display = 'none'; }); 
-                        v.style.display = 'block';
-                    });
+                    hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, startFragPrefetch: true, maxBufferLength: 10 }); 
+                    hlsE.loadSource(ch.url); hlsE.attachMedia(v);
+                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(() => { ld.style.display = 'none'; }); v.style.display = 'block'; });
                 }
             }
         }, 10);
-
         window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 
-    // SPINNER VISIBILITY LOGIC
     v.addEventListener('playing', () => ld.style.display = 'none');
     v.addEventListener('waiting', () => ld.style.display = 'flex');
     v.addEventListener('canplay', () => ld.style.display = 'none');
 
-    // INITIALIZATION & LCP OPTIMIZATION
     document.addEventListener('DOMContentLoaded', () => {
-        // Force the title to be ready for the very first paint (Kills 680ms Delay)
-        requestAnimationFrame(() => {
-            t.style.visibility = 'visible';
-        });
-
-        // Fetch Channels
+        // PRIORITY 1: Let the browser paint the title IMMEDIATELY
+        // By not touching the title in JS here, we let the CSS 'contain' do the work
+        
+        // PRIORITY 2: Data Fetch
         fetch('channels2.json')
             .then(r => r.json())
-            .then(data => { 
-                allCh = data; 
-                render(allCh); 
-            })
-            .catch(e => console.error("Sync Error"));
+            .then(data => { allCh = data; render(allCh); })
+            .catch(e => {});
 
-        // Optimized Analytics Load (Delayed to protect PageSpeed)
+        // PRIORITY 3: Background tasks
         window.addEventListener('load', () => {
             setTimeout(() => {
-                const s = document.createElement('script'); 
-                s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; 
-                document.head.appendChild(s);
+                const s = document.createElement('script'); s.async = true; 
+                s.src = "https://gc.zgo.at/count.js"; document.head.appendChild(s);
             }, 5000);
         });
     });
@@ -401,36 +381,19 @@
         data.forEach(ch => {
             const b = document.createElement('div'); 
             b.className = 'channel-card';
-            // ACCESSIBILITY: Required ARIA roles for role="list"
             b.setAttribute('role', 'listitem');
             b.setAttribute('tabindex', '0');
-            
             b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            
-            // Mouse Interaction
             b.onclick = () => play(ch);
-            
-            // Keyboard Interaction (Accessibility 100)
-            b.onkeydown = (e) => { 
-                if(e.key === 'Enter' || e.key === ' ') { 
-                    e.preventDefault(); 
-                    play(ch); 
-                } 
-            };
-            
+            b.onkeydown = (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch); } };
             fr.appendChild(b);
         });
-        l.innerHTML = ''; 
-        l.appendChild(fr);
+        l.innerHTML = ''; l.appendChild(fr);
     }
 
-    // SEARCH LOGIC
     document.getElementById('searchInput').oninput = (e) => {
-        const term = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(term)));
+        render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
-                    </script>
-
-
+</script>
 </body>
 </html>

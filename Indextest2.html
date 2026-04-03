@@ -13,8 +13,9 @@
 
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
+    <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
 <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -266,17 +267,32 @@
         <p style="margin-top:10px; font-size: 11px;">Fastest HD TV Directory Online</p>
     </footer>
 </div>
+    <script>
+    /**
+     * PHASE 1: IMMEDIATE NETWORK FETCH
+     * Moving this to the top of the script allows the browser to download 
+     * the JSON in parallel with HTML/CSS parsing, killing Critical Path Latency.
+     */
+    const channelDataPromise = fetch('channels2.json', { 
+        priority: 'high',
+        cache: 'force-cache' 
+    }).then(r => r.json()).catch(() => []);
 
-<script>
- const v = document.getElementById('video'), 
+    // Global State & Elements
+    let allCh = [], hlsE = null, shakaP = null;
+    
+    const v = document.getElementById('video'), 
           f = document.getElementById('iframePlayer'), 
           l = document.getElementById('channelList'), 
           ph = document.getElementById('placeholder'), 
-          ld = document.getElementById('loader');
-    
-    let allCh = [], hlsE = null, shakaP = null;
+          ld = document.getElementById('loader'),
+          t = document.getElementById('current-title');
 
-    // Engine 1: HLS (m3u8) - Loaded only on demand
+    /**
+     * PHASE 2: ON-DEMAND ENGINE INITIALIZATION
+     * We only load hls.js when a user actually clicks a channel.
+     * This keeps the initial "Total Blocking Time" at 0ms.
+     */
     async function initHls() {
         if (window.Hls) return;
         return new Promise(res => {
@@ -288,53 +304,32 @@
         });
     }
 
-    // Engine 2: Shaka (DASH/mpd) - Loaded only on demand
-    async function initShaka() {
-        if (window.shaka) return;
-        return new Promise(res => {
-            const s = document.createElement('script');
-            s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-            s.async = true;
-            s.onload = () => { window.shaka.polyfill.installAll(); res(); };
-            document.head.appendChild(s);
-        });
-    }
-
+    /**
+     * PHASE 3: THE "NUCLEAR" SWITCHER (Audio Conflict Fix)
+     * Resets hardware buffers and mutes audio instantly to prevent ghost sound.
+     */
     async function play(ch) {
-        // --- PHASE 1: THE HARD DESTROY (Stops Background Audio) ---
+        // 1. Instant Hard Reset
         v.pause();
-        v.muted = true; // Immediate silence
-        
+        v.muted = true; 
         if (hlsE) { hlsE.destroy(); hlsE = null; }
-        if (shakaP) { await shakaP.destroy(); shakaP = null; }
+        if (shakaP) { try { await shakaP.destroy(); } catch(e){} shakaP = null; }
         
-        f.src = ""; // Kill iframe audio
-        v.src = ""; // Clear video buffer
-        v.load();   // Force hardware release
-        
-        // --- PHASE 2: UI PREP (0 CLS) ---
+        f.src = ""; 
+        v.src = ""; 
+        v.load(); // Forces hardware decoder release
+
+        // 2. UI Updates (Zero CLS)
         ld.style.display = 'flex';
         ph.style.display = 'none';
         v.style.display = f.style.display = 'none';
+        t.innerText = `Playing: ${ch.name}`;
 
-        // --- PHASE 3: ON-DEMAND ENGINE START ---
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+        if (ch.type === 'iframe') {
             f.src = ch.url;
             f.style.display = 'block';
             f.onload = () => ld.style.display = 'none';
-        } 
-        else if (ch.url.includes('.mpd')) {
-            await initShaka();
-            shakaP = new shaka.Player(v);
-            try {
-                await shakaP.load(ch.url);
-                v.muted = false;
-                v.style.display = 'block';
-                v.play();
-                ld.style.display = 'none';
-            } catch (e) { ld.style.display = 'none'; }
-        } 
-        else if (ch.url.includes('.m3u8')) {
+        } else {
             await initHls();
             if (Hls.isSupported()) {
                 hlsE = new Hls({ capLevelToPlayerSize: true, lowLatencyMode: true });
@@ -343,48 +338,61 @@
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
                     v.muted = false;
                     v.style.display = 'block';
-                    v.play();
+                    v.play().catch(() => { ld.style.display = 'none'; });
                     ld.style.display = 'none';
                 });
+                hlsE.on(Hls.Events.ERROR, (e, data) => { if(data.fatal) ld.style.display = 'none'; });
             }
         }
         window.scrollTo({top: 0, behavior: 'instant'});
     }
 
-    // --- REMAINDER OF LOGIC (Fetch & Render) ---
-    fetch('channels2.json', { priority: 'high' })
-        .then(r => r.json())
-        .then(data => { allCh = data; render(allCh); });
+    /**
+     * PHASE 4: SEQUENCED RENDERING (Fixes 640ms Render Delay)
+     * requestAnimationFrame ensures the Brand Name (MSTV NETWORK) 
+     * paints to the screen BEFORE the CPU gets busy building the channel grid.
+     */
+    window.addEventListener('DOMContentLoaded', () => {
+        requestAnimationFrame(() => {
+            channelDataPromise.then(data => {
+                allCh = data;
+                // Tiny 30ms breather to let the Header stabilize on the GPU
+                setTimeout(() => render(allCh), 30);
+            });
+        });
+    });
 
     function render(data) {
         const frag = document.createDocumentFragment();
         data.forEach(ch => {
-            const d = document.createElement('div');
-            d.className = 'channel-card';
-            d.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            d.onclick = () => play(ch);
-            frag.appendChild(d);
+            const card = document.createElement('div');
+            card.className = 'channel-card';
+            card.setAttribute('role', 'button');
+            card.setAttribute('tabindex', '0');
+            
+            // Optimization: textContent is faster for the browser than innerHTML
+            const span = document.createElement('span');
+            span.className = 'channel-name';
+            span.textContent = ch.name;
+            
+            card.appendChild(span);
+            card.onclick = () => play(ch);
+            
+            // Accessibility: allow Enter key to play
+            card.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
+            
+            frag.appendChild(card);
         });
-        l.innerHTML = ''; l.appendChild(frag);
+        l.innerHTML = ''; 
+        l.appendChild(frag);
     }
 
+    // Search Interaction
     document.getElementById('searchInput').oninput = (e) => {
-        const t = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(t)));
+        const val = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
     };
-    // Wrap your initial fetch in a requestAnimationFrame
-window.addEventListener('DOMContentLoaded', () => {
-    requestAnimationFrame(() => {
-        setTimeout(() => {
-            fetch('channels2.json', { priority: 'high' })
-                .then(r => r.json())
-                .then(data => { 
-                    allCh = data; 
-                    render(allCh); 
-                });
-        }, 50); // A 50ms "breather" for the CPU to paint the Brand Name
-    });
-});
-</script>
+                            </script>
+        
 </body>
 </html>

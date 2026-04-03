@@ -11,82 +11,40 @@
     <style>
         :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
         
-        /* 1. LOCK THE BODY: Prevents the whole page from bouncing */
         body { 
-            background: var(--bg); 
-            color: var(--text); 
-            font-family: system-ui, sans-serif; 
-            margin: 0; 
-            padding: 0;
-            display: flex;
-            flex-direction: column;
-            height: 100vh; /* Full viewport height */
-            overflow: hidden; /* Main body shouldn't scroll */
+            background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; 
+            margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; 
         }
 
-        /* 2. STICKY TOP SECTION: Header + Info + Player */
-        .top-section {
-            z-index: 100;
-            background: var(--bg);
-            flex-shrink: 0; /* Prevents this section from squishing */
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-
-        .info-bar { 
-            background: #000; 
-            padding: 8px; 
-            text-align: center; 
-            font-size: 0.8rem; 
-            color: var(--accent);
-            border-bottom: 1px solid #334155;
-        }
-
+        /* STICKY TOP SECTION */
+        .top-section { z-index: 100; background: var(--bg); flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.8rem; color: var(--accent); border-bottom: 1px solid #334155; }
         .header { padding: 10px; text-align: center; background: #1e293b; }
         .brand-name { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
 
-        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; max-height: 40vh; }
+        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
         #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2rem; }
 
-        /* 3. SCROLLABLE GRID: Only this part moves */
-        main {
-            flex-grow: 1;
-            overflow-y: auto; /* Enables scrolling for the grid only */
-            -webkit-overflow-scrolling: touch; /* Smooth scroll for mobile */
-            padding-bottom: 20px;
-        }
+        /* SCROLLABLE GRID */
+        main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 20px; }
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; padding: 15px; }
+        .card { background: var(--card); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #334155; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
 
-        .channel-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); 
-            gap: 12px; 
-            padding: 15px; 
+        /* MOBILE LANDSCAPE OPTIMIZATION */
+        @media (pseudo-class: landscape) and (max-height: 500px) {
+            .info-bar, .header { display: none; } /* Hide text to save space */
+            .top-section { height: 100vh; } /* Make player section full height */
+            .player-box { height: 100vh; aspect-ratio: auto; } /* Force video to fill screen */
+            body { overflow: auto; } /* Allow scrolling away if needed */
         }
-
-        .card { 
-            background: var(--card); 
-            padding: 15px; 
-            border-radius: 8px; 
-            text-align: center; 
-            border: 1px solid #334155; 
-            font-weight: 600; 
-            cursor: pointer; 
-            font-size: 0.85rem;
-        }
-        .card:hover { border-color: var(--accent); background: #26344d; }
     </style>
 </head>
 <body>
 
     <div class="top-section">
-        <div class="info-bar">
-            <span>• Watch Free Live Channels • High Quality Streams •</span>
-        </div>
-
-        <header class="header">
-            <div class="brand-name">MSTV NETWORK</div>
-        </header>
-
+        <div class="info-bar"><span>• Watch Free Live Channels • High Quality Streams •</span></div>
+        <header class="header"><div class="brand-name">MSTV NETWORK</div></header>
         <div class="player-box">
             <div id="placeholder">📺</div>
             <video id="video" playsinline controls title="Video Player"></video>
@@ -94,52 +52,70 @@
         </div>
     </div>
 
-    <main>
-        <div id="channelList" class="channel-grid" role="list"></div>
-    </main>
+    <main><div id="channelList" class="channel-grid" role="list"></div></main>
 
     <script>
-        const v = document.getElementById('video'), 
-              f = document.getElementById('iframePlayer'), 
-              l = document.getElementById('channelList');
+        let hlsInst = null, shakaInst = null;
+        const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), l = document.getElementById('channelList');
 
-        window.addEventListener('DOMContentLoaded', () => {
-            fetch('channels2.json')
-                .then(r => r.json())
-                .then(data => {
-                    const fr = document.createDocumentFragment();
-                    data.forEach(ch => {
-                        const b = document.createElement('div');
-                        b.className = 'card';
-                        b.setAttribute('role', 'listitem');
-                        b.innerText = ch.name;
-                        b.onclick = () => playChannel(ch);
-                        fr.appendChild(b);
-                    });
-                    requestAnimationFrame(() => l.replaceChildren(fr));
-                });
+        // 1. DATA LOAD
+        fetch('channels2.json').then(r => r.json()).then(data => {
+            const fr = document.createDocumentFragment();
+            data.forEach(ch => {
+                const b = document.createElement('div'); b.className = 'card'; b.innerText = ch.name;
+                b.onclick = () => playChannel(ch); fr.appendChild(b);
+            });
+            requestAnimationFrame(() => l.replaceChildren(fr));
         });
 
-        function playChannel(ch) {
+        // 2. CLEAN SWITCHING (Fixes Audio Conflict)
+        async function stopPlayers() {
+            if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
+            if (shakaInst) { await shakaInst.destroy(); shakaInst = null; }
+            v.pause(); v.src = ""; v.load(); // Full buffer flush
+        }
+
+        async function playChannel(ch) {
             document.getElementById('placeholder').style.display = 'none';
+            await stopPlayers();
             v.style.display = f.style.display = 'none';
-            v.pause(); v.src = "";
 
             if (ch.type === 'iframe') {
                 f.style.display = 'block'; f.src = ch.url;
             } else {
                 v.style.display = 'block';
-                if (!window.Hls) {
-                    const s = document.createElement('script');
-                    s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-                    s.onload = () => startHls(ch.url);
-                    document.head.appendChild(s);
-                } else { startHls(ch.url); }
+                if (ch.url.includes('.mpd')) {
+                    loadShaka(ch.url);
+                } else {
+                    loadHls(ch.url);
+                }
             }
         }
 
-        function startHls(url) {
-            const h = new Hls(); h.loadSource(url); h.attachMedia(v); v.play();
+        // 3. PLAYER ENGINES
+        function loadHls(url) {
+            if (!window.Hls) {
+                const s = document.createElement('script');
+                s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
+                s.onload = () => { hlsInst = new Hls(); hlsInst.loadSource(url); hlsInst.attachMedia(v); v.play(); };
+                document.head.appendChild(s);
+            } else {
+                hlsInst = new Hls(); hlsInst.loadSource(url); hlsInst.attachMedia(v); v.play();
+            }
+        }
+
+        async function loadShaka(url) {
+            if (!window.shaka) {
+                const s = document.createElement('script');
+                s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
+                s.onload = () => initShaka(url);
+                document.head.appendChild(s);
+            } else { initShaka(url); }
+        }
+
+        async function initShaka(url) {
+            shakaInst = new shaka.Player(v);
+            try { await shakaInst.load(url); v.play(); } catch(e) { console.error(e); }
         }
     </script>
 </body>

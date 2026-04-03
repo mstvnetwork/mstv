@@ -180,7 +180,7 @@
         <div class="title-area">
             <h2 id="current-title">Select a Channel</h2>
         </div>
-        <div id="channelList" class="channel-grid"></div>
+        <div id="channelList" class="channel-grid" role="list"></div>
     </main>
 
     <footer class="site-footer">
@@ -274,26 +274,29 @@
         
 
         function render(data) {
-    // 1. Safety check: If no data, don't clear the grid to avoid a "collapse" (CLS)
+    // 1. EXIT EARLY: If no data, don't clear the grid. 
+    // This prevents the page from collapsing and triggering a CLS (Layout Shift).
     if (!data || data.length === 0) return;
 
-    // 2. Create an "off-screen" container (Document Fragment)
-    // This is much faster than touching the live DOM inside a loop
+    // 2. BATCHING: Create a fragment to build the list "off-screen".
+    // This avoids multiple reflows during the loop.
     const fr = document.createDocumentFragment();
 
     data.forEach(ch => {
         const b = document.createElement('div'); 
         b.className = 'channel-card';
+        
+        // ACCESSIBILITY FIX: Define the relationship between item and list.
         b.setAttribute('role', 'listitem');
         b.setAttribute('tabindex', '0');
         
-        // Use innerHTML for the structure, but keep it simple
+        // CONTENT: Using innerText for the name is safer and faster than innerHTML.
         b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
         
-        // Interaction Logic
+        // INTERACTION: Ensure keyboard users (Enter/Space) can play channels.
         b.onclick = () => play(ch);
         b.onkeydown = (e) => { 
-            if(e.key === 'Enter' || e.key === ' ') { 
+            if (e.key === 'Enter' || e.key === ' ') { 
                 e.preventDefault(); 
                 play(ch); 
             } 
@@ -302,12 +305,12 @@
         fr.appendChild(b);
     });
 
-    // 3. The Atomic Swap
-    // requestAnimationFrame ensures this happens exactly when the browser is ready to paint
+    // 3. ATOMIC SWAP: requestAnimationFrame ensures the update happens 
+    // exactly when the browser is ready to paint the next frame.
     requestAnimationFrame(() => {
-        // replaceChildren() is the secret weapon for 100 performance.
-        // It clears 'l' and appends 'fr' in one single operation,
-        // preventing the "Forced Reflow" caused by clearing then appending separately.
+        // replaceChildren() is the gold standard for performance.
+        // it clears and appends in one single browser operation,
+        // eliminating the "Forced Reflow" warning.
         l.replaceChildren(fr); 
     });
         }

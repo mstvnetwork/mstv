@@ -41,7 +41,7 @@
     font-size: 1.5rem; 
     font-weight: 800; 
     color: var(--accent); 
-    /* Tell the browser to prioritize this static text for LCP */
+    /* Force the browser to prioritize this as the primary paint */
     content-visibility: visible;
     contain: none;
         }
@@ -90,10 +90,9 @@
     display: flex; 
     white-space: nowrap; 
     will-change: transform;
-    /* FIX: Delay the animation by 2.5 seconds. 
-       This allows the browser to 'Finalize' the paint while the text is static. */
+    /* FIX: Add a 2s delay so the browser paints the text while it's still */
     animation: ticker-loop 15s linear infinite; 
-    animation-delay: 2.5s; 
+    animation-delay: 2s; 
 }
 
 /* Create a class to trigger the animation */
@@ -270,30 +269,27 @@
         }
         // --- END ACCESSIBILITY & LOADING LOGIC ---
     });
-        }
-        
-
         function render(data) {
     // 1. EXIT EARLY: If no data, don't clear the grid. 
     // This prevents the page from collapsing and triggering a CLS (Layout Shift).
     if (!data || data.length === 0) return;
 
     // 2. BATCHING: Create a fragment to build the list "off-screen".
-    // This avoids multiple reflows during the loop.
+    // This avoids multiple layout calculations during the loop.
     const fr = document.createDocumentFragment();
 
     data.forEach(ch => {
         const b = document.createElement('div'); 
         b.className = 'channel-card';
         
-        // ACCESSIBILITY FIX: Define the relationship between item and list.
+        // ACCESSIBILITY: Defines the item's role within the parent 'list'.
         b.setAttribute('role', 'listitem');
         b.setAttribute('tabindex', '0');
         
-        // CONTENT: Using innerText for the name is safer and faster than innerHTML.
+        // CONTENT: Using a template string for a clean, fast render.
         b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
         
-        // INTERACTION: Ensure keyboard users (Enter/Space) can play channels.
+        // INTERACTION: Ensure both mouse and keyboard (Enter/Space) work.
         b.onclick = () => play(ch);
         b.onkeydown = (e) => { 
             if (e.key === 'Enter' || e.key === ' ') { 
@@ -309,11 +305,12 @@
     // exactly when the browser is ready to paint the next frame.
     requestAnimationFrame(() => {
         // replaceChildren() is the gold standard for performance.
-        // it clears and appends in one single browser operation,
-        // eliminating the "Forced Reflow" warning.
+        // It clears the container and appends the new fragment in ONE operation.
+        // This eliminates the "Forced Reflow" and "Element Render Delay" warnings.
         l.replaceChildren(fr); 
     });
         }
-    </script>
+        
+</script>
 </body>
 </html>

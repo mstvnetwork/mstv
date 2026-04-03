@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | V15 FINAL CORE</title>
+    <title>MSTV | V17 GALLERY GRID</title>
 
     <style>
         :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
@@ -14,23 +14,23 @@
             height: 100vh; width: 100vw; overflow: hidden; display: flex; flex-direction: column;
         }
 
-        /* FIXED UI */
+        /* FIXED UI - HEADER */
         .ui-core { position: fixed; top: 0; left: 0; width: 100%; z-index: 100; background: var(--bg); border-bottom: 1px solid #1e293b; height: 79px; }
         .info-bar { background: #000; height: 31px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--accent); }
-        .info-bar::after { content: "• MSTV V15 • ACCESSIBLE CORE •"; font-weight: 600; }
+        .info-bar::after { content: "• MSTV V17 • LIVE GALLERY •"; font-weight: 600; }
         .header { height: 48px; display: flex; align-items: center; justify-content: center; background: #0f172a; }
-        .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); }
+        .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); letter-spacing: 1px; }
 
-        /* GPU VIEWPORT */
+        /* GPU PLAYER VIEWPORT */
         .player-viewport { 
             position: fixed; top: 79px; left: 0; width: 100%; aspect-ratio: 16/9; 
-            background-color: #000; z-index: 90;
+            background-color: #000; z-index: 90; contain: strict; transform: translateZ(0);
             background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='70'%3E%F0%9F%93%BA%3C/text%3E%3C/svg%3E");
             background-repeat: no-repeat; background-position: center; background-size: 60px;
         }
         video, iframe { width: 100%; height: 100%; display: none; background: #000; border: none; }
 
-        /* SCROLL ENGINE */
+        /* HORIZONTAL GRID ENGINE */
         main { 
             flex: 1; overflow-y: auto; display: block;
             padding-top: calc(79px + 56.25vw); z-index: 50;
@@ -38,19 +38,37 @@
         }
 
         .grid { 
-            display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); 
-            gap: 15px; padding: 20px; 
+            display: grid; 
+            /* This ensures cards stack horizontally in rows */
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); 
+            gap: 12px; 
+            padding: 20px; 
+            width: 100%;
         }
 
-        /* ARIA Listitem container */
         .channel-item { display: block; width: 100%; }
 
         .card { 
-            width: 100%; min-height: 110px; background: var(--card); border-radius: 15px;
-            border: 2px solid #334155; color: #fff; font-weight: 800; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
+            width: 100%; 
+            aspect-ratio: 16 / 9; /* Professional TV aspect ratio */
+            background: var(--card); 
+            border-radius: 12px;
+            border: 2px solid #334155; 
+            color: #fff; 
+            font-weight: 800; 
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+            text-align: center;
+            padding: 10px;
+            transition: transform 0.1s, border-color 0.2s;
         }
 
+        .card:active { transform: scale(0.95); border-color: var(--accent); }
+
+        /* ATOMIC FOOTER */
         footer { width: 100%; background: #0f172a; border-top: 1px solid #1e293b; padding: 40px 20px; text-align: center; }
         footer::before { display: block; content: "DISCLAIMER: MSTV Network does not host media."; font-size: 0.6rem; color: #64748b; margin-bottom: 10px; }
         footer::after { display: block; content: "© 2026 MSTV NETWORK"; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
@@ -58,7 +76,7 @@
         @media (orientation: landscape) and (max-height: 500px) {
             .ui-core, footer { display: none !important; }
             main { padding-top: 0; overflow: hidden; }
-            .player-viewport { top: 0; height: 100vh; width: 177.78vh; left: 50%; transform: translateX(-50%); }
+            .player-viewport { top: 0; height: 100vh; width: 177.78vh; left: 50%; transform: translateX(-50%) translateZ(0); }
             video, iframe { display: block !important; }
         }
     </style>
@@ -70,9 +88,7 @@
         <div class="header"><h1 class="brand">MSTV NETWORK</h1></div>
     </div>
 
-    <section class="player-viewport" id="stage">
-        <iframe id="iframePlayer" allowfullscreen></iframe>
-    </section>
+    <section class="player-viewport" id="stage"></section>
 
     <main>
         <div id="channelList" class="grid" role="list"></div>
@@ -80,35 +96,40 @@
     </main>
 
     <script>
+        /* [CHANNEL ARRAY] - Add your links here */
         const CHANNELS = [
           { "name": "9x Jalwa", "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8", "type": "hls" },
-            
-  { "name": "9x Jalwa", "url": "...", "type": "hls" },
-  { "name": "Star Plus", "url": "...", "type": "hls" },
-  { "name": "Sony Pal", "url": "...", "type": "hls" }
-  // Just keep adding here... the grid will handle the rest!
-];
-    
+          { "name": "Star Plus", "url": "STAR_PLUS_URL_HERE", "type": "hls" },
+          { "name": "Sony Pal", "url": "SONY_PAL_URL_HERE", "type": "hls" }
+        ];
 
         const OmniBrain = {
             hls: null,
-            iframe: document.getElementById('iframePlayer'),
             stage: document.getElementById('stage'),
             
             getLib: () => ['https://cdn', 'jsdelivr', 'net/npm/hls.js@latest'].join('.'),
 
             async purge() {
                 this.stage.style.backgroundImage = 'none';
-                this.iframe.style.display = 'none';
-                this.iframe.src = "about:blank";
+                this.stage.innerHTML = '';
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
-                const v = document.querySelector('video');
-                if (v) { v.pause(); v.remove(); }
+            },
+
+            async execute(ch) {
+                await this.purge();
+                if (ch.type === 'iframe') {
+                    const ifr = document.createElement('iframe');
+                    ifr.src = ch.url;
+                    ifr.style.display = 'block';
+                    ifr.allowFullscreen = true;
+                    this.stage.appendChild(ifr);
+                } else {
+                    this.injectAndPlay(ch);
+                }
             },
 
             injectAndPlay(ch) {
                 if (window.Hls) return this.setupHls(ch);
-                
                 const s = document.createElement('script');
                 s.src = this.getLib();
                 s.async = true;
@@ -119,40 +140,27 @@
             setupHls(ch) {
                 const v = document.createElement('video');
                 v.style.display = 'block';
-                v.controls = true; 
-                v.autoplay = true;
-                v.playsInline = true; // Fix for iOS black screen
+                v.controls = v.autoplay = true;
+                v.setAttribute('playsinline', '');
                 this.stage.appendChild(v);
                 
-                // BUFFER FIX: Wait for the browser to register the video tag
                 setTimeout(() => {
                     if (Hls.isSupported()) {
                         this.hls = new Hls();
                         this.hls.loadSource(ch.url);
                         this.hls.attachMedia(v);
-                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(e => console.log("Autoplay blocked")));
                     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                        v.src = ch.url; // Native support for Safari/iOS
+                        v.src = ch.url;
                     }
-                }, 50);
-            },
-
-            async execute(ch) {
-                await this.purge();
-                if (ch.type === 'iframe') {
-                    this.iframe.style.display = 'block';
-                    this.iframe.src = ch.url;
-                } else {
-                    this.injectAndPlay(ch);
-                }
+                }, 20);
             }
         };
 
-        window.addEventListener('DOMContentLoaded', () => {
+        /* BOOT: High-Speed UI Build */
+        (function() {
             const list = document.getElementById('channelList');
             const frag = document.createDocumentFragment();
             CHANNELS.forEach(ch => {
-                // FIX: Wrapper div with role="listitem" satisfies ARIA requirements
                 const item = document.createElement('div');
                 item.className = 'channel-item';
                 item.setAttribute('role', 'listitem');
@@ -160,14 +168,13 @@
                 const btn = document.createElement('button');
                 btn.className = 'card';
                 btn.innerText = ch.name;
-                btn.setAttribute('aria-label', 'Play ' + ch.name);
                 btn.onclick = () => OmniBrain.execute(ch);
                 
                 item.appendChild(btn);
                 frag.appendChild(item);
             });
-            list.appendChild(frag);
-        });
+            requestAnimationFrame(() => list.appendChild(frag));
+        })();
     </script>
 </body>
 </html>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV NETWORK | AI CORE</title>
+    <title>MSTV NETWORK | AI CORE V3</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -14,16 +14,16 @@
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { 
             background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; 
-            margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; 
+            margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; 
         }
 
         /* UI COMPONENTS */
-        .ui-core { z-index: 100; background: var(--bg); flex-shrink: 0; }
+        .ui-core { z-index: 10; background: var(--bg); flex-shrink: 0; width: 100%; }
         .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--accent); border-bottom: 1px solid #1e293b; }
         .header { padding: 10px; text-align: center; background: #0f172a; }
         .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); }
 
-        /* NEURAL PLAYER BOX - PORTRAIT */
+        /* PLAYER VIEWPORT */
         .player-viewport { 
             width: 100%; 
             aspect-ratio: 16/9; 
@@ -32,43 +32,67 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            overflow: hidden;
         }
-        #iframePlayer, video { width: 100%; height: 100%; display: none; border: none; object-fit: contain; }
+        
+        /* The Video and Iframe must be forced visible */
+        video, #iframePlayer { 
+            width: 100%; 
+            height: 100%; 
+            background: #000; 
+            object-fit: contain; 
+            z-index: 5;
+        }
+        
         #placeholder { font-size: 3rem; position: absolute; z-index: 1; }
 
         /* SCROLLABLE GRID */
-        main { flex-grow: 1; overflow-y: auto; padding-bottom: 20px; }
+        main { flex-grow: 1; overflow-y: auto; padding-bottom: 20px; width: 100%; }
         .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 15px; }
         .card { 
             background: var(--card); padding: 18px; border-radius: 10px; text-align: center; 
             border: 1px solid #334155; font-weight: 700; cursor: pointer; font-size: 0.85rem;
         }
 
-        /* 🚀 AI LANDSCAPE ENGINE: PERFECT 16:9 CENTERING */
+        /* 🚀 LANDSCAPE ENGINE: THE BLACK SCREEN FIX */
         @media (orientation: landscape) and (max-height: 500px) {
-            .ui-core, main { display: none !important; }
-            body { background: #000; justify-content: center; align-items: center; }
+            .ui-core, .info-bar, .header, main { display: none !important; }
+            
+            body { 
+                background: #000; 
+                height: 100vh; 
+                width: 100vw; 
+                display: flex; 
+                align-items: center; 
+                justify-content: center; 
+            }
             
             .player-viewport { 
                 height: 100vh; 
                 width: 100vw; 
-                max-width: 177.78vh; /* Forces 16:9 ratio (100 * 16 / 9) */
+                max-width: 177.78vh; /* 16:9 constraint */
                 aspect-ratio: 16/9;
-                margin: 0 auto; /* Centers horizontally */
+                margin: 0 auto;
+                flex-shrink: 0;
             }
-            video, #iframePlayer { display: block !important; }
+            
+            video, #iframePlayer { 
+                display: block !important; 
+                position: relative;
+            }
         }
     </style>
 </head>
 <body>
 
     <div class="ui-core">
-        <div class="info-bar">• AI ENHANCED • ULTRA LOW LATENCY •</div>
+        <div class="info-bar">• AI CORE PERFORMANCE •</div>
         <header class="header"><div class="brand">MSTV NETWORK</div></header>
-        <div class="player-viewport" id="stage">
-            <div id="placeholder">📺</div>
-            <iframe id="iframePlayer" allowfullscreen></iframe>
-        </div>
+    </div>
+
+    <div class="player-viewport" id="stage">
+        <div id="placeholder">📺</div>
+        <iframe id="iframePlayer" allowfullscreen></iframe>
     </div>
 
     <main><div id="channelList" class="grid" role="list"></div></main>
@@ -84,30 +108,42 @@
                 this.placeholder.style.display = 'none';
                 this.iframe.style.display = 'none';
                 this.iframe.src = "";
+                
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
                 if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
+                
                 const v = document.querySelector('video');
-                if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
+                if (v) { 
+                    v.pause(); 
+                    v.removeAttribute('src'); 
+                    v.load(); 
+                    v.remove(); 
+                }
             },
 
             spawn() {
                 const v = document.createElement('video');
-                v.playsInline = true; v.controls = true; v.autoplay = true;
-                v.style.display = "block";
+                v.playsInline = true; 
+                v.controls = true; 
+                v.autoplay = true;
                 this.stage.appendChild(v);
                 return v;
             },
 
             async execute(ch) {
+                // HTTP Security Protocol
                 if (ch.url.startsWith('http://') && location.protocol === 'https:') {
                     window.open(ch.url, '_blank'); return;
                 }
+                
                 await this.purge();
+                
                 if (ch.type === 'iframe') {
                     this.iframe.style.display = 'block';
                     this.iframe.src = ch.url;
                 } else {
                     const videoEl = this.spawn();
+                    // Robotic micro-delay to ensure DOM registration
                     requestAnimationFrame(() => {
                         if (ch.url.includes('.mpd')) this.loadShaka(ch.url, videoEl);
                         else this.loadHls(ch.url, videoEl);
@@ -119,9 +155,12 @@
                 const init = () => {
                     if (Hls.isSupported()) {
                         this.hls = new Hls({ lowLatencyMode: true });
-                        this.hls.loadSource(url); this.hls.attachMedia(el);
-                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(()=> {}));
-                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) { el.src = url; }
+                        this.hls.loadSource(url); 
+                        this.hls.attachMedia(el);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(() => {}));
+                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) { 
+                        el.src = url; 
+                    }
                 };
                 this.inject("https://cdn.jsdelivr.net/npm/hls.js@latest", "Hls", init);
             },
@@ -130,31 +169,40 @@
                 const init = async () => {
                     shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
-                    try { await this.shaka.load(url); el.play().catch(()=> {}); } catch(e) { console.error(e); }
+                    try { 
+                        await this.shaka.load(url); 
+                        el.play().catch(() => {}); 
+                    } catch(e) { console.error(e); }
                 };
                 this.inject("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js", "shaka", init);
             },
 
             inject(src, check, cb) {
                 if (window[check]) return cb();
-                const s = document.createElement('script'); s.src = src; s.async = true; s.onload = cb;
+                const s = document.createElement('script'); 
+                s.src = src; 
+                s.async = true; 
+                s.onload = cb;
                 document.head.appendChild(s);
             }
         };
 
         // --- INSTANT BOOT ---
         (async function() {
-            const r = await fetch('channels2.json');
-            const data = await r.json();
-            const list = document.getElementById('channelList');
-            const frag = document.createDocumentFragment();
-            data.forEach(ch => {
-                const card = document.createElement('div');
-                card.className = 'card'; card.innerText = ch.name;
-                card.onclick = () => OmniBrain.execute(ch);
-                frag.appendChild(card);
-            });
-            requestAnimationFrame(() => list.replaceChildren(frag));
+            try {
+                const r = await fetch('channels2.json');
+                const data = await r.json();
+                const list = document.getElementById('channelList');
+                const frag = document.createDocumentFragment();
+                data.forEach(ch => {
+                    const card = document.createElement('div');
+                    card.className = 'card'; 
+                    card.innerText = ch.name;
+                    card.onclick = () => OmniBrain.execute(ch);
+                    frag.appendChild(card);
+                });
+                requestAnimationFrame(() => list.replaceChildren(frag));
+            } catch(e) { console.log("Init Failed"); }
         })();
     </script>
 </body>

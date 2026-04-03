@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV NETWORK</title>
+    <title>MSTV NETWORK | Performance Edition</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -18,19 +18,15 @@
 
         /* STICKY TOP SECTION */
         .top-section { z-index: 100; background: var(--bg); flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        
-        .info-bar { 
-            background: #000; padding: 10px; text-align: center; font-size: 0.85rem; 
-            color: var(--accent); border-bottom: 1px solid #334155; 
-        }
-        
+        .info-bar { background: #000; padding: 10px; text-align: center; font-size: 0.85rem; color: var(--accent); border-bottom: 1px solid #334155; }
         .header { padding: 12px; text-align: center; background: #1e293b; }
         .brand-name { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
 
-        /* PLAYER BOX */
+        /* PLAYER CONTAINER */
         .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; overflow: hidden; }
-        #video, #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
+        #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
         #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; }
+        video { width: 100%; height: 100%; display: block; }
 
         /* SCROLLABLE GRID */
         main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 30px; }
@@ -41,16 +37,12 @@
         }
         .card:hover { border-color: var(--accent); background: #2d3a4f; transform: translateY(-2px); }
 
-        /* MOBILE LANDSCAPE MODE: Forced Full-Screen Video */
+        /* LANDSCAPE OVERRIDE: Full-screen video on mobile tilt */
         @media (orientation: landscape) and (max-height: 500px) {
             .info-bar, .header, main { display: none !important; }
-            .top-section, .player-box, #video, #iframePlayer {
-                height: 100vh !important;
-                width: 100vw !important;
-                position: fixed;
-                top: 0;
-                left: 0;
-                z-index: 9999;
+            .top-section, .player-box, video, #iframePlayer {
+                height: 100vh !important; width: 100vw !important;
+                position: fixed; top: 0; left: 0; z-index: 9999;
             }
         }
     </style>
@@ -66,7 +58,6 @@
         </header>
         <div class="player-box" id="playerContainer">
             <div id="placeholder">📺</div>
-            <video id="video" playsinline controls></video>
             <iframe id="iframePlayer" allowfullscreen title="External Player"></iframe>
         </div>
     </div>
@@ -76,101 +67,115 @@
     </main>
 
     <script>
-        let hlsInst = null, shakaInst = null;
-        const listEl = document.getElementById('channelList');
-        const iframe = document.getElementById('iframePlayer');
+        /**
+         * THE ROBOTIC BRAIN (State Manager)
+         * Purpose: Manages the lifecycle of video engines to prevent audio/memory conflicts.
+         */
+        const PlayerBrain = {
+            hls: null,
+            shaka: null,
+            container: document.getElementById('playerContainer'),
+            iframe: document.getElementById('iframePlayer'),
+            placeholder: document.getElementById('placeholder'),
 
-        // 1. ATOMIC LOAD: Get channels from preloaded JSON
+            // 1. THE PURGE: Forcefully kills old instances and hardware buffers
+            async purge() {
+                this.placeholder.style.display = 'none';
+                this.iframe.style.display = 'none';
+                this.iframe.src = "";
+
+                if (this.hls) {
+                    this.hls.destroy();
+                    this.hls = null;
+                }
+                if (this.shaka) {
+                    await this.shaka.destroy();
+                    this.shaka = null;
+                }
+
+                // Find any existing video tag and delete it from existence
+                const oldV = document.querySelector('video');
+                if (oldV) {
+                    oldV.pause();
+                    oldV.src = "";
+                    oldV.load(); // Wipes hardware buffer
+                    oldV.remove(); // Removes from DOM entirely
+                }
+            },
+
+            // 2. THE REBIRTH: Creates a brand new, clean video element
+            spawnVideo() {
+                const v = document.createElement('video');
+                v.playsInline = true;
+                v.controls = true;
+                v.id = "video";
+                this.container.appendChild(v);
+                return v;
+            },
+
+            // 3. THE TRIGGER: Detects type and boots the engine
+            async boot(channel) {
+                await this.purge();
+
+                if (ch.type === 'iframe') {
+                    this.iframe.style.display = 'block';
+                    this.iframe.src = ch.url;
+                } else {
+                    const videoEl = this.spawnVideo();
+                    if (ch.url.includes('.mpd')) {
+                        this.initShaka(ch.url, videoEl);
+                    } else {
+                        this.initHls(ch.url, videoEl);
+                    }
+                }
+            },
+
+            // 4. ENGINE INITIALIZERS (Dynamic Script Loading)
+            initHls(url, el) {
+                const start = () => {
+                    this.hls = new Hls();
+                    this.hls.loadSource(url);
+                    this.hls.attachMedia(el);
+                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play());
+                };
+                
+                if (!window.Hls) {
+                    const s = document.createElement('script');
+                    s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
+                    s.onload = start;
+                    document.head.appendChild(s);
+                } else { start(); }
+            },
+
+            async initShaka(url, el) {
+                const start = async () => {
+                    this.shaka = new shaka.Player(el);
+                    try { await this.shaka.load(url); el.play(); } catch(e) { console.error(e); }
+                };
+
+                if (!window.shaka) {
+                    const s = document.createElement('script');
+                    s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
+                    s.onload = start;
+                    document.head.appendChild(s);
+                } else { start(); }
+            }
+        };
+
+        // --- DATA LAYER ---
         fetch('channels2.json').then(r => r.json()).then(data => {
+            const list = document.getElementById('channelList');
             const frag = document.createDocumentFragment();
             data.forEach(ch => {
-                const b = document.createElement('div');
-                b.className = 'card'; b.innerText = ch.name; b.onclick = () => playChannel(ch);
-                frag.appendChild(b);
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerText = ch.name;
+                // Robotic Brain handles the click
+                card.onclick = () => { ch = ch; PlayerBrain.boot(ch); };
+                frag.appendChild(card);
             });
-            requestAnimationFrame(() => listEl.replaceChildren(frag));
+            requestAnimationFrame(() => list.replaceChildren(frag));
         });
-
-        // 2. THE NUCLEAR RESET: Deletes and recreates video element to kill ghost audio
-        function resetHardwarePlayer() {
-            const container = document.getElementById('playerContainer');
-            const oldVideo = document.getElementById('video');
-            
-            // Cleanup engine instances
-            if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
-            if (shakaInst) { shakaInst.destroy(); shakaInst = null; }
-
-            // Create a fresh video tag
-            const newVideo = document.createElement('video');
-            newVideo.id = 'video';
-            newVideo.playsInline = true;
-            newVideo.controls = true;
-            newVideo.style.display = 'block';
-            
-            // Cleanly remove the old one
-            if (oldVideo) {
-                oldVideo.pause();
-                oldVideo.src = "";
-                oldVideo.load();
-                oldVideo.remove();
-            }
-            
-            container.appendChild(newVideo);
-            return newVideo;
-        }
-
-        async function playChannel(ch) {
-            document.getElementById('placeholder').style.display = 'none';
-            iframe.style.display = 'none';
-            iframe.src = "";
-
-            if (ch.type === 'iframe') {
-                const v = document.getElementById('video');
-                if (v) v.style.display = 'none';
-                iframe.style.display = 'block';
-                iframe.src = ch.url;
-            } else {
-                // Recreate the player to ensure NO background audio
-                const v = resetHardwarePlayer();
-                
-                if (ch.url.includes('.mpd')) {
-                    loadEngine('shaka', ch.url, v);
-                } else {
-                    loadEngine('hls', ch.url, v);
-                }
-            }
-        }
-
-        // 3. DYNAMIC ENGINE LOADER
-        function loadEngine(type, url, videoEl) {
-            const scripts = {
-                hls: "https://cdn.jsdelivr.net/npm/hls.js@latest",
-                shaka: "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"
-            };
-
-            const libName = type === 'hls' ? 'Hls' : 'shaka';
-
-            if (!window[libName]) {
-                const s = document.createElement('script');
-                s.src = scripts[type];
-                s.onload = () => initEngine(type, url, videoEl);
-                document.head.appendChild(s);
-            } else {
-                initEngine(type, url, videoEl);
-            }
-        }
-
-        function initEngine(type, url, videoEl) {
-            if (type === 'hls') {
-                hlsInst = new Hls();
-                hlsInst.loadSource(url);
-                hlsInst.attachMedia(videoEl);
-                hlsInst.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play());
-            } else {
-                shakaInst = new shaka.Player(videoEl);
-                shakaInst.load(url).then(() => videoEl.play()).catch(console.error);
-            }
-        }
     </script>
 </body>
 </html>

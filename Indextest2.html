@@ -2,23 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV NETWORK | AI SILENT CORE</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSTV NETWORK | AI ACCESSIBLE CORE</title>
+
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
+    
     <style>
         :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
+        
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
+        
+        /* UI COMPONENTS */
         .ui-core { z-index: 30; background: var(--bg); flex-shrink: 0; width: 100%; }
         .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--accent); border-bottom: 1px solid #1e293b; }
         .header { padding: 10px; text-align: center; background: #0f172a; }
         .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); }
+
+        /* THE PLAYER STAGE */
         .player-viewport { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; display: flex; align-items: center; justify-content: center; flex-shrink: 0; z-index: 20; }
         video, #iframePlayer { width: 100%; height: 100%; background: #000; object-fit: contain; display: none; border: none; }
         #placeholder { font-size: 3rem; position: absolute; z-index: 1; pointer-events: none; }
+
+        /* DATA GRID - ACCESSIBILITY OPTIMIZED */
         main { flex-grow: 1; overflow-y: auto; padding-bottom: 20px; width: 100%; background: var(--bg); }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 12px; padding: 15px; }
-        .card { background: var(--card); padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #334155; font-weight: 700; cursor: pointer; font-size: 0.9rem; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; padding: 15px; }
+        
+        /* 2. ACCESSIBILITY FIX: Interactive card styling */
+        .card { 
+            background: var(--card); padding: 20px; border-radius: 12px; text-align: center; 
+            border: 1px solid #334155; font-weight: 700; cursor: pointer; font-size: 0.95rem;
+            color: var(--text); transition: all 0.2s;
+        }
+        .card:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+        .card:hover { border-color: var(--accent); background: #2d3a4f; }
+
+        /* LANDSCAPE ENGINE */
         @media (orientation: landscape) and (max-height: 500px) {
             .ui-core, main { display: none !important; }
             body { background: #000; overflow: auto !important; display: block; }
@@ -28,15 +47,21 @@
     </style>
 </head>
 <body>
+
     <div class="ui-core">
-        <div class="info-bar">• MSTV NETWORK POP-UP KILLER •</div>
-        <header class="header"><div class="brand">MSTV NETWORK</div></header>
+        <div class="info-bar" role="status">MSTV NETWORK • ACCESSIBILITY V4 • AI ENHANCED</div>
+        <header class="header"><h1 class="brand">MSTV NETWORK</h1></header>
     </div>
-    <div class="player-viewport" id="stage">
-        <div id="placeholder">📺</div>
-        <iframe id="iframePlayer" allowfullscreen></iframe>
+
+    <div class="player-viewport" id="stage" aria-label="Video Player Area">
+        <div id="placeholder" aria-hidden="true">📺</div>
+        <iframe id="iframePlayer" allowfullscreen title="External Video Stream"></iframe>
     </div>
-    <main><div id="channelList" class="grid" role="list"></div></main>
+
+    <main>
+        <div id="channelList" class="grid" role="list" aria-label="Channel Selection"></div>
+    </main>
+
     <script>
         const OmniBrain = {
             hls: null, shaka: null, 
@@ -46,16 +71,12 @@
 
             async purge() {
                 this.placeholder.style.display = 'none';
-                
-                // POP-UP KILLER: Point to blank first
                 if (this.iframe) {
                     this.iframe.src = "about:blank"; 
                     this.iframe.style.display = 'none';
                 }
-
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
                 if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
-
                 const v = document.querySelector('video');
                 if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
             },
@@ -63,6 +84,7 @@
             spawn() {
                 const v = document.createElement('video');
                 v.playsInline = true; v.controls = true; v.autoplay = true;
+                v.setAttribute('aria-label', 'Live Channel Stream');
                 v.style.display = "block";
                 this.stage.appendChild(v);
                 return v;
@@ -112,18 +134,24 @@
             }
         };
 
-        (async function() {
+        // --- ACCESSIBILITY INJECTOR ---
+        (async function boot() {
             try {
                 const r = await fetch('channels2.json');
                 const data = await r.json();
                 const list = document.getElementById('channelList');
                 const frag = document.createDocumentFragment();
+                
                 data.forEach(ch => {
-                    const card = document.createElement('div');
-                    card.className = 'card'; card.innerText = ch.name;
+                    const card = document.createElement('button'); // 4. ACCESSIBILITY FIX: Use <button> for interactivity
+                    card.className = 'card';
+                    card.setAttribute('role', 'listitem'); // 5. ACCESSIBILITY FIX: Child Role "listitem"
+                    card.innerText = ch.name;
+                    card.setAttribute('aria-label', `Play channel ${ch.name}`);
                     card.onclick = () => OmniBrain.execute(ch);
                     frag.appendChild(card);
                 });
+                
                 requestAnimationFrame(() => list.replaceChildren(frag));
             } catch(e) {}
         })();

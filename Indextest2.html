@@ -202,28 +202,70 @@
     }
 
     async function play(ch) {
+        // 1. INSTANT AUDIO KILL
+        v.pause();
+        v.muted = true; // Force silence immediately
+        
+        // 2. CLEANUP PREVIOUS INSTANCES
+        if (hlsE) { 
+            hlsE.detachMedia();
+            hlsE.destroy(); 
+            hlsE = null; 
+        }
+        
+        // This is the secret for DASH/Shaka conflicts:
+        // Setting src to empty and calling load() clears the buffer entirely.
+        v.src = "";
+        v.load(); 
+        
+        // Reset Iframe
+        f.src = "";
+        f.style.display = 'none';
+
+        // 3. UI UPDATES
         ld.style.display = 'flex';
         ph.style.display = 'none';
-        v.style.display = f.style.display = 'none';
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-
+        v.style.display = 'none';
+        
+        // 4. LOADING THE NEW STREAM
         if (ch.type === 'iframe') {
-            f.src = ch.url; f.style.display = 'block';
-            f.onload = () => ld.style.display = 'none';
+            f.src = ch.url;
+            f.style.display = 'block';
+            f.onload = () => {
+                ld.style.display = 'none';
+                v.muted = false; // Prepare for next video
+            };
         } else {
             await loadHls();
             if (Hls.isSupported()) {
-                hlsE = new Hls({ capLevelToPlayerSize: true, lowLatencyMode: true });
+                // Use a fresh instance every time to avoid memory/audio leaks
+                hlsE = new Hls({ 
+                    capLevelToPlayerSize: true, 
+                    lowLatencyMode: true,
+                    autoStartLoad: true 
+                });
+                
                 hlsE.loadSource(ch.url);
                 hlsE.attachMedia(v);
+                
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
-                    v.style.display = 'block'; v.play(); ld.style.display = 'none';
+                    v.muted = false; // Unmute just before play
+                    v.style.display = 'block';
+                    v.play().catch(() => {
+                        // Handle browsers that block autoplay
+                        console.log("Autoplay prevented - user interaction needed");
+                    });
+                    ld.style.display = 'none';
+                });
+
+                // Error handling to prevent infinite loader if stream fails
+                hlsE.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) ld.style.display = 'none';
                 });
             }
         }
         window.scrollTo({top: 0, behavior: 'instant'});
     }
-
     // High Priority Fetch
     fetch('channels2.json', { priority: 'high' })
         .then(r => r.json())

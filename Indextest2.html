@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>MSTV Network | Live Indian TV & Punjabi Channels</title>
 
-<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment available on all devices.">
+<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels.">
 <meta name="robots" content="index, follow">
 <link rel="canonical" href="https://mstvnet.netlify.app/">
 
@@ -14,17 +15,9 @@
 
 <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
 
-<link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
-<link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-
-<meta property="og:type" content="website">
-<meta property="og:url" content="https://mstvnet.netlify.app/">
-<meta property="og:title" content="MSTV Network | Live Indian & Punjabi TV">
-<meta property="og:description" content="Watch 100+ Live Indian, Punjabi, and Religious channels for free in HD.">
-<meta property="og:image" content="https://mstvnet.netlify.app/og-image.webp">
-
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+
 :root{
 --bg-dark:#111419;
 --accent:#2ECC71;
@@ -37,14 +30,6 @@ font-family:system-ui,-apple-system,sans-serif;
 background:#F8F9FA;
 color:#212529;
 overflow-x:hidden;
-}
-
-/* FIRST FRAME */
-#first-frame{
-position:fixed;
-inset:0;
-background:#111419;
-z-index:9999;
 }
 
 /* HEADER */
@@ -84,9 +69,6 @@ position:sticky;
 top:var(--header-h);
 background:#000;
 width:100%;
-display:flex;
-flex-direction:column;
-align-items:center;
 z-index:900;
 }
 
@@ -95,21 +77,13 @@ width:100%;
 aspect-ratio:16/9;
 background:#000;
 position:relative;
-contain:layout size;
-will-change:transform;
-transform:translateZ(0);
+contain:none;
 }
 
-#video,#iframePlayer,#placeholder{
-position:absolute;
-top:0;
-left:0;
-width:100%;
-height:100%;
-object-fit:cover;
-}
-
+/* PERFECT CENTER PLACEHOLDER */
 #placeholder{
+position:absolute;
+inset:0;
 display:flex;
 align-items:center;
 justify-content:center;
@@ -117,7 +91,18 @@ font-size:3rem;
 background:#000;
 }
 
-/* TICKER (no animation at first paint) */
+/* MEDIA */
+#video,#iframePlayer{
+position:absolute;
+top:0;
+left:0;
+width:100%;
+height:100%;
+display:none;
+object-fit:cover;
+}
+
+/* TICKER (no animation delay at paint) */
 .ticker{
 width:100%;
 height:var(--ticker-h);
@@ -127,34 +112,34 @@ display:flex;
 align-items:center;
 overflow:hidden;
 font-size:0.8rem;
-opacity:0;
-contain:content;
 }
 
 .ticker-track{
 display:flex;
 white-space:nowrap;
 animation:ticker-loop 15s linear infinite;
-will-change:transform;
 }
 
 @keyframes ticker-loop{
-0%{transform:translate3d(0,0,0)}
-100%{transform:translate3d(-50%,0,0)}
+0%{transform:translateX(0)}
+100%{transform:translateX(-50%)}
 }
 
-/* MAIN */
-.main-content{
-content-visibility:auto;
-contain-intrinsic-size:800px;
-}
-
+/* TITLE (FORCED EARLY PAINT) */
 .title-area{
-padding:25px 15px;
+padding:20px;
 text-align:center;
-min-height:78px;
+contain:none;
 }
 
+#current-title{
+font-size:1.2rem;
+font-weight:700;
+content-visibility:visible !important;
+contain:none !important;
+}
+
+/* GRID (below fold only optimization) */
 .channel-grid{
 display:grid;
 grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
@@ -186,8 +171,6 @@ text-align:center;
 
 <body>
 
-<div id="first-frame"></div>
-
 <header>
 <h1 class="brand-name">MSTV NETWORK</h1>
 <div class="search-container">
@@ -197,9 +180,13 @@ text-align:center;
 
 <div class="sticky-player-wrapper">
 <section class="player-container">
+
+<!-- CENTERED PLACEHOLDER -->
 <div id="placeholder">📺</div>
+
 <video id="video" playsinline controls></video>
 <iframe id="iframePlayer" allow="autoplay; fullscreen;"></iframe>
+
 </section>
 
 <div class="ticker">
@@ -210,7 +197,7 @@ text-align:center;
 </div>
 </div>
 
-<main class="main-content">
+<main>
 <div class="title-area">
 <h2 id="current-title">Select Channel & Play</h2>
 </div>
@@ -219,18 +206,6 @@ text-align:center;
 </main>
 
 <script>
-/* REMOVE FIRST FRAME ASAP */
-requestAnimationFrame(()=>{
-const f=document.getElementById('first-frame');
-if(f)f.remove();
-});
-
-/* DELAY TICKER */
-window.addEventListener('load',()=>{
-document.querySelector('.ticker').style.opacity='1';
-});
-
-/* VARIABLES */
 let allCh=[],hlsE=null,scP=null;
 
 const v=document.getElementById('video'),
@@ -272,7 +247,7 @@ v.removeAttribute("src");
 v.load();
 
 ph.style.display='none';
-t.innerText=ch.name;
+t.textContent=ch.name;
 
 v.style.display='none';
 f.style.display='none';
@@ -304,12 +279,12 @@ v.style.display='block';
 }
 }
 
-/* FETCH DATA IMMEDIATELY */
+/* FETCH IMMEDIATELY */
 fetch('channels2.json')
 .then(r=>r.json())
 .then(data=>{
 allCh=data;
-requestAnimationFrame(()=>render(allCh));
+render(allCh);
 });
 
 /* RENDER */

@@ -74,9 +74,9 @@
     <main>
         <div class="title-area"><h2 id="current-title" style="font-size:1.1rem">Select Channel</h2></div>
         <div class="channel-grid" id="channelList" role="list">
-    <div class="channel-card" style="visibility: hidden;"></div>
-    <div class="channel-card" style="visibility: hidden;"></div>
-    <div class="channel-card" style="visibility: hidden;"></div>
+    <div class="channel-card" role="listitem" aria-hidden="true"></div>
+    <div class="channel-card" role="listitem" aria-hidden="true"></div>
+    <div class="channel-card" role="listitem" aria-hidden="true"></div>
         </div>
     </main>
 
@@ -103,14 +103,29 @@
                 render(data);
             });
 
-        function render(data) {
-            const html = data.map(ch => `
-                <div class="channel-card" onclick="playChannel('${btoa(JSON.stringify(ch))}')">
-                    <div class="channel-name">${ch.name}</div>
-                </div>
-            `).join('');
-            dom.list.innerHTML = html;
-        }
+    function render(data) {
+    const fr = document.createDocumentFragment();
+    data.forEach(ch => {
+        const b = document.createElement('div'); 
+        b.className = 'channel-card';
+        
+        // FIX: Add the missing role required by the parent 'list'
+        b.setAttribute('role', 'listitem');
+        
+        // Ensure it's keyboard accessible too
+        b.setAttribute('tabindex', '0');
+        
+        b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+        
+        // Click and Keyboard handlers
+        b.onclick = () => play(ch);
+        b.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
+        
+        fr.appendChild(b);
+    });
+    l.innerHTML = ''; 
+    l.appendChild(fr);
+    }
 
         async function playChannel(encoded) {
             const ch = JSON.parse(atob(encoded));

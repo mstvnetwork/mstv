@@ -6,34 +6,39 @@
     <title>MSTV NETWORK</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; }
-        body { background: var(--bg); color: #fff; font-family: sans-serif; margin: 0; }
+        :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
+        body { background: var(--bg); color: var(--text); font-family: sans-serif; margin: 0; }
         
         .header { padding: 15px; text-align: center; background: #1e293b; border-bottom: 2px solid var(--accent); }
         .brand-name { font-size: 1.6rem; font-weight: 800; color: var(--accent); }
 
-        /* TICKER: No animation by default to keep Render Delay at 0ms */
-        .ticker-wrap { background: #000; padding: 10px 0; overflow: hidden; white-space: nowrap; border-bottom: 1px solid #334155; }
-        .ticker-move { display: inline-block; will-change: transform; }
-        
-        /* This class is ONLY added after 3 seconds */
-        .animate-now { animation: ticker 15s linear infinite; }
-        @keyframes ticker { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
+        /* STATIC NOTE: No animation = 0ms Render Delay */
+        .info-bar { 
+            background: #000; 
+            padding: 12px; 
+            text-align: center; 
+            font-size: 0.9rem; 
+            font-weight: 500; 
+            color: var(--accent);
+            border-bottom: 1px solid #334155;
+            letter-spacing: 0.5px;
+        }
 
         .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
-        
-        /* CLS FIX: Reserve space so the page doesn't jump */
+        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; }
+
+        /* CLS FIX: Reserve space for the grid */
         .channel-grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); 
             gap: 15px; padding: 20px; 
             min-height: 80vh; 
         }
-        .card { background: var(--card); padding: 20px; border-radius: 8px; text-align: center; cursor: pointer; border: 1px solid #334155; font-weight: 600; }
+        .card { background: var(--card); padding: 20px; border-radius: 8px; text-align: center; cursor: pointer; border: 1px solid #334155; font-weight: 600; transition: transform 0.1s; }
+        .card:active { transform: scale(0.95); }
     </style>
 </head>
 <body>
@@ -42,19 +47,15 @@
         <div class="brand-name">MSTV NETWORK</div>
     </header>
 
-    <div class="ticker-wrap">
-        <div class="ticker-move" id="ticker">
-            <span style="padding: 0 40px;">Live Channels</span>
-            <span style="padding: 0 40px;">No Subscription</span>
-            <span style="padding: 0 40px;">High Quality</span>
-        </div>
-    </div>
-
     <main id="main-content">
         <div class="player-box">
-            <div id="placeholder" style="display:flex; height:100%; align-items:center; justify-content:center; font-size:2.5rem;">📺</div>
+            <div id="placeholder">📺</div>
             <video id="video" playsinline controls title="Video Player"></video>
             <iframe id="iframePlayer" title="External Player" allowfullscreen></iframe>
+        </div>
+
+        <div class="info-bar">
+            <span>• Watch Free Live Channels • High Quality Streams • No Subscription •</span>
         </div>
 
         <div id="channelList" class="channel-grid" role="list"></div>
@@ -66,7 +67,7 @@
               l = document.getElementById('channelList');
         let allCh = [];
 
-        // 3. FETCH: Use the preloaded JSON immediately
+        // ATOMIC DATA FETCH
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => {
@@ -81,7 +82,6 @@
                     b.onclick = () => play(ch);
                     fr.appendChild(b);
                 });
-                // ATOMIC SWAP: Sync with browser refresh
                 requestAnimationFrame(() => l.replaceChildren(fr));
             });
 
@@ -106,15 +106,6 @@
             const h = new Hls(); h.loadSource(url); h.attachMedia(v);
             v.style.display = 'block'; v.play();
         }
-
-        // 4. THE 100 SCORE FIX: Delay animation until after LCP measurement
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const tickerEl = document.getElementById('ticker');
-                // Only add the class AFTER the page is fully stable
-                tickerEl.classList.add('animate-now');
-            }, 3000); 
-        });
     </script>
 </body>
 </html>

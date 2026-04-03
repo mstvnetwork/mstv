@@ -3,11 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV NETWORK | AI CORE V3</title>
+    <title>MSTV NETWORK | UNIVERSAL CORE</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-
+    
     <style>
         :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
         
@@ -17,76 +16,73 @@
             margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; 
         }
 
-        /* UI COMPONENTS */
-        .ui-core { z-index: 10; background: var(--bg); flex-shrink: 0; width: 100%; }
+        /* UI HEADER & INFO */
+        .ui-core { z-index: 20; background: var(--bg); flex-shrink: 0; width: 100%; }
         .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--accent); border-bottom: 1px solid #1e293b; }
         .header { padding: 10px; text-align: center; background: #0f172a; }
         .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); }
 
-        /* PLAYER VIEWPORT */
+        /* THE UNIVERSAL 16:9 STAGE */
         .player-viewport { 
-            width: 100%; 
-            aspect-ratio: 16/9; 
+            width: 100%;
+            aspect-ratio: 16 / 9; /* FORCES 16:9 IN PORTRAIT */
             background: #000; 
             position: relative; 
             display: flex;
             align-items: center;
             justify-content: center;
+            flex-shrink: 0;
             overflow: hidden;
+            z-index: 15;
         }
         
-        /* The Video and Iframe must be forced visible */
         video, #iframePlayer { 
             width: 100%; 
             height: 100%; 
             background: #000; 
             object-fit: contain; 
-            z-index: 5;
+            display: none;
+            border: none;
         }
         
-        #placeholder { font-size: 3rem; position: absolute; z-index: 1; }
+        #placeholder { font-size: 3rem; position: absolute; z-index: 1; pointer-events: none; }
 
-        /* SCROLLABLE GRID */
-        main { flex-grow: 1; overflow-y: auto; padding-bottom: 20px; width: 100%; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; padding: 15px; }
+        /* DATA GRID */
+        main { flex-grow: 1; overflow-y: auto; padding-bottom: 20px; width: 100%; background: var(--bg); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 12px; padding: 15px; }
         .card { 
-            background: var(--card); padding: 18px; border-radius: 10px; text-align: center; 
-            border: 1px solid #334155; font-weight: 700; cursor: pointer; font-size: 0.85rem;
+            background: var(--card); padding: 20px; border-radius: 12px; text-align: center; 
+            border: 1px solid #334155; font-weight: 700; cursor: pointer; font-size: 0.9rem;
+            transition: transform 0.1s;
         }
+        .card:active { transform: scale(0.96); }
 
-        /* 🚀 LANDSCAPE ENGINE: THE BLACK SCREEN FIX */
+        /* 🚀 AI LANDSCAPE ENGINE: THE RATIO LOCK */
         @media (orientation: landscape) and (max-height: 500px) {
-            .ui-core, .info-bar, .header, main { display: none !important; }
+            .ui-core, main { display: none !important; }
             
             body { 
                 background: #000; 
-                height: 100vh; 
-                width: 100vw; 
-                display: flex; 
-                align-items: center; 
                 justify-content: center; 
+                align-items: center; 
             }
             
             .player-viewport { 
                 height: 100vh; 
-                width: 100vw; 
-                max-width: 177.78vh; /* 16:9 constraint */
-                aspect-ratio: 16/9;
+                width: auto; /* Width becomes slave to height in landscape */
+                max-width: 100vw;
+                aspect-ratio: 16 / 9; /* RE-ENFORCES 16:9 IN LANDSCAPE */
                 margin: 0 auto;
-                flex-shrink: 0;
             }
             
-            video, #iframePlayer { 
-                display: block !important; 
-                position: relative;
-            }
+            video, #iframePlayer { display: block !important; }
         }
     </style>
 </head>
 <body>
 
     <div class="ui-core">
-        <div class="info-bar">• AI CORE PERFORMANCE •</div>
+        <div class="info-bar">• MSTV NETWORK AI CORE •</div>
         <header class="header"><div class="brand">MSTV NETWORK</div></header>
     </div>
 
@@ -108,42 +104,30 @@
                 this.placeholder.style.display = 'none';
                 this.iframe.style.display = 'none';
                 this.iframe.src = "";
-                
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
                 if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
-                
                 const v = document.querySelector('video');
-                if (v) { 
-                    v.pause(); 
-                    v.removeAttribute('src'); 
-                    v.load(); 
-                    v.remove(); 
-                }
+                if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
             },
 
             spawn() {
                 const v = document.createElement('video');
-                v.playsInline = true; 
-                v.controls = true; 
-                v.autoplay = true;
+                v.playsInline = true; v.controls = true; v.autoplay = true;
+                v.style.display = "block";
                 this.stage.appendChild(v);
                 return v;
             },
 
             async execute(ch) {
-                // HTTP Security Protocol
                 if (ch.url.startsWith('http://') && location.protocol === 'https:') {
                     window.open(ch.url, '_blank'); return;
                 }
-                
                 await this.purge();
-                
                 if (ch.type === 'iframe') {
                     this.iframe.style.display = 'block';
                     this.iframe.src = ch.url;
                 } else {
                     const videoEl = this.spawn();
-                    // Robotic micro-delay to ensure DOM registration
                     requestAnimationFrame(() => {
                         if (ch.url.includes('.mpd')) this.loadShaka(ch.url, videoEl);
                         else this.loadHls(ch.url, videoEl);
@@ -155,12 +139,9 @@
                 const init = () => {
                     if (Hls.isSupported()) {
                         this.hls = new Hls({ lowLatencyMode: true });
-                        this.hls.loadSource(url); 
-                        this.hls.attachMedia(el);
-                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(() => {}));
-                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) { 
-                        el.src = url; 
-                    }
+                        this.hls.loadSource(url); this.hls.attachMedia(el);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(()=>{}));
+                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) { el.src = url; }
                 };
                 this.inject("https://cdn.jsdelivr.net/npm/hls.js@latest", "Hls", init);
             },
@@ -169,25 +150,18 @@
                 const init = async () => {
                     shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
-                    try { 
-                        await this.shaka.load(url); 
-                        el.play().catch(() => {}); 
-                    } catch(e) { console.error(e); }
+                    try { await this.shaka.load(url); el.play().catch(()=>{}); } catch(e) { console.error(e); }
                 };
                 this.inject("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js", "shaka", init);
             },
 
             inject(src, check, cb) {
                 if (window[check]) return cb();
-                const s = document.createElement('script'); 
-                s.src = src; 
-                s.async = true; 
-                s.onload = cb;
+                const s = document.createElement('script'); s.src = src; s.async = true; s.onload = cb;
                 document.head.appendChild(s);
             }
         };
 
-        // --- INSTANT BOOT ---
         (async function() {
             try {
                 const r = await fetch('channels2.json');
@@ -196,13 +170,12 @@
                 const frag = document.createDocumentFragment();
                 data.forEach(ch => {
                     const card = document.createElement('div');
-                    card.className = 'card'; 
-                    card.innerText = ch.name;
+                    card.className = 'card'; card.innerText = ch.name;
                     card.onclick = () => OmniBrain.execute(ch);
                     frag.appendChild(card);
                 });
                 requestAnimationFrame(() => list.replaceChildren(frag));
-            } catch(e) { console.log("Init Failed"); }
+            } catch(e) {}
         })();
     </script>
 </body>

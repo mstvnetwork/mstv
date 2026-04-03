@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Network | Live Indian TV & Punjabi Channels</title>
     
-    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment available on all devices.">
+    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment.">
     <meta name="robots" content="index, follow">
-    
     <link id="canonical-link" rel="canonical" href="">
 
     <link rel="icon" href="/favicon.ico">
@@ -15,8 +14,6 @@
 
     <link rel="preconnect" href="https://cloudflare.com">
     <link rel="preconnect" href="https://jsdelivr.net">
-    
-    <!-- We keep the preload, but the JS will handle the fetch late -->
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
 
     <style>
@@ -31,16 +28,14 @@
 
         .sticky-player-wrapper{position:sticky;top:var(--header-h);background:#000;width:100%;z-index:900}
         .player-container{width:100%;aspect-ratio:16/9;background:#000;position:relative}
-        #placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#000}
-        #video,#iframePlayer{position:absolute;top:0;left:0;width:100%;height:100%;display:none;object-fit:cover}
+        #placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:3rem;background:#000;z-index:1}
+        #video,#iframePlayer{position:absolute;top:0;left:0;width:100%;height:100%;display:none;object-fit:cover;z-index:2}
 
-        /* TICKER: Animation is removed by default to save CPU during first paint */
         .ticker{width:100%;height:var(--ticker-h);background:#D00000;color:#fff;display:flex;align-items:center;overflow:hidden;font-size:0.8rem}
         .ticker-track{display:flex;white-space:nowrap}
         .ticker-animate{animation:ticker-loop 15s linear infinite}
         @keyframes ticker-loop{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 
-        /* LCP OPTIMIZATION: Use 'contain' to isolate the paint task */
         .title-area{padding:20px;text-align:center;contain:paint;}
         #current-title{font-size:1.2rem;font-weight:700}
 
@@ -54,8 +49,9 @@
             contain-intrinsic-size:400px;
         }
 
-        .channel-card{background:#fff;border:1px solid #ddd;border-radius:12px;display:flex;align-items:center;justify-content:center;padding:15px;cursor:pointer}
-        .channel-name{font-size:0.95rem;font-weight:700;text-align:center}
+        .channel-card{background:#fff;border:1px solid #ddd;border-radius:12px;display:flex;align-items:center;justify-content:center;padding:15px;cursor:pointer;transition: transform 0.1s;}
+        .channel-card:active{transform: scale(0.95);}
+        .channel-name{font-size:0.95rem;font-weight:700;text-align:center;pointer-events: none;}
 
         @media (max-width: 900px) and (orientation: landscape) {
             header, .sticky-player-wrapper { position: relative; top: 0; }
@@ -101,10 +97,8 @@
           ph = document.getElementById('placeholder'),
           tk = document.getElementById('tickerTrack');
 
-    // 1. Non-blocking Canonical Link
     document.getElementById('canonical-link').href = window.location.origin + window.location.pathname;
 
-    /* RENDER - Uses requestAnimationFrame to prevent layout thrashing */
     function render(data) {
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
@@ -114,6 +108,7 @@
             s.className = 'channel-name';
             s.textContent = ch.name;
             b.appendChild(s);
+            // Click handler attached directly to the card
             b.onclick = () => play(ch);
             fr.appendChild(b);
         });
@@ -124,14 +119,16 @@
         });
     }
 
-    /* PLAY - Batches all visual writes */
     async function play(ch) {
         if (!ch || !ch.url) return;
+        
+        // Clean up previous instance
         if (hlsE) { hlsE.destroy(); hlsE = null; }
 
+        // Batch visual reset
         requestAnimationFrame(() => {
             v.pause();
-            v.removeAttribute("src");
+            v.src = "";
             v.load();
             ph.style.display = 'none';
             t.textContent = ch.name;
@@ -140,24 +137,42 @@
             f.src = "";
         });
 
+        // Handle Iframe/External links
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block';
-            f.src = ch.url;
+            requestAnimationFrame(() => {
+                f.style.display = 'block';
+                f.src = ch.url;
+            });
             return;
         }
 
+        // Load necessary libraries
         await loadS();
-        // ... (remaining player logic)
+
+        // Handle DASH (.mpd)
         if (ch.url.includes('.mpd')) {
             const p = new shaka.Player(v);
-            try { await p.load(ch.url); v.style.display = 'block'; } catch (e) {}
-        } else if (window.Hls && Hls.isSupported()) {
+            try {
+                await p.load(ch.url);
+                requestAnimationFrame(() => { v.style.display = 'block'; });
+            } catch (e) { console.error('Shaka error', e); }
+        } 
+        // Handle HLS (.m3u8)
+        else if (window.Hls && Hls.isSupported()) {
             hlsE = new Hls({ lowLatencyMode: true });
             hlsE.loadSource(ch.url);
             hlsE.attachMedia(v);
             hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
                 v.play().catch(() => {});
-                v.style.display = 'block';
+                requestAnimationFrame(() => { v.style.display = 'block'; });
+            });
+        }
+        // Native HLS (Safari/iOS)
+        else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+            v.src = ch.url;
+            v.addEventListener('loadedmetadata', () => {
+                v.play().catch(() => {});
+                requestAnimationFrame(() => { v.style.display = 'block'; });
             });
         }
     }
@@ -167,27 +182,31 @@
         scP = new Promise(res => {
             let c = 0;
             const done = () => { if (++c === 2) res(); };
-            const s1 = document.createElement('script'); s1.src = "https://jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; s1.async = true; s1.onload = done;
-            const s2 = document.createElement('script'); s2.src = "https://cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; s2.async = true; s2.onload = () => { window.shaka.polyfill.installAll(); done(); };
+            const s1 = document.createElement('script'); 
+            s1.src = "https://jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
+            s1.async = true; s1.onload = done;
+            const s2 = document.createElement('script'); 
+            s2.src = "https://cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
+            s2.async = true; s2.onload = () => { window.shaka.polyfill.installAll(); done(); };
             document.head.append(s1, s2);
         });
         return scP;
     }
 
-    /* CRITICAL SPEED FIX: Load everything only after the user sees the page */
     window.addEventListener('load', () => {
-        // A. Start ticker after 1 second
-        setTimeout(() => tk.classList.add('ticker-animate'), 1000);
+        // Delay ticker to help LCP paint
+        setTimeout(() => tk.classList.add('ticker-animate'), 1200);
 
-        // B. Fetch channel list after 300ms to clear the LCP paint window
+        // Delay fetch to help LCP paint
         setTimeout(() => {
             fetch('channels2.json')
                 .then(r => r.json())
                 .then(data => {
                     allCh = data;
                     render(allCh);
-                });
-        }, 300);
+                })
+                .catch(err => console.error("Fetch failed", err));
+        }, 400);
     });
 
     document.getElementById('searchInput').oninput = e => {

@@ -6,102 +6,122 @@
     <title>MSTV NETWORK</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
     <style>
-        /* 3. CRITICAL CSS: Inlined to ensure 0ms Render Delay */
         :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
-        body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 0; }
         
-        /* The LCP Target: Static text for instant paint */
+        /* 1. LOCK THE BODY: Prevents the whole page from bouncing */
+        body { 
+            background: var(--bg); 
+            color: var(--text); 
+            font-family: system-ui, sans-serif; 
+            margin: 0; 
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh; /* Full viewport height */
+            overflow: hidden; /* Main body shouldn't scroll */
+        }
+
+        /* 2. STICKY TOP SECTION: Header + Info + Player */
+        .top-section {
+            z-index: 100;
+            background: var(--bg);
+            flex-shrink: 0; /* Prevents this section from squishing */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
         .info-bar { 
             background: #000; 
-            padding: 10px; 
+            padding: 8px; 
             text-align: center; 
-            font-size: 0.85rem; 
+            font-size: 0.8rem; 
             color: var(--accent);
             border-bottom: 1px solid #334155;
-            contain: layout paint; /* Optimization: independent element */
         }
 
-        .header { padding: 15px; text-align: center; background: #1e293b; }
-        .brand-name { font-size: 1.5rem; font-weight: 800; color: var(--accent); }
+        .header { padding: 10px; text-align: center; background: #1e293b; }
+        .brand-name { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
 
-        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; }
+        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; max-height: 40vh; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
-        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; }
+        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2rem; }
 
-        /* 4. CLS FIX: Reserve space so the screen doesn't jump when data arrives */
+        /* 3. SCROLLABLE GRID: Only this part moves */
+        main {
+            flex-grow: 1;
+            overflow-y: auto; /* Enables scrolling for the grid only */
+            -webkit-overflow-scrolling: touch; /* Smooth scroll for mobile */
+            padding-bottom: 20px;
+        }
+
         .channel-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); 
-            gap: 15px; padding: 20px; 
-            min-height: 100vh; 
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); 
+            gap: 12px; 
+            padding: 15px; 
         }
-        .card { background: var(--card); padding: 18px; border-radius: 8px; text-align: center; border: 1px solid #334155; font-weight: 600; cursor: pointer; transition: 0.1s; }
-        .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+
+        .card { 
+            background: var(--card); 
+            padding: 15px; 
+            border-radius: 8px; 
+            text-align: center; 
+            border: 1px solid #334155; 
+            font-weight: 600; 
+            cursor: pointer; 
+            font-size: 0.85rem;
+        }
+        .card:hover { border-color: var(--accent); background: #26344d; }
     </style>
 </head>
 <body>
 
-    <div class="info-bar">
-        <span>• Watch Free Live Channels • High Quality Streams • No Subscription •</span>
-    </div>
+    <div class="top-section">
+        <div class="info-bar">
+            <span>• Watch Free Live Channels • High Quality Streams •</span>
+        </div>
 
-    <header class="header">
-        <div class="brand-name">MSTV NETWORK</div>
-    </header>
+        <header class="header">
+            <div class="brand-name">MSTV NETWORK</div>
+        </header>
 
-    <main id="main-content">
         <div class="player-box">
             <div id="placeholder">📺</div>
             <video id="video" playsinline controls title="Video Player"></video>
             <iframe id="iframePlayer" title="External Content" allowfullscreen></iframe>
         </div>
+    </div>
 
+    <main>
         <div id="channelList" class="channel-grid" role="list"></div>
     </main>
 
     <script>
-        // 7. DEFERRED EXECUTION: Wait for the paint to finish before loading data
+        const v = document.getElementById('video'), 
+              f = document.getElementById('iframePlayer'), 
+              l = document.getElementById('channelList');
+
         window.addEventListener('DOMContentLoaded', () => {
-            const listContainer = document.getElementById('channelList');
-
-            // Fetch uses the 'preloaded' stream from the head
             fetch('channels2.json')
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(data => {
-                    const fragment = document.createDocumentFragment();
-                    
-                    data.forEach(channel => {
-                        const card = document.createElement('div');
-                        card.className = 'card';
-                        card.setAttribute('role', 'listitem');
-                        card.setAttribute('tabindex', '0');
-                        card.innerText = channel.name;
-                        
-                        card.onclick = () => playChannel(channel);
-                        card.onkeydown = (e) => { if(e.key === 'Enter') playChannel(channel); };
-                        
-                        fragment.appendChild(card);
+                    const fr = document.createDocumentFragment();
+                    data.forEach(ch => {
+                        const b = document.createElement('div');
+                        b.className = 'card';
+                        b.setAttribute('role', 'listitem');
+                        b.innerText = ch.name;
+                        b.onclick = () => playChannel(ch);
+                        fr.appendChild(b);
                     });
-
-                    // THE DOUBLE RAF TRICK: Forces browser to paint the 
-                    // static UI before injecting the dynamic grid.
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            listContainer.replaceChildren(fragment);
-                        });
-                    });
+                    requestAnimationFrame(() => l.replaceChildren(fr));
                 });
         });
 
         function playChannel(ch) {
             document.getElementById('placeholder').style.display = 'none';
-            const v = document.getElementById('video');
-            const f = document.getElementById('iframePlayer');
             v.style.display = f.style.display = 'none';
             v.pause(); v.src = "";
 
@@ -109,18 +129,17 @@
                 f.style.display = 'block'; f.src = ch.url;
             } else {
                 v.style.display = 'block';
-                // (HLS/Shaka loading logic goes here)
                 if (!window.Hls) {
                     const s = document.createElement('script');
                     s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-                    s.onload = () => { 
-                        const h = new Hls(); h.loadSource(ch.url); h.attachMedia(v); v.play();
-                    };
+                    s.onload = () => startHls(ch.url);
                     document.head.appendChild(s);
-                } else {
-                    const h = new Hls(); h.loadSource(ch.url); h.attachMedia(v); v.play();
-                }
+                } else { startHls(ch.url); }
             }
+        }
+
+        function startHls(url) {
+            const h = new Hls(); h.loadSource(url); h.attachMedia(v); v.play();
         }
     </script>
 </body>

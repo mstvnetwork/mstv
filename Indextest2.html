@@ -171,16 +171,12 @@
     }
 
     .channel-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-        gap: 15px;
-        padding: 0 15px 40px;
-        /* FIX: Eliminates CLS and keeps SI fast */
-        min-height: 80vh;
-        content-visibility: auto;
-        contain-intrinsic-size: 80vh;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    min-height: 80vh; /* This reserves most of the viewport height immediately */
+    content-visibility: auto;
+    contain-intrinsic-size: 80vh; /* Helps the browser calculate layout without the content */
     }
-
     .channel-card {
         background: #fff; border: 1px solid #ddd; border-radius: 8px;
         padding: 20px 10px; cursor: pointer; text-align: center;
@@ -190,9 +186,12 @@
 
     .channel-name { font-size: 0.9rem; font-weight: 700; color: #333; }
 
-    .site-footer { 
-        background: #111419; color: #fff; padding: 40px 20px; 
-        content-visibility: auto; contain-intrinsic-size: 150px;
+    .site-footer {
+    contain: layout; /* Isolates the footer from the layout of the rest of the page */
+    margin-top: 50px;
+    background: #111419;
+    /* Ensure the footer has a defined height or padding that doesn't change */
+    padding: 60px 20px; 
     }
 
     
@@ -228,7 +227,7 @@
         <div class="channel-card" role="listitem" aria-hidden="true">Loading...</div>
     </div>
 </main>
-<script>
+         <script>
     // 1. GLOBAL SCOPE: Define variables but don't assign DOM elements yet
     let allCh = [], hlsE = null, scP = null;
     let v, f, l, t, ph, ld, sI;
@@ -327,54 +326,13 @@
     }
 
     async function play(ch) {
-    if (!ch || !ch.url) return;
-    
-    // 1. Reset Visibility
-    v.classList.add('hidden');
-    f.classList.add('hidden');
-    ph.style.display = 'flex'; // Show placeholder while loading
-    
-    if (ch.url.startsWith('http://')) { 
-        window.open(ch.url, '_blank', 'noopener'); 
-        return; 
-    }
-
-    // 2. Cleanup previous
-    if (hlsE) { hlsE.destroy(); hlsE = null; }
-    v.pause();
-    v.src = "";
-    v.load();
-
-    // 3. UI Update
-    t.innerText = ch.name;
-    window.scrollTo({ top: 0, behavior: 'instant' });
-
-    if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-        f.src = ch.url; 
-        f.classList.remove('hidden');
-        ph.style.display = 'none'; // Hide placeholder immediately for iframes
-    } else {
-        await loadS(); // Load HLS/Shaka libraries
+        if (!ch || !ch.url) return;
         
-        if (ch.url.includes('.mpd')) {
-            const p = new shaka.Player(v);
-            try { 
-                await p.load(ch.url); 
-                v.classList.remove('hidden'); // SHOW VIDEO
-                ph.style.display = 'none';    // HIDE PLACEHOLDER
-            } catch (e) { console.error("Shaka error", e); }
-        } else if (window.Hls && Hls.isSupported()) {
-            hlsE = new Hls({ enableWorker: true }); 
-            hlsE.loadSource(ch.url); 
-            hlsE.attachMedia(v);
-            hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                v.play();
-                v.classList.remove('hidden'); // SHOW VIDEO
-                ph.style.display = 'none';    // HIDE PLACEHOLDER
-            });
+        // Handle external HTTP links
+        if (ch.url.startsWith('http://')) { 
+            window.open(ch.url, '_blank', 'noopener,noreferrer'); 
+            return; 
         }
-    }
-    }
 
         // Cleanup previous streams
         if (hlsE) { hlsE.destroy(); hlsE = null; }
@@ -429,6 +387,7 @@
             videoEl.addEventListener('canplay', () => { if(ld) ld.style.display = 'none'; });
         }
     });
-</script>
+                  </script>
+
     </body>
 </html>

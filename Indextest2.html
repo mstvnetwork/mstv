@@ -18,104 +18,158 @@
 
         /* STICKY TOP SECTION */
         .top-section { z-index: 100; background: var(--bg); flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.8rem; color: var(--accent); border-bottom: 1px solid #334155; }
-        .header { padding: 10px; text-align: center; background: #1e293b; }
-        .brand-name { font-size: 1.3rem; font-weight: 800; color: var(--accent); }
+        
+        .info-bar { 
+            background: #000; padding: 10px; text-align: center; font-size: 0.85rem; 
+            color: var(--accent); border-bottom: 1px solid #334155; 
+        }
+        
+        .header { padding: 12px; text-align: center; background: #1e293b; }
+        .brand-name { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
 
-        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; }
+        /* PLAYER BOX */
+        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; overflow: hidden; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
-        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2rem; }
+        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; }
 
         /* SCROLLABLE GRID */
-        main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 20px; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 12px; padding: 15px; }
-        .card { background: var(--card); padding: 15px; border-radius: 8px; text-align: center; border: 1px solid #334155; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+        main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 30px; }
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; padding: 20px; }
+        .card { 
+            background: var(--card); padding: 20px; border-radius: 10px; text-align: center; 
+            border: 1px solid #334155; font-weight: 600; cursor: pointer; transition: 0.2s; 
+        }
+        .card:hover { border-color: var(--accent); background: #2d3a4f; transform: translateY(-2px); }
 
-        /* MOBILE LANDSCAPE OPTIMIZATION */
-        @media (pseudo-class: landscape) and (max-height: 500px) {
-            .info-bar, .header { display: none; } /* Hide text to save space */
-            .top-section { height: 100vh; } /* Make player section full height */
-            .player-box { height: 100vh; aspect-ratio: auto; } /* Force video to fill screen */
-            body { overflow: auto; } /* Allow scrolling away if needed */
+        /* MOBILE LANDSCAPE MODE: Forced Full-Screen Video */
+        @media (orientation: landscape) and (max-height: 500px) {
+            .info-bar, .header, main { display: none !important; }
+            .top-section, .player-box, #video, #iframePlayer {
+                height: 100vh !important;
+                width: 100vw !important;
+                position: fixed;
+                top: 0;
+                left: 0;
+                z-index: 9999;
+            }
         }
     </style>
 </head>
 <body>
 
     <div class="top-section">
-        <div class="info-bar"><span>• Watch Free Live Channels • High Quality Streams •</span></div>
-        <header class="header"><div class="brand-name">MSTV NETWORK</div></header>
-        <div class="player-box">
+        <div class="info-bar">
+            <span>• Watch Free Live Channels • High Quality Streams • No Subscription •</span>
+        </div>
+        <header class="header">
+            <div class="brand-name">MSTV NETWORK</div>
+        </header>
+        <div class="player-box" id="playerContainer">
             <div id="placeholder">📺</div>
-            <video id="video" playsinline controls title="Video Player"></video>
-            <iframe id="iframePlayer" title="External Content" allowfullscreen></iframe>
+            <video id="video" playsinline controls></video>
+            <iframe id="iframePlayer" allowfullscreen title="External Player"></iframe>
         </div>
     </div>
 
-    <main><div id="channelList" class="channel-grid" role="list"></div></main>
+    <main>
+        <div id="channelList" class="channel-grid" role="list"></div>
+    </main>
 
     <script>
         let hlsInst = null, shakaInst = null;
-        const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), l = document.getElementById('channelList');
+        const listEl = document.getElementById('channelList');
+        const iframe = document.getElementById('iframePlayer');
 
-        // 1. DATA LOAD
+        // 1. ATOMIC LOAD: Get channels from preloaded JSON
         fetch('channels2.json').then(r => r.json()).then(data => {
-            const fr = document.createDocumentFragment();
+            const frag = document.createDocumentFragment();
             data.forEach(ch => {
-                const b = document.createElement('div'); b.className = 'card'; b.innerText = ch.name;
-                b.onclick = () => playChannel(ch); fr.appendChild(b);
+                const b = document.createElement('div');
+                b.className = 'card'; b.innerText = ch.name; b.onclick = () => playChannel(ch);
+                frag.appendChild(b);
             });
-            requestAnimationFrame(() => l.replaceChildren(fr));
+            requestAnimationFrame(() => listEl.replaceChildren(frag));
         });
 
-        // 2. CLEAN SWITCHING (Fixes Audio Conflict)
-        async function stopPlayers() {
+        // 2. THE NUCLEAR RESET: Deletes and recreates video element to kill ghost audio
+        function resetHardwarePlayer() {
+            const container = document.getElementById('playerContainer');
+            const oldVideo = document.getElementById('video');
+            
+            // Cleanup engine instances
             if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
-            if (shakaInst) { await shakaInst.destroy(); shakaInst = null; }
-            v.pause(); v.src = ""; v.load(); // Full buffer flush
+            if (shakaInst) { shakaInst.destroy(); shakaInst = null; }
+
+            // Create a fresh video tag
+            const newVideo = document.createElement('video');
+            newVideo.id = 'video';
+            newVideo.playsInline = true;
+            newVideo.controls = true;
+            newVideo.style.display = 'block';
+            
+            // Cleanly remove the old one
+            if (oldVideo) {
+                oldVideo.pause();
+                oldVideo.src = "";
+                oldVideo.load();
+                oldVideo.remove();
+            }
+            
+            container.appendChild(newVideo);
+            return newVideo;
         }
 
         async function playChannel(ch) {
             document.getElementById('placeholder').style.display = 'none';
-            await stopPlayers();
-            v.style.display = f.style.display = 'none';
+            iframe.style.display = 'none';
+            iframe.src = "";
 
             if (ch.type === 'iframe') {
-                f.style.display = 'block'; f.src = ch.url;
+                const v = document.getElementById('video');
+                if (v) v.style.display = 'none';
+                iframe.style.display = 'block';
+                iframe.src = ch.url;
             } else {
-                v.style.display = 'block';
+                // Recreate the player to ensure NO background audio
+                const v = resetHardwarePlayer();
+                
                 if (ch.url.includes('.mpd')) {
-                    loadShaka(ch.url);
+                    loadEngine('shaka', ch.url, v);
                 } else {
-                    loadHls(ch.url);
+                    loadEngine('hls', ch.url, v);
                 }
             }
         }
 
-        // 3. PLAYER ENGINES
-        function loadHls(url) {
-            if (!window.Hls) {
+        // 3. DYNAMIC ENGINE LOADER
+        function loadEngine(type, url, videoEl) {
+            const scripts = {
+                hls: "https://cdn.jsdelivr.net/npm/hls.js@latest",
+                shaka: "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"
+            };
+
+            const libName = type === 'hls' ? 'Hls' : 'shaka';
+
+            if (!window[libName]) {
                 const s = document.createElement('script');
-                s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-                s.onload = () => { hlsInst = new Hls(); hlsInst.loadSource(url); hlsInst.attachMedia(v); v.play(); };
+                s.src = scripts[type];
+                s.onload = () => initEngine(type, url, videoEl);
                 document.head.appendChild(s);
             } else {
-                hlsInst = new Hls(); hlsInst.loadSource(url); hlsInst.attachMedia(v); v.play();
+                initEngine(type, url, videoEl);
             }
         }
 
-        async function loadShaka(url) {
-            if (!window.shaka) {
-                const s = document.createElement('script');
-                s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-                s.onload = () => initShaka(url);
-                document.head.appendChild(s);
-            } else { initShaka(url); }
-        }
-
-        async function initShaka(url) {
-            shakaInst = new shaka.Player(v);
-            try { await shakaInst.load(url); v.play(); } catch(e) { console.error(e); }
+        function initEngine(type, url, videoEl) {
+            if (type === 'hls') {
+                hlsInst = new Hls();
+                hlsInst.loadSource(url);
+                hlsInst.attachMedia(videoEl);
+                hlsInst.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play());
+            } else {
+                shakaInst = new shaka.Player(videoEl);
+                shakaInst.load(url).then(() => videoEl.play()).catch(console.error);
+            }
         }
     </script>
 </body>

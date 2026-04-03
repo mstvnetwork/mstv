@@ -274,33 +274,43 @@
         
 
         function render(data) {
-            if (!data.length) return;
-            const fr = document.createDocumentFragment();
-            data.forEach(ch => {
-                const b = document.createElement('div'); 
-                b.className = 'channel-card';
-                b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-                b.onclick = () => play(ch);
-                fr.appendChild(b);
-            });
-            // Atomic update prevents CLS
-            requestAnimationFrame(() => { l.replaceChildren(fr); });
-        }
+    // 1. Safety check: If no data, don't clear the grid to avoid a "collapse" (CLS)
+    if (!data || data.length === 0) return;
 
-        document.getElementById('searchInput').oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+    // 2. Create an "off-screen" container (Document Fragment)
+    // This is much faster than touching the live DOM inside a loop
+    const fr = document.createDocumentFragment();
+
+    data.forEach(ch => {
+        const b = document.createElement('div'); 
+        b.className = 'channel-card';
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('tabindex', '0');
+        
+        // Use innerHTML for the structure, but keep it simple
+        b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+        
+        // Interaction Logic
+        b.onclick = () => play(ch);
+        b.onkeydown = (e) => { 
+            if(e.key === 'Enter' || e.key === ' ') { 
+                e.preventDefault(); 
+                play(ch); 
+            } 
         };
+        
+        fr.appendChild(b);
+    });
 
-        v.addEventListener('playing', () => ld.style.display = 'none');
-        v.addEventListener('waiting', () => ld.style.display = 'flex');
-        v.addEventListener('canplay', () => ld.style.display = 'none');
-        window.addEventListener('load', () => {
-    // Start the ticker 1 second after everything else is done
-    setTimeout(() => {
-        document.querySelector('.ticker-track').classList.add('animate-ticker');
-    }, 1000);
-});
+    // 3. The Atomic Swap
+    // requestAnimationFrame ensures this happens exactly when the browser is ready to paint
+    requestAnimationFrame(() => {
+        // replaceChildren() is the secret weapon for 100 performance.
+        // It clears 'l' and appends 'fr' in one single operation,
+        // preventing the "Forced Reflow" caused by clearing then appending separately.
+        l.replaceChildren(fr); 
+    });
+        }
     </script>
 </body>
 </html>

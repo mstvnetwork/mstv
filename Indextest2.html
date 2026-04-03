@@ -2,71 +2,81 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV NETWORK | Master Build</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MSTV NETWORK | AI PERFORMANCE CORE</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 
     <style>
-        :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
+        /* 2. ATOMIC CSS: Minimal footprint for instant LCP */
+        :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
         
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body { 
-            background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; 
+            background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; 
             margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; 
         }
 
-        /* STICKY UI */
-        .top-section { z-index: 100; background: var(--bg); flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        .info-bar { background: #000; padding: 10px; text-align: center; font-size: 0.85rem; color: var(--accent); border-bottom: 1px solid #334155; }
-        .header { padding: 12px; text-align: center; background: #1e293b; }
-        .brand-name { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
+        /* STICKY INTERFACE */
+        .ui-core { z-index: 100; background: var(--bg); flex-shrink: 0; border-bottom: 1px solid #1e293b; }
+        .info-bar { background: #000; padding: 10px; text-align: center; font-size: 0.8rem; color: var(--accent); font-weight: 500; }
+        .header { padding: 12px; text-align: center; background: #0f172a; }
+        .brand { font-size: 1.4rem; font-weight: 900; letter-spacing: -0.5px; color: var(--accent); }
 
-        /* PLAYER */
-        .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; overflow: hidden; }
+        /* NEURAL PLAYER BOX */
+        .player-viewport { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; overflow: hidden; }
         #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
-        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; position: absolute; width: 100%; z-index: 1; }
+        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 3rem; position: absolute; width: 100%; z-index: 1; }
         video { width: 100%; height: 100%; display: block; background: #000; position: relative; z-index: 2; }
 
-        /* SCROLLABLE GRID */
-        main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 30px; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; padding: 20px; }
-        .card { background: var(--card); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #334155; font-weight: 600; cursor: pointer; transition: 0.2s; }
-        .card:hover { border-color: var(--accent); background: #2d3a4f; transform: translateY(-2px); }
+        /* DATA GRID - GPU ACCELERATED SCROLLING */
+        main { flex-grow: 1; overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; padding: 15px; }
+        .card { 
+            background: var(--card); padding: 20px; border-radius: 12px; text-align: center; 
+            border: 1px solid #334155; font-weight: 700; cursor: pointer; transition: 0.15s cubic-bezier(0.4, 0, 0.2, 1); 
+            font-size: 0.9rem; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+        .card:active { transform: scale(0.95); border-color: var(--accent); }
 
-        /* LANDSCAPE FIX */
+        /* 3. AI LANDSCAPE ENHANCEMENT: Auto-morphic Viewport */
         @media (orientation: landscape) and (max-height: 500px) {
-            .info-bar, .header, main { display: none !important; }
-            .top-section, .player-box, video, #iframePlayer { height: 100vh !important; width: 100vw !important; position: fixed; top: 0; left: 0; z-index: 9999; }
+            .ui-core, main { display: none !important; }
+            .player-viewport, video, #iframePlayer {
+                height: 100vh !important; width: 100vw !important;
+                position: fixed; top: 0; left: 0; z-index: 9999;
+            }
         }
     </style>
 </head>
 <body>
 
-    <div class="top-section">
-        <div class="info-bar"><span>• Watch Free Live Channels • High Quality Streams •</span></div>
-        <header class="header"><div class="brand-name">MSTV NETWORK</div></header>
-        <div class="player-box" id="playerContainer">
+    <div class="ui-core">
+        <div class="info-bar">LIVE NETWORK • ULTRA LOW LATENCY • AI ENHANCED</div>
+        <header class="header"><div class="brand">MSTV NETWORK</div></header>
+        <div class="player-viewport" id="stage">
             <div id="placeholder">📺</div>
-            <iframe id="iframePlayer" allowfullscreen title="External Player"></iframe>
+            <iframe id="iframePlayer" allowfullscreen></iframe>
         </div>
     </div>
 
-    <main><div id="channelList" class="channel-grid" role="list"></div></main>
+    <main id="scroller">
+        <div id="channelList" class="grid" role="list"></div>
+    </main>
 
     <script>
         /**
-         * THE SMART ROBOTIC BRAIN
-         * Handles protocol security, hardware resets, and engine switching.
+         * THE OMNI-BRAIN CONTROLLER
+         * Automates memory management, protocol switching, and performance boosting.
          */
-        const PlayerBrain = {
-            hls: null,
-            shaka: null,
-            container: document.getElementById('playerContainer'),
+        const OmniBrain = {
+            hls: null, shaka: null, 
+            stage: document.getElementById('stage'),
             iframe: document.getElementById('iframePlayer'),
             placeholder: document.getElementById('placeholder'),
 
-            // STEP 1: Full Hardware & Memory Wipe
+            // STEP 1: THE PURGE (Memory & Audio Sanitization)
             async purge() {
                 this.placeholder.style.display = 'none';
                 this.iframe.style.display = 'none';
@@ -75,29 +85,24 @@
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
                 if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
 
-                const oldV = document.querySelector('video');
-                if (oldV) {
-                    oldV.pause();
-                    oldV.removeAttribute('src'); 
-                    oldV.load(); // Flush Buffer
-                    oldV.remove(); // Kill DOM element
+                const v = document.querySelector('video');
+                if (v) {
+                    v.pause(); v.removeAttribute('src'); v.load(); v.remove();
                 }
             },
 
-            // STEP 2: Create sterile environment
-            spawnVideo() {
+            // STEP 2: ATOMIC SPAWN (Hardware-level Reset)
+            spawn() {
                 const v = document.createElement('video');
-                v.playsInline = true;
-                v.controls = true;
-                v.autoplay = true;
-                this.container.appendChild(v);
+                v.playsInline = true; v.controls = true; v.autoplay = true;
+                this.stage.appendChild(v);
                 return v;
             },
 
-            // STEP 3: Smart Protocol Detection
-            async boot(ch) {
-                // SONY PAL FIX: If insecure HTTP link on HTTPS site, open in new tab
-                if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
+            // STEP 3: PROTOCOL INTELLIGENCE
+            async execute(ch) {
+                // HTTP Security Protocol Detection
+                if (ch.url.startsWith('http://') && location.protocol === 'https:') {
                     window.open(ch.url, '_blank');
                     return;
                 }
@@ -107,71 +112,69 @@
                 if (ch.type === 'iframe') {
                     this.iframe.style.display = 'block';
                     this.iframe.src = ch.url;
-                } 
-                else {
-                    const videoEl = this.spawnVideo();
-                    
-                    // Delay slightly to let DOM register the new element
+                } else {
+                    const videoEl = this.spawn();
+                    // Micro-task delay for DOM stability
                     requestAnimationFrame(() => {
-                        // STAR PLUS FIX: Default to HLS unless explicitly .mpd
-                        if (ch.url.includes('.mpd')) {
-                            this.initShaka(ch.url, videoEl);
-                        } else {
-                            this.initHls(ch.url, videoEl);
-                        }
+                        if (ch.url.includes('.mpd')) this.loadShaka(ch.url, videoEl);
+                        else this.loadHls(ch.url, videoEl);
                     });
                 }
             },
 
-            // ENGINE: HLS.js (For .m3u8 and Star Plus)
-            initHls(url, el) {
-                const setup = () => {
+            // STEP 4: JUST-IN-TIME (JIT) ENGINE LOADING
+            loadHls(url, el) {
+                const init = () => {
                     if (Hls.isSupported()) {
-                        this.hls = new Hls();
-                        this.hls.loadSource(url);
-                        this.hls.attachMedia(el);
-                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(e => console.log("Blocked")));
+                        this.hls = new Hls({ capLevelToPlayerSize: true, lowLatencyMode: true });
+                        this.hls.loadSource(url); this.hls.attachMedia(el);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play());
                     } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
-                        el.src = url; // Native iOS support
+                        el.src = url;
                     }
                 };
-                if (!window.Hls) {
-                    const s = document.createElement('script');
-                    s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-                    s.onload = setup;
-                    document.head.appendChild(s);
-                } else { setup(); }
+                this.injectScript("https://cdn.jsdelivr.net/npm/hls.js@latest", "Hls", init);
             },
 
-            // ENGINE: Shaka (For DASH .mpd)
-            async initShaka(url, el) {
-                const setup = async () => {
+            loadShaka(url, el) {
+                const init = async () => {
                     shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
                     try { await this.shaka.load(url); el.play(); } catch(e) { console.error(e); }
                 };
-                if (!window.shaka) {
-                    const s = document.createElement('script');
-                    s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-                    s.onload = setup;
-                    document.head.appendChild(s);
-                } else { await setup(); }
+                this.injectScript("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js", "shaka", init);
+            },
+
+            injectScript(src, check, cb) {
+                if (window[check]) return cb();
+                const s = document.createElement('script');
+                s.src = src; s.async = true; s.onload = cb;
+                document.head.appendChild(s);
             }
         };
 
-        // LOAD DATA
-        fetch('channels2.json').then(r => r.json()).then(data => {
-            const list = document.getElementById('channelList');
-            const frag = document.createDocumentFragment();
-            data.forEach(ch => {
-                const card = document.createElement('div');
-                card.className = 'card';
-                card.innerText = ch.name;
-                card.onclick = () => PlayerBrain.boot(ch);
-                frag.appendChild(card);
-            });
-            list.replaceChildren(frag);
-        });
+        // --- BRAIN DATA HYDRATION ---
+        (async function bootSystem() {
+            try {
+                const r = await fetch('channels2.json');
+                const data = await r.json();
+                const list = document.getElementById('channelList');
+                const frag = document.createDocumentFragment();
+
+                data.forEach(ch => {
+                    const card = document.createElement('div');
+                    card.className = 'card';
+                    card.innerText = ch.name;
+                    card.onclick = () => OmniBrain.execute(ch);
+                    frag.appendChild(card);
+                });
+
+                // Atomic Render: Paint all cards in a single browser frame
+                requestAnimationFrame(() => list.replaceChildren(frag));
+            } catch (e) {
+                console.error("System Boot Failure", e);
+            }
+        })();
     </script>
 </body>
 </html>

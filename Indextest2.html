@@ -3,74 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV NETWORK | Performance Edition</title>
+    <title>MSTV NETWORK | Final Stable</title>
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-
+    
     <style>
         :root { --bg: #0f172a; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
-        
-        body { 
-            background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; 
-            margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; 
-        }
-
-        /* STICKY TOP SECTION */
+        body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
         .top-section { z-index: 100; background: var(--bg); flex-shrink: 0; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
         .info-bar { background: #000; padding: 10px; text-align: center; font-size: 0.85rem; color: var(--accent); border-bottom: 1px solid #334155; }
         .header { padding: 12px; text-align: center; background: #1e293b; }
         .brand-name { font-size: 1.4rem; font-weight: 800; color: var(--accent); }
-
-        /* PLAYER CONTAINER */
         .player-box { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; overflow: hidden; }
         #iframePlayer { width: 100%; height: 100%; display: none; border: none; }
-        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; }
-        video { width: 100%; height: 100%; display: block; }
-
-        /* SCROLLABLE GRID */
+        #placeholder { display: flex; height: 100%; align-items: center; justify-content: center; font-size: 2.5rem; position: absolute; width: 100%; }
+        video { width: 100%; height: 100%; display: block; background: #000; }
         main { flex-grow: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding-bottom: 30px; }
         .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; padding: 20px; }
-        .card { 
-            background: var(--card); padding: 20px; border-radius: 10px; text-align: center; 
-            border: 1px solid #334155; font-weight: 600; cursor: pointer; transition: 0.2s; 
-        }
-        .card:hover { border-color: var(--accent); background: #2d3a4f; transform: translateY(-2px); }
-
-        /* LANDSCAPE OVERRIDE: Full-screen video on mobile tilt */
+        .card { background: var(--card); padding: 20px; border-radius: 10px; text-align: center; border: 1px solid #334155; font-weight: 600; cursor: pointer; }
+        
         @media (orientation: landscape) and (max-height: 500px) {
             .info-bar, .header, main { display: none !important; }
-            .top-section, .player-box, video, #iframePlayer {
-                height: 100vh !important; width: 100vw !important;
-                position: fixed; top: 0; left: 0; z-index: 9999;
-            }
+            .top-section, .player-box, video, #iframePlayer { height: 100vh !important; width: 100vw !important; position: fixed; top: 0; left: 0; z-index: 9999; }
         }
     </style>
 </head>
 <body>
 
     <div class="top-section">
-        <div class="info-bar">
-            <span>• Watch Free Live Channels • High Quality Streams • No Subscription •</span>
-        </div>
-        <header class="header">
-            <div class="brand-name">MSTV NETWORK</div>
-        </header>
+        <div class="info-bar"><span>• Watch Free Live Channels • High Quality Streams •</span></div>
+        <header class="header"><div class="brand-name">MSTV NETWORK</div></header>
         <div class="player-box" id="playerContainer">
             <div id="placeholder">📺</div>
             <iframe id="iframePlayer" allowfullscreen title="External Player"></iframe>
         </div>
     </div>
 
-    <main>
-        <div id="channelList" class="channel-grid" role="list"></div>
-    </main>
+    <main><div id="channelList" class="channel-grid" role="list"></div></main>
 
     <script>
-        /**
-         * THE ROBOTIC BRAIN (State Manager)
-         * Purpose: Manages the lifecycle of video engines to prevent audio/memory conflicts.
-         */
         const PlayerBrain = {
             hls: null,
             shaka: null,
@@ -78,91 +49,89 @@
             iframe: document.getElementById('iframePlayer'),
             placeholder: document.getElementById('placeholder'),
 
-            // 1. THE PURGE: Forcefully kills old instances and hardware buffers
             async purge() {
                 this.placeholder.style.display = 'none';
                 this.iframe.style.display = 'none';
                 this.iframe.src = "";
 
-                if (this.hls) {
-                    this.hls.destroy();
-                    this.hls = null;
-                }
-                if (this.shaka) {
-                    await this.shaka.destroy();
-                    this.shaka = null;
-                }
+                if (this.hls) { this.hls.destroy(); this.hls = null; }
+                if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
 
-                // Find any existing video tag and delete it from existence
                 const oldV = document.querySelector('video');
                 if (oldV) {
                     oldV.pause();
-                    oldV.src = "";
-                    oldV.load(); // Wipes hardware buffer
-                    oldV.remove(); // Removes from DOM entirely
+                    oldV.removeAttribute('src'); 
+                    oldV.load();
+                    oldV.remove();
                 }
             },
 
-            // 2. THE REBIRTH: Creates a brand new, clean video element
             spawnVideo() {
                 const v = document.createElement('video');
                 v.playsInline = true;
                 v.controls = true;
-                v.id = "video";
+                v.autoplay = true; // Auto-trigger playback
                 this.container.appendChild(v);
                 return v;
             },
 
-            // 3. THE TRIGGER: Detects type and boots the engine
             async boot(channel) {
                 await this.purge();
 
-                if (ch.type === 'iframe') {
+                if (channel.type === 'iframe') {
                     this.iframe.style.display = 'block';
-                    this.iframe.src = ch.url;
+                    this.iframe.src = channel.url;
                 } else {
                     const videoEl = this.spawnVideo();
-                    if (ch.url.includes('.mpd')) {
-                        this.initShaka(ch.url, videoEl);
-                    } else {
-                        this.initHls(ch.url, videoEl);
-                    }
+                    
+                    // THE CRITICAL FIX: Wait for the DOM to acknowledge the new video element
+                    requestAnimationFrame(() => {
+                        if (channel.url.includes('.mpd')) {
+                            this.initShaka(channel.url, videoEl);
+                        } else {
+                            this.initHls(channel.url, videoEl);
+                        }
+                    });
                 }
             },
 
-            // 4. ENGINE INITIALIZERS (Dynamic Script Loading)
             initHls(url, el) {
-                const start = () => {
-                    this.hls = new Hls();
-                    this.hls.loadSource(url);
-                    this.hls.attachMedia(el);
-                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play());
+                const setup = () => {
+                    if (Hls.isSupported()) {
+                        this.hls = new Hls();
+                        this.hls.loadSource(url);
+                        this.hls.attachMedia(el);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(e => console.log("Autoplay blocked")));
+                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
+                        el.src = url; // Native Safari support
+                    }
                 };
                 
                 if (!window.Hls) {
                     const s = document.createElement('script');
                     s.src = "https://cdn.jsdelivr.net/npm/hls.js@latest";
-                    s.onload = start;
+                    s.onload = setup;
                     document.head.appendChild(s);
-                } else { start(); }
+                } else { setup(); }
             },
 
             async initShaka(url, el) {
-                const start = async () => {
+                const setup = async () => {
+                    shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
-                    try { await this.shaka.load(url); el.play(); } catch(e) { console.error(e); }
+                    try { await this.shaka.load(url); el.play().catch(e => console.log("Autoplay blocked")); } catch(e) { console.error(e); }
                 };
 
                 if (!window.shaka) {
                     const s = document.createElement('script');
                     s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-                    s.onload = start;
+                    s.onload = setup;
                     document.head.appendChild(s);
-                } else { start(); }
+                } else { await setup(); }
             }
         };
 
-        // --- DATA LAYER ---
+        // Load data and setup clicks
         fetch('channels2.json').then(r => r.json()).then(data => {
             const list = document.getElementById('channelList');
             const frag = document.createDocumentFragment();
@@ -170,11 +139,10 @@
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.innerText = ch.name;
-                // Robotic Brain handles the click
-                card.onclick = () => { ch = ch; PlayerBrain.boot(ch); };
+                card.onclick = () => PlayerBrain.boot(ch);
                 frag.appendChild(card);
             });
-            requestAnimationFrame(() => list.replaceChildren(frag));
+            list.replaceChildren(frag);
         });
     </script>
 </body>

@@ -42,7 +42,7 @@
     <main><div id="channelList" class="channel-grid" role="list"></div></main>
 
     <script>
-        const PlayerBrain = {
+           const PlayerBrain = {
             hls: null,
             shaka: null,
             container: document.getElementById('playerContainer'),
@@ -70,26 +70,38 @@
                 const v = document.createElement('video');
                 v.playsInline = true;
                 v.controls = true;
-                v.autoplay = true; // Auto-trigger playback
+                v.autoplay = true;
                 this.container.appendChild(v);
                 return v;
             },
 
-            async boot(channel) {
+            async boot(ch) {
+                // RULE 1: Handle "Sony Pal" style HTTP links
+                // If it's HTTP and our site is HTTPS, we MUST open in a new window
+                if (ch.url.startsWith('http://') && window.location.protocol === 'https:') {
+                    window.open(ch.url, '_blank');
+                    return; // Stop here, don't trigger the player
+                }
+
                 await this.purge();
 
-                if (channel.type === 'iframe') {
+                // RULE 2: Handle Iframe types
+                if (ch.type === 'iframe') {
                     this.iframe.style.display = 'block';
-                    this.iframe.src = channel.url;
-                } else {
+                    this.iframe.src = ch.url;
+                } 
+                else {
                     const videoEl = this.spawnVideo();
                     
-                    // THE CRITICAL FIX: Wait for the DOM to acknowledge the new video element
                     requestAnimationFrame(() => {
-                        if (channel.url.includes('.mpd')) {
-                            this.initShaka(channel.url, videoEl);
-                        } else {
-                            this.initHls(channel.url, videoEl);
+                        // RULE 3: Improved Engine Detection for "Star Plus"
+                        // If it's DASH (.mpd)
+                        if (ch.url.includes('.mpd')) {
+                            this.initShaka(ch.url, videoEl);
+                        } 
+                        // Default to HLS (covers .m3u8 and redirector links like Star Plus)
+                        else {
+                            this.initHls(ch.url, videoEl);
                         }
                     });
                 }
@@ -101,9 +113,15 @@
                         this.hls = new Hls();
                         this.hls.loadSource(url);
                         this.hls.attachMedia(el);
-                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(e => console.log("Autoplay blocked")));
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(e => {
+                            console.log("Autoplay blocked, user must click play");
+                        }));
+                        // Error handling for "Star Plus" style failures
+                        this.hls.on(Hls.Events.ERROR, (event, data) => {
+                            if (data.fatal) console.error("HLS Fatal Error:", data.type);
+                        });
                     } else if (el.canPlayType('application/vnd.apple.mpegurl')) {
-                        el.src = url; // Native Safari support
+                        el.src = url;
                     }
                 };
                 
@@ -119,7 +137,10 @@
                 const setup = async () => {
                     shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
-                    try { await this.shaka.load(url); el.play().catch(e => console.log("Autoplay blocked")); } catch(e) { console.error(e); }
+                    try { 
+                        await this.shaka.load(url); 
+                        el.play().catch(e => console.log("DASH Autoplay blocked")); 
+                    } catch(e) { console.error("Shaka Error:", e); }
                 };
 
                 if (!window.shaka) {
@@ -130,20 +151,6 @@
                 } else { await setup(); }
             }
         };
-
-        // Load data and setup clicks
-        fetch('channels2.json').then(r => r.json()).then(data => {
-            const list = document.getElementById('channelList');
-            const frag = document.createDocumentFragment();
-            data.forEach(ch => {
-                const card = document.createElement('div');
-                card.className = 'card';
-                card.innerText = ch.name;
-                card.onclick = () => PlayerBrain.boot(ch);
-                frag.appendChild(card);
-            });
-            list.replaceChildren(frag);
-        });
     </script>
 </body>
 </html>

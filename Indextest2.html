@@ -183,52 +183,93 @@
 </div>
 
 <script>
-    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), ph = document.getElementById('placeholder'), 
+ const v = document.getElementById('video'), 
+          f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          ph = document.getElementById('placeholder'), 
           ld = document.getElementById('loader');
     
-    let allCh = [], hlsE = null, libLoaded = false;
+    let allCh = [], hlsE = null, shakaP = null;
 
-    // Load Streaming Library only when needed (0ms TBT)
-    async function loadHls() {
-        if (libLoaded) return;
+    // Engine 1: HLS (m3u8) - Loaded only on demand
+    async function initHls() {
+        if (window.Hls) return;
         return new Promise(res => {
             const s = document.createElement('script');
             s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
             s.async = true;
-            s.onload = () => { libLoaded = true; res(); };
+            s.onload = res;
+            document.head.appendChild(s);
+        });
+    }
+
+    // Engine 2: Shaka (DASH/mpd) - Loaded only on demand
+    async function initShaka() {
+        if (window.shaka) return;
+        return new Promise(res => {
+            const s = document.createElement('script');
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
+            s.async = true;
+            s.onload = () => { window.shaka.polyfill.installAll(); res(); };
             document.head.appendChild(s);
         });
     }
 
     async function play(ch) {
+        // --- PHASE 1: THE HARD DESTROY (Stops Background Audio) ---
+        v.pause();
+        v.muted = true; // Immediate silence
+        
+        if (hlsE) { hlsE.destroy(); hlsE = null; }
+        if (shakaP) { await shakaP.destroy(); shakaP = null; }
+        
+        f.src = ""; // Kill iframe audio
+        v.src = ""; // Clear video buffer
+        v.load();   // Force hardware release
+        
+        // --- PHASE 2: UI PREP (0 CLS) ---
         ld.style.display = 'flex';
         ph.style.display = 'none';
         v.style.display = f.style.display = 'none';
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
 
-        if (ch.type === 'iframe') {
-            f.src = ch.url; f.style.display = 'block';
+        // --- PHASE 3: ON-DEMAND ENGINE START ---
+        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+            f.src = ch.url;
+            f.style.display = 'block';
             f.onload = () => ld.style.display = 'none';
-        } else {
-            await loadHls();
+        } 
+        else if (ch.url.includes('.mpd')) {
+            await initShaka();
+            shakaP = new shaka.Player(v);
+            try {
+                await shakaP.load(ch.url);
+                v.muted = false;
+                v.style.display = 'block';
+                v.play();
+                ld.style.display = 'none';
+            } catch (e) { ld.style.display = 'none'; }
+        } 
+        else if (ch.url.includes('.m3u8')) {
+            await initHls();
             if (Hls.isSupported()) {
                 hlsE = new Hls({ capLevelToPlayerSize: true, lowLatencyMode: true });
                 hlsE.loadSource(ch.url);
                 hlsE.attachMedia(v);
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
-                    v.style.display = 'block'; v.play(); ld.style.display = 'none';
+                    v.muted = false;
+                    v.style.display = 'block';
+                    v.play();
+                    ld.style.display = 'none';
                 });
             }
         }
         window.scrollTo({top: 0, behavior: 'instant'});
     }
 
-    // High Priority Fetch
+    // --- REMAINDER OF LOGIC (Fetch & Render) ---
     fetch('channels2.json', { priority: 'high' })
         .then(r => r.json())
-        .then(data => { allCh = data; render(allCh); })
-        .catch(() => {});
+        .then(data => { allCh = data; render(allCh); });
 
     function render(data) {
         const frag = document.createDocumentFragment();
@@ -247,6 +288,5 @@
         render(allCh.filter(c => c.name.toLowerCase().includes(t)));
     };
 </script>
-
 </body>
 </html>

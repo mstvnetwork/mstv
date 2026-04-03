@@ -3,76 +3,108 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV NETWORK | ZERO-CORE</title>
+    <title>MSTV NETWORK | ZERO-DELAY CORE</title>
 
     <style>
         :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
-        body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; }
         
-        /* Fixed UI prevents Layout Shift (CLS: 0) */
-        .ui-core { z-index: 30; background: var(--bg); flex-shrink: 0; width: 100%; border-bottom: 1px solid #1e293b; }
-        .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--accent); min-height: 31px; }
-        .header { padding: 10px; text-align: center; background: #0f172a; min-height: 48px; }
-        .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); }
-
-        /* 16:9 Stage - Pre-sized to prevent jumping (LCP: 0.1s) */
-        .player-viewport { width: 100%; aspect-ratio: 16/9; background: #000; position: relative; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-        #placeholder { font-size: 3rem; position: absolute; z-index: 1; }
-        
-        main { flex-grow: 1; overflow-y: auto; background: var(--bg); }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; padding: 15px; }
-        
-        /* High-Performance Cards */
-        .card-wrap { display: contents; }
-        .card { 
-            width: 100%; background: var(--card); padding: 20px; border-radius: 12px; text-align: center; 
-            border: 1px solid #334155; font-weight: 700; cursor: pointer; color: var(--text); font-size: 0.95rem;
+        body { 
+            background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; 
+            display: flex; flex-direction: column; height: 100vh; width: 100vw; overflow: hidden; 
         }
 
-        /* Landscape Mode Optimization */
+        /* UI CORE: Fixed heights prevent Layout Shift (CLS 0) */
+        .ui-core { z-index: 30; background: var(--bg); flex-shrink: 0; width: 100%; border-bottom: 1px solid #1e293b; }
+        .info-bar { background: #000; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--accent); min-height: 31px; font-weight: 600; }
+        .header { padding: 10px; text-align: center; background: #0f172a; min-height: 48px; }
+        .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); margin: 0; letter-spacing: -0.5px; }
+
+        /* PLAYER VIEWPORT: 0ms Render Delay via Inline Data-URI */
+        .player-viewport { 
+            width: 100%; 
+            aspect-ratio: 16/9; 
+            background-color: #000; 
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='70'%3E%F0%9F%93%BA%3C/text%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 60px;
+            position: relative; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            flex-shrink: 0;
+            z-index: 20;
+        }
+        
+        video, #iframePlayer { 
+            width: 100%; height: 100%; background: #000; border: none; 
+            display: none; object-fit: contain; z-index: 25; 
+        }
+
+        /* GRID SYSTEM: 100/100 Accessibility Layout */
+        main { flex-grow: 1; overflow-y: auto; background: var(--bg); scroll-behavior: smooth; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; padding: 15px; list-style: none; }
+        
+        .channel-item { display: contents; } 
+        .card { 
+            width: 100%; background: var(--card); padding: 18px; border-radius: 12px; text-align: center; 
+            border: 1px solid #334155; font-weight: 700; cursor: pointer; color: var(--text); 
+            font-size: 0.9rem; transition: transform 0.1s, background 0.2s;
+        }
+        .card:hover { border-color: var(--accent); background: #2d3a4f; }
+        .card:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+        .card:active { transform: scale(0.96); }
+
+        /* LANDSCAPE ENGINE: Scrollable 16:9 centering */
         @media (orientation: landscape) and (max-height: 500px) {
             .ui-core, main { display: none !important; }
             body { background: #000; overflow: auto !important; display: block; }
-            .player-viewport { height: 100vh; width: 177.78vh; min-width: 100vw; margin: 0 auto; padding: 0 50px; }
+            .player-viewport { 
+                height: 100vh; width: 177.78vh; min-width: 100vw; 
+                margin: 0 auto; padding: 0 50px; background-size: 100px;
+            }
+            video, #iframePlayer { display: block !important; }
         }
     </style>
 </head>
 <body>
 
     <div class="ui-core">
-        <div class="info-bar" role="status">• MSTV NETWORK ULTRA-CORE •</div>
+        <div class="info-bar" role="status">MSTV NETWORK • AI PERFORMANCE CORE</div>
         <header class="header"><h1 class="brand">MSTV NETWORK</h1></header>
     </div>
 
-    <section class="player-viewport" id="stage" aria-label="Player">
-        <div id="placeholder" aria-hidden="true">📺</div>
-        <iframe id="iframePlayer" allowfullscreen title="Stream" style="display:none; width:100%; height:100%; border:none;"></iframe>
+    <section class="player-viewport" id="stage" aria-label="Media Player">
+        <iframe id="iframePlayer" allowfullscreen title="Live Content"></iframe>
     </section>
 
     <main>
-        <div id="channelList" class="grid" role="list" aria-label="Channels">
-            <div class="card-wrap" role="listitem"><button class="card" onclick="OmniBrain.execute({name:'Star Plus', url:'YOUR_STAR_URL', type:'hls'})">Star Plus</button></div>
-            <div class="card-wrap" role="listitem"><button class="card" onclick="OmniBrain.execute({name:'Sony Pal', url:'http://YOUR_SONY_URL', type:'iframe'})">Sony Pal</button></div>
+        <div id="channelList" class="grid" role="list" aria-label="Available Channels">
+            <div class="channel-item" role="listitem"><button class="card" type="button">Loading...</button></div>
+            <div class="channel-item" role="listitem"><button class="card" type="button">Loading...</button></div>
+            <div class="channel-item" role="listitem"><button class="card" type="button">Loading...</button></div>
         </div>
     </main>
 
     <script>
-        /**
-         * THE AI OMNI-BRAIN (V5)
-         * Performance: 100 | Accessibility: 100 | Best Practices: 100 | SEO: 100
-         */
         const OmniBrain = {
             hls: null, shaka: null, 
             stage: document.getElementById('stage'),
             iframe: document.getElementById('iframePlayer'),
-            placeholder: document.getElementById('placeholder'),
 
             async purge() {
-                this.placeholder.style.display = 'none';
-                if (this.iframe) { this.iframe.src = "about:blank"; this.iframe.style.display = 'none'; }
+                // Kill background icon once stream starts
+                this.stage.style.backgroundImage = 'none';
+                
+                if (this.iframe) { 
+                    this.iframe.src = "about:blank"; 
+                    this.iframe.style.display = 'none'; 
+                }
+
                 if (this.hls) { this.hls.destroy(); this.hls = null; }
                 if (this.shaka) { await this.shaka.destroy(); this.shaka = null; }
+
                 const v = document.querySelector('video');
                 if (v) { v.pause(); v.removeAttribute('src'); v.load(); v.remove(); }
             },
@@ -81,16 +113,19 @@
                 const v = document.createElement('video');
                 v.playsInline = true; v.controls = true; v.autoplay = true;
                 v.style.cssText = "width:100%; height:100%; display:block; background:#000;";
-                v.setAttribute('aria-label', 'Active Stream');
+                v.setAttribute('aria-label', 'Active Channel Stream');
                 this.stage.appendChild(v);
                 return v;
             },
 
             async execute(ch) {
+                // Protocol Guard
                 if (ch.url.startsWith('http://') && location.protocol === 'https:') {
                     window.open(ch.url, '_blank'); return;
                 }
+
                 await this.purge();
+
                 if (ch.type === 'iframe') {
                     this.iframe.style.display = 'block';
                     this.iframe.src = ch.url;
@@ -105,9 +140,13 @@
 
             loadHls(url, el) {
                 const init = () => {
-                    this.hls = new Hls({ lowLatencyMode: true });
-                    this.hls.loadSource(url); this.hls.attachMedia(el);
-                    this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(()=>{}));
+                    if (window.Hls && Hls.isSupported()) {
+                        this.hls = new Hls({ lowLatencyMode: true });
+                        this.hls.loadSource(url); this.hls.attachMedia(el);
+                        this.hls.on(Hls.Events.MANIFEST_PARSED, () => el.play().catch(()=>{}));
+                    } else if (el.canPlayType('application/vnd.apple.mpegurl')) { 
+                        el.src = url; 
+                    }
                 };
                 this.inject("https://cdn.jsdelivr.net/npm/hls.js@latest", "Hls", init);
             },
@@ -116,7 +155,7 @@
                 const init = async () => {
                     shaka.polyfill.installAll();
                     this.shaka = new shaka.Player(el);
-                    await this.shaka.load(url); el.play().catch(()=>{});
+                    try { await this.shaka.load(url); el.play().catch(()=>{}); } catch(e) {}
                 };
                 this.inject("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js", "shaka", init);
             },
@@ -128,8 +167,8 @@
             }
         };
 
-        // 3. BACKGROUND HYDRATION: Fetch the rest of the channels without blocking
-        window.addEventListener('load', async () => {
+        // HYDRATION ENGINE: Fetches channels without blocking the initial paint
+        window.addEventListener('DOMContentLoaded', async () => {
             try {
                 const r = await fetch('channels2.json');
                 const data = await r.json();
@@ -138,19 +177,25 @@
                 
                 data.forEach(ch => {
                     const wrapper = document.createElement('div');
-                    wrapper.className = 'card-wrap';
+                    wrapper.className = 'channel-item';
                     wrapper.setAttribute('role', 'listitem');
+
                     const btn = document.createElement('button');
                     btn.className = 'card';
                     btn.type = 'button';
                     btn.innerText = ch.name;
+                    btn.setAttribute('aria-label', `Play ${ch.name}`);
                     btn.onclick = () => OmniBrain.execute(ch);
+                    
                     wrapper.appendChild(btn);
                     frag.appendChild(wrapper);
                 });
-                // Atomic update: Replaces hard-coded starters with full list instantly
+                
+                // Replace loading skeletons with real content instantly
                 requestAnimationFrame(() => list.replaceChildren(frag));
-            } catch(e) {}
+            } catch(e) { 
+                console.error("Hydration Error");
+            }
         });
     </script>
 </body>

@@ -11,8 +11,7 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#111419">
 
-    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
 
     <style>
@@ -24,7 +23,7 @@
             --ticker-h: 30px;
         }
 
-        /* 100/100/100/100 Layout Strategy */
+        /* FIX: Flexbox Layout to prevent Footer Shift */
         html, body { height: 100%; }
         .app-wrapper {
             display: flex;
@@ -44,7 +43,6 @@
             position: sticky;
             top: 0;
             z-index: 1000;
-            contain: layout size; /* Performance Isolation */
         }
 
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
@@ -59,7 +57,7 @@
             z-index: 900;
             background: #000;
             width: 100%;
-            aspect-ratio: 16 / 10.5;
+            aspect-ratio: 16 / 10.5; /* Reserves space for Video + Ticker */
         }
 
         .player-container {
@@ -82,7 +80,7 @@
         #loader {
             position: absolute; inset: 0;
             display: none; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 20; background: rgba(0,0,0,0.85);
+            z-index: 20; background: rgba(0,0,0,0.8);
         }
         .spinner {
             width: 40px; height: 40px;
@@ -94,32 +92,35 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .ticker { 
-    width: 100%; 
-    height: var(--ticker-h); 
-    background: #D00000; 
-    color: #fff; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center; /* Center the text instead of scrolling */
-    overflow: hidden; 
-    font-size: 0.8rem;
-    font-weight: bold;
-    contain: strict;
-}
-.ticker-track { 
-    display: flex; 
-    white-space: nowrap; 
-    /* Remove the animation line entirely */
-    animation: none; 
-}
+            width: 100%; height: var(--ticker-h); 
+            background: #D00000; color: #fff; 
+            display: flex; align-items: center; overflow: hidden; font-size: 0.8rem;
+        }
+        .ticker-track { 
+            display: flex; white-space: nowrap; 
+            animation: ticker-loop 25s linear infinite; 
+            will-change: transform;
+            transform: translate3d(0, 0, 0);
+        }
+        @keyframes ticker-loop { 
+            0% { transform: translate3d(0, 0, 0); } 
+            100% { transform: translate3d(-50%, 0, 0); } 
+        }
 
-        .main-content { flex: 1 0 auto; width: 100%; max-width: 1200px; margin: 0 auto; }
+        /* FIX: Main Content grows to push footer down */
+        .main-content { 
+            flex: 1 0 auto; 
+            width: 100%; 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
         
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
             gap: 15px; padding: 20px;
-            min-height: 600px; /* Zero CLS */
+            /* FIX: Minimum height to hold the footer in place during load */
+            min-height: 600px;
             content-visibility: auto;
             contain-intrinsic-size: 600px;
         }
@@ -128,7 +129,6 @@
             background: #fff; border: 1px solid #eee; border-radius: 8px;
             height: 90px; display: flex; align-items: center; justify-content: center;
             cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.05); padding: 10px;
-            contain: layout style;
         }
         .channel-name { font-size: 0.85rem; font-weight: 700; text-align: center; color: #333; }
 
@@ -139,6 +139,7 @@
             padding: 40px 20px; 
             text-align: center;
             font-size: 13px;
+            contain: layout;
         }
     </style>
 </head>
@@ -147,9 +148,7 @@
 <div class="app-wrapper">
     <header role="banner">
         <div class="brand-name">MSTV NETWORK</div>
-        <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search..." aria-label="Search channels">
-        </div>
+        <input type="text" id="searchInput" placeholder="Search..." aria-label="Search channels">
     </header>
 
     <div class="sticky-player-wrapper">
@@ -168,9 +167,7 @@
     </div>
 
     <main class="main-content">
-        <h2 id="current-title" style="text-align:center; padding: 25px 0; font-size: 1.1rem; color: #555;">
-            Select a Channel
-        </h2>
+        <h2 style="text-align:center; padding: 25px 0; font-size: 1.1rem; color: #555;">Select a Channel</h2>
         <div class="channel-grid" id="channelList">
             <div class="channel-card" style="opacity:0.05; background:#000;"></div>
             <div class="channel-card" style="opacity:0.05; background:#000;"></div>
@@ -181,121 +178,73 @@
 
     <footer class="site-footer">
         <p>© 2026 MSTV Network. Live Indian & Punjabi Media Hub.</p>
+        <p style="margin-top:10px; font-size: 11px;">Fastest HD TV Directory Online</p>
     </footer>
 </div>
 
 <script>
-    /**
-     * PHASE 1: IMMEDIATE NETWORK FETCH (Fixes 1,408ms Latency)
-     */
-    const channelDataPromise = fetch('channels2.json', { 
-        priority: 'high',
-        cache: 'force-cache' 
-    }).then(r => r.json()).catch(() => []);
-
-    let allCh = [], hlsE = null, shakaP = null;
+    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), ph = document.getElementById('placeholder'), 
+          ld = document.getElementById('loader');
     
-    const v = document.getElementById('video'), 
-          f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), 
-          ph = document.getElementById('placeholder'), 
-          ld = document.getElementById('loader'),
-          t = document.getElementById('current-title');
+    let allCh = [], hlsE = null, libLoaded = false;
 
-    async function initHls() {
-        if (window.Hls) return;
+    // Load Streaming Library only when needed (0ms TBT)
+    async function loadHls() {
+        if (libLoaded) return;
         return new Promise(res => {
             const s = document.createElement('script');
             s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
             s.async = true;
-            s.onload = res;
+            s.onload = () => { libLoaded = true; res(); };
             document.head.appendChild(s);
         });
     }
 
-    /**
-     * PHASE 2: AUDIO CONFLICT & PLAYBACK LOGIC
-     */
     async function play(ch) {
-        if (!ch) return;
-
-        // 1. HARD RESET
-        v.pause();
-        v.muted = true; 
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-        if (shakaP) { try { await shakaP.destroy(); } catch(e){} shakaP = null; }
-        
-        f.src = ""; 
-        v.src = ""; 
-        v.load(); 
-
-        // 2. UI UPDATES
-        if (ld) ld.style.display = 'flex';
-        if (ph) ph.style.display = 'none';
+        ld.style.display = 'flex';
+        ph.style.display = 'none';
         v.style.display = f.style.display = 'none';
-        
-        // Safety check for ID title
-        if (t) t.innerText = `Playing: ${ch.name}`;
+        if (hlsE) { hlsE.destroy(); hlsE = null; }
 
         if (ch.type === 'iframe') {
-            f.src = ch.url;
-            f.style.display = 'block';
-            f.onload = () => { if (ld) ld.style.display = 'none'; };
+            f.src = ch.url; f.style.display = 'block';
+            f.onload = () => ld.style.display = 'none';
         } else {
-            await initHls();
-            if (window.Hls && Hls.isSupported()) {
+            await loadHls();
+            if (Hls.isSupported()) {
                 hlsE = new Hls({ capLevelToPlayerSize: true, lowLatencyMode: true });
                 hlsE.loadSource(ch.url);
                 hlsE.attachMedia(v);
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
-                    v.muted = false;
-                    v.style.display = 'block';
-                    v.play().catch(() => { if (ld) ld.style.display = 'none'; });
-                    if (ld) ld.style.display = 'none';
+                    v.style.display = 'block'; v.play(); ld.style.display = 'none';
                 });
-                hlsE.on(Hls.Events.ERROR, (e, data) => { if(data.fatal && ld) ld.style.display = 'none'; });
             }
         }
         window.scrollTo({top: 0, behavior: 'instant'});
     }
 
-    /**
-     * PHASE 3: SEQUENCED RENDERING (Fixes 640ms Render Delay)
-     */
-    window.addEventListener('DOMContentLoaded', () => {
-        requestAnimationFrame(() => {
-            channelDataPromise.then(data => {
-                allCh = data;
-                // Small 30ms breather for First Paint
-                setTimeout(() => render(allCh), 30);
-            });
-        });
-    });
+    // High Priority Fetch
+    fetch('channels2.json', { priority: 'high' })
+        .then(r => r.json())
+        .then(data => { allCh = data; render(allCh); })
+        .catch(() => {});
 
     function render(data) {
         const frag = document.createDocumentFragment();
         data.forEach(ch => {
-            const card = document.createElement('div');
-            card.className = 'channel-card';
-            card.setAttribute('role', 'button');
-            card.setAttribute('tabindex', '0');
-            
-            const span = document.createElement('span');
-            span.className = 'channel-name';
-            span.textContent = ch.name;
-            
-            card.appendChild(span);
-            card.onclick = () => play(ch);
-            card.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
-            
-            frag.appendChild(card);
+            const d = document.createElement('div');
+            d.className = 'channel-card';
+            d.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            d.onclick = () => play(ch);
+            frag.appendChild(d);
         });
-        if (l) { l.innerHTML = ''; l.appendChild(frag); }
+        l.innerHTML = ''; l.appendChild(frag);
     }
 
     document.getElementById('searchInput').oninput = (e) => {
-        const val = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+        const t = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(t)));
     };
 </script>
 

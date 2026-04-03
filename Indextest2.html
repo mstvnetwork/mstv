@@ -155,10 +155,14 @@
 
     <div class="sticky-player-wrapper">
         <div class="player-container">
-            <div id="placeholder">📺</div>
-            <div id="loader"><div class="spinner"></div></div>
-            <video id="video" playsinline controls></video>
-            <iframe id="iframePlayer" frameborder="0" allowfullscreen></iframe>
+    <div id="placeholder">📺</div>
+    <div id="loader"><div class="spinner"></div></div>
+    
+    <video id="video" playsinline controls>
+        <track kind="captions" src="" srclang="en" label="Live Captions">
+    </video>
+    
+    <iframe id="iframePlayer" title="Channel Player" frameborder="0" allowfullscreen></iframe>
         </div>
         <div class="ticker">
             <div class="ticker-track">
@@ -210,37 +214,60 @@
         }
 
         async function play(ch) {
-            if (!ch || !ch.url) return;
-            
-            // 1. READ: Handle external links
-            if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
+    if (!ch || !ch.url) return;
+    
+    // 1. Handle external non-embeddable links
+    if (ch.url.startsWith('http://')) { 
+        window.open(ch.url, '_blank', 'noopener,noreferrer'); 
+        return; 
+    }
 
-            // 2. WRITE: Atomic Cleanup & State
-            window.scrollTo({ top: 0, behavior: 'auto' });
-            if (hlsE) { hlsE.destroy(); hlsE = null; }
-            v.pause(); v.src = ""; v.load();
+    // 2. Clean up previous streams and reset scroll
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    if (hlsE) { hlsE.destroy(); hlsE = null; }
+    v.pause(); v.src = ""; v.load();
 
-            requestAnimationFrame(async () => {
-                ph.style.display = 'none';
-                ld.style.display = 'flex'; 
-                t.innerText = ch.name;
-                v.style.display = f.style.display = 'none'; 
-                f.src = "";
-                
-                if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                    f.style.display = 'block'; f.src = ch.url; f.onload = () => ld.style.display = 'none';
-                } else {
-                    await loadS(); 
-                    if (ch.url.includes('.mpd')) {
-                        const p = new shaka.Player(v);
-                        try { await p.load(ch.url); v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
-                    } else if (window.Hls && Hls.isSupported()) {
-                        hlsE = new Hls({ enableWorker: true }); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                        hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(() => {}); v.style.display = 'block'; ld.style.display = 'none'; });
-                    }
+    // 3. Batch all UI changes in one frame to prevent Reflow
+    requestAnimationFrame(async () => {
+        ph.style.display = 'none';
+        ld.style.display = 'flex'; 
+        t.innerText = ch.name;
+        v.style.display = f.style.display = 'none'; 
+        f.src = "";
+        
+        // --- START ACCESSIBILITY & LOADING LOGIC ---
+        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+            // FIX: Set title BEFORE setting src to help Screen Readers
+            f.title = "Video Player: " + ch.name; 
+            f.style.display = 'block'; 
+            f.src = ch.url; 
+            f.onload = () => ld.style.display = 'none';
+        } else {
+            // HLS/Dash Loading Logic
+            await loadS(); 
+            if (ch.url.includes('.mpd')) {
+                const p = new shaka.Player(v);
+                try { 
+                    await p.load(ch.url); 
+                    v.style.display = 'block'; 
+                } catch (e) { 
+                    ld.style.display = 'none'; 
                 }
-            });
+            } else if (window.Hls && Hls.isSupported()) {
+                hlsE = new Hls({ enableWorker: true }); 
+                hlsE.loadSource(ch.url); 
+                hlsE.attachMedia(v);
+                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                    v.play().catch(() => {}); 
+                    v.style.display = 'block'; 
+                    ld.style.display = 'none'; 
+                });
+            }
         }
+        // --- END ACCESSIBILITY & LOADING LOGIC ---
+    });
+        }
+        
 
         function render(data) {
             if (!data.length) return;

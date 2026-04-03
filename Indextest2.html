@@ -82,168 +82,80 @@
     <footer>
         <p>© 2026 MSTV Network. Live Media Hub.</p>
     </footer>
+<script>
+        // High Performance JS: Use RequestAnimationFrame and optimized fetching
+        const state = { all: [], hls: null, shaka: null };
+        const dom = {
+            list: document.getElementById('channelList'),
+            v: document.getElementById('video'),
+            f: document.getElementById('iframePlayer'),
+            t: document.getElementById('current-title'),
+            ph: document.getElementById('placeholder')
+        };
 
-                <script>
-    // 1. GLOBAL SCOPE: Define variables but don't assign DOM elements yet
-    let allCh = [], hlsE = null, scP = null;
-    let v, f, l, t, ph, ld, sI;
-
-    // 2. INITIALIZATION: Run as soon as DOM is interactive
-    document.addEventListener('DOMContentLoaded', () => {
-        // Assign DOM elements to variables
-        v = document.getElementById('video');
-        f = document.getElementById('iframePlayer');
-        l = document.getElementById('channelList');
-        t = document.getElementById('current-title');
-        ph = document.getElementById('placeholder');
-        ld = document.getElementById('loader');
-        sI = document.getElementById('searchInput');
-
-        // Initial Data Fetch
+        // Load JSON immediately
         fetch('channels2.json')
             .then(r => r.json())
-            .then(data => { 
-                allCh = data; 
-                render(allCh); 
-            })
-            .catch(e => console.warn("Initial fetch failed:", e));
+            .then(data => {
+                state.all = data;
+                render(data);
+            });
 
-        // Search Listener
-        if(sI) {
-            sI.oninput = (e) => {
-                const term = e.target.value.toLowerCase();
-                render(allCh.filter(c => c.name.toLowerCase().includes(term)));
-            };
+        function render(data) {
+            const html = data.map(ch => `
+                <div class="channel-card" onclick="playChannel('${btoa(JSON.stringify(ch))}')">
+                    <div class="channel-name">${ch.name}</div>
+                </div>
+            `).join('');
+            dom.list.innerHTML = html;
         }
 
-        // Delayed Analytics to protect Speed Index
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const s = document.createElement('script'); 
-                s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; 
+        async function playChannel(encoded) {
+            const ch = JSON.parse(atob(encoded));
+            dom.t.innerText = ch.name;
+            dom.ph.classList.add('hidden');
+            
+            // Clean up previous
+            if(state.hls) state.hls.destroy();
+            dom.v.classList.add('hidden');
+            dom.f.classList.add('hidden');
+            dom.f.src = "";
+
+            if (ch.type === 'iframe') {
+                dom.f.src = ch.url;
+                dom.f.classList.remove('hidden');
+            } else {
+                await loadPlayers();
+                dom.v.classList.remove('hidden');
+                initHls(ch.url);
+            }
+            window.scrollTo({top: 0, behavior: 'smooth'});
+        }
+
+        function loadPlayers() {
+            if (window.Hls) return Promise.resolve();
+            return new Promise(res => {
+                const s = document.createElement('script');
+                s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
+                s.onload = res;
                 document.head.appendChild(s);
-            }, 4000);
-        });
-    });
-
-    // 3. RENDER ENGINE: Optimized for Accessibility & Performance
-    function render(data) {
-        if (!l) return; // Guard against ReferenceError
-        
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div'); 
-            b.className = 'channel-card';
-            
-            // Fix Accessibility (Role + Tabindex)
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
-            
-            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            
-            // Event Listeners
-            b.onclick = () => play(ch);
-            b.onkeydown = (e) => { 
-                if(e.key === 'Enter' || e.key === ' ') { 
-                    e.preventDefault(); 
-                    play(ch); 
-                } 
-            };
-            
-            fr.appendChild(b);
-        });
-        
-        l.innerHTML = ''; 
-        l.appendChild(fr);
-    }
-
-    // 4. PLAYER ENGINE: Lazy-loads heavy libraries
-    function loadS() {
-        if (scP) return scP;
-        scP = new Promise(res => {
-            let count = 0;
-            const done = () => { if (++count === 2) res(); };
-            
-            const s1 = document.createElement('script'); 
-            s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
-            s1.async = true; s1.crossOrigin = "anonymous"; s1.onload = done;
-            
-            const s2 = document.createElement('script'); 
-            s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
-            s2.async = true; s2.crossOrigin = "anonymous"; s2.onload = () => { 
-                window.shaka.polyfill.installAll(); 
-                done(); 
-            };
-            
-            document.head.append(s1, s2);
-        });
-        return scP;
-    }
-
-    async function play(ch) {
-        if (!ch || !ch.url) return;
-        
-        // Handle external HTTP links
-        if (ch.url.startsWith('http://')) { 
-            window.open(ch.url, '_blank', 'noopener,noreferrer'); 
-            return; 
+            });
         }
 
-        // Cleanup previous streams
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-        v.pause();
-        v.src = ""; 
-        v.load();
-
-        // UI Updates
-        if (ph) ph.style.display = 'none';
-        if (ld) ld.style.display = 'flex'; 
-        if (t) t.innerText = ch.name;
-        
-        v.style.display = 'none';
-        f.style.display = 'none';
-        f.src = "";
-        
-        window.scrollTo({ top: 0, behavior: 'instant' });
-
-        // Logic switch: Iframe vs Stream
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; 
-            f.src = ch.url; 
-            f.onload = () => { if(ld) ld.style.display = 'none'; };
-        } else {
-            await loadS(); 
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v);
-                try { 
-                    await p.load(ch.url); 
-                    v.style.display = 'block'; 
-                } catch (e) { 
-                    if(ld) ld.style.display = 'none'; 
-                }
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls({ enableWorker: true, lowLatencyMode: true }); 
-                hlsE.loadSource(ch.url); 
-                hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(() => { if(ld) ld.style.display = 'none'; }); 
-                    v.style.display = 'block'; 
-                });
+        function initHls(url) {
+            if (Hls.isSupported()) {
+                state.hls = new Hls();
+                state.hls.loadSource(url);
+                state.hls.attachMedia(dom.v);
+                state.hls.on(Hls.Events.MANIFEST_PARSED, () => dom.v.play());
             }
         }
-    }
 
-    // Video Event Listeners for Loader UI
-    document.addEventListener('DOMContentLoaded', () => {
-        const videoEl = document.getElementById('video');
-        if(videoEl) {
-            videoEl.addEventListener('playing', () => { if(ld) ld.style.display = 'none'; });
-            videoEl.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
-            videoEl.addEventListener('canplay', () => { if(ld) ld.style.display = 'none'; });
-        }
-    });
-                
+        // Search optimization
+        document.getElementById('searchInput').oninput = (e) => {
+            const val = e.target.value.toLowerCase();
+            render(state.all.filter(c => c.name.toLowerCase().includes(val)));
+        };
     </script>
 </body>
 </html>

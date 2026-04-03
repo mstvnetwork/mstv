@@ -34,18 +34,33 @@
         }
 
         header {
-            height: var(--header-h);
-            background: var(--bg-dark);
-            display: flex; 
-            align-items: center; 
-            justify-content: space-between;
-            padding: 0 15px;
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
+    height: var(--header-h);
+    background: var(--bg-dark);
+    display: flex; 
+    align-items: center; 
+    justify-content: space-between;
+    padding: 0 15px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    /* FIX: The Magic Bullet for Render Delay */
+    contain: layout size style; 
+    content-visibility: visible;
+}
+    header {
+    /* ... existing styles ... */
+    contain: layout size; /* This is the key to 0ms Render Delay */
+    }
 
-        .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
+.brand-name { 
+    font-size: 1.25rem; 
+    font-weight: 800; 
+    color: var(--accent); 
+    /* FIX: Force this element into its own GPU layer */
+    will-change: opacity; 
+    transform: translateZ(0); 
+}
+        
         .search-container { flex: 0.6; max-width: 200px; }
         #searchInput {
             width: 100%; padding: 12px 15px; border-radius: 20px;
@@ -357,6 +372,19 @@
         const t = e.target.value.toLowerCase();
         render(allCh.filter(c => c.name.toLowerCase().includes(t)));
     };
+    // Wrap your initial fetch in a requestAnimationFrame
+window.addEventListener('DOMContentLoaded', () => {
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            fetch('channels2.json', { priority: 'high' })
+                .then(r => r.json())
+                .then(data => { 
+                    allCh = data; 
+                    render(allCh); 
+                });
+        }, 50); // A 50ms "breather" for the CPU to paint the Brand Name
+    });
+});
 </script>
 </body>
 </html>

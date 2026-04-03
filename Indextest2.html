@@ -15,24 +15,22 @@
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-
-    <style>
+<style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
             --bg-dark: #111419;
             --accent: #2ECC71;
             --header-h: 70px;
             --ticker-h: 30px;
+            --max-width: 800px;
         }
 
-        /* FIX: Flexbox Layout to prevent Footer Shift */
-        html, body { height: 100%; }
-        .app-wrapper {
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
-            background: #F8F9FA;
+        body {
             font-family: system-ui, -apple-system, sans-serif;
+            background: #F8F9FA;
+            color: #212529;
+            line-height: 1.5;
+            overflow-x: hidden;
         }
 
         header {
@@ -48,8 +46,9 @@
         }
 
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
+        .search-container { flex: 0.6; max-width: 200px; }
         #searchInput {
-            width: 100%; max-width: 180px; padding: 8px 15px; border-radius: 20px;
+            width: 100%; padding: 12px 15px; border-radius: 20px;
             border: 1px solid #444; background: #1A1D20; color: #fff; font-size: 16px;
         }
 
@@ -59,105 +58,160 @@
             z-index: 900;
             background: #000;
             width: 100%;
-            aspect-ratio: 16 / 10.5; /* Reserves space for Video + Ticker */
-        }
-
-        .player-container {
-            width: 100%;
-            aspect-ratio: 16 / 9; 
-            background: #000;
-            position: relative;
-            contain: size layout;
-        }
-
-        #video, #iframePlayer, #placeholder {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        }
-
-        #placeholder { 
-            display: flex; align-items: center; justify-content: center; 
-            font-size: 3rem; background: #000; z-index: 5;
-        }
-
-        #loader {
-            position: absolute; inset: 0;
-            display: none; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 20; background: rgba(0,0,0,0.8);
-        }
-        .spinner {
-            width: 40px; height: 40px;
-            border: 3px solid rgba(255, 255, 255, 0.1);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-
-        .ticker { 
-            width: 100%; height: var(--ticker-h); 
-            background: #D00000; color: #fff; 
-            display: flex; align-items: center; overflow: hidden; font-size: 0.8rem;
-        }
-        .ticker-track { 
-            display: flex; white-space: nowrap; 
-            animation: ticker-loop 25s linear infinite; 
-            will-change: transform;
-            transform: translate3d(0, 0, 0);
-        }
-        @keyframes ticker-loop { 
-            0% { transform: translate3d(0, 0, 0); } 
-            100% { transform: translate3d(-50%, 0, 0); } 
-        }
-
-        /* FIX: Main Content grows to push footer down */
-        .main-content { 
-            flex: 1 0 auto; 
-            width: 100%; 
-            max-width: 1200px; 
-            margin: 0 auto; 
+            min-height: calc(100vw * 9 / 16 + var(--ticker-h));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
         
+        @media (min-width: 800px) {
+            .sticky-player-wrapper { min-height: 480px; }
+        }
+
+       .player-container {
+    width: 100%;
+    /* FIX: Reserve space using aspect-ratio */
+    aspect-ratio: 16 / 9; 
+    background: #000;
+    position: relative;
+    overflow: hidden;
+    /* Force the browser to treat this as a fixed-size block */
+    contain: size layout;
+}
+
+/* Ensure the video and iframe fill the reserved space perfectly */
+#video, #iframePlayer, .placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+        #placeholder { 
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%; 
+            display: flex; align-items: center; justify-content: center; 
+            font-size: 3rem; z-index: 10;
+            background: #000;
+        }
+
+        /* Aggressive Loading Spinner */
+        #loader {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 20;
+            background: rgba(0,0,0,0.6);
+            pointer-events: none;
+        }
+        .spinner {
+            width: 45px;
+            height: 45px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid #2ECC71;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { 
+            margin-top: 15px; font-size: 11px; letter-spacing: 2px; 
+            color: #2ECC71; font-weight: bold; text-transform: uppercase; 
+        }
+
+        .ticker { 
+    width: 100%; 
+    height: var(--ticker-h); 
+    background: #D00000; 
+    color: #fff; 
+    display: flex; 
+    align-items: center; 
+    overflow: hidden; 
+    font-size: 0.8rem;
+    /* FIX: Ensure the ticker doesn't compete for LCP priority */
+    contain: strict; 
+    opacity: 0;
+    animation: fadeInTicker 0.5s ease-in forwards 1s; /* Delay the visual load by 1s */
+}
+
+@keyframes fadeInTicker {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.ticker-track { 
+    display: flex; 
+    white-space: nowrap; 
+    /* Optimization: Use translate3d for hardware acceleration */
+    animation: ticker-loop 15s linear infinite; 
+    will-change: transform;
+}
+
+@keyframes ticker-loop { 
+    0% { transform: translate3d(0, 0, 0); } 
+    100% { transform: translate3d(-50%, 0, 0); } 
+}
+        .main-content { width: 100%; max-width: 1200px; margin: 0 auto; min-height: 500px; }
+        .title-area { 
+    padding: 25px 15px; 
+    text-align: center; 
+    /* FIX: Force the browser to treat this as an independent layer */
+    contain: layout style;
+    content-visibility: auto;
+    /* Give the browser a fixed 'guess' of the height so it doesn't wait to calculate */
+    contain-intrinsic-size: 78px;
+    min-height: 78px;
+}
+        .title-area h2 { 
+    font-weight: 700; 
+    font-size: 1.2rem;
+    color: var(--text);
+    /* Removes any "fade-in" or movement that delays the LCP paint */
+    transition: none !important;
+    animation: none !important;
+    /* Ensures the text is treated as a priority paint */
+    content-visibility: visible;
+        }
+
+
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 15px; padding: 20px;
-            /* FIX: Minimum height to hold the footer in place during load */
-            min-height: 600px;
+            grid-auto-rows: 95px;
+            gap: 20px;
+            padding: 0 20px 60px;
+            min-height: 400px;
             content-visibility: auto;
-            contain-intrinsic-size: 600px;
         }
 
         .channel-card {
-    background: #fff; 
-    border: 1px solid #eee; 
-    border-radius: 8px;
-    height: 90px; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-    cursor: pointer; 
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
-    padding: 10px;
-    /* THE FINAL FIX */
-    contain: layout style; 
-    will-change: transform;
+            background: #fff; border: 1px solid #ddd; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            padding: 15px; cursor: pointer; transition: 0.2s;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.06);
         }
-        .channel-card {
-    /* ... existing styles ... */
-    contain: paint; 
+        .channel-card:hover { border-color: var(--accent); transform: scale(1.02); }
+        .channel-name { font-size: 0.95rem; font-weight: 700; color: #333; text-align: center; }
+        .channel-card:focus {
+    outline: 3px solid var(--accent);
+    outline-offset: 2px;
         }
-        .channel-name { font-size: 0.85rem; font-weight: 700; text-align: center; color: #333; }
 
-        .site-footer { 
-            flex-shrink: 0;
-            background: var(--bg-dark); 
-            color: #888; 
-            padding: 40px 20px; 
-            text-align: center;
-            font-size: 13px;
-            contain: layout;
+        .site-footer { background: #111419; color: #FFFFFF; padding: 60px 20px; margin-top: 50px; }
+        .footer-bottom { text-align: center; margin-top: 40px; font-size: 14px; color: #888; }
+
+        @media (max-width: 900px) and (orientation: landscape) {
+            header, .sticky-player-wrapper { position: relative; top: 0; }
         }
-    </style>
+           </style>
+
+
 </head>
 <body>
 

@@ -77,10 +77,9 @@ width:100%;
 aspect-ratio:16/9;
 background:#000;
 position:relative;
-contain:none;
 }
 
-/* PERFECT CENTER PLACEHOLDER */
+/* PERFECT CENTER 📺 */
 #placeholder{
 position:absolute;
 inset:0;
@@ -102,7 +101,49 @@ display:none;
 object-fit:cover;
 }
 
-/* TICKER (no animation delay at paint) */
+/* TITLE (FORCE EARLY PAINT) */
+.title-area{
+padding:18px 10px;
+text-align:center;
+}
+
+#current-title{
+font-size:1.2rem;
+font-weight:700;
+}
+
+/* BELOW FOLD CONTENT (DEFERRED) */
+#belowFold{
+display:none;
+}
+
+/* GRID */
+.channel-grid{
+display:grid;
+grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
+grid-auto-rows:95px;
+gap:20px;
+padding:0 20px 60px;
+}
+
+.channel-card{
+background:#fff;
+border:1px solid #ddd;
+border-radius:12px;
+display:flex;
+align-items:center;
+justify-content:center;
+padding:15px;
+cursor:pointer;
+}
+
+.channel-name{
+font-size:0.95rem;
+font-weight:700;
+text-align:center;
+}
+
+/* TICKER */
 .ticker{
 width:100%;
 height:var(--ticker-h);
@@ -124,48 +165,6 @@ animation:ticker-loop 15s linear infinite;
 0%{transform:translateX(0)}
 100%{transform:translateX(-50%)}
 }
-
-/* TITLE (FORCED EARLY PAINT) */
-.title-area{
-padding:20px;
-text-align:center;
-contain:none;
-}
-
-#current-title{
-font-size:1.2rem;
-font-weight:700;
-content-visibility:visible !important;
-contain:none !important;
-}
-
-/* GRID (below fold only optimization) */
-.channel-grid{
-display:grid;
-grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
-grid-auto-rows:95px;
-gap:20px;
-padding:0 20px 60px;
-content-visibility:auto;
-contain-intrinsic-size:400px;
-}
-
-.channel-card{
-background:#fff;
-border:1px solid #ddd;
-border-radius:12px;
-display:flex;
-align-items:center;
-justify-content:center;
-padding:15px;
-cursor:pointer;
-}
-
-.channel-name{
-font-size:0.95rem;
-font-weight:700;
-text-align:center;
-}
 </style>
 </head>
 
@@ -181,29 +180,27 @@ text-align:center;
 <div class="sticky-player-wrapper">
 <section class="player-container">
 
-<!-- CENTERED PLACEHOLDER -->
 <div id="placeholder">📺</div>
 
 <video id="video" playsinline controls></video>
 <iframe id="iframePlayer" allow="autoplay; fullscreen;"></iframe>
 
 </section>
-
-<div class="ticker">
-<div class="ticker-track">
-<div>Use VPN with Australia server for blocked channels.</div>
-<div>Use VPN with Australia server for blocked channels.</div>
-</div>
-</div>
 </div>
 
-<main>
+<!-- CRITICAL TEXT (PART OF SPEED INDEX) -->
 <div class="title-area">
 <h2 id="current-title">Select Channel & Play</h2>
 </div>
 
+<!-- EVERYTHING ELSE DELAYED -->
+<div id="belowFold">
+
+<div id="ticker-slot"></div>
+
 <div class="channel-grid" id="channelList"></div>
-</main>
+
+</div>
 
 <script>
 let allCh=[],hlsE=null,scP=null;
@@ -212,7 +209,8 @@ const v=document.getElementById('video'),
 f=document.getElementById('iframePlayer'),
 l=document.getElementById('channelList'),
 t=document.getElementById('current-title'),
-ph=document.getElementById('placeholder');
+ph=document.getElementById('placeholder'),
+below=document.getElementById('belowFold');
 
 /* LOAD PLAYERS */
 function loadS(){
@@ -279,12 +277,29 @@ v.style.display='block';
 }
 }
 
-/* FETCH IMMEDIATELY */
+/* FETCH FAST */
 fetch('channels2.json')
 .then(r=>r.json())
 .then(data=>{
 allCh=data;
+
+/* SHOW BELOW FOLD AFTER FIRST PAINT */
+requestAnimationFrame(()=>{
+below.style.display='block';
 render(allCh);
+
+/* LOAD TICKER LATE */
+setTimeout(()=>{
+document.getElementById('ticker-slot').innerHTML=`
+<div class="ticker">
+<div class="ticker-track">
+<div>Use VPN with Australia server for blocked channels.</div>
+<div>Use VPN with Australia server for blocked channels.</div>
+</div>
+</div>`;
+},1200);
+
+});
 });
 
 /* RENDER */

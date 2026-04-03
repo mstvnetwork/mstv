@@ -185,132 +185,122 @@
     <footer class="site-footer">
         <p>&copy; 2024 MSTV Network. All rights reserved.</p>
     </footer>
+<script>
+    // 1. Global Variables & Selectors
+    let allCh = [], hlsE = null, scP = null;
+    const v = document.getElementById('video'), 
+          f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          t = document.getElementById('current-title'), 
+          ph = document.getElementById('placeholder'),
+          ld = document.getElementById('loader');
 
-    <script>
-        let allCh = [], hlsE = null, scP = null;
-        const v = document.getElementById('video'), 
-              f = document.getElementById('iframePlayer'), 
-              l = document.getElementById('channelList'), 
-              t = document.getElementById('current-title'), 
-              ph = document.getElementById('placeholder'),
-              ld = document.getElementById('loader');
+    // 2. Pre-fetch Data Immediately (Preload path)
+    fetch('channels2.json')
+        .then(r => r.json())
+        .then(data => { 
+            allCh = data; 
+            render(allCh); 
+        })
+        .catch(e => console.error("Data load failed:", e));
 
-        // PRE-FETCH DATA: Starts before DOM is even fully ready
-        fetch('channels2.json')
-            .then(r => r.json())
-            .then(data => { allCh = data; render(allCh); })
-            .catch(e => console.error("Data load failed"));
-
-        function loadS() {
-            if (scP) return scP;
-            scP = new Promise(res => {
-                let c = 0; const d = () => { if (++c === 2) res(); };
-                const s1 = document.createElement('script'); 
-                s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
-                s1.async = true; s1.onload = d;
-                const s2 = document.createElement('script'); 
-                s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
-                s2.async = true; s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
-                document.head.append(s1, s2);
-            });
-            return scP;
-        }
-
-        async function play(ch) {
-    if (!ch || !ch.url) return;
-    
-    // 1. Handle external non-embeddable links
-    if (ch.url.startsWith('http://')) { 
-        window.open(ch.url, '_blank', 'noopener,noreferrer'); 
-        return; 
+    // 3. Dependency Loader (HLS/Shaka)
+    function loadS() {
+        if (scP) return scP;
+        scP = new Promise(res => {
+            let c = 0; const d = () => { if (++c === 2) res(); };
+            const s1 = document.createElement('script'); 
+            s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
+            s1.async = true; s1.onload = d;
+            const s2 = document.createElement('script'); 
+            s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
+            s2.async = true; s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
+            document.head.append(s1, s2);
+        });
+        return scP;
     }
 
-    // 2. Clean up previous streams and reset scroll
-    window.scrollTo({ top: 0, behavior: 'auto' });
-    if (hlsE) { hlsE.destroy(); hlsE = null; }
-    v.pause(); v.src = ""; v.load();
-
-    // 3. Batch all UI changes in one frame to prevent Reflow
-    requestAnimationFrame(async () => {
-        ph.style.display = 'none';
-        ld.style.display = 'flex'; 
-        t.innerText = ch.name;
-        v.style.display = f.style.display = 'none'; 
-        f.src = "";
+    // 4. Play Function (Performance & Accessibility Optimized)
+    async function play(ch) {
+        if (!ch || !ch.url) return;
         
-        // --- START ACCESSIBILITY & LOADING LOGIC ---
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            // FIX: Set title BEFORE setting src to help Screen Readers
-            f.title = "Video Player: " + ch.name; 
-            f.style.display = 'block'; 
-            f.src = ch.url; 
-            f.onload = () => ld.style.display = 'none';
-        } else {
-            // HLS/Dash Loading Logic
-            await loadS(); 
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v);
-                try { 
-                    await p.load(ch.url); 
-                    v.style.display = 'block'; 
-                } catch (e) { 
-                    ld.style.display = 'none'; 
+        if (ch.url.startsWith('http://')) { 
+            window.open(ch.url, '_blank', 'noopener,noreferrer'); 
+            return; 
+        }
+
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        if (hlsE) { hlsE.destroy(); hlsE = null; }
+        v.pause(); v.src = ""; v.load();
+
+        requestAnimationFrame(async () => {
+            ph.style.display = 'none';
+            ld.style.display = 'flex'; 
+            t.innerText = ch.name;
+            v.style.display = f.style.display = 'none'; 
+            f.src = "";
+            
+            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+                f.title = "Video Player: " + ch.name; 
+                f.style.display = 'block'; 
+                f.src = ch.url; 
+                f.onload = () => ld.style.display = 'none';
+            } else {
+                await loadS(); 
+                if (ch.url.includes('.mpd')) {
+                    const p = new shaka.Player(v);
+                    try { await p.load(ch.url); v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
+                } else if (window.Hls && Hls.isSupported()) {
+                    hlsE = new Hls({ enableWorker: true }); 
+                    hlsE.loadSource(ch.url); 
+                    hlsE.attachMedia(v);
+                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                        v.play().catch(() => {}); 
+                        v.style.display = 'block'; 
+                        ld.style.display = 'none'; 
+                    });
                 }
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls({ enableWorker: true }); 
-                hlsE.loadSource(ch.url); 
-                hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(() => {}); 
-                    v.style.display = 'block'; 
-                    ld.style.display = 'none'; 
-                });
             }
-        }
-        // --- END ACCESSIBILITY & LOADING LOGIC ---
-    });
-        function render(data) {
-    // 1. EXIT EARLY: If no data, don't clear the grid. 
-    // This prevents the page from collapsing and triggering a CLS (Layout Shift).
-    if (!data || data.length === 0) return;
+        });
+    }
 
-    // 2. BATCHING: Create a fragment to build the list "off-screen".
-    // This avoids multiple layout calculations during the loop.
-    const fr = document.createDocumentFragment();
+    // 5. Render Function (Atomic & Semantic)
+    function render(data) {
+        if (!data || data.length === 0) return;
+        const fr = document.createDocumentFragment();
 
-    data.forEach(ch => {
-        const b = document.createElement('div'); 
-        b.className = 'channel-card';
-        
-        // ACCESSIBILITY: Defines the item's role within the parent 'list'.
-        b.setAttribute('role', 'listitem');
-        b.setAttribute('tabindex', '0');
-        
-        // CONTENT: Using a template string for a clean, fast render.
-        b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-        
-        // INTERACTION: Ensure both mouse and keyboard (Enter/Space) work.
-        b.onclick = () => play(ch);
-        b.onkeydown = (e) => { 
-            if (e.key === 'Enter' || e.key === ' ') { 
-                e.preventDefault(); 
-                play(ch); 
-            } 
-        };
-        
-        fr.appendChild(b);
-    });
+        data.forEach(ch => {
+            const b = document.createElement('div'); 
+            b.className = 'channel-card';
+            b.setAttribute('role', 'listitem');
+            b.setAttribute('tabindex', '0');
+            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            
+            b.onclick = () => play(ch);
+            b.onkeydown = (e) => { 
+                if (e.key === 'Enter' || e.key === ' ') { 
+                    e.preventDefault(); 
+                    play(ch); 
+                } 
+            };
+            fr.appendChild(b);
+        });
 
-    // 3. ATOMIC SWAP: requestAnimationFrame ensures the update happens 
-    // exactly when the browser is ready to paint the next frame.
-    requestAnimationFrame(() => {
-        // replaceChildren() is the gold standard for performance.
-        // It clears the container and appends the new fragment in ONE operation.
-        // This eliminates the "Forced Reflow" and "Element Render Delay" warnings.
-        l.replaceChildren(fr); 
-    });
-        }
-        
+        requestAnimationFrame(() => {
+            l.replaceChildren(fr); 
+        });
+    }
+
+    // 6. Event Listeners
+    document.getElementById('searchInput').oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+    };
+
+    v.addEventListener('playing', () => ld.style.display = 'none');
+    v.addEventListener('waiting', () => ld.style.display = 'flex');
+    v.addEventListener('canplay', () => ld.style.display = 'none');
 </script>
+              
 </body>
 </html>

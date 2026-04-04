@@ -3,182 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | V17 GALLERY GRID</title>
-
+    <title>MSTV | AUTOMATED CORE</title>
     <style>
-        :root { --bg: #020617; --accent: #38bdf8; --card: #1e293b; --text: #f8fafc; }
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+        :root { --accent: #22c55e; --bg: #000; --card-bg: #111; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow-x: hidden; }
+
+        /* THE PLAYER STAGE (Sticky 16:9) */
+        #stage { 
+            position: sticky; top: 0; width: 100%; height: 56.25vw; 
+            max-height: 70vh; background: #000; z-index: 1000; 
+            border-bottom: 1px solid #222;
+        }
+        #iframePlayer { width: 100%; height: 100%; border: none; display: block; }
+
+        /* THE GRID CATALOG */
+        #catalog { padding: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
         
-        body { 
-            background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; 
-            height: 100vh; width: 100vw; overflow: hidden; display: flex; flex-direction: column;
-        }
-
-        /* FIXED UI - HEADER */
-        .ui-core { position: fixed; top: 0; left: 0; width: 100%; z-index: 100; background: var(--bg); border-bottom: 1px solid #1e293b; height: 79px; }
-        .info-bar { background: #000; height: 31px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: var(--accent); }
-        .info-bar::after { content: "• MSTV V17 • LIVE GALLERY •"; font-weight: 600; }
-        .header { height: 48px; display: flex; align-items: center; justify-content: center; background: #0f172a; }
-        .brand { font-size: 1.2rem; font-weight: 900; color: var(--accent); letter-spacing: 1px; }
-
-        /* GPU PLAYER VIEWPORT */
-        .player-viewport { 
-            position: fixed; top: 79px; left: 0; width: 100%; aspect-ratio: 16/9; 
-            background-color: #000; z-index: 90; contain: strict; transform: translateZ(0);
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='0.9em' font-size='70'%3E%F0%9F%93%BA%3C/text%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: center; background-size: 60px;
-        }
-        video, iframe { width: 100%; height: 100%; display: none; background: #000; border: none; }
-
-        /* HORIZONTAL GRID ENGINE */
-        main { 
-            flex: 1; overflow-y: auto; display: block;
-            padding-top: calc(79px + 56.25vw); z-index: 50;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        /* THE COMPACT GRID */
-.grid { 
-    display: grid; 
-    /* Changed from 140px to 100px to fit more cards per row */
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); 
-    gap: 8px; /* Reduced gap to save space */
-    padding: 12px; 
-    width: 100%;
-}
-
-
-
-        .channel-item { display: block; width: 100%; }
-
         .card { 
-    width: 100%; 
-    aspect-ratio: 16 / 9; 
-    background: var(--card); 
-    border-radius: 8px; /* Slightly smaller radius for smaller cards */
-    border: 1px solid #334155; /* Thinner border looks cleaner on small sizes */
-    color: #fff; 
-    font-weight: 700; 
-    font-size: 0.75rem; /* Reduced font size to fit inside small card */
-    cursor: pointer;
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-    text-align: center;
-    padding: 5px; /* Minimal padding */
-    transition: transform 0.1s;
-    overflow: hidden; /* Prevents text from spilling out */
+            background: var(--card-bg); aspect-ratio: 16/9; border-radius: 8px; 
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; border: 1px solid #222; transition: 0.2s;
+            text-align: center; padding: 10px; font-weight: 600; font-size: 13px;
         }
+        .card:active { transform: scale(0.96); border-color: var(--accent); color: var(--accent); }
 
-        .card:active { transform: scale(0.95); border-color: var(--accent); }
-
-        /* ATOMIC FOOTER */
-        footer { width: 100%; background: #0f172a; border-top: 1px solid #1e293b; padding: 40px 20px; text-align: center; }
-        footer::before { display: block; content: "DISCLAIMER: MSTV Network does not host media."; font-size: 0.6rem; color: #64748b; margin-bottom: 10px; }
-        footer::after { display: block; content: "© 2026 MSTV NETWORK"; font-size: 0.75rem; font-weight: 700; color: var(--accent); }
-
-        @media (orientation: landscape) and (max-height: 500px) {
-            .ui-core, footer { display: none !important; }
-            main { padding-top: 0; overflow: hidden; }
-            .player-viewport { top: 0; height: 100vh; width: 177.78vh; left: 50%; transform: translateX(-50%) translateZ(0); }
-            video, iframe { display: block !important; }
-        }
+        /* Loading Skeleton Animation */
+        .loading { opacity: 0.5; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-top: 50px; }
     </style>
 </head>
 <body>
 
-    <div class="ui-core">
-        <div class="info-bar" role="status"></div>
-        <div class="header"><h1 class="brand">MSTV NETWORK</h1></div>
+    <div id="stage">
+        <iframe id="iframePlayer" src="player.html#1" allow="autoplay; fullscreen"></iframe>
     </div>
 
-    <section class="player-viewport" id="stage"></section>
+    <div id="catalog">
+        <div class="loading">Synchronizing with Brain...</div>
+    </div>
 
-    <main>
-        <div id="channelList" class="grid" role="list"></div>
-        <footer role="contentinfo"></footer>
-    </main>
+<script>
+    const catalog = document.getElementById('catalog');
+    const player = document.getElementById('iframePlayer');
 
-    <script>
-        /* [CHANNEL ARRAY] - Add your links here */
-        const CHANNELS = [
-          { "name": "9x Jalwa", "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8", "type": "hls" },
-          { "name": "Star Plus", "url": "STAR_PLUS_URL_HERE", "type": "hls" },
-          { "name": "Sony Pal", "url": "SONY_PAL_URL_HERE", "type": "hls" }
-        ];
-
-        const OmniBrain = {
-            hls: null,
-            stage: document.getElementById('stage'),
+    // --- THE BRAIN: FETCH & SYNC ---
+    async function initSystem() {
+        try {
+            // 1. Fetch your source-of-truth JSON
+            const response = await fetch('channels2.json');
+            const data = await response.json();
             
-            getLib: () => ['https://cdn', 'jsdelivr', 'net/npm/hls.js@latest'].join('.'),
-
-            async purge() {
-                this.stage.style.backgroundImage = 'none';
-                this.stage.innerHTML = '';
-                if (this.hls) { this.hls.destroy(); this.hls = null; }
-            },
-
-            async execute(ch) {
-                await this.purge();
-                if (ch.type === 'iframe') {
-                    const ifr = document.createElement('iframe');
-                    ifr.src = ch.url;
-                    ifr.style.display = 'block';
-                    ifr.allowFullscreen = true;
-                    this.stage.appendChild(ifr);
-                } else {
-                    this.injectAndPlay(ch);
-                }
-            },
-
-            injectAndPlay(ch) {
-                if (window.Hls) return this.setupHls(ch);
-                const s = document.createElement('script');
-                s.src = this.getLib();
-                s.async = true;
-                s.onload = () => this.setupHls(ch);
-                document.head.appendChild(s);
-            },
-
-            setupHls(ch) {
-                const v = document.createElement('video');
-                v.style.display = 'block';
-                v.controls = v.autoplay = true;
-                v.setAttribute('playsinline', '');
-                this.stage.appendChild(v);
+            // 2. Clear the "Loading" text
+            catalog.innerHTML = '';
+            
+            // 3. Build the UI
+            const fragment = document.createDocumentFragment();
+            data.forEach((ch, i) => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.textContent = ch.name;
                 
-                setTimeout(() => {
-                    if (Hls.isSupported()) {
-                        this.hls = new Hls();
-                        this.hls.loadSource(ch.url);
-                        this.hls.attachMedia(v);
-                    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                        v.src = ch.url;
-                    }
-                }, 20);
-            }
-        };
-
-        /* BOOT: High-Speed UI Build */
-        (function() {
-            const list = document.getElementById('channelList');
-            const frag = document.createDocumentFragment();
-            CHANNELS.forEach(ch => {
-                const item = document.createElement('div');
-                item.className = 'channel-item';
-                item.setAttribute('role', 'listitem');
-
-                const btn = document.createElement('button');
-                btn.className = 'card';
-                btn.innerText = ch.name;
-                btn.onclick = () => OmniBrain.execute(ch);
+                // THE BRIDGE: Clicking sends index to player.html
+                card.onclick = () => {
+                    player.src = `player.html#${i + 1}`;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                };
                 
-                item.appendChild(btn);
-                frag.appendChild(item);
+                fragment.appendChild(card);
             });
-            requestAnimationFrame(() => list.appendChild(frag));
-        })();
-    </script>
+            
+            requestAnimationFrame(() => catalog.appendChild(fragment));
+
+        } catch (error) {
+            catalog.innerHTML = '<div class="loading">Sync Error. Check JSON path.</div>';
+            console.error("Master Sync Failed:", error);
+        }
+    }
+
+    // Start on load
+    window.onload = initSystem;
+</script>
 </body>
 </html>

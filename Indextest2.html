@@ -76,7 +76,11 @@
             <div id="loader"><div class="spinner"></div></div>
             <div id="placeholder" style="display:flex; align-items:center; justify-content:center; color:white; font-size:3rem;">📺</div>
             <video id="video" playsinline controls style="display:none; width:100%; height:100%;"><track kind="captions" src="" srclang="en" label="English" default></video>
-            <iframe id="iframePlayer" style="display:none; width:100%; height:100%;" frameborder="0" allow="autoplay; fullscreen"></iframe>
+            <iframe id="iframePlayer" 
+        title="Stream Content" 
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" 
+        allow="autoplay; fullscreen;">
+            </iframe>
         </section>
         <div class="ticker"><div class="ticker-track"><span>&nbsp; • Use VPN (Australia) for blocked channels • Optimized for HD Streaming &nbsp; </span><span>&nbsp; • Use VPN (Australia) for blocked channels • Optimized for HD Streaming &nbsp; </span></div></div>
     </div>
@@ -94,15 +98,32 @@
         const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
               ph = document.getElementById('placeholder');
+async function killPlayers() {
+    // 1. Stop HLS
+    if (hlsE) {
+        hlsE.detachMedia();
+        hlsE.destroy();
+        hlsE = null;
+    }
+    // 2. Stop DASH
+    if (dashP) {
+        await dashP.destroy();
+        dashP = null;
+    }
 
-        async function killPlayers() {
-            if (hlsE) { hlsE.destroy(); hlsE = null; }
-            if (dashP) { await dashP.destroy(); dashP = null; }
-            v.pause(); v.src = ""; v.load();
-            f.src = "about:blank";
-            v.style.display = f.style.display = 'none';
-        }
+    // 3. THE FIX FOR "LEAVE SITE": 
+    // We "blank" the iframe first and remove its window reference
+    if (f) {
+        f.contentWindow.onbeforeunload = null; // Try to kill the trap script
+        f.src = "about:blank"; 
+    }
 
+    v.pause();
+    v.src = "";
+    v.load(); 
+    
+    v.style.display = f.style.display = 'none';
+}
         async function play(ch) {
             ld.style.display = 'flex'; ph.style.display = 'none';
             await killPlayers();

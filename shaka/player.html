@@ -2,125 +2,50 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | V26 STABLE CORE</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
     <style>
-        :root { --accent: #22c55e; }
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; }
-        #player-container { width: 100%; height: 100%; position: relative; background: #000; }
-        
-        video { width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000; opacity: 0; transition: opacity 0.3s; z-index: 10; }
-        iframe { width: 100%; height: 100%; position: absolute; top: 0; left: 0; border: none; display: none; background: #000; z-index: 20; }
-        
-        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-        .spinner { width: 45px; height: 45px; border: 3px solid rgba(34, 197, 94, 0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .visible { opacity: 1 !important; display: block !important; }
-        .hidden { display: none !important; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #22c55e; font-family: sans-serif; font-size: 12px; letter-spacing: 2px; }
+        .hidden { display: none; }
     </style>
 </head>
 <body>
-
-    <div id="player-container">
-        <div id="loader"><div class="spinner"></div></div>
-        <video id="video" controls autoplay muted playsinline preload="auto"></video>
-        <iframe id="iframe-player" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
-    </div>
+    <div id="loader">LOADING...</div>
+    <video id="video" controls autoplay muted playsinline></video>
 
 <script>
+    // THE BRAIN'S DATA SOURCE (Matches your index.html order)
+    async function getStreams() {
+        const res = await fetch('channels2.json');
+        return await res.json();
+    }
+
     const video = document.getElementById('video');
-    const iframe = document.getElementById('iframe-player');
     const loader = document.getElementById('loader');
-
-    const STREAMS = [
-        { "name": "Star Plus", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" },
-        { "name": "WWE Network", "url": "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8" },
-        { "name": "Star Movies", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8" },
-        { "name": "Sony Pal", "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" }
-    ];
-
     let hls = null;
-    let shakaInst = null;
 
-    async function resetAll() {
+    async function playChannel() {
+        const STREAMS = await getStreams();
+        const id = parseInt(window.location.hash.replace('#', '')) - 1;
+        const stream = STREAMS[id] || STREAMS;
+
+        if (hls) { hls.destroy(); }
         loader.classList.remove('hidden');
-        if (hls) { hls.destroy(); hls = null; }
-        if (shakaInst) { await shakaInst.destroy(); shakaInst = null; }
-        video.classList.remove('visible');
-        video.pause(); video.src = "";
-        iframe.classList.remove('visible');
-        iframe.src = "about:blank";
-    }
 
-    async function bootStream(index) {
-        const stream = STREAMS[index] || STREAMS;
-        
-        if (window.location.protocol === 'https:' && stream.url.startsWith('http:')) {
-            window.open(stream.url, '_blank');
-            loader.classList.add('hidden');
-            return;
-        }
-
-        await resetAll();
-
-        if (stream.type === 'iframe') {
-            iframe.classList.add('visible');
-            iframe.src = stream.url;
-            setTimeout(() => loader.classList.add('hidden'), 1500);
-        } else if (stream.url.includes('.mpd')) {
-            initShaka(stream.url);
-        } else {
-            initHls(stream.url);
-        }
-    }
-
-    function initHls(url) {
         if (Hls.isSupported()) {
-            hls = new Hls({ 
-                enableWorker: true,
-                lowLatencyMode: false, // Turned OFF to prevent the stuttering you saw
-                backBufferLength: 60,
-                manifestLoadingMaxRetry: 10,
-                // Balanced Buffering: Wait for ~4 seconds of data before playing
-                maxBufferLength: 30, 
-                maxMaxBufferLength: 60
-            });
-            hls.loadSource(url);
+            hls = new Hls();
+            hls.loadSource(stream.url);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-            hls.on(Hls.Events.ERROR, (e, data) => {
-                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play();
+                loader.classList.add('hidden');
             });
         }
     }
 
-    async function initShaka(url) {
-        shaka.polyfill.installAll();
-        shakaInst = new shaka.Player(video);
-        shakaInst.configure({
-            streaming: {
-                bufferingGoal: 6, // Increased from 2 to 6 for stability
-                rebufferingGoal: 2
-            }
-        });
-        try { await shakaInst.load(url); video.play(); } catch (e) { console.error(e); }
-    }
-
-    // CRITICAL: The spinner only disappears when the video is TRULY playing
-    video.onplaying = () => {
-        video.classList.add('visible');
-        loader.classList.add('hidden');
-    };
-
-    // Auto-loader based on URL Hash
-    function route() {
-        const idx = parseInt(window.location.hash.replace('#', '')) - 1;
-        bootStream(idx >= 0 ? idx : 0);
-    }
-    window.onhashchange = route;
-    window.onload = route;
+    window.onhashchange = playChannel;
+    window.onload = playChannel;
 </script>
 </body>
 </html>

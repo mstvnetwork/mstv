@@ -54,23 +54,27 @@
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID FIX: Locked size for cards, even during search */
+        /* GRID FIX: Compact rows and consistent sizing */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 15px; padding: 20px 20px 60px;
-            min-height: 100vh; /* CLS Fix: Prevents footer from jumping */
+            grid-auto-rows: max-content; /* FIX: Rows only take up needed space */
+            gap: 15px; 
+            padding: 20px 20px 60px;
+            min-height: 50vh; /* Keeps footer in check */
             align-items: start;
         }
 
         .channel-card {
             background: #fff; border: 1px solid #ddd; border-radius: 12px;
-            padding: 20px 10px; text-align: center; cursor: pointer;
+            height: 80px; /* Uniform height for clean rows */
+            display: flex; align-items: center; justify-content: center;
+            padding: 10px; text-align: center; cursor: pointer;
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.2s;
             user-select: none;
         }
         .channel-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-        .channel-name { font-size: 0.9rem; font-weight: 700; color: #333; pointer-events: none; }
+        .channel-name { font-size: 0.9rem; font-weight: 700; color: #333; pointer-events: none; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
         .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
@@ -112,7 +116,6 @@
     </main>
 
     <script>
-        // Start Data Fetch Immediately (Breaks Network Dependency Tree)
         const dataPromise = fetch('channels2.json').then(r => r.json());
 
         let allCh = [], hlsE = null, dashP = null;
@@ -121,34 +124,25 @@
               ph = document.getElementById('placeholder');
 
         async function killPlayers() {
-            // 1. Destroy HLS
             if (hlsE) { hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
-            // 2. Destroy DASH
             if (dashP) { await dashP.destroy(); dashP = null; }
-            
-            // 3. Clear Video
             v.pause(); v.src = ""; v.load();
-            
-            // 4. Clear Iframe & Kill "Leave Site" Traps
             try { 
                 f.contentWindow.onbeforeunload = null; 
                 f.src = "about:blank"; 
             } catch(e) {}
-            
             v.style.display = f.style.display = 'none';
         }
 
         async function play(ch) {
             if (!ch || !ch.url) return;
             ld.style.display = 'flex'; ph.style.display = 'none';
-            
             await killPlayers();
             window.scrollTo({ top: 0, behavior: 'instant' });
 
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
                     f.style.display = 'block';
-                    // Cache-buster "t=" ensures instant fire/reload
                     f.src = `${ch.url}${ch.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
                     f.onload = () => ld.style.display = 'none';
                 } 
@@ -190,7 +184,6 @@
             l.appendChild(fr);
         }
 
-        // Initialize
         dataPromise.then(data => { 
             allCh = data; render(allCh); 
             document.getElementById('canonical-link').setAttribute('href', window.location.href);
@@ -202,8 +195,9 @@
             const query = e.target.value.toLowerCase();
             const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
             render(filtered);
+            l.style.minHeight = (filtered.length === 0) ? "200px" : "50vh";
             if (filtered.length === 0) {
-                l.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#888;">No channels found.</div>';
+                l.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#888; padding-top:40px;">No channels found.</div>';
             }
         };
     </script>

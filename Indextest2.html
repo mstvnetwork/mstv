@@ -3,48 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV | V28 UNIFIED</title>
+    <title>MSTV | V29 CLEAN SYNC</title>
     <style>
         :root { --accent: #22c55e; --bg: #000; }
-        body { margin: 0; background: var(--bg); color: #fff; font-family: sans-serif; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: sans-serif; -webkit-tap-highlight-color: transparent; }
 
-        /* THE PLAYER (Fixed at top - 16:9 Ratio) */
+        /* HEADER / PLAYER AREA */
         #stage-container { 
-            position: fixed; top: 0; width: 100%; height: 56.25vw; 
-            max-height: 50vh; background: #000; z-index: 2000;
-            border-bottom: 2px solid #111;
+            position: fixed; top: 0; width: 100%; 
+            height: 56.25vw; /* Strict 16:9 */
+            background: #000; z-index: 2000;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
-        #iframePlayer { width: 100%; height: 100%; border: none; display: block; }
+        #iframePlayer { width: 100%; height: 100%; border: none; }
 
-        /* THE SCROLLABLE CATALOG (Starts below the player) */
+        /* THE CATALOG AREA */
         #catalog-wrapper { 
-            margin-top: 56.25vw; /* Same as player height to prevent overlap */
-            padding: 15px;
-            min-height: 100vh;
+            margin-top: calc(56.25vw + 10px); 
+            padding: 10px;
         }
-        
+
         .grid { 
             display: grid; 
             grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); 
-            gap: 10px; 
+            gap: 12px; 
         }
 
-        /* FUNCTIONAL CARDS */
+        /* DYNAMIC CARD STYLE */
         .card { 
-            background: #0a0a0a; border: 1px solid #222; border-radius: 6px; 
+            background: #111; border: 1px solid #222; border-radius: 8px; 
             aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
-            cursor: pointer; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            text-align: center; padding: 10px; font-weight: 700; font-size: 12px;
-            text-transform: uppercase; letter-spacing: 1px; color: #888;
+            cursor: pointer; transition: all 0.2s ease;
+            text-align: center; padding: 12px; font-weight: 800; font-size: 11px;
+            text-transform: uppercase; letter-spacing: 1px; color: #aaa;
         }
         
-        /* Interactive State */
-        .card:hover, .card:active { 
-            border-color: var(--accent); color: #fff; background: #111;
-            transform: translateY(-2px); box-shadow: 0 4px 15px rgba(34, 197, 94, 0.2);
+        .card:active { 
+            transform: scale(0.95); border-color: var(--accent); color: #fff; background: #050505;
         }
 
-        .loading-status { text-align: center; color: var(--accent); font-size: 10px; margin-top: 20px; }
+        /* Status Text */
+        .status { text-align: center; color: #444; font-size: 10px; margin-top: 40px; text-transform: uppercase; letter-spacing: 3px; }
     </style>
 </head>
 <body>
@@ -54,27 +53,27 @@
     </div>
 
     <div id="catalog-wrapper">
-        <div id="channelList" class="grid">
-            <div class="loading-status">SYNCING WITH CHANNELS2.JSON...</div>
-        </div>
+        <div id="channelList" class="grid"></div>
+        <div id="loadingMsg" class="status">Initializing Quantum Link...</div>
     </div>
 
 <script>
     const list = document.getElementById('channelList');
     const player = document.getElementById('iframePlayer');
+    const loader = document.getElementById('loadingMsg');
 
-    async function syncAndBuild() {
+    async function ignite() {
         try {
-            // 1. Fetch data from your real-time JSON
+            // Fetch from your source of truth
             const response = await fetch('channels2.json');
-            const CHANNELS = await response.json();
+            const data = await response.json();
             
-            // 2. Wipe the "loading" text
-            list.innerHTML = '';
+            // Hide loading message
+            loader.style.display = 'none';
             
-            // 3. Build the ONLY functional grid
-            const frag = document.createDocumentFragment();
-            CHANNELS.forEach((ch, i) => {
+            const fragment = document.createDocumentFragment();
+            
+            data.forEach((ch, i) => {
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.textContent = ch.name;
@@ -82,21 +81,21 @@
                 // THE BRAIN HANDSHAKE
                 card.onclick = () => {
                     player.src = `player.html#${i + 1}`;
+                    // Scroll to top so player is visible
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 };
                 
-                frag.appendChild(card);
+                fragment.appendChild(card);
             });
             
-            requestAnimationFrame(() => list.appendChild(frag));
+            requestAnimationFrame(() => list.appendChild(fragment));
 
         } catch (err) {
-            list.innerHTML = '<div class="loading-status">ERROR: CHECK CHANNELS2.JSON</div>';
+            loader.textContent = "Sync Failed. Check channels2.json";
         }
     }
 
-    // Initialize on load
-    window.onload = syncAndBuild;
+    window.onload = ignite;
 </script>
 </body>
 </html>

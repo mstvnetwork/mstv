@@ -4,34 +4,46 @@
     <meta charset="UTF-8">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
+        /* This makes the video fill the entire iframe window with NO scrollbars */
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-        video { width: 100%; height: 100%; background: #000; }
+        video { width: 100%; height: 100%; background: #000; display: block; }
+        #status { position: absolute; top: 10px; left: 10px; color: #22c55e; font-family: sans-serif; font-size: 10px; z-index: 10; }
     </style>
 </head>
 <body>
+    <div id="status">LIVE</div>
     <video id="video" controls autoplay muted playsinline></video>
+
     <script>
         const video = document.getElementById('video');
         let hls = null;
 
-        async function loadStream() {
+        async function boot() {
             try {
+                // Fetching the same JSON as index.html
                 const res = await fetch('channels2.json');
                 const data = await res.json();
+                
+                // Get ID from URL (e.g. player.html#3)
                 const id = parseInt(window.location.hash.replace('#', '')) - 1;
                 const stream = data[id] || data;
 
                 if (hls) { hls.destroy(); }
+                
                 if (Hls.isSupported()) {
                     hls = new Hls();
                     hls.loadSource(stream.url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+                } else {
+                    video.src = stream.url;
                 }
-            } catch (e) { console.error("Player Error:", e); }
+            } catch (e) { console.error("Stream failed", e); }
         }
-        window.onhashchange = loadStream;
-        window.onload = loadStream;
+
+        // Re-run when the hash changes (when a user clicks a new card in index.html)
+        window.onhashchange = boot;
+        window.onload = boot;
     </script>
 </body>
 </html>

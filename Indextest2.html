@@ -177,37 +177,39 @@
                     `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
                 b.innerHTML = logoHtml + nameHtml;
 
-                // RELIABLE TOUCH PROTECTION
-                let isMoving = false;
-                let startX, startY;
+                // --- DIRECT INTENT DETECTION LOGIC ---
+                let startX, startY, startTime;
+                let isScrolling = false;
 
                 b.addEventListener('touchstart', (e) => {
-                    isMoving = false;
                     startX = e.touches.pageX;
                     startY = e.touches.pageY;
+                    startTime = Date.now();
+                    isScrolling = false;
                     b.style.transform = "scale(0.96)";
                 }, {passive: true});
 
                 b.addEventListener('touchmove', (e) => {
-                    // Calculate movement
                     let diffX = Math.abs(e.touches.pageX - startX);
                     let diffY = Math.abs(e.touches.pageY - startY);
                     
-                    // If finger moves more than 6 pixels, it's a scroll
-                    if (diffX > 6 || diffY > 6) {
-                        isMoving = true;
+                    // If move is significant, flag as scrolling
+                    if (diffX > 10 || diffY > 10) {
+                        isScrolling = true;
                         b.style.transform = "scale(1)";
                     }
                 }, {passive: true});
 
-                b.addEventListener('touchend', () => {
+                b.addEventListener('touchend', (e) => {
                     b.style.transform = "scale(1)";
-                    if (!isMoving) {
+                    let duration = Date.now() - startTime;
+                    
+                    // IF: Not flagged as scrolling AND touch was fast (under 250ms)
+                    if (!isScrolling && duration < 250) {
                         play(ch, b);
                     }
                 }, {passive: true});
 
-                // Desktop click
                 b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };
                 fr.appendChild(b);
             });
@@ -222,4 +224,4 @@
         };
     </script>
 </body>
-    </html>
+</html>

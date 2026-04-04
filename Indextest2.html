@@ -171,43 +171,48 @@
             data.forEach(ch => {
                 const b = document.createElement('div');
                 b.className = 'channel-card';
+                
+                // 1. Handle Logo
                 const logoHtml = ch.logo ? `<img src="${ch.logo}" class="channel-logo" loading="lazy">` : `<div class="channel-logo" style="font-size:30px;">📺</div>`;
-                let nameHtml = ch.name && ch.name.includes('|') ? 
-                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name.split('|')}</span><span class="sub-hint">${ch.name.split('|')}</span></div>` : 
-                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
+                
+                // 2. FIXED NAME LOGIC: Split the name correctly to avoid duplication
+                let nameHtml = '';
+                if (ch.name && ch.name.includes('|')) {
+                    const parts = ch.name.split('|');
+                    // parts is the main name, parts is the sub-hint
+                    nameHtml = `<div class="channel-name-wrapper">
+                                    <span class="main-name">${parts}</span>
+                                    <span class="sub-hint">${parts}</span>
+                                </div>`;
+                } else {
+                    nameHtml = `<div class="channel-name-wrapper">
+                                    <span class="main-name">${ch.name || 'Unknown'}</span>
+                                </div>`;
+                }
+
                 b.innerHTML = logoHtml + nameHtml;
 
                 // --- DIRECT INTENT DETECTION LOGIC ---
-                let startX, startY, startTime;
-                let isScrolling = false;
+                let startX, startY, startTime, isScrolling = false;
 
                 b.addEventListener('touchstart', (e) => {
-                    startX = e.touches.pageX;
-                    startY = e.touches.pageY;
-                    startTime = Date.now();
-                    isScrolling = false;
+                    startX = e.touches.pageX; startY = e.touches.pageY;
+                    startTime = Date.now(); isScrolling = false;
                     b.style.transform = "scale(0.96)";
                 }, {passive: true});
 
                 b.addEventListener('touchmove', (e) => {
                     let diffX = Math.abs(e.touches.pageX - startX);
                     let diffY = Math.abs(e.touches.pageY - startY);
-                    
-                    // If move is significant, flag as scrolling
                     if (diffX > 10 || diffY > 10) {
-                        isScrolling = true;
-                        b.style.transform = "scale(1)";
+                        isScrolling = true; b.style.transform = "scale(1)";
                     }
                 }, {passive: true});
 
                 b.addEventListener('touchend', (e) => {
                     b.style.transform = "scale(1)";
                     let duration = Date.now() - startTime;
-                    
-                    // IF: Not flagged as scrolling AND touch was fast (under 250ms)
-                    if (!isScrolling && duration < 250) {
-                        play(ch, b);
-                    }
+                    if (!isScrolling && duration < 250) { play(ch, b); }
                 }, {passive: true});
 
                 b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };

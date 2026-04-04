@@ -3,31 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | QUANTUM HYBRID PLAYER</title>
+    <title>MSTV | QUANTUM HYBRID CORE</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.debug.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
     
     <style>
+        :root { --accent: #38bdf8; }
         body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
-        video { width: 100%; height: 100%; background: #000; outline: none; }
+        video { width: 100%; height: 100%; background: #000; outline: none; transition: opacity 0.3s; }
         
         #loader {
             position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none;
         }
         .spinner {
-            width: 40px; height: 40px; border: 3px solid rgba(56, 189, 248, 0.1);
-            border-top: 3px solid #38bdf8; border-radius: 50%; animation: spin 0.6s linear infinite;
+            width: 45px; height: 45px; border: 3px solid rgba(56, 189, 248, 0.1);
+            border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { margin-top: 10px; font-size: 10px; letter-spacing: 2px; color: #38bdf8; font-weight: bold; text-transform: uppercase; font-family: sans-serif; }
-        .hidden { display: none !important; }
+        .loading-text { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); font-weight: 800; text-transform: uppercase; font-family: sans-serif; }
+        .hidden { display: none !important; opacity: 0; }
     </style>
 </head>
 <body>
 
     <div id="loader">
         <div class="spinner"></div>
-        <div class="loading-text">Quantum Booting...</div>
+        <div class="loading-text">Quantum Handshake...</div>
     </div>
 
     <video id="video" controls autoplay muted playsinline preload="auto"></video>
@@ -37,66 +38,58 @@
     const loader = document.getElementById('loader');
     const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
 
-    // THE SECURE DATA VAULT
+    /* [CHANNEL ARRAY] 
+       - No need for 'useWorker: false' anymore. 
+       - Add 'useWorker: true' ONLY when needed.
+       - Add 'keys: { "ID": "KEY" }' for Encrypted DASH.
+    */
     const STREAMS = [
-        { id: 1, name: "Star Plus", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8", useWorker: false },
-        { id: 2, name: "Star Movies", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8", useWorker: false },
-        { id: 3, name: "WWE", url: "http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8", useWorker: false },
-        { id: 4, name: "Sony Pal", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8", useWorker: false }
+        { id: 1, name: "Star Plus", url: "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" },
+        { id: 2, name: "Sony Pal", url: "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" },
+        { id: 3, name: "Premium Dash", url: "https://example.com/stream.mpd", useWorker: true, keys: {"7692c8d119424e5d833989938e05953c": "94916a0459c909673892850989098993"} }
     ];
 
     let hlsInstance = null;
     let shakaInstance = null;
 
-    // --- ENGINE 1: HARD KILL PROTOCOL ---
-    async function killEngines() {
-        if (hlsInstance) {
-            hlsInstance.destroy();
-            hlsInstance = null;
-        }
-        if (shakaInstance) {
-            await shakaInstance.destroy();
-            shakaInstance = null;
-        }
+    // --- 1. THE "KILL-SWITCH" (Prevents Engine Conflicts) ---
+    async function purgeEngines() {
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
         video.pause();
-        video.removeAttribute('src');
+        video.src = "";
         video.load();
     }
 
-    // --- ENGINE 2: THE BRAIN (Switch & Detection) ---
-    async function loadQuantumStream(id) {
-        const streamObj = STREAMS.find(s => s.id == id) || STREAMS;
+    // --- 2. THE BRAIN (Automation & Detection) ---
+    async function activateStream(id) {
+        const stream = STREAMS.find(s => s.id == id) || STREAMS;
         loader.classList.remove('hidden');
         
-        await killEngines();
+        await purgeEngines();
 
-        const finalUrl = streamObj.useWorker 
-            ? workerPrefix + encodeURIComponent(streamObj.url) 
-            : streamObj.url;
+        // Automated Worker Logic: Defaults to false if undefined
+        const finalUrl = stream.useWorker === true 
+            ? workerPrefix + encodeURIComponent(stream.url) 
+            : stream.url;
 
-        // DETECTION LOGIC
         const isDash = finalUrl.includes('.mpd');
         const isHls = finalUrl.includes('.m3u8');
 
         if (isDash) {
-            initShaka(finalUrl);
+            initShaka(finalUrl, stream.keys);
         } else if (isHls) {
             initHls(finalUrl);
         } else {
-            // Native Fallback (MP4 or Direct Browser Support)
             video.src = finalUrl;
             video.play().catch(() => loader.classList.add('hidden'));
         }
     }
 
-    // --- ENGINE 3: HLS INTELLIGENCE ---
+    // --- 3. HLS ENGINE (m3u8) ---
     function initHls(url) {
         if (Hls.isSupported()) {
-            hlsInstance = new Hls({
-                capLevelToPlayerSize: true,
-                lowLatencyMode: true,
-                backBufferLength: 60
-            });
+            hlsInstance = new Hls({ lowLatencyMode: true, capLevelToPlayerSize: true });
             hlsInstance.loadSource(url);
             hlsInstance.attachMedia(video);
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
@@ -106,41 +99,41 @@
         }
     }
 
-    // --- ENGINE 4: SHAKA INTELLIGENCE ---
-    async function initShaka(url) {
-        shaka.polyfils.installAll();
+    // --- 4. SHAKA ENGINE (mpd + ClearKeys) ---
+    async function initShaka(url, keys) {
+        shaka.polyfill.installAll();
         if (shaka.Player.isBrowserSupported()) {
             shakaInstance = new shaka.Player(video);
             
-            // AI Optimization: Low Latency for DASH
+            // Inject Keys if present
+            if (keys) {
+                shakaInstance.configure({
+                    drm: { clearKeys: keys }
+                });
+            }
+
             shakaInstance.configure({
-                streaming: {
-                    lowLatencyMode: true,
-                    bufferingGoal: 10,
-                    rebufferingGoal: 2
-                }
+                streaming: { lowLatencyMode: true, bufferingGoal: 8 }
             });
 
             try {
                 await shakaInstance.load(url);
-                console.log('Shaka: Dash Loaded');
-            } catch (e) {
-                console.error('Shaka Error', e);
-            }
+                video.play();
+            } catch (e) { console.error("Shaka Error:", e); }
         }
     }
 
-    // --- LISTENERS ---
+    // --- LOGIC LISTENERS ---
     video.addEventListener('playing', () => loader.classList.add('hidden'));
     video.addEventListener('waiting', () => loader.classList.remove('hidden'));
 
-    function checkHash() {
+    function handleNavigation() {
         const hash = window.location.hash.replace('#', '');
-        loadQuantumStream(hash || 1);
+        activateStream(hash || 1);
     }
 
-    window.addEventListener('hashchange', checkHash);
-    window.addEventListener('load', checkHash);
+    window.addEventListener('hashchange', handleNavigation);
+    window.addEventListener('load', handleNavigation);
 </script>
 </body>
 </html>

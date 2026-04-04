@@ -19,9 +19,7 @@
 
         body { 
             font-family: system-ui, -apple-system, sans-serif; 
-            background: #F8F9FA; 
-            color: #212529; 
-            overflow-x: hidden;
+            background: #F8F9FA; color: #212529; overflow-x: hidden;
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -46,16 +44,11 @@
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
         #placeholder { display: flex; align-items: center; justify-content: center; font-size: 3rem; z-index: 10; background: #000; color: #fff; }
 
-        /* THE FIX: LANDSCAPE MOBILE MODE (Theater View) */
+        /* THE FIX: LANDSCAPE MOBILE MODE */
         @media (orientation: landscape) and (max-height: 500px) {
             header, .ticker { display: none !important; } 
             .sticky-player-wrapper { position: relative; top: 0; }
-            .player-container { 
-                width: 100vw; 
-                height: 56.25vw; 
-                max-height: 100vh; 
-                margin: 0 auto;
-            }
+            .player-container { width: 100vw; height: 56.25vw; max-height: 100vh; margin: 0 auto; }
         }
 
         /* LOADER & SPINNER */
@@ -72,13 +65,13 @@
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID: Safe Scroll Zones & Tighter Spacing */
+        /* GRID: Safe Scroll Zones */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
             grid-auto-rows: 65px;
             gap: 10px;
-            padding: 20px 30px 80px; /* 30px side padding for "Safe Scroll" gutter */
+            padding: 20px 30px 80px; 
             min-height: 40vh;
             align-items: start;
         }
@@ -88,14 +81,11 @@
             display: flex; align-items: center; justify-content: center;
             padding: 5px; text-align: center; cursor: pointer;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
-            user-select: none;
-            /* FIX: Removes 300ms delay for Instant One-Click Boom */
-            touch-action: manipulation; 
+            user-select: none; touch-action: manipulation; 
         }
         
         .channel-card.active-selection {
-            border: 2px solid var(--accent);
-            background: #eafff0;
+            border: 2px solid var(--accent); background: #eafff0;
             box-shadow: 0 0 8px rgba(46, 204, 113, 0.3);
         }
 
@@ -152,8 +142,16 @@
 
         async function play(ch, element) {
             if (!ch || !ch.url) return;
+
+            // NEW LOGIC: If the URL is http (not https), open in new window to bypass Mixed Content blocks
+            if (ch.url.startsWith('http://')) {
+                killPlayers(); // Stop current player so audio doesn't overlap
+                ph.style.display = 'flex';
+                window.open(ch.url, '_blank');
+                return;
+            }
             
-            // Highlight active selection
+            // Highlight active selection for internal streams
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
 
@@ -171,7 +169,7 @@
                     v.style.display = 'block'; v.play();
                 } else {
                     if(!window.Hls) await loadScript("https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js");
-                    if (window.Hls.isSupported()) {
+                    if (Hls.isSupported()) {
                         hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
                         hlsE.loadSource(ch.url); hlsE.attachMedia(v);
                         hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
@@ -195,7 +193,6 @@
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
 
-                // INSTANT CLICK TRIGGER
                 b.onclick = (e) => {
                     e.preventDefault();
                     play(ch, b);

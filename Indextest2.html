@@ -23,20 +23,27 @@
             -webkit-tap-highlight-color: transparent;
         }
 
+        /* 1. LANDSCAPE FIX: Un-stick header and player in landscape to allow scrolling */
         header {
             height: var(--header-h); background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
             padding: 0 15px; position: sticky; top: 0; z-index: 1000;
         }
 
-        .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
-        .search-container { flex: 0.6; max-width: 250px; }
+        .brand-name { font-size: 1.1rem; font-weight: 800; color: var(--accent); }
+        .search-container { flex: 0.6; max-width: 200px; }
         #searchInput {
-            width: 100%; padding: 10px 15px; border-radius: 20px;
-            border: none; background: #1A1D20; color: #fff; font-size: 16px; outline: none;
+            width: 100%; padding: 8px 12px; border-radius: 20px;
+            border: none; background: #1A1D20; color: #fff; font-size: 14px; outline: none;
         }
 
         .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
+        
+        @media (orientation: landscape) and (max-height: 500px) {
+            header, .sticky-player-wrapper { position: relative; top: 0; }
+            .player-container { aspect-ratio: 21 / 9; max-height: 80vh; }
+        }
+
         .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
         
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
@@ -47,20 +54,20 @@
             display: none; flex-direction: column; align-items: center; justify-content: center;
             z-index: 20; background: rgba(0,0,0,0.8);
         }
-        .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .spinner { width: 35px; height: 35px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        .ticker { width: 100%; height: 30px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; }
+        .ticker { width: 100%; height: 28px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.75rem; }
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* COMPACT GRID: Reduced gap and min-height */
+        /* 2. CARD SIZE & GAP FIX: Increased padding for "safe scroll" zone */
         .channel-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-            grid-auto-rows: 65px; /* Tighter vertical height */
-            gap: 8px; /* Reduced distance between cards */
-            padding: 15px 10px 60px;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            grid-auto-rows: 60px;
+            gap: 10px;
+            padding: 20px 25px 80px; /* Increased side padding (25px) for easier scrolling */
             min-height: 40vh;
             align-items: start;
         }
@@ -68,12 +75,11 @@
         .channel-card {
             background: #fff; border: 1px solid #ddd; border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            padding: 8px; text-align: center; cursor: pointer;
+            padding: 5px; text-align: center; cursor: pointer;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
-            user-select: none; touch-action: manipulation;
+            user-select: none; touch-action: pan-y; /* Allows vertical scrolling on cards without immediate trigger */
         }
         
-        /* HIGHLIGHT: Visual cue for selected channel */
         .channel-card.active-selection {
             border: 2px solid var(--accent);
             background: #eafff0;
@@ -81,7 +87,7 @@
         }
 
         .channel-card:active { transform: scale(0.95); }
-        .channel-name { font-size: 0.8rem; font-weight: 700; color: #333; pointer-events: none; line-height: 1.1; }
+        .channel-name { font-size: 0.75rem; font-weight: 700; color: #333; pointer-events: none; line-height: 1.1; overflow: hidden; }
 
         .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
@@ -118,6 +124,8 @@
     <script>
         const dataPromise = fetch('channels2.json').then(r => r.json());
         let allCh = [], hlsE = null, dashP = null;
+        let startY = 0; // To track scroll intent
+
         const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
               ph = document.getElementById('placeholder');
@@ -132,16 +140,12 @@
 
         async function play(ch, element) {
             if (!ch || !ch.url) return;
-            
-            // Remove highlight from all cards, add to current
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
 
             ld.style.display = 'flex'; ph.style.display = 'none';
             await killPlayers();
             
-            // REMOVED: window.scrollTo - your scroll position is now preserved
-
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
                     f.style.display = 'block';
@@ -177,12 +181,18 @@
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
 
-                b.onpointerdown = (e) => {
-                    if (e.button === 0 || e.pointerType === 'touch') {
-                        e.preventDefault();
-                        play(ch, b);
+                // Logic to distinguish between "Touch to Play" and "Touch to Scroll"
+                b.addEventListener('pointerdown', (e) => { startY = e.clientY; });
+                
+                b.addEventListener('pointerup', (e) => {
+                    const moveY = Math.abs(e.clientY - startY);
+                    if (moveY < 10) { // If move is small, it's a click, not a scroll
+                        if (e.button === 0 || e.pointerType === 'touch') {
+                            play(ch, b);
+                        }
                     }
-                };
+                });
+
                 b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
                 fr.appendChild(b);
             });

@@ -65,7 +65,7 @@
             align-items: center; justify-content: center; padding: 12px;
             text-align: center; cursor: pointer; scroll-snap-align: start;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            transition: transform 0.1s;
         }
         .channel-card.active-selection { border: 3px solid var(--accent); background: #eafff0; }
 
@@ -177,26 +177,37 @@
                     `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
                 b.innerHTML = logoHtml + nameHtml;
 
-                let sX, sY, sT;
+                // RELIABLE TOUCH PROTECTION
+                let isMoving = false;
+                let startX, startY;
+
                 b.addEventListener('touchstart', (e) => {
-                    sX = e.touches.pageX; sY = e.touches.pageY; sT = Date.now();
-                    b.style.transform = "scale(0.95)";
+                    isMoving = false;
+                    startX = e.touches.pageX;
+                    startY = e.touches.pageY;
+                    b.style.transform = "scale(0.96)";
                 }, {passive: true});
 
                 b.addEventListener('touchmove', (e) => {
-                    if (Math.abs(e.touches.pageX - sX) > 5 || Math.abs(e.touches.pageY - sY) > 5) {
-                        sT = 0; b.style.transform = "scale(1)";
+                    // Calculate movement
+                    let diffX = Math.abs(e.touches.pageX - startX);
+                    let diffY = Math.abs(e.touches.pageY - startY);
+                    
+                    // If finger moves more than 6 pixels, it's a scroll
+                    if (diffX > 6 || diffY > 6) {
+                        isMoving = true;
+                        b.style.transform = "scale(1)";
                     }
                 }, {passive: true});
 
-                b.addEventListener('touchend', (e) => {
-                    const duration = Date.now() - sT;
-                    const dX = e.changedTouches.pageX, dY = e.changedTouches.pageY;
-                    const dist = Math.sqrt(Math.pow(dX - sX, 2) + Math.pow(dY - sY, 2));
+                b.addEventListener('touchend', () => {
                     b.style.transform = "scale(1)";
-                    if (sT > 0 && duration < 200 && dist < 10) play(ch, b);
+                    if (!isMoving) {
+                        play(ch, b);
+                    }
                 }, {passive: true});
 
+                // Desktop click
                 b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };
                 fr.appendChild(b);
             });
@@ -211,4 +222,4 @@
         };
     </script>
 </body>
-</html>
+    </html>

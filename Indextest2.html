@@ -145,7 +145,7 @@
                 dashP = null; 
             }
             
-            // Kill Video Element Audio/Buffer
+            // Kill Video Element Audio/Buffer Hard
             v.pause();
             v.removeAttribute('src'); 
             v.load(); 
@@ -159,21 +159,20 @@
         async function play(ch, element) {
             if (!ch || !ch.url) return;
 
-            // Instant UI switch
+            // 1. External HTTP Link handling (Instant Boom in New Window)
+            if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
+                window.open(ch.url, '_blank');
+                return; // Don't trigger internal player logic
+            }
+
+            // 2. Internal Player Logic
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
             ld.style.display = 'flex'; 
             ph.style.display = 'none';
 
-            // Full cleanup before starting new audio/video
+            // Clean previous audio/video immediately
             await killPlayers();
-
-            if (ch.url.startsWith('http://') && !ch.url.includes('m3u8') && !ch.url.includes('mpd')) {
-                window.open(ch.url, '_blank');
-                ld.style.display = 'none';
-                ph.style.display = 'flex';
-                return;
-            }
 
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
@@ -200,7 +199,6 @@
                             v.play().catch(() => { ld.style.display = 'none'; }); 
                         });
                     } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                        // Native Safari/iOS support
                         v.src = ch.url;
                         v.style.display = 'block';
                         v.play();
@@ -221,7 +219,7 @@
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
                 
-                // BOOM Effect: Triggers on touch, not on release
+                // BOOM Effect: Triggers on touch (pointerdown) for instant reaction
                 b.addEventListener('pointerdown', (e) => {
                     play(ch, b);
                 }, { passive: true });

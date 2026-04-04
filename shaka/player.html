@@ -3,21 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | V26 STABLE CORE</title>
+    <title>MSTV | V27 DRM STABLE</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
     <style>
         :root { --accent: #22c55e; }
         body { margin: 0; padding: 0; background: #000; overflow: hidden; height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; font-family: sans-serif; }
         
-        #player-container { 
-            width: 100%; 
-            height: 100%; 
-            position: relative; 
-            background: #000; 
-            /* CLS Fix: Ensures the container doesn't collapse while loading */
-            min-height: 100vh; 
-        }
+        #player-container { width: 100%; height: 100%; position: relative; background: #000; min-height: 100vh; }
         
         video { width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000; opacity: 0; transition: opacity 0.3s; z-index: 10; }
         iframe { width: 100%; height: 100%; position: absolute; top: 0; left: 0; border: none; display: none; background: #000; z-index: 20; }
@@ -35,10 +28,7 @@
     <div id="player-container">
         <div id="loader"><div class="spinner"></div></div>
         <video id="video" controls autoplay muted playsinline preload="auto"></video>
-        <iframe id="iframe-player" 
-                allow="autoplay; fullscreen" 
-                sandbox="allow-scripts allow-same-origin allow-forms">
-        </iframe>
+        <iframe id="iframe-player" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
     </div>
 
 <script>
@@ -46,12 +36,22 @@
     const iframe = document.getElementById('iframe-player');
     const loader = document.getElementById('loader');
 
-    // FIXED: Added "type": "iframe" to the Sky Sports link
+    // CONFIGURATION: Add your ClearKeys here inside the "drm" object
     const STREAMS = [
-        { "name": "Star Plus", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" },
-        { "name": "WWE Network", "url": "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8" },
-        { "name": "Star Movies", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8" },
-        { "name": "Sky Sports", "url": "https://go.webcric.com/worldcup1.htm", "type": "iframe" }
+        { 
+            "name": "Zee TV (DASH ClearKey)", 
+            "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+            "drm": { "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b" }
+        },
+        { 
+            "name": "Star Plus", 
+            "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" 
+        },
+        { 
+            "name": "Sky Sports", 
+            "url": "https://go.webcric.com/worldcup1.htm", 
+            "type": "iframe" 
+        }
     ];
 
     let hls = null;
@@ -66,6 +66,7 @@
         iframe.classList.remove('visible');
         iframe.src = "about:blank";
     }
+
     async function bootStream(index) {
         const stream = STREAMS[index] || STREAMS;
         
@@ -82,10 +83,21 @@
             iframe.src = stream.url;
             setTimeout(() => loader.classList.add('hidden'), 2000);
         } else if (stream.url.includes('.mpd')) {
-            // Pass the DRM object to the init function
+            // Pass both URL and the DRM object to Shaka
             initShaka(stream.url, stream.drm); 
         } else {
             initHls(stream.url);
+        }
+    }
+
+    function initHls(url) {
+        if (Hls.isSupported()) {
+            hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url;
         }
     }
 
@@ -93,7 +105,7 @@
         shaka.polyfill.installAll();
         shakaInst = new shaka.Player(video);
 
-        // Check if this specific channel has ClearKeys
+        // Dynamic DRM configuration
         if (drmKeys) {
             shakaInst.configure({
                 drm: {
@@ -106,18 +118,22 @@
             await shakaInst.load(url); 
             video.play(); 
         } catch (e) { 
-            console.error("Shaka Error:", e); 
+            console.error("DRM Load Error:", e); 
+            loader.classList.add('hidden');
         }
     }
 
+    video.onplaying = () => {
+        video.classList.add('visible');
+        loader.classList.add('hidden');
+    };
 
+    function route() {
+        const idx = parseInt(window.location.hash.replace('#', '')) - 1;
+        bootStream(idx >= 0 ? idx : 0);
+    }
+    window.onhashchange = route;
+    window.onload = route;
 </script>
 </body>
 </html>
-
-
-
-
-
-
-

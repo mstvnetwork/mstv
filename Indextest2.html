@@ -106,7 +106,23 @@
         }
 
         .channel-card:active { transform: scale(0.95); }
-        .channel-name { font-size: 0.75rem; font-weight: 700; color: #333; pointer-events: none; line-height: 1.1; }
+        .channel-name { 
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+
+.main-name { font-size: 0.75rem; font-weight: 700; color: #333; line-height: 1.1; }
+
+.sub-hint { 
+    font-size: 0.55rem; 
+    font-weight: 500; 
+    color: #D00000; 
+    margin-top: 2px;
+    text-transform: uppercase;
+}
 
         .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
@@ -201,33 +217,39 @@
         }
 
         function render(data) {
-            const fr = document.createDocumentFragment();
-            data.forEach(ch => {
-                const b = document.createElement('div');
-                b.className = 'channel-card'; b.setAttribute('role', 'listitem');
-                b.setAttribute('tabindex', '0');
-                b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-                b.onclick = (e) => { e.preventDefault(); play(ch, b); };
-                b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
-                fr.appendChild(b);
-            });
-            l.innerHTML = '';
-            l.appendChild(fr);
+    const fr = document.createDocumentFragment();
+    data.forEach(ch => {
+        const b = document.createElement('div');
+        b.className = 'channel-card';
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('tabindex', '0');
+
+        // Check if the name has the separator '|'
+        let displayName = '';
+        if (ch.name.includes('|')) {
+            const parts = ch.name.split('|');
+            displayName = `
+                <div class="channel-name">
+                    <span class="main-name">${parts}</span>
+                    <span class="sub-hint">${parts}</span>
+                </div>`;
+        } else {
+            displayName = `<span class="main-name">${ch.name}</span>`;
         }
 
-        dataPromise.then(data => { 
-            allCh = data; render(allCh); 
-            document.getElementById('canonical-link').setAttribute('href', window.location.href);
-        });
+        b.innerHTML = displayName;
+        
+        // One-touch boom playback
+        b.addEventListener('pointerdown', (e) => {
+            play(ch, b);
+        }, { passive: true });
 
-        v.addEventListener('playing', () => ld.style.display = 'none');
-
-        document.getElementById('searchInput').oninput = (e) => {
-            const query = e.target.value.toLowerCase();
-            const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
-            render(filtered);
-            if (filtered.length === 0) l.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#888; padding-top:20px;">No channels found.</div>';
-        };
+        b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
+        fr.appendChild(b);
+    });
+    l.innerHTML = '';
+    l.appendChild(fr);
+        }
     </script>
 </body>
 </html>

@@ -171,111 +171,55 @@
 
 <script>
 /**
- * MSTV AI-IQ NEURAL ENGINE v2.0
+ * MSTV AI-IQ ORCHESTRATOR
+ * Communications Layer for player.html
  */
 const MSTV_Brain = (() => {
-    const state = {
-        allChannels: [],
-        activePlayer: null,
-        enginesLoaded: false
-    };
-
     const UI = {
-        v: document.getElementById('video'),
         f: document.getElementById('iframePlayer'),
         list: document.getElementById('channelList'),
         title: document.getElementById('current-title'),
         loader: document.getElementById('loader'),
-        search: document.getElementById('searchInput'),
-        ph: document.getElementById('placeholder')
+        search: document.getElementById('searchInput')
     };
 
-    const wakeUpEngines = () => {
-        if (state.enginesLoaded) return Promise.resolve();
-        return new Promise(res => {
-            const hls = document.createElement('script');
-            hls.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
-            const shaka = document.createElement('script');
-            shaka.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
-            let count = 0;
-            const done = () => { if (++count === 2) { window.shaka.polyfill.installAll(); state.enginesLoaded = true; res(); }};
-            hls.onload = shaka.onload = done;
-            document.head.append(hls, shaka);
-        });
-    };
+    let allChannels = [];
 
-    const killActiveStreams = async () => {
-        // 1. Destroy Shaka
-        if (state.activePlayer && typeof state.activePlayer.destroy === 'function') {
-            await state.activePlayer.destroy();
+    // 1. LISTEN: Receive data from player.html
+    window.addEventListener('message', (event) => {
+        const message = event.data;
+
+        if (message.type === 'CHANNELS_DATA') {
+            allChannels = message.data;
+            render(allChannels);
+            UI.loader.style.display = 'none';
         }
-        // 2. Destroy HLS
-        if (state.activePlayer && state.activePlayer.destroy === undefined) {
-            state.activePlayer.detachMedia();
-            state.activePlayer.destroy();
+
+        if (message.type === 'PLAYBACK_STARTED') {
+            UI.loader.style.display = 'none';
         }
-        state.activePlayer = null;
+    });
 
-        // 3. Reset Hardware Elements
-        UI.v.pause();
-        UI.v.src = "";
-        UI.v.load();
-        UI.v.style.display = 'none';
-
-        // 4. Force Kill Iframe Process (Prevents ghost audio)
-        UI.f.src = "about:blank";
-        UI.f.style.display = 'none';
+    // 2. COMMAND: Tell player.html what to do
+    const sendToPlayer = (type, data) => {
+        UI.f.contentWindow.postMessage({ type, data }, '*');
     };
 
-    const smartPlay = async (ch) => {
+    const smartPlay = (ch) => {
         if (!ch?.url) return;
 
-        // --- INSTANT PROTOCOL SENSE (BYPASS POPUP BLOCKER) ---
-        const isInsecure = ch.url.startsWith('http://') && !ch.url.includes('https://');
-        
-        if (isInsecure) {
-            // MUST happen first in the click event thread
+        // Bypassing for HTTP (Direct Browser Action)
+        if (ch.url.startsWith('http://') && !ch.url.includes('https://')) {
             window.open(ch.url, '_blank', 'noopener,noreferrer');
-            UI.title.innerText = `External: ${ch.name}`;
-            await killActiveStreams(); // Clean background
-            UI.ph.style.display = 'flex';
-            UI.ph.innerHTML = "<span>External Stream Active</span>";
             return;
         }
 
-        // --- INTERNAL AI RENDER (HTTPS/m3u8/mpd) ---
         UI.loader.style.display = 'flex';
-        UI.ph.style.display = 'none';
-        UI.title.innerText = `Optimizing: ${ch.name}...`;
-
-        await killActiveStreams();
-        await wakeUpEngines();
-
-        // 10ms "Hardware Breath" to clear audio buffer
-        setTimeout(async () => {
-            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                UI.f.style.display = 'block';
-                UI.f.src = ch.url;
-                UI.f.onload = () => UI.loader.style.display = 'none';
-            } else {
-                UI.v.style.display = 'block';
-                if (ch.url.includes('.mpd')) {
-                    const p = new shaka.Player(UI.v);
-                    state.activePlayer = p;
-                    await p.load(ch.url);
-                    UI.v.play();
-                } else {
-                    const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
-                    hls.loadSource(ch.url);
-                    hls.attachMedia(UI.v);
-                    state.activePlayer = hls;
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => UI.v.play());
-                }
-            }
-            UI.title.innerText = ch.name;
-        }, 10);
-
-        window.scrollTo({ top: 0, behavior: 'instant' });
+        UI.title.innerText = ch.name;
+        
+        // Command player.html to load the stream
+        sendToPlayer('START_STREAM', ch);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
     const render = (data) => {
@@ -284,7 +228,6 @@ const MSTV_Brain = (() => {
             const card = document.createElement('div');
             card.className = 'channel-card';
             card.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            card.onmouseenter = wakeUpEngines; // Predictive Wakeup
             card.onclick = () => smartPlay(ch);
             frag.appendChild(card);
         });
@@ -294,28 +237,24 @@ const MSTV_Brain = (() => {
 
     return {
         init: () => {
-            fetch('channels2.json')
-                .then(r => r.json())
-                .then(data => {
-                    state.allChannels = data;
-                    render(data);
-                }).catch(() => {
-                    UI.title.innerText = "Error Loading Channels";
-                });
+            // Wait for iframe to load, then ask for channels
+            UI.f.onload = () => {
+                sendToPlayer('GET_CHANNELS', null);
+            };
+            // Point iframe to your player file
+            UI.f.src = "player.html"; 
 
             UI.search.oninput = (e) => {
                 const term = e.target.value.toLowerCase();
-                render(state.allChannels.filter(c => c.name.toLowerCase().includes(term)));
+                render(allChannels.filter(c => c.name.toLowerCase().includes(term)));
             };
-
-            UI.v.onplaying = () => UI.loader.style.display = 'none';
-            UI.v.onerror = () => UI.loader.style.display = 'none';
         }
     };
 })();
 
-// Start AI-IQ Neural Engine
 document.addEventListener('DOMContentLoaded', MSTV_Brain.init);
+
+
 </script>
 </body>
 </html>

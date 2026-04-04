@@ -2,12 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MSTV Network | Live Indian TV</title>
     
-    <meta name="description" content="Watch MSTV Network for free live Indian TV. HD Streaming optimized for mobile.">
     <meta name="theme-color" content="#111419">
-
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
@@ -17,11 +15,14 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { --bg-dark: #111419; --accent: #2ECC71; --header-h: 70px; }
 
-        body { 
+        /* STOP SIDEWAYS MOVEMENT */
+        html, body { 
             font-family: system-ui, -apple-system, sans-serif; 
-            background: #F8F9FA; color: #212529; overflow-x: hidden;
+            background: #F8F9FA; color: #212529; 
+            overflow-x: hidden; /* Prevent horizontal page scroll */
+            width: 100%;
+            position: relative;
             -webkit-tap-highlight-color: transparent;
-            display: flex; flex-direction: column; min-height: 100vh;
         }
 
         header {
@@ -46,10 +47,13 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
             text-align: center; z-index: 10; background: #000; color: #fff; padding: 20px;
         }
-        .player-hint { font-size: 0.8rem; opacity: 0.8; margin-top: 5px; }
 
-        /* Main Content */
-        main { flex: 1; }
+        /* LANDSCAPE MODE: HIDE HEADER FOR FULL VIEW */
+        @media (orientation: landscape) and (max-height: 500px) {
+            header, .ticker, .scroll-controls, footer { display: none !important; }
+            .sticky-player-wrapper { position: relative; top: 0; }
+            .player-container { height: 100vh; aspect-ratio: auto; }
+        }
 
         /* Horizontal Grid */
         .channel-grid {
@@ -66,42 +70,18 @@
             border-radius: 12px; display: flex; flex-direction: column; 
             align-items: center; justify-content: center; padding: 10px;
             text-align: center; cursor: pointer; scroll-snap-align: start;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.1s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         }
-        .channel-card:active { transform: scale(0.96); }
         .channel-card.active-selection { border: 2.5px solid var(--accent); background: #eafff0; }
 
-        .channel-logo {
-            width: 48px; height: 48px; object-fit: contain;
-            margin-bottom: 8px; pointer-events: none; border-radius: 6px;
-        }
-        .main-name { font-size: 0.75rem; font-weight: 700; color: #333; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+        .channel-logo { width: 48px; height: 48px; object-fit: contain; margin-bottom: 8px; pointer-events: none; }
+        .main-name { font-size: 0.75rem; font-weight: 700; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
         .sub-hint { font-size: 0.55rem; color: #D00000; margin-top: 2px; font-weight: 600; text-transform: uppercase; }
 
-        /* Navigation Controls (NOW BENEATH CARDS) */
-        .scroll-controls {
-            display: flex; align-items: center; justify-content: center;
-            gap: 30px; padding-bottom: 25px;
-        }
-        .scroll-btn {
-            background: #fff; color: #333; border: 1px solid #ddd; border-radius: 50%;
-            width: 45px; height: 45px; font-size: 1.1rem; cursor: pointer;
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .scroll-btn:active { background: #eee; transform: scale(0.9); }
-        .scroll-note { font-size: 0.65rem; font-weight: 800; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .scroll-controls { display: flex; align-items: center; justify-content: center; gap: 30px; padding-bottom: 25px; }
+        .scroll-btn { background: #fff; border: 1px solid #ddd; border-radius: 50%; width: 45px; height: 45px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 
-        /* Footer */
-        footer {
-            background: var(--bg-dark); color: #888; padding: 30px 20px;
-            text-align: center; font-size: 0.8rem; border-top: 2px solid #1A1D20;
-        }
-        .footer-logo { color: var(--accent); font-weight: 800; margin-bottom: 10px; display: block; }
-        .footer-links { margin-top: 15px; display: flex; justify-content: center; gap: 15px; }
-        .footer-links a { color: #555; text-decoration: none; }
-
-        /* Ticker & Loader */
+        footer { background: var(--bg-dark); color: #888; padding: 30px 20px; text-align: center; font-size: 0.8rem; }
         .ticker { width: 100%; height: 26px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.7rem; }
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
@@ -115,7 +95,7 @@
 
     <header>
         <h1 class="brand-name">MSTV NETWORK</h1>
-        <div class="search-container"><input type="text" id="searchInput" placeholder="Search channels..."></div>
+        <div class="search-container"><input type="text" id="searchInput" placeholder="Search..."></div>
     </header>
 
     <div class="sticky-player-wrapper">
@@ -123,8 +103,7 @@
             <div id="loader"><div class="spinner"></div></div>
             <div id="placeholder">
                 <div style="font-size: 1.8rem; font-weight: 800; color: var(--accent);">SELECT CHANNEL</div>
-                <div class="player-hint">If no play, click again</div>
-                <div class="player-hint" style="color: #ffda44;">Use VPN (Australia) for blocked channels</div>
+                <div style="font-size: 0.8rem; opacity: 0.8; margin-top: 5px;">HTTP links will open in a new window</div>
             </div>
             <video id="video" playsinline controls style="display:none;"></video>
             <iframe id="iframePlayer" style="display:none;" frameborder="0" allow="autoplay; fullscreen"></iframe>
@@ -134,23 +113,16 @@
 
     <main>
         <div class="channel-grid" id="channelList"></div>
-
         <div class="scroll-controls">
             <button class="scroll-btn" onclick="scrollGrid(-230)">🔙</button>
-            <div class="scroll-note">Scroll or Tap Arrows</div>
+            <div style="font-size:0.65rem; font-weight:800; color:#888;">SCROLL OR TAP</div>
             <button class="scroll-btn" onclick="scrollGrid(230)">➡️</button>
         </div>
     </main>
 
     <footer>
-        <span class="footer-logo">MSTV NETWORK</span>
+        <span style="color:var(--accent); font-weight:800; display:block; margin-bottom:5px;">MSTV NETWORK</span>
         <p>© 2026 High Quality Indian Streams</p>
-        <p>Optimized for Mobile and Web</p>
-        <div class="footer-links">
-            <a href="#">Contact</a>
-            <a href="#">DMCA</a>
-            <a href="#">Privacy</a>
-        </div>
     </footer>
 
     <script>
@@ -161,9 +133,7 @@
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
               ph = document.getElementById('placeholder');
 
-        function scrollGrid(distance) {
-            l.scrollBy({ left: distance, behavior: 'smooth' });
-        }
+        function scrollGrid(distance) { l.scrollBy({ left: distance, behavior: 'smooth' }); }
 
         async function killPlayers() {
             if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
@@ -174,9 +144,13 @@
 
         async function play(ch, element) {
             if (!ch || !ch.url) return;
-            if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
-                window.open(ch.url, '_blank'); return;
+
+            // FIX 1: OPEN HTTP IN NEW WINDOW
+            if (ch.url.startsWith('http://')) {
+                window.open(ch.url, '_blank');
+                return;
             }
+
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
             
@@ -185,11 +159,9 @@
 
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                    f.style.display = 'block'; f.src = ch.url; 
-                    f.onload = () => ld.style.display = 'none';
+                    f.style.display = 'block'; f.src = ch.url; f.onload = () => ld.style.display = 'none';
                 } else if (ch.url.includes('.mpd')) {
-                    v.style.display = 'block'; dashP = new shaka.Player(v);
-                    await dashP.load(ch.url); v.play();
+                    v.style.display = 'block'; dashP = new shaka.Player(v); await dashP.load(ch.url); v.play();
                 } else {
                     if (window.Hls.isSupported()) {
                         hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
@@ -205,37 +177,16 @@
             data.forEach(ch => {
                 const b = document.createElement('div');
                 b.className = 'channel-card';
-                
-                const logoHtml = ch.logo ? 
-                    `<img src="${ch.logo}" class="channel-logo" loading="lazy">` : 
-                    `<div class="channel-logo" style="display:flex;align-items:center;justify-content:center;font-size:24px;">📺</div>`;
-
-                let nameHtml = '';
-                if (ch.name && ch.name.includes('|')) {
-                    const parts = ch.name.split('|');
-                    nameHtml = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
-                } else {
-                    nameHtml = `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
-                }
-
+                const logoHtml = ch.logo ? `<img src="${ch.logo}" class="channel-logo" loading="lazy">` : `<div class="channel-logo" style="font-size:24px;">📺</div>`;
+                let nameHtml = ch.name && ch.name.includes('|') ? 
+                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name.split('|')}</span><span class="sub-hint">${ch.name.split('|')}</span></div>` : 
+                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
                 b.innerHTML = logoHtml + nameHtml;
 
                 let sX = 0, sY = 0, moved = false;
-                b.addEventListener('touchstart', (e) => {
-                    sX = e.touches.pageX; sY = e.touches.pageY;
-                    moved = false;
-                }, {passive: true});
-
-                b.addEventListener('touchmove', (e) => {
-                    if (Math.abs(e.touches.pageX - sX) > 2 || Math.abs(e.touches.pageY - sY) > 2) {
-                        moved = true; 
-                    }
-                }, {passive: true});
-
-                b.addEventListener('touchend', () => {
-                    if (!moved) play(ch, b);
-                }, {passive: true});
-
+                b.addEventListener('touchstart', (e) => { sX = e.touches.pageX; sY = e.touches.pageY; moved = false; }, {passive: true});
+                b.addEventListener('touchmove', (e) => { if (Math.abs(e.touches.pageX - sX) > 3 || Math.abs(e.touches.pageY - sY) > 3) moved = true; }, {passive: true});
+                b.addEventListener('touchend', () => { if (!moved) play(ch, b); }, {passive: true});
                 b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };
                 fr.appendChild(b);
             });
@@ -244,7 +195,6 @@
 
         dataPromise.then(data => { allCh = data; render(allCh); });
         v.addEventListener('playing', () => ld.style.display = 'none');
-        
         document.getElementById('searchInput').oninput = (e) => {
             const query = e.target.value.toLowerCase();
             render(allCh.filter(c => c.name.toLowerCase().includes(query)));

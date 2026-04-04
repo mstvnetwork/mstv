@@ -494,28 +494,57 @@
     
     
     
-]
+];
     
-        
-
-    let hls = null;
+ let hls = null;
     let shakaInst = null;
+
+    /**
+     * AI COMMUNICATION BRIDGE
+     * Listen for commands from the Main Index page
+     */
+    window.addEventListener('message', async (event) => {
+        const { type, data } = event.data;
+
+        // Command: Main page is asking for the channel list
+        if (type === 'GET_CHANNELS') {
+            window.parent.postMessage({ 
+                type: 'CHANNELS_DATA', 
+                data: STREAMS 
+            }, '*');
+        }
+
+        // Command: Main page told a card was clicked
+        if (type === 'START_STREAM') {
+            // Find the index of the channel in our local array to use bootStream
+            const index = STREAMS.findIndex(s => s.url === data.url);
+            bootStream(index >= 0 ? index : data); 
+        }
+    });
 
     async function resetAll() {
         loader.classList.remove('hidden');
         if (hls) { hls.destroy(); hls = null; }
-        if (shakaInst) { await shakaInst.destroy(); shakaInst = null; }
+        if (shakaInst) { 
+            try { await shakaInst.destroy(); } catch(e) {} 
+            shakaInst = null; 
+        }
         video.classList.remove('visible');
-        video.pause(); video.src = "";
+        video.pause(); 
+        video.src = "";
+        video.load(); // Force hardware clear
         iframe.classList.remove('visible');
         iframe.src = "about:blank";
     }
 
-    async function bootStream(index) {
-        const stream = STREAMS[index] || STREAMS;
-        
+    async function bootStream(input) {
+        // Handle both index (number) or raw object (data)
+        const stream = typeof input === 'number' ? STREAMS[input] : input;
+        if (!stream) return;
+
+        // Smart Protocol Check
         if (window.location.protocol === 'https:' && stream.url.startsWith('http:')) {
-            window.open(stream.url, '_blank');
+            window.open(stream.url, '_blank', 'noopener,noreferrer');
             loader.classList.add('hidden');
             return;
         }
@@ -525,21 +554,29 @@
         if (stream.type === 'iframe') {
             iframe.classList.add('visible');
             iframe.src = stream.url;
-            setTimeout(() => loader.classList.add('hidden'), 2000);
+            iframe.onload = () => loader.classList.add('hidden');
         } else if (stream.url.includes('.mpd')) {
-            // Pass both URL and the DRM object to Shaka
             initShaka(stream.url, stream.drm); 
         } else {
             initHls(stream.url);
         }
+        
+        // Notify parent that we are attempting to play
+        window.parent.postMessage({ type: 'PLAYBACK_STARTED' }, '*');
     }
 
     function initHls(url) {
         if (Hls.isSupported()) {
-            hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+            hls = new Hls({ 
+                enableWorker: true, 
+                lowLatencyMode: true,
+                backBufferLength: 30 
+            });
             hls.loadSource(url);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => {});
+            });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
         }
@@ -547,14 +584,14 @@
 
     async function initShaka(url, drmKeys) {
         shaka.polyfill.installAll();
+        if (!shaka.Player.isBrowserSupported()) return;
+
         shakaInst = new shaka.Player(video);
 
-        // Dynamic DRM configuration
         if (drmKeys) {
             shakaInst.configure({
-                drm: {
-                    clearKeys: drmKeys
-                }
+                drm: { clearKeys: drmKeys },
+                streaming: { bufferingGoal: 2 }
             });
         }
 
@@ -562,7 +599,7 @@
             await shakaInst.load(url); 
             video.play(); 
         } catch (e) { 
-            console.error("DRM Load Error:", e); 
+            console.error("DRM/Shaka Error:", e); 
             loader.classList.add('hidden');
         }
     }
@@ -572,12 +609,21 @@
         loader.classList.add('hidden');
     };
 
+    // Keep Hash Routing for direct links
     function route() {
-        const idx = parseInt(window.location.hash.replace('#', '')) - 1;
-        bootStream(idx >= 0 ? idx : 0);
+        const hash = window.location.hash.replace('#', '');
+        if (hash) {
+            const idx = parseInt(hash) - 1;
+            bootStream(idx >= 0 ? idx : 0);
+        }
     }
+
     window.onhashchange = route;
-    window.onload = route;
+    window.onload = () => {
+        route();
+        // Tell the parent we are ready to serve channels
+        window.parent.postMessage({ type: 'PLAYER_READY' }, '*');
+    }; 
 </script>
 </body>
 </html>

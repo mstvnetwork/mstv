@@ -3,72 +3,117 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Click & Play</title>
+    <title>MSTV | QUANTUM PLAYER V20</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
     <style>
-        body {
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background-color: #f4f4f9;
-            margin: 0;
-        }
-        .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            text-align: center;
-        }
-        .btn {
-            display: inline-block;
-            margin: 10px;
-            padding: 12px 24px;
-            font-size: 16px;
-            font-weight: bold;
-            text-decoration: none;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            border: none;
-            transition: opacity 0.2s;
-        }
-        .btn-tab { background-color: #007bff; }
-        .btn-popup { background-color: #28a745; }
-        .btn:hover { opacity: 0.8; }
-        p { color: #666; font-size: 14px; max-width: 400px; }
+        :root { --accent: #38bdf8; }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
+        video { width: 100%; height: 100%; background: #000; outline: none; }
+        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+        .spinner { width: 45px; height: 45px; border: 3px solid rgba(56, 189, 248, 0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .loading-text { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); font-weight: 800; text-transform: uppercase; font-family: sans-serif; }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h1>Click & Play</h1>
-        <p></p>
-
-        <!-- Method 1: Standard Link (New Tab) -->
-        <a href="http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" 
-           target="_blank" 
-           rel="noopener noreferrer" 
-           class="btn btn-tab">
-           Open in New Tab
-        </a>
-
-        <!-- Method 2: JavaScript Popup (Player Window) -->
-        <button onclick="openStreamPopup('http://YOUR_STREAM_URL_HERE')" 
-                class="btn btn-btn-popup">
-            Open in Popup Player
-        </button>
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loading-text">Quantum Handshake...</div>
     </div>
 
-    <script>
-        function openStreamPopup(url) {
-            // Configures a 800x600 window without toolbars for a "player" feel
-            const windowFeatures = "width=800,height=600,menubar=no,toolbar=no,location=no,status=no,resizable=yes,scrollbars=no";
-            window.open(url, "StreamPlayer", windowFeatures);
-        }
-    </script>
+    <video id="video" controls autoplay muted playsinline preload="auto"></video>
 
+<script>
+    const video = document.getElementById('video');
+    const loader = document.getElementById('loader');
+    const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
+
+    /* [PASTE YOUR JSON HERE] - The Brain handles everything else */
+    const STREAMS = [
+      {
+        "name": "9x Jalwa",
+        "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8",
+        "type": "hls",
+        "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/9xjalwa.webp"
+      },
+      {
+        "name": "Sony Pal",
+        "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8",
+        "type": "hls"
+      },
+      {
+        "name": "Premium Dash",
+        "url": "https://example.com/stream.mpd",
+        "useWorker": true,
+        "keys": {"7692c8d119424e5d833989938e05953c": "94916a0459c909673892850989098993"}
+      }
+    ];
+
+    let hlsInstance = null;
+    let shakaInstance = null;
+
+    async function purgeEngines() {
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
+        video.pause(); video.src = ""; video.load();
+    }
+
+    async function activateStream(index) {
+        // Find channel by index (since you don't have IDs)
+        const stream = STREAMS[index] || STREAMS;
+        loader.classList.remove('hidden');
+        await purgeEngines();
+
+        const finalUrl = stream.useWorker === true 
+            ? workerPrefix + encodeURIComponent(stream.url) 
+            : stream.url;
+
+        if (finalUrl.includes('.mpd')) {
+            initShaka(finalUrl, stream.keys);
+        } else if (finalUrl.includes('.m3u8')) {
+            initHls(finalUrl);
+        } else {
+            video.src = finalUrl;
+            video.play().catch(() => loader.classList.add('hidden'));
+        }
+    }
+
+    function initHls(url) {
+        if (Hls.isSupported()) {
+            hlsInstance = new Hls({ lowLatencyMode: true, capLevelToPlayerSize: true });
+            hlsInstance.loadSource(url);
+            hlsInstance.attachMedia(video);
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = url; video.play();
+        }
+    }
+
+    async function initShaka(url, keys) {
+        shaka.polyfill.installAll();
+        if (shaka.Player.isBrowserSupported()) {
+            shakaInstance = new shaka.Player(video);
+            if (keys) { shakaInstance.configure({ drm: { clearKeys: keys } }); }
+            shakaInstance.configure({ streaming: { lowLatencyMode: true, bufferingGoal: 8 } });
+            try { await shakaInstance.load(url); video.play(); } catch (e) { console.error(e); }
+        }
+    }
+
+    video.addEventListener('playing', () => loader.classList.add('hidden'));
+    video.addEventListener('waiting', () => loader.classList.remove('hidden'));
+
+    function handleNavigation() {
+        // Hash #1 becomes index 0, #2 becomes index 1, etc.
+        const hash = window.location.hash.replace('#', '');
+        const targetIndex = parseInt(hash) - 1;
+        activateStream(targetIndex >= 0 ? targetIndex : 0);
+    }
+
+    window.addEventListener('hashchange', handleNavigation);
+    window.addEventListener('load', handleNavigation);
+</script>
 </body>
 </html>

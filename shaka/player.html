@@ -3,14 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | QUANTUM PLAYER V20</title>
+    <title>MSTV | V21 OMNI-ENGINE</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
     <style>
         :root { --accent: #38bdf8; }
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
-        video { width: 100%; height: 100%; background: #000; outline: none; }
-        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; width: 100vw; }
+        
+        /* Unified Viewport */
+        #player-container { width: 100%; height: 100%; position: relative; background: #000; }
+        video, iframe { width: 100%; height: 100%; position: absolute; top: 0; left: 0; border: none; background: #000; display: none; }
+        
+        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; pointer-events: none; top: 50%; left: 50%; transform: translate(-50%, -50%); }
         .spinner { width: 45px; height: 45px; border: 3px solid rgba(56, 189, 248, 0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .loading-text { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); font-weight: 800; text-transform: uppercase; font-family: sans-serif; }
@@ -19,532 +23,97 @@
 </head>
 <body>
 
-    <div id="loader">
-        <div class="spinner"></div>
-        <div class="loading-text">Quantum Handshake...</div>
-    </div>
+    <div id="player-container">
+        <div id="loader">
+            <div class="spinner"></div>
+            <div class="loading-text">Intelligence Syncing...</div>
+        </div>
 
-    <video id="video" controls autoplay muted playsinline preload="auto"></video>
+        <video id="video" controls autoplay muted playsinline preload="auto"></video>
+        <iframe id="iframe-player" allow="autoplay; encrypted-media; fullscreen" allowfullscreen sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"></iframe>
+    </div>
 
 <script>
     const video = document.getElementById('video');
+    const iframe = document.getElementById('iframe-player');
     const loader = document.getElementById('loader');
     const workerPrefix = "https://zee5.mchoudhry482.workers.dev/?url="; 
 
-    /* [PASTE YOUR JSON HERE] - The Brain handles everything else */
-    const STREAMS = [
+    const STREAMS = 
       
- {
-    "name": "9x Jalwa",
-    "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/9xjalwa.webp"
-  },
-    
-    {
-    "name": "YRF Music",
-    "url": "https://cdn-uw2-prod.tsv2.amagi.tv/linear/amg01412-xiaomiasia-yrfmusic-xiaomi/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/yrf.webp"
-  },
-     
-    {
-    "name": "Zoom Hd",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#15",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/zoom.webp"
-    },
-    
-    {
-    "name": "Star Movies Hd",
-    "url": "https://mstvnet.netlify.app/shaka/index2#2",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/b4ukadak.webp"
-  },
-    
- {
-    "name": "NH Bollyflix",
-    "url": "https://prod-runn.cdn.runn.tv/nhstdz/stream/blygld/manifest/2.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/skycric.webp"
- },
- {
-    "name": "Star Plus",
-    "url": "https://mstvnet.netlify.app/shaka/index2#1",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/mh.webp"
-  },
-    
- {
-    "name": "Evergreen Hits",
-    "url": "https://mumbai-edge.smartplaytv.in/ShemaroBollywood/tracks-v1a1/mono.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/everg.webp"
-  },
-{
-    "name": "Sony Pal",
-    "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8",
-    "type": "external",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/9xjalwa.webp"
-  },
-    
-    {
-    "name": "Zee Action",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#13",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/zact.webp"
-  },
-     {
-    "name": "WWE Network",
-    "url": "https://mstvnet.netlify.app/shaka/index2#3",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/b4ukadak.webp"
-  },
-    {
-    "name": "Nat Geo",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#14",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/natgeo.webp"
-   },
-    {
-    "name": "Mh1 Worldwide",
-    "url": "https://livestream.jswk.online/mhonenews/live/index.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/mh.webp"
-  },
-
-    
-    
-    
-    {
-    "name": "B4u Music",
-    "url": "https://cdn-2.pishow.tv/live/415/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/b4umsic.webp"
-  },
-    {
-    "name": "NH Bolly Raga",
-    "url": "https://209a7ee785af4abf93eeff4c5a7a62cf.mediatailor.ap-south-1.amazonaws.com/v1/master/d367f9b863a7a04827f71ecab4cbeeb11f78a827/nh-bollyraga-airtel/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/raga.webp"
-  },
-       
-  {
-    "name": "India Tv",
-    "url": "https://pl-indiatvnews.akamaized.net/out/v1/db79179b608641ceaa5a4d0dd0dca8da/index.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/indtv.webp"
-  },
-{
-   "name": "Pittara Comedy",
-    "url": "https://pitaara-lg.vgcdn.net/v1/vglive-sk-217489/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/pittarac.webp"
-   },
-  
- {
-    "name": "Zee Bollywood",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#9",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/Zbolly.webp"
-  },
-  {
-    "name": "Zee Cinema Hd",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#8",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/Zee%20cinema.webp"
-  },
-    {
-    "name": "Runn Action Tv",
-    "url": "https://runact.cdn.runn.tv/runntv/stream/p_runact/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/runnact.webp"
-  },
-{
-    "name": "Zee News Hd",
-    "url": "https://dknttpxmr0dwf.cloudfront.net/index_3.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/znews.webp"
-  },
-  {
-    "name": "Movies 1",
-    "url": "https://live20.bozztv.com/giatvplayout7/giatv-209612/tracks-v1a1/mono.ts.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/movies1.webp"
-  },
-  {
-    "name": "Movies 2",
-    "url": "https://vods2.aynaott.com/hindimovies/tracks-v1a1/mono.ts.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/movies2.webp"
-  },
-    {
-    "name": "IPL 2026",
-    "url": "https://mstvnet.netlify.app/shaka/indexsonysports.html",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/ten1.webp"
-  },
-    {
-   "name": "Hollywood Desi",
-    "url": "https://cc-u6hadnoh0u6td.akamaized.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-u6hadnoh0u6td/OTM/OTM_HollywoodActionHindi-SCTE_SAMSUNG/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/hdesi.webp"
-    },
-    
-    {
-    "name": "Zing",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#11",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/zing.webp"
-  },
-        
-        
-    {
-    "name": "Goldmines",
-    "url": "https://cdn-2.pishow.tv/live/1459/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/gm.webp"
-  },
-    
-    {
-    "name": "Shemaroo Josh",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#12",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/sjosh.webp"
-  },
-    
-{
-    "name": "Cartoon Network",
-    "url": "https://s3.ideationtec.live/Cartoon_Network/Cartoon_Network.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/cn.webp"
-  },
-    
-  {
-   "name": "Amar Ujala Tv",
-    "url": "https://amarujala.ottlive.co.in/amarujala/index.m3u8",
-    "type": "hls",
-    "isLive": "true",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/amar.webp"
-
-  },
-    
-  {
-   "name": "Discovery Kids",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#10",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/dkids.webp"
-
-  },
-  {
-    "name": "Sony Kal",
-    "url": "https://e77bef9b.wurl.com/master/f36d25e7e52f1ba8d7e56eb859c636563214f541/TEctY2FfU29ueUtBTF9ITFM/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/sonykal.webp"
-  },
-  {
-    "name": "Shemaroo Tv",
-    "url": "https://cdn-3.pishow.tv/live/230/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/shemarootv.webp"
-  },
-  {
-    "name": "Zoo Music",
-    "url": "https://livecdn.live247stream.com/joomusic/tv/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/joomusic.webp"
-  },
-  
-  {
-    "name": "Aastha",
-    "url": "https://aasthaott.akamaized.net/110923/smil:aasthatv.smil/chunklist_b464000.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/Aastha.webp"
-  },
-     
-    {
-    "name": "Ptv News",
-    "url": "https://cdn.newshd.pk/tv.php?id=UC5RvV_LtR1dxPCVFGw6dxXA",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/ptvnews.webp"
-  },
-  {
-    "name": "Hum Tv",
-    "url": "https://s2.ideationtec.live/BOL_Entertainment_HD/BOL_Entertainment_HD.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/humtv.webp"
-  },
-  {
-    "name": "Geo Hd",
-    "url": "https://s3.ideationtec.live/GEO_Entertainment/GEO_Entertainment.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/geo.webp"
-  },
-  {
-    "name": "Aaj Entertainment",
-    "url": "https://s2.ideationtec.live/AAJ_Entertainment/AAJ_Entertainment.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/aajpak.webp"
-  },
-  {
-    "name": "Ary Digital Hd",
-    "url": "https://s3.ideationtec.live/Express_Entertainment/Express_Entertainment.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/arydigital.webp"
-  },
-  {
-    "name": "Sab Tv Pakistan",
-    "url": "https://s1.ideationtec.live/SAB_Entertainment/SAB_Entertainment.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/sabpak.webp"
-  },
-  {
-    "name": "Bbc Earth",
-    "url": "https://mstvnet.netlify.app/shaka/#15",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/bbcearth.webp"
-  },
-
-  
-   {
-    "name": "Sony Sab",
-    "url":"https://mstvnet.netlify.app/shaka/indexsab.html",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/sonysab.webp"
-  },
-  
-   {
-    "name": "Sony Tv",
-    "url":"https://mstvnet.netlify.app/shaka/indexsony.html",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/sony.webp"
-  },
-  
-    {
-    "name": "DD Punjabi",
-    "url": "https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/da821c24a59d4e57960497aeaca8fb33/index.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/ddpunjabi.webp"
-  },
-  
-    {
-    "name": "Gtc Punjabi",
-    "url": "https://vglivessai.akamaized.net/ptnr-yupptv/title-GTC_Punjabi/in/v1/master/611d79b11b77e2f571934fd80ca1413453772ac7/0abf23f0-9db1-4879-9822-a414ae3a3ffa/index.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/gtc.webp"
-  },
-  
-  
-    {
-    "name": "Chardikala Time Tv",
-    "url": "https://chardikalagurbanitv.gigabitcdn.net/in-chardikala/chardikala-timetv/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/chardikala.webp"
-  },
-  
-  
-   {
-    "name": "Hindi Hits",
-    "url": "https://mumbai-edge.smartplaytv.in/Musicindia/tracks-v1a1/mono.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/hhits.webp"
-  },
-  
-  {
-    "name": "Ndtv World USA",
-    "url": "https://web-ndtv24x7-us.akamaized.net/hls/live/2109282/ndtv24x7us/masterp_720p@3.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/ndtvworld.webp"
-  },
-  
-  
-  {
-    "name": "Tv9 Bhatatvarsh",
-    "url": "https://dyjmyiv3bp2ez.cloudfront.net/pub-iotv9hinjzgtpe/liveabr/pub-iotv9hinjzgtpe/live_360p/chunks.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/tv9.webp"
-  },
-  
- 
-   {
-    "name": "Aaj Tak",
-    "url": "https://aajtakhdlive-amd.akamaized.net/hls/live/2014415/aajtakhd/aajtakhdlive/live_720p/chunks.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/aajtak.webp"
-  },
-  
-    {
-    "name": "Dd Sports",
-    "url": "https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/b17adfe543354fdd8d189b110617cddd/index_1.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/ddsport.webp"
-  },
-
-  
-{
-    "name": "Cricked Gold",
-    "url": "https://dltcbyrjz4q6b.cloudfront.net/scheduler/scheduleMaster/418.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/cric.webp"
-  },
-
-  
-  
-    {
-    "name": "And Tv Hd",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#3",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/andtv.webp"
-  },
-  
-  
-  
-  {
-    "name": "Zee Anmol",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#2",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/anmol.webp"
-  },
-  
-  {
-    "name": "Deewana Hd",
-    "url": "https://live20.bozztv.com/giatvplayout7/giatv-209592/tracks-v1a1/mono.ts.m3u8",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/deewana.webp"
-   },
- {
-    "name": "Colors Hd",
-    "url": "https://mstvnet.netlify.app/shaka/indexcolors.html",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/colors.webp",
-    "isLive": true
-  },
-  {
-    "name": "Zee Tv",
-    "url": "https://mstvnet.netlify.app/shaka/index.html/#1",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/zeetv.webp"
-   },
-
-  {
-    "name": "DD National",
-    "url": "https://d3qs3d2rkhfqrt.cloudfront.net/out/v1/40492a64c1db4a1385ba1a397d357d3a/index.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/dd1.webp"
-   },
-  
-  {
-    "name": "Goldmines Bollywood",
-    "url": "https://cdn-2.pishow.tv/live/1460/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/gmbolly.webp"
-  
-  },
-  {
-    "name": "Goldmines Movies",
-    "url": "https://cdn-2.pishow.tv/live/1461/master.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/gmmovies.webp"
-  
-  },
-  
-
-  {
-    "name": "Dangal 2",
-    "url": "https://live-dangal2.akamaized.net/liveabr/pub-iodanga2a26kj2/live_720p/chunks.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/dangal2.webp"
-    },
-   {
-    "name": "Dangal Tv",
-    "url": "https://live-dangal.akamaized.net/liveabr/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/dangal.webp"
-  
-  },
-  
- 
-  {
-    "name": "B4U Movies",
-    "url": "https://amg00877-b4unew-amg00877c2-xiaomi-in-5489.playouts.now.amagi.tv/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/b4umovies.webp"
-  
-  },
-    
-    {
-    "name": "Pittara Movies",
-    "url": "https://vg-pitaaratvyupp.akamaized.net/ptnr-yupptv/v1/master/611d79b11b77e2f571934fd80ca1413453772ac7/vglive-sk-433350/playlist.m3u8",
-    "type": "hls",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/pmovies.webp"
-  },
-     {
-    "name": "Test",
-    "url": "https://gdplayer.to/x/?U2VmK3hqY0craGkwcG85WkJDM2hCQUhhNFc1bG56N0UzYTNFK2gvVG5NdmlaNnlpM0NObE1TVUVuNjMxMDJkSk85UXh6UkhRZEd0bHByRllLQlJrRTJMZDRSSnVPUnJadkhSdUJIUXhzVXkzTnZqMysvSE52SFlqeXR6c2RVT0FuR3VDUUpjRWllWllzUDlUNTgwUUxqQ2NpNUo3THRCWGZTTmZQRmlKNVJkSFVOWVNIWDR2UXFoakU0MUNabFdKcmxTSGlyLzkxQStDVmRzTityUzg0UU5WTHRDN3V0YTI1K2xiaUoydTc1eFIrL2N5a1UySExXa2JzZVFOYmNHck51VnY1YzZzYVAzTjV5c1R1WWN6NVR3SXJFNlhKbnhKY0xWYUw0ZDRqZmM9",
-    "type": "iframe",
-    "logo": "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv4/assets/pmovies.webp"
-  }
-    
-    
-    
-]
-    
 
     let hlsInstance = null;
     let shakaInstance = null;
 
-    async function purgeEngines() {
+    // --- HARD PURGE (Cleans all engines) ---
+    async function purgeAll() {
+        loader.classList.remove('hidden');
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         if (shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
+        
+        // Reset Video
+        video.style.display = "none";
         video.pause(); video.src = ""; video.load();
+        
+        // Reset Iframe
+        iframe.style.display = "none";
+        iframe.src = "about:blank";
     }
 
     async function activateStream(index) {
-        // Find channel by index (since you don't have IDs)
         const stream = STREAMS[index] || STREAMS;
-        loader.classList.remove('hidden');
-        await purgeEngines();
+        await purgeAll();
 
         const finalUrl = stream.useWorker === true 
             ? workerPrefix + encodeURIComponent(stream.url) 
             : stream.url;
 
-        if (finalUrl.includes('.mpd')) {
+        // BRAIN SWITCHER
+        if (stream.type === 'iframe') {
+            initIframe(finalUrl);
+        } else if (finalUrl.includes('.mpd')) {
             initShaka(finalUrl, stream.keys);
-        } else if (finalUrl.includes('.m3u8')) {
-            initHls(finalUrl);
         } else {
-            video.src = finalUrl;
-            video.play().catch(() => loader.classList.add('hidden'));
+            initHls(finalUrl);
         }
     }
 
+    // --- ENGINE: IFRAME ---
+    function initIframe(url) {
+        iframe.style.display = "block";
+        iframe.src = url;
+        // Hide loader after a short delay since we can't track iframe 'playing' state easily
+        setTimeout(() => loader.classList.add('hidden'), 1500);
+    }
+
+    // --- ENGINE: HLS ---
     function initHls(url) {
+        video.style.display = "block";
         if (Hls.isSupported()) {
-            hlsInstance = new Hls({ lowLatencyMode: true, capLevelToPlayerSize: true });
+            hlsInstance = new Hls({ lowLatencyMode: true });
             hlsInstance.loadSource(url);
             hlsInstance.attachMedia(video);
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        } else {
             video.src = url; video.play();
         }
     }
 
+    // --- ENGINE: SHAKA ---
     async function initShaka(url, keys) {
+        video.style.display = "block";
         shaka.polyfill.installAll();
         if (shaka.Player.isBrowserSupported()) {
             shakaInstance = new shaka.Player(video);
-            if (keys) { shakaInstance.configure({ drm: { clearKeys: keys } }); }
-            shakaInstance.configure({ streaming: { lowLatencyMode: true, bufferingGoal: 8 } });
+            if (keys) shakaInstance.configure({ drm: { clearKeys: keys } });
             try { await shakaInstance.load(url); video.play(); } catch (e) { console.error(e); }
         }
     }
 
+    // LISTENER LOGIC
     video.addEventListener('playing', () => loader.classList.add('hidden'));
-    video.addEventListener('waiting', () => loader.classList.remove('hidden'));
-
+    
     function handleNavigation() {
-        // Hash #1 becomes index 0, #2 becomes index 1, etc.
         const hash = window.location.hash.replace('#', '');
         const targetIndex = parseInt(hash) - 1;
         activateStream(targetIndex >= 0 ? targetIndex : 0);

@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Network | Live TV</title>
     
+    <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
+    
     <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     
@@ -18,59 +20,60 @@
             height: var(--header-h); background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
             padding: 0 15px; position: sticky; top: 0; z-index: 1000;
+            contain: layout; /* Optimization: Tell browser this header never moves */
         }
 
-        .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
+        .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); contain: content; }
 
-        /* PLAYER AREA */
         .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; }
-        .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; }
+        .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; contain: size layout; }
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
         
         #loader { 
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-            display: none; align-items: center; justify-content: center; z-index: 20; background: rgba(0,0,0,0.7); 
+            display: none; align-items: center; justify-content: center; z-index: 20; background: rgba(0,0,0,0.8); 
         }
         .spinner { width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* TICKER FIX: Reduced complexity to improve LCP */
-        .ticker { width: 100%; height: 30px; background: #D00000; color: #fff; overflow: hidden; display: flex; align-items: center; }
-        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
+        /* TICKER FIX: Hardware acceleration to prevent LCP render delays */
+        .ticker { width: 100%; height: 30px; background: #D00000; color: #fff; overflow: hidden; display: flex; align-items: center; contain: strict; }
+        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; transform: translateZ(0); }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID FIX: Added min-height and contain-intrinsic-size to stop Layout Shift (CLS) */
+        /* CLS FIX: Reserve space so the footer never jumps */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
             gap: 15px;
             padding: 20px;
-            min-height: 80vh; /* Keeps the footer from jumping up */
+            min-height: 100vh; 
             content-visibility: auto;
-            contain-intrinsic-size: 1000px; 
+            contain-intrinsic-size: 800px; 
         }
 
         .channel-card {
             background: #fff; border: 1px solid #ddd; border-radius: 12px;
-            padding: 20px 10px; text-align: center; cursor: pointer;
+            padding: 20px 10px; text-align: center; cursor: pointer; transition: transform 0.1s;
         }
+        .channel-card:active { transform: scale(0.96); }
 
-        .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
+        .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; contain: layout; }
     </style>
 </head>
 <body>
 
     <header>
         <h1 class="brand-name">MSTV NETWORK</h1>
-        <input type="text" id="searchInput" style="padding: 8px; border-radius: 20px;" placeholder="Search...">
+        <input type="text" id="searchInput" style="padding: 8px 15px; border-radius: 20px; border:none; background:#222; color:#fff;" placeholder="Search...">
     </header>
 
     <div class="sticky-player-wrapper">
         <section class="player-container">
             <div id="loader"><div class="spinner"></div></div>
             <div id="placeholder" style="display:flex; align-items:center; justify-content:center; color:white; font-size:3rem;">📺</div>
-            <video id="video" playsinline controls style="display:none;"><track kind="captions" src="" srclang="en" label="English" default></video>
-            <iframe id="iframePlayer" style="display:none;" frameborder="0" allow="autoplay; fullscreen"></iframe>
+            <video id="video" playsinline controls style="display:none; width:100%; height:100%;"><track kind="captions" src="" srclang="en" label="English" default></video>
+            <iframe id="iframePlayer" style="display:none; width:100%; height:100%;" frameborder="0" allow="autoplay; fullscreen"></iframe>
         </section>
         <div class="ticker"><div class="ticker-track"><span>&nbsp; • Use VPN (Australia) for blocked channels • Optimized for HD Streaming &nbsp; </span><span>&nbsp; • Use VPN (Australia) for blocked channels • Optimized for HD Streaming &nbsp; </span></div></div>
     </div>
@@ -81,13 +84,13 @@
     </main>
 
     <script>
+        // Start fetching data immediately before anything else
+        const dataPromise = fetch('channels2.json').then(r => r.json());
+
         let allCh = [], hlsE = null, dashP = null;
         const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
               ph = document.getElementById('placeholder');
-
-        // FIX: Immediate Data Fetch (Reduces Critical Path Latency)
-        const dataFetch = fetch('channels2.json').then(r => r.json());
 
         async function killPlayers() {
             if (hlsE) { hlsE.destroy(); hlsE = null; }
@@ -104,7 +107,8 @@
 
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                    f.style.display = 'block'; f.src = ch.url;
+                    f.style.display = 'block'; 
+                    f.src = `${ch.url}${ch.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
                     f.onload = () => ld.style.display = 'none';
                 } else if (ch.url.includes('.mpd')) {
                     if(!window.shaka) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js");
@@ -112,8 +116,8 @@
                     v.style.display = 'block'; v.play();
                 } else {
                     if(!window.Hls) await loadScript("https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js");
-                    if (Hls.isSupported()) {
-                        hlsE = new Hls(); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
+                    if (window.Hls.isSupported()) {
+                        hlsE = new Hls({enableWorker: true}); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
                         hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
                     }
                 }
@@ -121,7 +125,7 @@
         }
 
         function loadScript(src) {
-            return new Promise(res => { const s = document.createElement('script'); s.src = src; s.onload = res; document.head.appendChild(s); });
+            return new Promise(res => { const s = document.createElement('script'); s.src = src; s.async = true; s.onload = res; document.head.appendChild(s); });
         }
 
         function render(data) {
@@ -129,19 +133,20 @@
             data.forEach(ch => {
                 const b = document.createElement('div'); b.className = 'channel-card'; b.setAttribute('role', 'listitem');
                 b.innerHTML = `<strong>${ch.name}</strong>`;
-                b.onclick = () => play(ch);
+                b.onclick = (e) => { e.preventDefault(); play(ch); };
                 fr.appendChild(b);
             });
             l.innerHTML = ''; l.appendChild(fr);
         }
 
+        // Listener for the pre-started data fetch
+        dataPromise.then(data => { allCh = data; render(allCh); }).catch(err => console.error(err));
+
         v.addEventListener('playing', () => ld.style.display = 'none');
 
-        // Render data as soon as it arrives
-        dataFetch.then(data => { allCh = data; render(allCh); });
-
         document.getElementById('searchInput').oninput = (e) => {
-            render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
+            const query = e.target.value.toLowerCase();
+            render(allCh.filter(c => c.name.toLowerCase().includes(query)));
         };
     </script>
 </body>

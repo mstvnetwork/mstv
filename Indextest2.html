@@ -301,29 +301,33 @@
           ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
-    // Pre-load libraries as soon as possible
-    function loadS() {
-        if (scP) return scP;
-        scP = new Promise(res => {
-            let c = 0; const d = () => { if (++c === 2) res(); };
-            const s1 = document.createElement('script'); 
-            s1.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"; 
-            s1.async = true; s1.crossOrigin = "anonymous"; s1.onload = d;
-            const s2 = document.createElement('script'); 
-            s2.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"; 
-            s2.async = true; s2.crossOrigin = "anonymous"; s2.onload = () => { window.shaka.polyfill.installAll(); d(); };
-            document.head.append(s1, s2);
+    // Optimization: Load ONLY the library needed, ONLY when clicked
+    async function loadEngine(type) {
+        if (type === 'shaka' && !window.shaka) {
+            await appendScript("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js");
+            window.shaka.polyfill.installAll();
+        } else if (type === 'hls' && !window.Hls) {
+            await appendScript("https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js");
+        }
+    }
+
+    function appendScript(src) {
+        return new Promise(res => {
+            const s = document.createElement('script');
+            s.src = src; s.async = true; s.crossOrigin = "anonymous";
+            s.onload = res;
+            document.head.appendChild(s);
         });
-        return scP;
     }
 
     async function play(ch) {
         if (!ch || !ch.url) return;
         
-        // Immediate UI Feedback (Visual "Instant" Trigger)
+        // Instant UI Feedback
         t.innerText = ch.name;
         ld.style.display = 'flex'; 
         ph.style.display = 'none';
+        v.style.display = f.style.display = 'none';
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.url.startsWith('http://')) { 
@@ -332,36 +336,33 @@
             return; 
         }
 
-        // Reset display states immediately
-        v.style.display = 'none';
-        f.style.display = 'none';
-
-        // Cleanup existing HLS instance
+        // Cleanup
         if (hlsE) { hlsE.destroy(); hlsE = null; }
-        v.pause();
-        v.src = ""; 
+        v.pause(); v.src = ""; 
 
-        // IFRAME CHANNEL
+        // 1. IFRAME PATH (No JS engines needed)
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
-            // Add a timestamp to the URL to bypass browser "duplicate URL" logic
             const sep = ch.url.includes('?') ? '&' : '?';
             f.src = `${ch.url}${sep}t=${Date.now()}`; 
             f.onload = () => ld.style.display = 'none';
         } 
-        // NATIVE/HLS/DASH CHANNEL
-        else {
-            await loadS(); 
-            if (ch.url.includes('.mpd')) {
-                const p = new shaka.Player(v);
-                p.configure({ streaming: { bufferingGoal: 1 } });
-                try { 
-                    await p.load(ch.url); 
-                    v.style.display = 'block'; 
-                    v.play();
-                } catch (e) { ld.style.display = 'none'; }
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, capLevelToPlayerSize: true }); 
+        // 2. DASH PATH (.mpd)
+        else if (ch.url.includes('.mpd')) {
+            await loadEngine('shaka');
+            const p = new shaka.Player(v);
+            p.configure({ streaming: { bufferingGoal: 1 } });
+            try { 
+                await p.load(ch.url); 
+                v.style.display = 'block'; 
+                v.play();
+            } catch (e) { ld.style.display = 'none'; }
+        } 
+        // 3. HLS PATH (.m3u8)
+        else if (window.Hls || !window.Hls) { // Logic to load Hls if not present
+            await loadEngine('hls');
+            if (Hls.isSupported()) {
+                hlsE = new Hls({ enableWorker: true, lowLatencyMode: true }); 
                 hlsE.loadSource(ch.url); 
                 hlsE.attachMedia(v);
                 hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
@@ -372,19 +373,17 @@
         }
     }
 
-    // Event Listeners for Loader UI
     v.addEventListener('playing', () => ld.style.display = 'none');
     v.addEventListener('canplay', () => ld.style.display = 'none');
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Trigger library loading early so it's ready before first click
-        loadS();
-
+        // Fetch channel data only (Small JSON, doesn't hurt LCP)
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
-            .catch(e => console.error("Data load failed"));
+            .catch(e => {});
 
+        // Completely defer analytics and extra scripts by 5 seconds
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script'); s.async = true; 
@@ -398,15 +397,8 @@
         data.forEach(ch => {
             const b = document.createElement('div'); 
             b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
             b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            // Fixed: Use addEventListener for better event handling
-            b.addEventListener('click', (e) => {
-                e.preventDefault();
-                play(ch);
-            });
-            b.onkeydown = (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch); } };
+            b.onclick = (e) => { e.preventDefault(); play(ch); };
             fr.appendChild(b);
         });
         l.innerHTML = ''; l.appendChild(fr);
@@ -415,6 +407,7 @@
     document.getElementById('searchInput').oninput = (e) => {
         render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
+
                     </script>
 </body>
 </html>

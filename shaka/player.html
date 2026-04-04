@@ -66,11 +66,9 @@
         iframe.classList.remove('visible');
         iframe.src = "about:blank";
     }
-
     async function bootStream(index) {
         const stream = STREAMS[index] || STREAMS;
         
-        // Handle Mixed Content (HTTP on HTTPS site)
         if (window.location.protocol === 'https:' && stream.url.startsWith('http:')) {
             window.open(stream.url, '_blank');
             loader.classList.add('hidden');
@@ -79,57 +77,47 @@
 
         await resetAll();
 
-        // Logic now correctly identifies the 'iframe' type
         if (stream.type === 'iframe') {
             iframe.classList.add('visible');
             iframe.src = stream.url;
-            // Hide loader after a short delay since iframes don't always fire 'onplaying'
             setTimeout(() => loader.classList.add('hidden'), 2000);
         } else if (stream.url.includes('.mpd')) {
-            initShaka(stream.url);
+            // Pass the DRM object to the init function
+            initShaka(stream.url, stream.drm); 
         } else {
             initHls(stream.url);
         }
     }
 
-    function initHls(url) {
-        if (Hls.isSupported()) {
-            hls = new Hls({ 
-                enableWorker: true,
-                lowLatencyMode: false,
-                backBufferLength: 60,
-                manifestLoadingMaxRetry: 10,
-                maxBufferLength: 30
+    async function initShaka(url, drmKeys) {
+        shaka.polyfill.installAll();
+        shakaInst = new shaka.Player(video);
+
+        // Check if this specific channel has ClearKeys
+        if (drmKeys) {
+            shakaInst.configure({
+                drm: {
+                    clearKeys: drmKeys
+                }
             });
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-            hls.on(Hls.Events.ERROR, (e, data) => {
-                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native Safari HLS support
-            video.src = url;
+        }
+
+        try { 
+            await shakaInst.load(url); 
+            video.play(); 
+        } catch (e) { 
+            console.error("Shaka Error:", e); 
         }
     }
 
-    async function initShaka(url) {
-        shaka.polyfill.installAll();
-        shakaInst = new shaka.Player(video);
-        try { await shakaInst.load(url); video.play(); } catch (e) { console.error(e); }
-    }
 
-    video.onplaying = () => {
-        video.classList.add('visible');
-        loader.classList.add('hidden');
-    };
-
-    function route() {
-        const idx = parseInt(window.location.hash.replace('#', '')) - 1;
-        bootStream(idx >= 0 ? idx : 0);
-    }
-    window.onhashchange = route;
-    window.onload = route;
 </script>
 </body>
 </html>
+
+
+
+
+
+
+

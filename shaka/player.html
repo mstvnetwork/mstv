@@ -511,23 +511,23 @@
         }
 
         if (type === 'START_STREAM') {
-            console.log("AI Player: Received Play Command", data.url);
             bootStream(data);
         }
     });
 
     async function resetAll() {
-        loader.classList.remove('hidden');
+        loader.style.display = 'flex';
+        if (placeholder) placeholder.style.display = 'flex';
+        
         if (hls) { hls.destroy(); hls = null; }
         if (shakaInst) { try { await shakaInst.destroy(); } catch(e) {} shakaInst = null; }
         
         video.pause();
         video.src = "";
-        video.removeAttribute("src");
         video.load(); 
         
-        video.classList.remove('visible');
-        iframe.classList.remove('visible');
+        video.style.display = 'none';
+        iframe.style.display = 'none';
         iframe.src = "about:blank";
     }
 
@@ -535,12 +535,18 @@
         if (!stream || !stream.url) return;
         await resetAll();
 
+        // Mute to bypass Autoplay restrictions
+        video.muted = true;
+
         if (stream.type === 'iframe') {
-            iframe.classList.add('visible');
+            iframe.style.display = 'block';
             iframe.src = stream.url;
-            iframe.onload = () => loader.classList.add('hidden');
+            iframe.onload = () => {
+                loader.style.display = 'none';
+                if (placeholder) placeholder.style.display = 'none';
+            };
         } else {
-            video.classList.add('visible');
+            video.style.display = 'block';
             if (stream.url.includes('.mpd')) {
                 initShaka(stream.url, stream.drm); 
             } else {
@@ -555,10 +561,9 @@
             hls.loadSource(url);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => {
-                    console.log("Autoplay blocked, showing play button");
+                video.play().catch(() => {
+                    // If blocked, we show controls so user can press play
                     video.controls = true;
-                    loader.classList.add('hidden');
                 });
             });
         }
@@ -574,18 +579,30 @@
 
         try { 
             await shakaInst.load(url); 
-            video.play(); 
+            video.play().catch(() => {
+                video.controls = true;
+            });
         } catch (e) { 
-            console.error("Shaka Error:", e.code);
-            loader.classList.add('hidden');
-            alert("Stream Error: " + e.code);
+            console.error("Shaka Error:", e);
+            loader.style.display = 'none';
         }
     }
 
-    video.onplaying = () => loader.classList.add('hidden');
-    video.onwaiting = () => loader.classList.remove('hidden');
-    // If it gets stuck, hide loader after 10 seconds anyway so user can see video controls
-    video.onloadstart = () => setTimeout(() => loader.classList.add('hidden'), 10000);
+    // AI BRAIN: Instant Visual Flip
+    video.onplaying = () => {
+        console.log("Stream Playing: Hiding UI Overlays");
+        loader.style.display = 'none';
+        if (placeholder) placeholder.style.display = 'none';
+        video.style.zIndex = "100"; // Bring video to front
+    };
+
+    // If stream takes too long, give the user control anyway
+    setTimeout(() => {
+        if (video.paused && video.style.display === 'block') {
+            loader.style.display = 'none';
+            video.controls = true;
+        }
+    }, 8000);
 </script>
       
 </body>

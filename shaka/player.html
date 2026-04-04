@@ -3,24 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | V24 DIRECT SOURCE</title>
+    <title>MSTV | V25 NEBULA SPEED</title>
+    
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/shaka-player@latest/dist/shaka-player.compiled.js"></script>
+
     <style>
-        :root { --accent: #22c55e; }
-        body { margin: 0; padding: 0; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; width: 100vw; }
-        #player-container { width: 100%; height: 100%; position: relative; background: #000; }
+        :root { --accent: #22c55e; --bg: #000; }
+        body { margin: 0; padding: 0; background: var(--bg); overflow: hidden; height: 100vh; width: 100vw; display: flex; align-items: center; justify-content: center; }
         
-        /* Fixed: Use Opacity for Video to keep the engine 'attached' */
-        video { width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000; opacity: 0; transition: opacity 0.4s; z-index: 10; }
+        #player-container { width: 100%; height: 100%; position: relative; background: #000; contain: strict; }
+        
+        /* GPU-Accelerated Layers */
+        video { width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #000; opacity: 0; transition: opacity 0.2s ease-in; z-index: 10; transform: translateZ(0); }
         iframe { width: 100%; height: 100%; position: absolute; top: 0; left: 0; border: none; display: none; background: #000; z-index: 20; }
         
-        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; top: 50%; left: 50%; transform: translate(-50%, -50%); }
-        .spinner { width: 45px; height: 45px; border: 3px solid rgba(34, 197, 94, 0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        #loader { position: absolute; z-index: 100; display: flex; flex-direction: column; align-items: center; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; }
+        .spinner { width: 40px; height: 40px; border: 3px solid rgba(34, 197, 94, 0.05); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.5s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { margin-top: 12px; font-size: 10px; letter-spacing: 2px; color: var(--accent); font-weight: 800; text-transform: uppercase; font-family: sans-serif; }
         
-        .hidden { display: none !important; }
         .visible { opacity: 1 !important; display: block !important; }
     </style>
 </head>
@@ -29,10 +30,9 @@
     <div id="player-container">
         <div id="loader">
             <div class="spinner"></div>
-            <div class="loading-text">Quantum Handshake...</div>
         </div>
         <video id="video" controls autoplay muted playsinline preload="auto"></video>
-        <iframe id="iframe-player" allow="autoplay; fullscreen; encrypted-media" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"></iframe>
+        <iframe id="iframe-player" allow="autoplay; fullscreen" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"></iframe>
     </div>
 
 <script>
@@ -40,113 +40,98 @@
     const iframe = document.getElementById('iframe-player');
     const loader = document.getElementById('loader');
 
-    /* [OFFICIAL CHANNEL ARRAY - V24] */
     const STREAMS = [
-        { 
-            "name": "Star Plus", 
-            "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" 
-        },
-        { 
-            "name": "WWE Network", 
-            "url": "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8" 
-        },
-        { 
-            "name": "Star Movies", 
-            "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8" 
-        },
-        { 
-            "name": "Sony Pal (External)", 
-            "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" 
-        }
+        { "name": "Star Plus", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" },
+        { "name": "WWE Network", "url": "https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8" },
+        { "name": "Star Movies", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8" },
+        { "name": "Sony Pal", "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" }
     ];
 
-    let hlsInstance = null;
-    let shakaInstance = null;
+    let hls = null;
+    let shakaInst = null;
 
-    async function purgeAll() {
+    // --- NEBULA TECH 1: INSTANT PURGE ---
+    async function nebulaPurge() {
         loader.classList.remove('hidden');
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-        if (shakaInstance) { await shakaInstance.destroy(); shakaInstance = null; }
-        
+        if (hls) { hls.destroy(); hls = null; }
+        if (shakaInst) { await shakaInst.destroy(); shakaInst = null; }
         video.classList.remove('visible');
-        video.pause(); video.src = ""; video.load();
-        
+        video.src = "";
         iframe.classList.remove('visible');
         iframe.src = "about:blank";
     }
 
-    async function activateStream(index) {
+    // --- NEBULA TECH 2: PREDICATIVE EXECUTION ---
+    async function nebulaIgnite(index) {
         const stream = STREAMS[index] || STREAMS;
         
-        // RULE: HTTP EXTERNAL BYPASS
-        // Automatically opens a new window if the URL is insecure (http) on a secure (https) site
+        // Protocol Security Bypass
         if (window.location.protocol === 'https:' && stream.url.startsWith('http:')) {
-            loader.classList.add('hidden');
             window.open(stream.url, '_blank');
             return;
         }
 
-        await purgeAll();
+        await nebulaPurge();
 
         if (stream.type === 'iframe') {
-            initIframe(stream.url);
+            iframe.classList.add('visible');
+            iframe.src = stream.url;
+            setTimeout(() => loader.classList.add('hidden'), 1000);
         } else if (stream.url.includes('.mpd')) {
-            initShaka(stream.url, stream.keys);
+            initShaka(stream.url);
         } else {
             initHls(stream.url);
         }
     }
 
-    function initIframe(url) {
-        iframe.classList.add('visible');
-        iframe.src = url;
-        setTimeout(() => loader.classList.add('hidden'), 2000);
-    }
-
+    // --- NEBULA TECH 3: ZERO-DELAY HLS ---
     function initHls(url) {
         if (Hls.isSupported()) {
-            hlsInstance = new Hls({ 
+            hls = new Hls({ 
+                enableWorker: true, // Offloads processing to background thread
                 lowLatencyMode: true,
-                backBufferLength: 60,
-                manifestLoadingMaxRetry: 10, // Aggressive retry for Star Plus proxy
-                manifestLoadingRetryDelay: 1000
+                startLevel: -1, // Auto-start at best speed
+                manifestLoadingMaxRetry: 15, 
+                // Speed-of-light buffer config
+                maxBufferLength: 10,
+                maxMaxBufferLength: 20,
+                liveSyncDuration: 0.5, 
+                liveMaxLatencyDuration: 1.5
             });
-            hlsInstance.loadSource(url);
-            hlsInstance.attachMedia(video);
-            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => {});
-            });
-            hlsInstance.on(Hls.Events.ERROR, (e, data) => {
-                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) hlsInstance.startLoad();
-            });
-        } else {
-            video.src = url; video.play();
+            hls.loadSource(url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
         }
     }
 
-    async function initShaka(url, keys) {
+    // --- NEBULA TECH 4: ULTRA-FAST SHAKA ---
+    async function initShaka(url) {
         shaka.polyfill.installAll();
-        if (shaka.Player.isBrowserSupported()) {
-            shakaInstance = new shaka.Player(video);
-            if (keys) shakaInstance.configure({ drm: { clearKeys: keys } });
-            try { await shakaInstance.load(url); video.play(); } catch (e) { console.error(e); }
-        }
+        shakaInst = new shaka.Player(video);
+        shakaInst.configure({
+            streaming: {
+                bufferingGoal: 2, // Minimal data needed to start
+                rebufferingGoal: 1,
+                lowLatencyMode: true
+            }
+        });
+        await shakaInst.load(url);
+        video.play();
     }
 
-    // High-IQ Trigger: Only reveal video and hide loader when frames actually arrive
+    // EVENT HANDLERS
     video.onplaying = () => {
         video.classList.add('visible');
         loader.classList.add('hidden');
     };
 
-    function handleNavigation() {
-        const hash = window.location.hash.replace('#', '');
-        const targetIndex = parseInt(hash) - 1;
-        activateStream(targetIndex >= 0 ? targetIndex : 0);
+    function sync() {
+        const idx = parseInt(window.location.hash.replace('#', '')) - 1;
+        nebulaIgnite(idx >= 0 ? idx : 0);
     }
 
-    window.addEventListener('hashchange', handleNavigation);
-    window.addEventListener('load', handleNavigation);
+    window.onhashchange = sync;
+    window.onload = sync;
 </script>
 </body>
 </html>

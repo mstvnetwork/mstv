@@ -260,7 +260,9 @@
                 <div class="loading-text">Optimizing Stream...</div>
             </div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
+            <video id="video" playsinline controls aria-label="MSTV Live Video">
+    <track kind="captions" src="" srclang="en" label="English" default>
+            </video>
             <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
         </section>
         <div class="ticker" role="status">
@@ -301,7 +303,6 @@
           ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
-    // Optimization: Load ONLY the library needed, ONLY when clicked
     async function loadEngine(type) {
         if (type === 'shaka' && !window.shaka) {
             await appendScript("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js");
@@ -322,8 +323,6 @@
 
     async function play(ch) {
         if (!ch || !ch.url) return;
-        
-        // Instant UI Feedback
         t.innerText = ch.name;
         ld.style.display = 'flex'; 
         ph.style.display = 'none';
@@ -336,32 +335,27 @@
             return; 
         }
 
-        // Cleanup
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause(); v.src = ""; 
 
-        // 1. IFRAME PATH (No JS engines needed)
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; 
             const sep = ch.url.includes('?') ? '&' : '?';
             f.src = `${ch.url}${sep}t=${Date.now()}`; 
             f.onload = () => ld.style.display = 'none';
         } 
-        // 2. DASH PATH (.mpd)
         else if (ch.url.includes('.mpd')) {
             await loadEngine('shaka');
             const p = new shaka.Player(v);
-            p.configure({ streaming: { bufferingGoal: 1 } });
             try { 
                 await p.load(ch.url); 
                 v.style.display = 'block'; 
                 v.play();
             } catch (e) { ld.style.display = 'none'; }
         } 
-        // 3. HLS PATH (.m3u8)
-        else if (window.Hls || !window.Hls) { // Logic to load Hls if not present
+        else {
             await loadEngine('hls');
-            if (Hls.isSupported()) {
+            if (window.Hls && Hls.isSupported()) {
                 hlsE = new Hls({ enableWorker: true, lowLatencyMode: true }); 
                 hlsE.loadSource(ch.url); 
                 hlsE.attachMedia(v);
@@ -374,34 +368,36 @@
     }
 
     v.addEventListener('playing', () => ld.style.display = 'none');
-    v.addEventListener('canplay', () => ld.style.display = 'none');
 
     document.addEventListener('DOMContentLoaded', () => {
-        // Fetch channel data only (Small JSON, doesn't hurt LCP)
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
             .catch(e => {});
-
-        // Completely defer analytics and extra scripts by 5 seconds
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const s = document.createElement('script'); s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; document.head.appendChild(s);
-            }, 5000);
-        });
     });
 
+    // FIXED RENDER FUNCTION FOR ARIA COMPLIANCE
     function render(data) {
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
             const b = document.createElement('div'); 
             b.className = 'channel-card';
+            
+            // KEY FIX: Add role="listitem" to match parent role="list"
+            b.setAttribute('role', 'listitem');
+            b.setAttribute('tabindex', '0'); // Makes it focusable for screen readers
+            b.setAttribute('aria-label', `Play ${ch.name}`);
+            
             b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            
+            // Instant fire on click or Enter key
             b.onclick = (e) => { e.preventDefault(); play(ch); };
+            b.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
+            
             fr.appendChild(b);
         });
-        l.innerHTML = ''; l.appendChild(fr);
+        l.innerHTML = ''; 
+        l.appendChild(fr);
     }
 
     document.getElementById('searchInput').oninput = (e) => {

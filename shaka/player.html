@@ -1,49 +1,48 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
+    <title>MSTV BROADCASTER</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        /* This makes the video fill the entire iframe window with NO scrollbars */
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
-        video { width: 100%; height: 100%; background: #000; display: block; }
-        #status { position: absolute; top: 10px; left: 10px; color: #22c55e; font-family: sans-serif; font-size: 10px; z-index: 10; }
+        video { width: 100%; height: 100%; object-fit: contain; background: #000; }
     </style>
 </head>
 <body>
-    <div id="status">LIVE</div>
     <video id="video" controls autoplay muted playsinline></video>
 
-    <script>
-        const video = document.getElementById('video');
-        let hls = null;
+<script>
+    const video = document.getElementById('video');
+    // HARDCODED ARRAY (Your Source of Truth)
+    const STREAMS = [
+        { "name": "Star Plus", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starplus/index.m3u8" },
+        { "name": "9x Jalwa", "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8" },
+        { "name": "Star Movies", "url": "https://warm-caverns-48629-92fab798385f.herokuapp.com/http://103.175.242.10:8080/starmovies/tracks-v1a1/mono.m3u8" },
+        { "name": "Sony Pal", "url": "http://maxotts.maxdigitaltv.com/x-media/C106/master.m3u8" }
+    ];
 
-        async function boot() {
-            try {
-                // Fetching the same JSON as index.html
-                const res = await fetch('channels2.json');
-                const data = await res.json();
-                
-                // Get ID from URL (e.g. player.html#3)
-                const id = parseInt(window.location.hash.replace('#', '')) - 1;
-                const stream = data[id] || data;
+    let hls = null;
 
-                if (hls) { hls.destroy(); }
-                
-                if (Hls.isSupported()) {
-                    hls = new Hls();
-                    hls.loadSource(stream.url);
-                    hls.attachMedia(video);
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-                } else {
-                    video.src = stream.url;
-                }
-            } catch (e) { console.error("Stream failed", e); }
+    function play() {
+        const id = parseInt(window.location.hash.replace('#', '')) - 1;
+        const stream = STREAMS[id] || STREAMS;
+
+        if (hls) { hls.destroy(); }
+
+        if (Hls.isSupported()) {
+            hls = new Hls({ manifestLoadingMaxRetry: 10 });
+            hls.loadSource(stream.url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+        } else {
+            video.src = stream.url;
+            video.play();
         }
+    }
 
-        // Re-run when the hash changes (when a user clicks a new card in index.html)
-        window.onhashchange = boot;
-        window.onload = boot;
-    </script>
+    window.onhashchange = play;
+    window.onload = play;
+</script>
 </body>
 </html>

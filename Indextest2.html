@@ -136,128 +136,128 @@
         <footer class="site-footer"><p>© 2026 MSTV Network. All Rights Reserved.</p></footer>
     </main>
 
-    <script>
-        const dataPromise = fetch('channels2.json').then(r => r.json());
-        let allCh = [], hlsE = null, dashP = null;
+<script>
+    const dataPromise = fetch('channels2.json').then(r => r.json());
+    let allCh = [], hlsE = null, dashP = null;
 
-        const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-              l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
-              ph = document.getElementById('placeholder');
+    const v = document.getElementById('video'), 
+          f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          ld = document.getElementById('loader'), 
+          ph = document.getElementById('placeholder');
 
-        async function killPlayers() {
-            if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
-            if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
-            v.pause();
-            v.removeAttribute('src'); 
-            v.load(); 
-            f.src = "about:blank";
-            v.style.display = f.style.display = 'none';
+    async function killPlayers() {
+        if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
+        if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
+        v.pause();
+        v.removeAttribute('src'); 
+        v.load(); 
+        f.src = "about:blank";
+        v.style.display = f.style.display = 'none';
+    }
+
+    async function play(ch, element) {
+        if (!ch || !ch.url) return;
+        if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
+            window.open(ch.url, '_blank');
+            return;
         }
-
-        async function play(ch, element) {
-            if (!ch || !ch.url) return;
-
-            // Handle HTTP External Links
-            if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
-                window.open(ch.url, '_blank');
-                return;
-            }
-
-            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
-            if (element) element.classList.add('active-selection');
-            
-            ld.style.display = 'flex'; 
-            ph.style.display = 'none';
-
-            await killPlayers();
-
-            try {
-                if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                    f.style.display = 'block';
-                    f.src = ch.url;
-                    f.onload = () => ld.style.display = 'none';
-                } else if (ch.url.includes('.mpd')) {
-                    v.style.display = 'block';
-                    dashP = new shaka.Player(v);
-                    await dashP.load(ch.url);
-                    v.play();
-                } else {
-                    if (window.Hls.isSupported()) {
-                        hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
-                        hlsE.loadSource(ch.url);
-                        hlsE.attachMedia(v);
-                        hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
-                    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                        v.src = ch.url;
-                        v.style.display = 'block';
-                        v.play();
-                    }
+        document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
+        if (element) element.classList.add('active-selection');
+        ld.style.display = 'flex'; ph.style.display = 'none';
+        await killPlayers();
+        try {
+            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+                f.style.display = 'block';
+                f.src = ch.url;
+                f.onload = () => ld.style.display = 'none';
+            } else if (ch.url.includes('.mpd')) {
+                v.style.display = 'block';
+                dashP = new shaka.Player(v);
+                await dashP.load(ch.url);
+                v.play();
+            } else {
+                if (window.Hls.isSupported()) {
+                    hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
+                    hlsE.loadSource(ch.url); hlsE.attachMedia(v);
+                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
+                } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+                    v.src = ch.url; v.style.display = 'block'; v.play();
                 }
-            } catch (e) { ld.style.display = 'none'; }
-        }
-
-        function render(data) {
-    const fr = document.createDocumentFragment();
-    data.forEach(ch => {
-        const b = document.createElement('div');
-        b.className = 'channel-card';
-        b.setAttribute('role', 'listitem');
-        b.setAttribute('tabindex', '0');
-
-        let innerContent = '';
-        if (ch.name && ch.name.includes('|')) {
-            const parts = ch.name.split('|');
-            innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
-        } else {
-            innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name}</span></div>`;
-        }
-        b.innerHTML = innerContent;
-
-        // --- ADVANCED SCROLL PROTECTION ---
-        let startY = 0, startX = 0, startTime = 0;
-        let isCancelled = false;
-
-        b.addEventListener('touchstart', (e) => {
-            startY = e.touches.pageY;
-            startX = e.touches.pageX;
-            startTime = Date.now(); // Record exactly when the touch started
-            isCancelled = false;
-            b.style.transform = "scale(0.98)"; // Visual feedback of press
-        }, { passive: true });
-
-        b.addEventListener('touchmove', (e) => {
-            const moveY = Math.abs(e.touches.pageY - startY);
-            const moveX = Math.abs(e.touches.pageX - startX);
-            
-            // If the finger moves even 5 pixels, it's a scroll. Cancel playback.
-            if (moveY > 5 || moveX > 5) {
-                isCancelled = true;
-                b.style.transform = "scale(1)"; // Reset visual if scrolling
             }
-        }, { passive: true });
+        } catch (e) { ld.style.display = 'none'; }
+    }
 
-        b.addEventListener('touchend', (e) => {
-            const duration = Date.now() - startTime;
-            b.style.transform = "scale(1)"; // Reset visual
+    function render(data) {
+        const fr = document.createDocumentFragment();
+        data.forEach(ch => {
+            const b = document.createElement('div');
+            b.className = 'channel-card';
+            b.setAttribute('role', 'listitem');
+            b.setAttribute('tabindex', '0');
 
-            // 1. User didn't move their finger (isCancelled is false)
-            // 2. Touch was quick (under 250ms) - prevents accidental triggers while holding
-            if (!isCancelled && duration < 250) {
-                play(ch, b);
+            // Handle Multi-line Names with the Pipe | symbol
+            let innerContent = '';
+            if (ch.name && ch.name.includes('|')) {
+                const parts = ch.name.split('|');
+                innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
+            } else {
+                innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
             }
-        }, { passive: true });
+            b.innerHTML = innerContent;
 
-        // Backup for desktop mouse users
-        b.onclick = (e) => {
-            if (e.pointerType === 'mouse') play(ch, b);
-        };
+            // --- SMART SCROLL PROTECTION ---
+            let startY = 0, startX = 0, startTime = 0, isCancelled = false;
 
-        b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
-        fr.appendChild(b);
+            b.addEventListener('touchstart', (e) => {
+                startY = e.touches.pageY;
+                startX = e.touches.pageX;
+                startTime = Date.now();
+                isCancelled = false;
+            }, { passive: true });
+
+            b.addEventListener('touchmove', (e) => {
+                const moveY = Math.abs(e.touches.pageY - startY);
+                const moveX = Math.abs(e.touches.pageX - startX);
+                // If finger moves more than 6 pixels, it's a scroll, not a click
+                if (moveY > 6 || moveX > 6) { isCancelled = true; }
+            }, { passive: true });
+
+            b.addEventListener('touchend', () => {
+                const duration = Date.now() - startTime;
+                // Only play if the finger didn't move much AND it was a quick tap
+                if (!isCancelled && duration < 300) {
+                    play(ch, b);
+                }
+            }, { passive: true });
+
+            // Desktop Support
+            b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };
+            b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
+
+            fr.appendChild(b);
+        });
+        l.innerHTML = '';
+        l.appendChild(fr);
+    }
+
+    dataPromise.then(data => { 
+        allCh = data; 
+        render(allCh); 
+        document.getElementById('canonical-link').setAttribute('href', window.location.href);
+    }).catch(err => {
+        console.error("JSON Error:", err);
+        l.innerHTML = "<div style='color:red; text-align:center; grid-column:1/-1;'>Check channels2.json file</div>";
     });
-    l.innerHTML = '';
-    l.appendChild(fr);
-        }
-    </script>
+
+    v.addEventListener('playing', () => ld.style.display = 'none');
+
+    document.getElementById('searchInput').oninput = (e) => {
+        const query = e.target.value.toLowerCase();
+        const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
+        render(filtered);
+    };
+</script>
+
 </body>
 </html>

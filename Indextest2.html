@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Network | Live Indian TV</title>
     
-    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels in HD.">
+    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels in HD. High-speed streaming for entertainment on all devices.">
     <meta name="theme-color" content="#111419">
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
@@ -19,7 +19,9 @@
 
         body { 
             font-family: system-ui, -apple-system, sans-serif; 
-            background: #F8F9FA; color: #212529; overflow-x: hidden;
+            background: #F8F9FA; 
+            color: #212529; 
+            overflow-x: hidden;
             -webkit-tap-highlight-color: transparent;
         }
 
@@ -46,11 +48,11 @@
 
         /* THE FIX: LANDSCAPE MOBILE MODE (Theater View) */
         @media (orientation: landscape) and (max-height: 500px) {
-            header, .ticker { display: none !important; } /* Hide UI completely */
+            header, .ticker { display: none !important; } 
             .sticky-player-wrapper { position: relative; top: 0; }
             .player-container { 
                 width: 100vw; 
-                height: 56.25vw; /* Strict 16:9 Calculation */
+                height: 56.25vw; 
                 max-height: 100vh; 
                 margin: 0 auto;
             }
@@ -70,13 +72,13 @@
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID: Safe Scroll Zones */
+        /* GRID: Safe Scroll Zones & Tighter Spacing */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-            grid-auto-rows: 60px;
+            grid-auto-rows: 65px;
             gap: 10px;
-            padding: 20px 30px 80px; /* 30px padding on sides for finger-scrolling */
+            padding: 20px 30px 80px; /* 30px side padding for "Safe Scroll" gutter */
             min-height: 40vh;
             align-items: start;
         }
@@ -86,7 +88,9 @@
             display: flex; align-items: center; justify-content: center;
             padding: 5px; text-align: center; cursor: pointer;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
-            user-select: none; touch-action: pan-y;
+            user-select: none;
+            /* FIX: Removes 300ms delay for Instant One-Click Boom */
+            touch-action: manipulation; 
         }
         
         .channel-card.active-selection {
@@ -133,7 +137,6 @@
     <script>
         const dataPromise = fetch('channels2.json').then(r => r.json());
         let allCh = [], hlsE = null, dashP = null;
-        let startY = 0, startX = 0;
 
         const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
@@ -149,6 +152,8 @@
 
         async function play(ch, element) {
             if (!ch || !ch.url) return;
+            
+            // Highlight active selection
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
 
@@ -190,21 +195,11 @@
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
 
-                b.addEventListener('pointerdown', (e) => { 
-                    startY = e.clientY; 
-                    startX = e.clientX; 
-                });
-                
-                b.addEventListener('pointerup', (e) => {
-                    const moveY = Math.abs(e.clientY - startY);
-                    const moveX = Math.abs(e.clientX - startX);
-                    // Only trigger if the finger didn't move much (click vs scroll)
-                    if (moveY < 15 && moveX < 15) {
-                        if (e.button === 0 || e.pointerType === 'touch') {
-                            play(ch, b);
-                        }
-                    }
-                });
+                // INSTANT CLICK TRIGGER
+                b.onclick = (e) => {
+                    e.preventDefault();
+                    play(ch, b);
+                };
 
                 b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
                 fr.appendChild(b);

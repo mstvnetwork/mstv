@@ -172,7 +172,7 @@
 <script>
 /**
  * MSTV AI-IQ ORCHESTRATOR (Root)
- * Logic: Cross-folder communication with /shaka/player.html
+ * Fix: Precise Data Payload Delivery
  */
 const MSTV_Brain = (() => {
     const UI = {
@@ -186,12 +186,9 @@ const MSTV_Brain = (() => {
     let allChannels = [];
     const ORIGIN = window.location.origin;
 
-    // 1. LISTEN for data coming UP from the subfolder
     window.addEventListener('message', (event) => {
-        if (event.origin !== ORIGIN) return; // Security Check
-        
+        if (event.origin !== ORIGIN) return;
         const { type, data } = event.data;
-
         if (type === 'CHANNELS_DATA') {
             allChannels = data;
             render(allChannels);
@@ -199,9 +196,10 @@ const MSTV_Brain = (() => {
         }
     });
 
-    // 2. COMMAND sending DOWN to the subfolder
     const sendToPlayer = (type, data) => {
-        if (UI.f.contentWindow) {
+        if (UI.f && UI.f.contentWindow) {
+            // AI Logic: Explicitly stringify and parse if needed, 
+            // but usually passing the object is fine if origin is set.
             UI.f.contentWindow.postMessage({ type, data }, ORIGIN);
         }
     };
@@ -209,15 +207,18 @@ const MSTV_Brain = (() => {
     const smartPlay = (ch) => {
         if (!ch?.url) return;
 
-        // Instant Protocol Sense for HTTP (Bypass Popup Blocker)
-        if (ch.url.startsWith('http://')) {
+        // Protocol Check
+        if (ch.url.startsWith('http://') && !ch.url.includes('https://')) {
             window.open(ch.url, '_blank', 'noopener,noreferrer');
             return;
         }
 
         UI.loader.style.display = 'flex';
-        UI.title.innerText = ch.name;
+        UI.title.innerText = `Loading: ${ch.name}`;
+        
+        // Send the FULL channel object to the subfolder player
         sendToPlayer('START_STREAM', ch);
+        
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
@@ -236,17 +237,12 @@ const MSTV_Brain = (() => {
 
     return {
         init: () => {
-            // Set correct subfolder path
             UI.f.src = "shaka/player.html"; 
-
             UI.f.onload = () => {
-                // Handshake: Ask for channels once iframe is ready
-                setTimeout(() => sendToPlayer('GET_CHANNELS', null), 100);
+                setTimeout(() => sendToPlayer('GET_CHANNELS', null), 200);
             };
-
             UI.search.oninput = (e) => {
-                const term = e.target.value.toLowerCase();
-                render(allChannels.filter(c => c.name.toLowerCase().includes(term)));
+                render(allChannels.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
             };
         }
     };

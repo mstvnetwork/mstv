@@ -171,8 +171,8 @@
 
 <script>
 /**
- * MSTV AI-IQ ORCHESTRATOR
- * Communications Layer for player.html
+ * MSTV AI-IQ ORCHESTRATOR (Root)
+ * Logic: Cross-folder communication with /shaka/player.html
  */
 const MSTV_Brain = (() => {
     const UI = {
@@ -184,40 +184,39 @@ const MSTV_Brain = (() => {
     };
 
     let allChannels = [];
+    const ORIGIN = window.location.origin;
 
-    // 1. LISTEN: Receive data from player.html
+    // 1. LISTEN for data coming UP from the subfolder
     window.addEventListener('message', (event) => {
-        const message = event.data;
+        if (event.origin !== ORIGIN) return; // Security Check
+        
+        const { type, data } = event.data;
 
-        if (message.type === 'CHANNELS_DATA') {
-            allChannels = message.data;
+        if (type === 'CHANNELS_DATA') {
+            allChannels = data;
             render(allChannels);
-            UI.loader.style.display = 'none';
-        }
-
-        if (message.type === 'PLAYBACK_STARTED') {
             UI.loader.style.display = 'none';
         }
     });
 
-    // 2. COMMAND: Tell player.html what to do
+    // 2. COMMAND sending DOWN to the subfolder
     const sendToPlayer = (type, data) => {
-        UI.f.contentWindow.postMessage({ type, data }, '*');
+        if (UI.f.contentWindow) {
+            UI.f.contentWindow.postMessage({ type, data }, ORIGIN);
+        }
     };
 
     const smartPlay = (ch) => {
         if (!ch?.url) return;
 
-        // Bypassing for HTTP (Direct Browser Action)
-        if (ch.url.startsWith('http://') && !ch.url.includes('https://')) {
+        // Instant Protocol Sense for HTTP (Bypass Popup Blocker)
+        if (ch.url.startsWith('http://')) {
             window.open(ch.url, '_blank', 'noopener,noreferrer');
             return;
         }
 
         UI.loader.style.display = 'flex';
         UI.title.innerText = ch.name;
-        
-        // Command player.html to load the stream
         sendToPlayer('START_STREAM', ch);
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
@@ -237,12 +236,13 @@ const MSTV_Brain = (() => {
 
     return {
         init: () => {
-            // Wait for iframe to load, then ask for channels
+            // Set correct subfolder path
+            UI.f.src = "shaka/player.html"; 
+
             UI.f.onload = () => {
-                sendToPlayer('GET_CHANNELS', null);
+                // Handshake: Ask for channels once iframe is ready
+                setTimeout(() => sendToPlayer('GET_CHANNELS', null), 100);
             };
-            // Point iframe to your player file
-            UI.f.src = "player.html"; 
 
             UI.search.oninput = (e) => {
                 const term = e.target.value.toLowerCase();
@@ -253,8 +253,6 @@ const MSTV_Brain = (() => {
 })();
 
 document.addEventListener('DOMContentLoaded', MSTV_Brain.init);
-
-
 </script>
 </body>
 </html>

@@ -9,9 +9,10 @@
     <meta name="theme-color" content="#111419">
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
-    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link id="canonical-link" rel="canonical" href="">
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
 
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -40,27 +41,13 @@
         .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
         
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+        
         #placeholder { 
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    display: flex; 
-    flex-direction: column; /* Stacks lines vertically */
-    align-items: center; 
-    justify-content: center; 
-    text-align: center; 
-    padding: 20px;
-    z-index: 10; 
-    background: #000; 
-    color: #fff; 
-    line-height: 1.4;
-}
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            text-align: center; z-index: 10; background: #000; color: #fff; padding: 20px;
+        }
 
-/* Optional: Make the instruction lines smaller and cleaner */
-.player-hint { 
-    font-size: 0.9rem; 
-    opacity: 0.8; 
-    margin-top: 8px; 
-    font-weight: 400;
-}
+        .player-hint { font-size: 0.9rem; opacity: 0.8; margin-top: 8px; font-weight: 400; }
 
         @media (orientation: landscape) and (max-height: 500px) {
             header, .ticker { display: none !important; } 
@@ -77,54 +64,36 @@
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         .ticker { width: 100%; height: 28px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.75rem; }
-        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
+        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* CLS FIXED GRID */
+        /* GRID WITH INCREASED HORIZONTAL SPACE */
         .channel-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    grid-auto-rows: 65px;
-    
-    /* Change this line: First value is Vertical (Row), Second is Horizontal (Column) */
-    gap: 10px 55px; 
-    
-    padding: 20px 30px 80px; 
-    min-height: 80vh;
-    align-items: start;
-    contain: layout;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            grid-auto-rows: 65px;
+            gap: 10px 35px; /* 10px Vertical, 35px Horizontal */
+            padding: 20px 30px 80px; 
+            min-height: 80vh;
+            align-items: start;
+            contain: layout;
         }
+
         .channel-card {
             height: 65px; background: #fff; border: 1px solid #ddd; border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
             padding: 5px; text-align: center; cursor: pointer;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
-            user-select: none; touch-action: manipulation; 
+            user-select: none; touch-action: pan-y; 
         }
         
-        .channel-card.active-selection {
-            border: 2px solid var(--accent); background: #eafff0;
-            box-shadow: 0 0 8px rgba(46, 204, 113, 0.3);
-        }
+        .channel-card:active { transform: scale(0.95); background: #f9f9f9; }
+        .channel-card.active-selection { border: 2px solid var(--accent); background: #eafff0; }
 
-        .channel-card:active { transform: scale(0.95); }
-        .channel-name { 
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-}
-
-.main-name { font-size: 0.75rem; font-weight: 700; color: #333; line-height: 1.1; }
-
-.sub-hint { 
-    font-size: 0.55rem; 
-    font-weight: 500; 
-    color: #D00000; 
-    margin-top: 2px;
-    text-transform: uppercase;
-}
+        /* MULTI-LINE NAME STYLING */
+        .channel-name-wrapper { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+        .main-name { font-size: 0.75rem; font-weight: 700; color: #333; line-height: 1.1; }
+        .sub-hint { font-size: 0.55rem; font-weight: 500; color: #D00000; margin-top: 2px; text-transform: uppercase; }
 
         .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
@@ -142,18 +111,17 @@
         <section class="player-container">
             <div id="loader"><div class="spinner"></div></div>
             <div id="placeholder">
-    <div style="font-size: 2.2rem; font-weight: 800; color: var(--accent);">SELECT CHANNEL</div>
-    <div class="player-hint">If no play, click again</div>
-    <div class="player-hint" style="color: #ffda44;">To watch all, use any free VPN from Play Store (Server: Australia)</div>
+                <div style="font-size: 2.2rem; font-weight: 800; color: var(--accent);">SELECT CHANNEL</div>
+                <div class="player-hint">If no play, click again</div>
+                <div class="player-hint" style="color: #ffda44;">To watch all, use any free VPN (Server: Australia)</div>
             </div>
-           
-            <video id="video" playsinline controls style="display:none;"><track kind="captions" src="" srclang="en" label="English" default></video>
-            <iframe id="iframePlayer" style="display:none;" frameborder="0" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen"></iframe>
+            <video id="video" playsinline controls style="display:none;"></video>
+            <iframe id="iframePlayer" style="display:none;" frameborder="0" allow="autoplay; fullscreen"></iframe>
         </section>
         <div class="ticker">
-            <div class="ticker-track">,
-                <span>&nbsp; Select channel if no play click again, to watch all channels use any Free VPN available on Google Play Store and choose server as Australia &nbsp; </span>
-                <span>&nbsp; Select channel if no play click again, to watch all channels use any Free VPN available on Google Play Store and choose server as Australia &nbsp; </span>
+            <div class="ticker-track">
+                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
+                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
             </div>
         </div>
     </div>
@@ -163,122 +131,123 @@
         <footer class="site-footer"><p>© 2026 MSTV Network. All Rights Reserved.</p></footer>
     </main>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
+    <script>
+        const dataPromise = fetch('channels2.json').then(r => r.json());
+        let allCh = [], hlsE = null, dashP = null;
 
-<script>
-    // 1. Fetch data and immediately trigger render
-    const dataPromise = fetch('channels2.json').then(r => r.json());
-    
-    let allCh = [], hlsE = null, dashP = null;
+        const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
+              l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
+              ph = document.getElementById('placeholder');
 
-    const v = document.getElementById('video'), 
-          f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), 
-          ld = document.getElementById('loader'), 
-          ph = document.getElementById('placeholder');
-
-    // Hard kill function to stop audio conflicts instantly
-    async function killPlayers() {
-        if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
-        if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
-        v.pause();
-        v.removeAttribute('src'); 
-        v.load(); 
-        f.src = "about:blank";
-        v.style.display = f.style.display = 'none';
-    }
-
-    async function play(ch, element) {
-        if (!ch || !ch.url) return;
-
-        // UI Feedback
-        document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
-        if (element) element.classList.add('active-selection');
-        ld.style.display = 'flex'; ph.style.display = 'none';
-
-        await killPlayers();
-
-        // HTTP external link check
-        if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
-            window.open(ch.url, '_blank');
-            ld.style.display = 'none';
-            ph.style.display = 'flex';
-            return;
+        async function killPlayers() {
+            if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
+            if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
+            v.pause();
+            v.removeAttribute('src'); 
+            v.load(); 
+            f.src = "about:blank";
+            v.style.display = f.style.display = 'none';
         }
 
-        try {
-            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                f.style.display = 'block';
-                f.src = ch.url;
-                f.onload = () => ld.style.display = 'none';
-            } else if (ch.url.includes('.mpd')) {
-                v.style.display = 'block';
-                dashP = new shaka.Player(v);
-                await dashP.load(ch.url);
-                v.play();
-            } else {
-                if (window.Hls.isSupported()) {
-                    hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
-                    hlsE.loadSource(ch.url);
-                    hlsE.attachMedia(v);
-                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
-                }
-            }
-        } catch (e) { ld.style.display = 'none'; }
-    }
+        async function play(ch, element) {
+            if (!ch || !ch.url) return;
 
-    function render(data) {
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div');
-            b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
-
-            // Corrected Logic: Access specific array indices and
-            let displayName = '';
-            if (ch.name && ch.name.includes('|')) {
-                const parts = ch.name.split('|');
-                displayName = `
-                    <div class="channel-name">
-                        <span class="main-name">${parts}</span>
-                        <span class="sub-hint">${parts}</span>
-                    </div>`;
-            } else {
-                displayName = `<span class="main-name">${ch.name || 'Unknown'}</span>`;
+            // Handle HTTP External Links
+            if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
+                window.open(ch.url, '_blank');
+                return;
             }
 
-            b.innerHTML = displayName;
+            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
+            if (element) element.classList.add('active-selection');
             
-            // Boom trigger on touch
-            b.addEventListener('pointerdown', () => play(ch, b), { passive: true });
-            b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
-            fr.appendChild(b);
+            ld.style.display = 'flex'; 
+            ph.style.display = 'none';
+
+            await killPlayers();
+
+            try {
+                if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+                    f.style.display = 'block';
+                    f.src = ch.url;
+                    f.onload = () => ld.style.display = 'none';
+                } else if (ch.url.includes('.mpd')) {
+                    v.style.display = 'block';
+                    dashP = new shaka.Player(v);
+                    await dashP.load(ch.url);
+                    v.play();
+                } else {
+                    if (window.Hls.isSupported()) {
+                        hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
+                        hlsE.loadSource(ch.url);
+                        hlsE.attachMedia(v);
+                        hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
+                    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+                        v.src = ch.url;
+                        v.style.display = 'block';
+                        v.play();
+                    }
+                }
+            } catch (e) { ld.style.display = 'none'; }
+        }
+
+        function render(data) {
+            const fr = document.createDocumentFragment();
+            data.forEach(ch => {
+                const b = document.createElement('div');
+                b.className = 'channel-card';
+                b.setAttribute('role', 'listitem');
+                b.setAttribute('tabindex', '0');
+
+                // Split name if it contains '|'
+                let innerContent = '';
+                if (ch.name && ch.name.includes('|')) {
+                    const parts = ch.name.split('|');
+                    innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
+                } else {
+                    innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name}</span></div>`;
+                }
+                b.innerHTML = innerContent;
+
+                // SCROLL PROTECTION + ONE-TOUCH BOOM
+                let startY = 0, startX = 0, isScrolling = false;
+
+                b.addEventListener('touchstart', (e) => {
+                    startY = e.touches.pageY;
+                    startX = e.touches.pageX;
+                    isScrolling = false;
+                }, { passive: true });
+
+                b.addEventListener('touchmove', (e) => {
+                    if (Math.abs(e.touches.pageY - startY) > 10 || Math.abs(e.touches.pageX - startX) > 10) {
+                        isScrolling = true;
+                    }
+                }, { passive: true });
+
+                b.addEventListener('touchend', () => {
+                    if (!isScrolling) play(ch, b);
+                }, { passive: true });
+
+                b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
+                fr.appendChild(b);
+            });
+            l.innerHTML = '';
+            l.appendChild(fr);
+        }
+
+        dataPromise.then(data => { 
+            allCh = data; 
+            render(allCh); 
+            document.getElementById('canonical-link').setAttribute('href', window.location.href);
         });
-        l.innerHTML = '';
-        l.appendChild(fr);
-    }
 
-    // CRITICAL: This part actually makes the grid appear!
-    dataPromise.then(data => { 
-        allCh = data; 
-        render(allCh); 
-        document.getElementById('canonical-link').setAttribute('href', window.location.href);
-    }).catch(err => {
-        console.error("Error loading channels:", err);
-        l.innerHTML = "Error loading channels. Please check channels2.json";
-    });
+        v.addEventListener('playing', () => ld.style.display = 'none');
 
-    // Hide loader when video starts
-    v.addEventListener('playing', () => ld.style.display = 'none');
-
-    // Search function
-    document.getElementById('searchInput').oninput = (e) => {
-        const query = e.target.value.toLowerCase();
-        const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
-        render(filtered);
-    };
-</script>
+        document.getElementById('searchInput').oninput = (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
+            render(filtered);
+        };
+    </script>
 </body>
 </html>

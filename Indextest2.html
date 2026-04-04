@@ -23,7 +23,6 @@
             -webkit-tap-highlight-color: transparent;
         }
 
-        /* HEADER & SEARCH */
         header {
             height: var(--header-h); background: var(--bg-dark);
             display: flex; align-items: center; justify-content: space-between;
@@ -37,21 +36,18 @@
             border: none; background: #1A1D20; color: #fff; font-size: 14px; outline: none;
         }
 
-        /* PLAYER WRAPPER */
         .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
         .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
         
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
         #placeholder { display: flex; align-items: center; justify-content: center; font-size: 3rem; z-index: 10; background: #000; color: #fff; }
 
-        /* THE FIX: LANDSCAPE MOBILE MODE */
         @media (orientation: landscape) and (max-height: 500px) {
             header, .ticker { display: none !important; } 
             .sticky-player-wrapper { position: relative; top: 0; }
             .player-container { width: 100vw; height: 56.25vw; max-height: 100vh; margin: 0 auto; }
         }
 
-        /* LOADER & SPINNER */
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: none; flex-direction: column; align-items: center; justify-content: center;
@@ -60,24 +56,24 @@
         .spinner { width: 35px; height: 35px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* TICKER */
         .ticker { width: 100%; height: 28px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.75rem; }
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID: Safe Scroll Zones */
+        /* CLS FIXED GRID */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
             grid-auto-rows: 65px;
             gap: 10px;
             padding: 20px 30px 80px; 
-            min-height: 40vh;
+            min-height: 80vh; /* Fixed CLS jump */
             align-items: start;
+            contain: layout;
         }
 
         .channel-card {
-            background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            height: 65px; background: #fff; border: 1px solid #ddd; border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
             padding: 5px; text-align: center; cursor: pointer;
             box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
@@ -142,22 +138,16 @@
 
         async function play(ch, element) {
             if (!ch || !ch.url) return;
-
-            // NEW LOGIC: If the URL is http (not https), open in new window to bypass Mixed Content blocks
             if (ch.url.startsWith('http://')) {
-                killPlayers(); // Stop current player so audio doesn't overlap
+                killPlayers();
                 ph.style.display = 'flex';
                 window.open(ch.url, '_blank');
                 return;
             }
-            
-            // Highlight active selection for internal streams
             document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
             if (element) element.classList.add('active-selection');
-
             ld.style.display = 'flex'; ph.style.display = 'none';
             await killPlayers();
-            
             try {
                 if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
                     f.style.display = 'block';
@@ -169,7 +159,7 @@
                     v.style.display = 'block'; v.play();
                 } else {
                     if(!window.Hls) await loadScript("https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js");
-                    if (Hls.isSupported()) {
+                    if (window.Hls.isSupported()) {
                         hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
                         hlsE.loadSource(ch.url); hlsE.attachMedia(v);
                         hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
@@ -192,12 +182,7 @@
                 b.className = 'channel-card'; b.setAttribute('role', 'listitem');
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-
-                b.onclick = (e) => {
-                    e.preventDefault();
-                    play(ch, b);
-                };
-
+                b.onclick = (e) => { e.preventDefault(); play(ch, b); };
                 b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
                 fr.appendChild(b);
             });

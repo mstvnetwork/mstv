@@ -2,85 +2,101 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV | AUTOMATED CORE</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MSTV | V28 UNIFIED</title>
     <style>
-        :root { --accent: #22c55e; --bg: #000; --card-bg: #111; }
-        body { margin: 0; background: var(--bg); color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow-x: hidden; }
+        :root { --accent: #22c55e; --bg: #000; }
+        body { margin: 0; background: var(--bg); color: #fff; font-family: sans-serif; }
 
-        /* THE PLAYER STAGE (Sticky 16:9) */
-        #stage { 
-            position: sticky; top: 0; width: 100%; height: 56.25vw; 
-            max-height: 70vh; background: #000; z-index: 1000; 
-            border-bottom: 1px solid #222;
+        /* THE PLAYER (Fixed at top - 16:9 Ratio) */
+        #stage-container { 
+            position: fixed; top: 0; width: 100%; height: 56.25vw; 
+            max-height: 50vh; background: #000; z-index: 2000;
+            border-bottom: 2px solid #111;
         }
         #iframePlayer { width: 100%; height: 100%; border: none; display: block; }
 
-        /* THE GRID CATALOG */
-        #catalog { padding: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-        
-        .card { 
-            background: var(--card-bg); aspect-ratio: 16/9; border-radius: 8px; 
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer; border: 1px solid #222; transition: 0.2s;
-            text-align: center; padding: 10px; font-weight: 600; font-size: 13px;
+        /* THE SCROLLABLE CATALOG (Starts below the player) */
+        #catalog-wrapper { 
+            margin-top: 56.25vw; /* Same as player height to prevent overlap */
+            padding: 15px;
+            min-height: 100vh;
         }
-        .card:active { transform: scale(0.96); border-color: var(--accent); color: var(--accent); }
+        
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); 
+            gap: 10px; 
+        }
 
-        /* Loading Skeleton Animation */
-        .loading { opacity: 0.5; font-size: 10px; text-transform: uppercase; letter-spacing: 2px; text-align: center; margin-top: 50px; }
+        /* FUNCTIONAL CARDS */
+        .card { 
+            background: #0a0a0a; border: 1px solid #222; border-radius: 6px; 
+            aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            text-align: center; padding: 10px; font-weight: 700; font-size: 12px;
+            text-transform: uppercase; letter-spacing: 1px; color: #888;
+        }
+        
+        /* Interactive State */
+        .card:hover, .card:active { 
+            border-color: var(--accent); color: #fff; background: #111;
+            transform: translateY(-2px); box-shadow: 0 4px 15px rgba(34, 197, 94, 0.2);
+        }
+
+        .loading-status { text-align: center; color: var(--accent); font-size: 10px; margin-top: 20px; }
     </style>
 </head>
 <body>
 
-    <div id="stage">
+    <div id="stage-container">
         <iframe id="iframePlayer" src="player.html#1" allow="autoplay; fullscreen"></iframe>
     </div>
 
-    <div id="catalog">
-        <div class="loading">Synchronizing with Brain...</div>
+    <div id="catalog-wrapper">
+        <div id="channelList" class="grid">
+            <div class="loading-status">SYNCING WITH CHANNELS2.JSON...</div>
+        </div>
     </div>
 
 <script>
-    const catalog = document.getElementById('catalog');
+    const list = document.getElementById('channelList');
     const player = document.getElementById('iframePlayer');
 
-    // --- THE BRAIN: FETCH & SYNC ---
-    async function initSystem() {
+    async function syncAndBuild() {
         try {
-            // 1. Fetch your source-of-truth JSON
+            // 1. Fetch data from your real-time JSON
             const response = await fetch('channels2.json');
-            const data = await response.json();
+            const CHANNELS = await response.json();
             
-            // 2. Clear the "Loading" text
-            catalog.innerHTML = '';
+            // 2. Wipe the "loading" text
+            list.innerHTML = '';
             
-            // 3. Build the UI
-            const fragment = document.createDocumentFragment();
-            data.forEach((ch, i) => {
+            // 3. Build the ONLY functional grid
+            const frag = document.createDocumentFragment();
+            CHANNELS.forEach((ch, i) => {
                 const card = document.createElement('div');
                 card.className = 'card';
                 card.textContent = ch.name;
                 
-                // THE BRIDGE: Clicking sends index to player.html
+                // THE BRAIN HANDSHAKE
                 card.onclick = () => {
                     player.src = `player.html#${i + 1}`;
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                 };
                 
-                fragment.appendChild(card);
+                frag.appendChild(card);
             });
             
-            requestAnimationFrame(() => catalog.appendChild(fragment));
+            requestAnimationFrame(() => list.appendChild(frag));
 
-        } catch (error) {
-            catalog.innerHTML = '<div class="loading">Sync Error. Check JSON path.</div>';
-            console.error("Master Sync Failed:", error);
+        } catch (err) {
+            list.innerHTML = '<div class="loading-status">ERROR: CHECK CHANNELS2.JSON</div>';
         }
     }
 
-    // Start on load
-    window.onload = initSystem;
+    // Initialize on load
+    window.onload = syncAndBuild;
 </script>
 </body>
 </html>

@@ -17,7 +17,13 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { --bg-dark: #111419; --accent: #2ECC71; --header-h: 70px; }
 
-        body { font-family: system-ui, -apple-system, sans-serif; background: #F8F9FA; color: #212529; overflow-x: hidden; }
+        body { 
+            font-family: system-ui, -apple-system, sans-serif; 
+            background: #F8F9FA; 
+            color: #212529; 
+            overflow-x: hidden;
+            -webkit-tap-highlight-color: transparent; /* Removes blue flash on mobile tap */
+        }
 
         header {
             height: var(--header-h); background: var(--bg-dark);
@@ -31,6 +37,7 @@
         #searchInput {
             width: 100%; padding: 10px 15px; border-radius: 20px;
             border: none; background: #1A1D20; color: #fff; font-size: 16px;
+            outline: none;
         }
 
         .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
@@ -54,27 +61,27 @@
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; will-change: transform; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
 
-        /* GRID FIX: Compact rows and consistent sizing */
+        /* GRID FIX: Instant Boom Layout */
         .channel-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            grid-auto-rows: max-content; /* FIX: Rows only take up needed space */
-            gap: 15px; 
-            padding: 20px 20px 60px;
-            min-height: 50vh; /* Keeps footer in check */
+            grid-auto-rows: 80px; /* Fixed row height to prevent vertical gaps */
+            gap: 12px; 
+            padding: 20px 15px 60px;
+            min-height: 50vh;
             align-items: start;
         }
 
         .channel-card {
             background: #fff; border: 1px solid #ddd; border-radius: 12px;
-            height: 80px; /* Uniform height for clean rows */
             display: flex; align-items: center; justify-content: center;
             padding: 10px; text-align: center; cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05); transition: 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05); transition: transform 0.1s;
             user-select: none;
+            touch-action: manipulation; /* Removes mobile click delay */
         }
-        .channel-card:hover { border-color: var(--accent); transform: translateY(-2px); }
-        .channel-name { font-size: 0.9rem; font-weight: 700; color: #333; pointer-events: none; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+        .channel-card:active { transform: scale(0.95); background: #f0f0f0; }
+        .channel-name { font-size: 0.85rem; font-weight: 700; color: #333; pointer-events: none; line-height: 1.2; }
 
         .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
@@ -84,28 +91,21 @@
     <header>
         <h1 class="brand-name">MSTV NETWORK</h1>
         <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search TV channels">
+            <input type="text" id="searchInput" placeholder="Search channels..." aria-label="Search">
         </div>
     </header>
 
     <div class="sticky-player-wrapper">
         <section class="player-container">
             <div id="loader"><div class="spinner"></div></div>
-            <div id="placeholder" aria-hidden="true">📺</div>
-            
-            <video id="video" playsinline controls style="display:none;">
-                <track kind="captions" src="" srclang="en" label="English" default>
-            </video>
-            
-            <iframe id="iframePlayer" style="display:none;" frameborder="0" 
-                    sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" 
-                    allow="autoplay; fullscreen"></iframe>
+            <div id="placeholder">📺</div>
+            <video id="video" playsinline controls style="display:none;"><track kind="captions" src="" srclang="en" label="English" default></video>
+            <iframe id="iframePlayer" style="display:none;" frameborder="0" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen"></iframe>
         </section>
-
         <div class="ticker">
             <div class="ticker-track">
-                <span>&nbsp; • Use VPN (Australia) for blocked channels • High Speed HD Streaming Optimized &nbsp; </span>
-                <span>&nbsp; • Use VPN (Australia) for blocked channels • High Speed HD Streaming Optimized &nbsp; </span>
+                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
+                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
             </div>
         </div>
     </div>
@@ -117,7 +117,6 @@
 
     <script>
         const dataPromise = fetch('channels2.json').then(r => r.json());
-
         let allCh = [], hlsE = null, dashP = null;
         const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
               l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
@@ -127,10 +126,7 @@
             if (hlsE) { hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
             if (dashP) { await dashP.destroy(); dashP = null; }
             v.pause(); v.src = ""; v.load();
-            try { 
-                f.contentWindow.onbeforeunload = null; 
-                f.src = "about:blank"; 
-            } catch(e) {}
+            try { f.contentWindow.onbeforeunload = null; f.src = "about:blank"; } catch(e) {}
             v.style.display = f.style.display = 'none';
         }
 
@@ -145,13 +141,11 @@
                     f.style.display = 'block';
                     f.src = `${ch.url}${ch.url.includes('?') ? '&' : '?'}t=${Date.now()}`;
                     f.onload = () => ld.style.display = 'none';
-                } 
-                else if (ch.url.includes('.mpd')) {
+                } else if (ch.url.includes('.mpd')) {
                     if(!window.shaka) await loadScript("https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js");
                     dashP = new shaka.Player(v); await dashP.load(ch.url);
                     v.style.display = 'block'; v.play();
-                } 
-                else {
+                } else {
                     if(!window.Hls) await loadScript("https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js");
                     if (Hls.isSupported()) {
                         hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
@@ -176,7 +170,14 @@
                 b.className = 'channel-card'; b.setAttribute('role', 'listitem');
                 b.setAttribute('tabindex', '0');
                 b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-                b.onclick = (e) => { e.preventDefault(); play(ch); };
+
+                // INSTANT BOOM FIX: Listen for 'pointerdown' (fires instantly on touch/click)
+                b.onpointerdown = (e) => {
+                    if (e.button === 0 || e.pointerType === 'touch') {
+                        e.preventDefault();
+                        play(ch);
+                    }
+                };
                 b.onkeydown = (e) => { if(e.key === 'Enter') play(ch); };
                 fr.appendChild(b);
             });
@@ -195,10 +196,7 @@
             const query = e.target.value.toLowerCase();
             const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
             render(filtered);
-            l.style.minHeight = (filtered.length === 0) ? "200px" : "50vh";
-            if (filtered.length === 0) {
-                l.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#888; padding-top:40px;">No channels found.</div>';
-            }
+            if (filtered.length === 0) l.innerHTML = '<div style="grid-column: 1/-1; text-align:center; color:#888; padding-top:20px;">No channels found.</div>';
         };
     </script>
 </body>

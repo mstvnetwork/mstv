@@ -23,6 +23,11 @@
             background: #F8F9FA; color: #212529; overflow-x: hidden;
             -webkit-tap-highlight-color: transparent;
         }
+        body {
+    /* Prevents the browser from hesitating to see if you're zooming */
+    touch-action: pan-y; 
+    -webkit-overflow-scrolling: touch;
+        }
 
         header {
             height: var(--header-h); background: var(--bg-dark);
@@ -192,62 +197,67 @@
         }
 
         function render(data) {
-            const fr = document.createDocumentFragment();
-            data.forEach(ch => {
-                const b = document.createElement('div');
-                b.className = 'channel-card';
-                b.setAttribute('role', 'listitem');
-                b.setAttribute('tabindex', '0');
+    const fr = document.createDocumentFragment();
+    data.forEach(ch => {
+        const b = document.createElement('div');
+        b.className = 'channel-card';
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('tabindex', '0');
 
-                // Split name if it contains '|'
-                let innerContent = '';
-                if (ch.name && ch.name.includes('|')) {
-                    const parts = ch.name.split('|');
-                    innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
-                } else {
-                    innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name}</span></div>`;
-                }
-                b.innerHTML = innerContent;
-
-                // SCROLL PROTECTION + ONE-TOUCH BOOM
-                let startY = 0, startX = 0, isScrolling = false;
-
-                b.addEventListener('touchstart', (e) => {
-                    startY = e.touches.pageY;
-                    startX = e.touches.pageX;
-                    isScrolling = false;
-                }, { passive: true });
-
-                b.addEventListener('touchmove', (e) => {
-                    if (Math.abs(e.touches.pageY - startY) > 10 || Math.abs(e.touches.pageX - startX) > 10) {
-                        isScrolling = true;
-                    }
-                }, { passive: true });
-
-                b.addEventListener('touchend', () => {
-                    if (!isScrolling) play(ch, b);
-                }, { passive: true });
-
-                b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
-                fr.appendChild(b);
-            });
-            l.innerHTML = '';
-            l.appendChild(fr);
+        let innerContent = '';
+        if (ch.name && ch.name.includes('|')) {
+            const parts = ch.name.split('|');
+            innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
+        } else {
+            innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name}</span></div>`;
         }
+        b.innerHTML = innerContent;
 
-        dataPromise.then(data => { 
-            allCh = data; 
-            render(allCh); 
-            document.getElementById('canonical-link').setAttribute('href', window.location.href);
-        });
+        // --- ADVANCED SCROLL PROTECTION ---
+        let startY = 0, startX = 0, startTime = 0;
+        let isCancelled = false;
 
-        v.addEventListener('playing', () => ld.style.display = 'none');
+        b.addEventListener('touchstart', (e) => {
+            startY = e.touches.pageY;
+            startX = e.touches.pageX;
+            startTime = Date.now(); // Record exactly when the touch started
+            isCancelled = false;
+            b.style.transform = "scale(0.98)"; // Visual feedback of press
+        }, { passive: true });
 
-        document.getElementById('searchInput').oninput = (e) => {
-            const query = e.target.value.toLowerCase();
-            const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
-            render(filtered);
+        b.addEventListener('touchmove', (e) => {
+            const moveY = Math.abs(e.touches.pageY - startY);
+            const moveX = Math.abs(e.touches.pageX - startX);
+            
+            // If the finger moves even 5 pixels, it's a scroll. Cancel playback.
+            if (moveY > 5 || moveX > 5) {
+                isCancelled = true;
+                b.style.transform = "scale(1)"; // Reset visual if scrolling
+            }
+        }, { passive: true });
+
+        b.addEventListener('touchend', (e) => {
+            const duration = Date.now() - startTime;
+            b.style.transform = "scale(1)"; // Reset visual
+
+            // 1. User didn't move their finger (isCancelled is false)
+            // 2. Touch was quick (under 250ms) - prevents accidental triggers while holding
+            if (!isCancelled && duration < 250) {
+                play(ch, b);
+            }
+        }, { passive: true });
+
+        // Backup for desktop mouse users
+        b.onclick = (e) => {
+            if (e.pointerType === 'mouse') play(ch, b);
         };
+
+        b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
+        fr.appendChild(b);
+    });
+    l.innerHTML = '';
+    l.appendChild(fr);
+        }
     </script>
 </body>
 </html>

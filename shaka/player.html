@@ -496,22 +496,22 @@
     
 ];
     
- let hls = null;
+
+
+    let hls = null;
     let shakaInst = null;
     const ORIGIN = window.location.origin;
 
-    // 2. AI BRIDGE: Listen for commands from the root folder
     window.addEventListener('message', async (event) => {
-        if (event.origin !== ORIGIN) return; // Security Check
-
+        if (event.origin !== ORIGIN) return;
         const { type, data } = event.data;
 
         if (type === 'GET_CHANNELS') {
-            // Send the grid data UP to the parent index.html
             window.parent.postMessage({ type: 'CHANNELS_DATA', data: STREAMS }, ORIGIN);
         }
 
         if (type === 'START_STREAM') {
+            console.log("AI Player: Received Play Command", data.url);
             bootStream(data);
         }
     });
@@ -520,34 +520,32 @@
         loader.classList.remove('hidden');
         if (hls) { hls.destroy(); hls = null; }
         if (shakaInst) { try { await shakaInst.destroy(); } catch(e) {} shakaInst = null; }
-        video.classList.remove('visible');
-        video.pause(); 
+        
+        video.pause();
         video.src = "";
-        video.load(); // Flush hardware memory
+        video.removeAttribute("src");
+        video.load(); 
+        
+        video.classList.remove('visible');
         iframe.classList.remove('visible');
         iframe.src = "about:blank";
     }
 
     async function bootStream(stream) {
-        if (!stream) return;
-
-        // Auto-check for HTTPS/HTTP conflicts
-        if (window.location.protocol === 'https:' && stream.url.startsWith('http:')) {
-            window.open(stream.url, '_blank', 'noopener,noreferrer');
-            loader.classList.add('hidden');
-            return;
-        }
-
+        if (!stream || !stream.url) return;
         await resetAll();
 
         if (stream.type === 'iframe') {
             iframe.classList.add('visible');
             iframe.src = stream.url;
             iframe.onload = () => loader.classList.add('hidden');
-        } else if (stream.url.includes('.mpd')) {
-            initShaka(stream.url, stream.drm); 
         } else {
-            initHls(stream.url);
+            video.classList.add('visible');
+            if (stream.url.includes('.mpd')) {
+                initShaka(stream.url, stream.drm); 
+            } else {
+                initHls(stream.url);
+            }
         }
     }
 
@@ -556,31 +554,38 @@
             hls = new Hls({ enableWorker: true, lowLatencyMode: true });
             hls.loadSource(url);
             hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = url;
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(e => {
+                    console.log("Autoplay blocked, showing play button");
+                    video.controls = true;
+                    loader.classList.add('hidden');
+                });
+            });
         }
     }
 
     async function initShaka(url, drmKeys) {
         shaka.polyfill.installAll();
         shakaInst = new shaka.Player(video);
+        
         if (drmKeys) {
             shakaInst.configure({ drm: { clearKeys: drmKeys } });
         }
+
         try { 
             await shakaInst.load(url); 
             video.play(); 
         } catch (e) { 
-            console.error("Shaka Error", e);
+            console.error("Shaka Error:", e.code);
             loader.classList.add('hidden');
+            alert("Stream Error: " + e.code);
         }
     }
 
-    video.onplaying = () => {
-        video.classList.add('visible');
-        loader.classList.add('hidden');
-    };
+    video.onplaying = () => loader.classList.add('hidden');
+    video.onwaiting = () => loader.classList.remove('hidden');
+    // If it gets stuck, hide loader after 10 seconds anyway so user can see video controls
+    video.onloadstart = () => setTimeout(() => loader.classList.add('hidden'), 10000);
 </script>
       
 </body>

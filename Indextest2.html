@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MSTV Network | Live Indian TV</title>
     
-    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels in HD. High-speed streaming for entertainment on all devices.">
-    <meta name="theme-color" content="#111419">
-
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
-    <link id="canonical-link" rel="canonical" href="">
-
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
 
@@ -22,11 +17,6 @@
             font-family: system-ui, -apple-system, sans-serif; 
             background: #F8F9FA; color: #212529; overflow-x: hidden;
             -webkit-tap-highlight-color: transparent;
-        }
-        body {
-    /* Prevents the browser from hesitating to see if you're zooming */
-    touch-action: pan-y; 
-    -webkit-overflow-scrolling: touch;
         }
 
         header {
@@ -44,7 +34,6 @@
 
         .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
         .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
-        
         #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
         
         #placeholder { 
@@ -52,212 +41,137 @@
             text-align: center; z-index: 10; background: #000; color: #fff; padding: 20px;
         }
 
-        .player-hint { font-size: 0.9rem; opacity: 0.8; margin-top: 8px; font-weight: 400; }
+        .player-hint { font-size: 0.8rem; opacity: 0.8; margin-top: 5px; }
 
-        @media (orientation: landscape) and (max-height: 500px) {
-            header, .ticker { display: none !important; } 
-            .sticky-player-wrapper { position: relative; top: 0; }
-            .player-container { width: 100vw; height: 56.25vw; max-height: 100vh; margin: 0 auto; }
+        /* HORIZONTAL SCROLL GRID */
+        .channel-grid {
+            display: flex;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            gap: 15px;
+            padding: 20px 15px;
+            scroll-snap-type: x mandatory;
+            -webkit-overflow-scrolling: touch;
         }
+        .channel-grid::-webkit-scrollbar { display: none; }
+
+        .channel-card {
+            flex: 0 0 110px;
+            height: 65px; background: #fff; border: 1px solid #ddd; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            text-align: center; cursor: pointer; scroll-snap-align: start;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
+        }
+        
+        .channel-card.active-selection { border: 2px solid var(--accent); background: #eafff0; }
+        .channel-name-wrapper { display: flex; flex-direction: column; pointer-events: none; }
+        .main-name { font-size: 0.7rem; font-weight: 700; color: #333; }
+        .sub-hint { font-size: 0.5rem; color: #D00000; margin-top: 2px; text-transform: uppercase; }
 
         #loader {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            display: none; flex-direction: column; align-items: center; justify-content: center;
+            display: none; align-items: center; justify-content: center;
             z-index: 20; background: rgba(0,0,0,0.8);
         }
-        .spinner { width: 35px; height: 35px; border: 4px solid #333; border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+        .spinner { width: 30px; height: 30px; border: 3px solid #333; border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        .ticker { width: 100%; height: 28px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.75rem; }
+        .ticker { width: 100%; height: 25px; background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.7rem; }
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 20s linear infinite; }
         @keyframes ticker-loop { from { transform: translate3d(0,0,0); } to { transform: translate3d(-50%,0,0); } }
-
-        /* GRID WITH INCREASED HORIZONTAL SPACE */
-        .channel-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-            grid-auto-rows: 65px;
-            gap: 10px 35px; /* 10px Vertical, 35px Horizontal */
-            padding: 20px 30px 80px; 
-            min-height: 80vh;
-            align-items: start;
-            contain: layout;
-        }
-
-        .channel-card {
-            height: 65px; background: #fff; border: 1px solid #ddd; border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            padding: 5px; text-align: center; cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: 0.1s;
-            user-select: none; touch-action: pan-y; 
-        }
-        
-        .channel-card:active { transform: scale(0.95); background: #f9f9f9; }
-        .channel-card.active-selection { border: 2px solid var(--accent); background: #eafff0; }
-
-        /* MULTI-LINE NAME STYLING */
-        .channel-name-wrapper { display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-        .main-name { font-size: 0.75rem; font-weight: 700; color: #333; line-height: 1.1; }
-        .sub-hint { font-size: 0.55rem; font-weight: 500; color: #D00000; margin-top: 2px; text-transform: uppercase; }
-
-        .site-footer { background: #111419; color: #fff; padding: 40px 20px; text-align: center; }
     </style>
 </head>
 <body>
 
     <header>
         <h1 class="brand-name">MSTV NETWORK</h1>
-        <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search..." aria-label="Search">
-        </div>
+        <div class="search-container"><input type="text" id="searchInput" placeholder="Search..."></div>
     </header>
 
     <div class="sticky-player-wrapper">
         <section class="player-container">
             <div id="loader"><div class="spinner"></div></div>
             <div id="placeholder">
-                <div style="font-size: 2.2rem; font-weight: 800; color: var(--accent);">SELECT CHANNEL</div>
+                <div style="font-size: 1.5rem; font-weight: 800; color: var(--accent);">SELECT CHANNEL</div>
                 <div class="player-hint">If no play, click again</div>
-                <div class="player-hint" style="color: #ffda44;">To watch all, use any free VPN (Server: Australia)</div>
+                <div class="player-hint" style="color: #ffda44;">Use VPN (Australia) for all channels</div>
             </div>
             <video id="video" playsinline controls style="display:none;"></video>
             <iframe id="iframePlayer" style="display:none;" frameborder="0" allow="autoplay; fullscreen"></iframe>
         </section>
-        <div class="ticker">
-            <div class="ticker-track">
-                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
-                <span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span>
-            </div>
-        </div>
+        <div class="ticker"><div class="ticker-track"><span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span><span>&nbsp; • Use VPN (Australia) for blocked channels • HD Streaming Optimized &nbsp; </span></div></div>
     </div>
 
     <main>
-        <div class="channel-grid" id="channelList" role="list"></div>
-        <footer class="site-footer"><p>© 2026 MSTV Network. All Rights Reserved.</p></footer>
+        <div class="channel-grid" id="channelList"></div>
     </main>
 
-<script>
-    const dataPromise = fetch('channels2.json').then(r => r.json());
-    let allCh = [], hlsE = null, dashP = null;
+    <script>
+        const dataPromise = fetch('channels2.json').then(r => r.json());
+        let allCh = [], hlsE = null, dashP = null;
 
-    const v = document.getElementById('video'), 
-          f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), 
-          ld = document.getElementById('loader'), 
-          ph = document.getElementById('placeholder');
+        const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
+              l = document.getElementById('channelList'), ld = document.getElementById('loader'), 
+              ph = document.getElementById('placeholder');
 
-    async function killPlayers() {
-        if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
-        if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
-        v.pause();
-        v.removeAttribute('src'); 
-        v.load(); 
-        f.src = "about:blank";
-        v.style.display = f.style.display = 'none';
-    }
-
-    async function play(ch, element) {
-        if (!ch || !ch.url) return;
-        if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
-            window.open(ch.url, '_blank');
-            return;
+        async function killPlayers() {
+            if (hlsE) { hlsE.stopLoad(); hlsE.detachMedia(); hlsE.destroy(); hlsE = null; }
+            if (dashP) { await dashP.unload(); await dashP.destroy(); dashP = null; }
+            v.pause(); v.removeAttribute('src'); v.load(); 
+            f.src = "about:blank"; v.style.display = f.style.display = 'none';
         }
-        document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
-        if (element) element.classList.add('active-selection');
-        ld.style.display = 'flex'; ph.style.display = 'none';
-        await killPlayers();
-        try {
-            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                f.style.display = 'block';
-                f.src = ch.url;
-                f.onload = () => ld.style.display = 'none';
-            } else if (ch.url.includes('.mpd')) {
-                v.style.display = 'block';
-                dashP = new shaka.Player(v);
-                await dashP.load(ch.url);
-                v.play();
-            } else {
-                if (window.Hls.isSupported()) {
-                    hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
-                    hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                    hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
-                } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                    v.src = ch.url; v.style.display = 'block'; v.play();
-                }
+
+        async function play(ch, element) {
+            if (!ch || !ch.url) return;
+            if (ch.url.startsWith('http://') && !ch.url.includes('.m3u8') && !ch.url.includes('.mpd')) {
+                window.open(ch.url, '_blank'); return;
             }
-        } catch (e) { ld.style.display = 'none'; }
-    }
-
-    function render(data) {
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div');
-            b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
-
-            // Handle Multi-line Names with the Pipe | symbol
-            let innerContent = '';
-            if (ch.name && ch.name.includes('|')) {
-                const parts = ch.name.split('|');
-                innerContent = `<div class="channel-name-wrapper"><span class="main-name">${parts}</span><span class="sub-hint">${parts}</span></div>`;
-            } else {
-                innerContent = `<div class="channel-name-wrapper"><span class="main-name">${ch.name || 'Unknown'}</span></div>`;
-            }
-            b.innerHTML = innerContent;
-
-            // --- SMART SCROLL PROTECTION ---
-            let startY = 0, startX = 0, startTime = 0, isCancelled = false;
-
-            b.addEventListener('touchstart', (e) => {
-                startY = e.touches.pageY;
-                startX = e.touches.pageX;
-                startTime = Date.now();
-                isCancelled = false;
-            }, { passive: true });
-
-            b.addEventListener('touchmove', (e) => {
-                const moveY = Math.abs(e.touches.pageY - startY);
-                const moveX = Math.abs(e.touches.pageX - startX);
-                // If finger moves more than 6 pixels, it's a scroll, not a click
-                if (moveY > 6 || moveX > 6) { isCancelled = true; }
-            }, { passive: true });
-
-            b.addEventListener('touchend', () => {
-                const duration = Date.now() - startTime;
-                // Only play if the finger didn't move much AND it was a quick tap
-                if (!isCancelled && duration < 300) {
-                    play(ch, b);
+            document.querySelectorAll('.channel-card').forEach(c => c.classList.remove('active-selection'));
+            if (element) element.classList.add('active-selection');
+            ld.style.display = 'flex'; ph.style.display = 'none';
+            await killPlayers();
+            try {
+                if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+                    f.style.display = 'block'; f.src = ch.url; f.onload = () => ld.style.display = 'none';
+                } else if (ch.url.includes('.mpd')) {
+                    v.style.display = 'block'; dashP = new shaka.Player(v); await dashP.load(ch.url); v.play();
+                } else {
+                    if (window.Hls.isSupported()) {
+                        hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
+                        hlsE.loadSource(ch.url); hlsE.attachMedia(v);
+                        hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
+                    }
                 }
-            }, { passive: true });
+            } catch (e) { ld.style.display = 'none'; }
+        }
 
-            // Desktop Support
-            b.onclick = (e) => { if (e.pointerType === 'mouse') play(ch, b); };
-            b.onkeydown = (e) => { if(e.key === 'Enter') play(ch, b); };
+        function render(data) {
+            const fr = document.createDocumentFragment();
+            data.forEach(ch => {
+                const b = document.createElement('div');
+                b.className = 'channel-card';
+                let inner = ch.name.includes('|') ? 
+                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name.split('|')}</span><span class="sub-hint">${ch.name.split('|')}</span></div>` : 
+                    `<div class="channel-name-wrapper"><span class="main-name">${ch.name}</span></div>`;
+                b.innerHTML = inner;
 
-            fr.appendChild(b);
-        });
-        l.innerHTML = '';
-        l.appendChild(fr);
-    }
+                let sX = 0, sY = 0, isScroll = false;
+                b.addEventListener('touchstart', (e) => { sX = e.touches.pageX; sY = e.touches.pageY; isScroll = false; }, {passive:true});
+                b.addEventListener('touchmove', (e) => {
+                    if (Math.abs(e.touches.pageX - sX) > 10 || Math.abs(e.touches.pageY - sY) > 10) isScroll = true;
+                }, {passive:true});
+                b.addEventListener('touchend', () => { if (!isScroll) play(ch, b); }, {passive:true});
+                fr.appendChild(b);
+            });
+            l.innerHTML = ''; l.appendChild(fr);
+        }
 
-    dataPromise.then(data => { 
-        allCh = data; 
-        render(allCh); 
-        document.getElementById('canonical-link').setAttribute('href', window.location.href);
-    }).catch(err => {
-        console.error("JSON Error:", err);
-        l.innerHTML = "<div style='color:red; text-align:center; grid-column:1/-1;'>Check channels2.json file</div>";
-    });
-
-    v.addEventListener('playing', () => ld.style.display = 'none');
-
-    document.getElementById('searchInput').oninput = (e) => {
-        const query = e.target.value.toLowerCase();
-        const filtered = allCh.filter(c => c.name.toLowerCase().includes(query));
-        render(filtered);
-    };
-</script>
-
+        dataPromise.then(data => { allCh = data; render(allCh); });
+        v.addEventListener('playing', () => ld.style.display = 'none');
+        document.getElementById('searchInput').oninput = (e) => {
+            const query = e.target.value.toLowerCase();
+            render(allCh.filter(c => c.name.toLowerCase().includes(query)));
+        };
+    </script>
 </body>
 </html>

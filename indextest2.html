@@ -6,7 +6,7 @@
     <title>MSTV Network | Optimized Player</title>
     
     <!-- 1. FIXED CSP: Only using allowed cdn. subdomain -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cloudflare.com https://zgo.at blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev blob: *; img-src 'self' data: *; frame-src 'self' *;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://jsdelivr.net https://cloudflare.com https://zgo.at blob:; style-src 'self' 'unsafe-inline' https://jsdelivr.net; connect-src 'self' https://jsdelivr.net blob: data: *; media-src 'self' blob: data: *; img-src 'self' data: *; frame-src 'self' *;">
 
     <!-- 2. CORRECTED LIBRARY LINKS (Matches CSP) -->
     <script src="https://jsdelivr.net"></script>
@@ -49,7 +49,6 @@
         <h2 id="current-title" style="text-align:center; margin-bottom:20px;">Select & Play</h2>
         <div class="channel-grid" id="channelList"></div>
     </main>
-
 <script>
     let allCh = [], hlsInst = null, dashInst = null;
     const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
@@ -67,7 +66,7 @@
         if (!ch || !ch.url) return;
         resetPlayers();
         t.innerText = ch.name;
-        if(ld) ld.style.display = 'flex'; // FIXED: Null check
+        if(ld) ld.style.display = 'flex';
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
@@ -77,9 +76,28 @@
             v.style.display = 'block';
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
+                    // 3G OPTIMIZATION: High-performance HLS config
+                    hlsInst = new Hls({ 
+                        startLevel: 0, 
+                        maxBufferLength: 10, 
+                        enableWorker: true,
+                        lowLatencyMode: true,
+                        backBufferLength: 0 // Clears memory on 3G devices
+                    });
+                    hlsInst.loadSource(ch.url); 
+                    hlsInst.attachMedia(v);
                     hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
+                    
+                    // AUTO-RECOVERY FOR 3G STALLS
+                    hlsInst.on(Hls.Events.ERROR, (event, data) => {
+                        if (data.fatal) {
+                            switch (data.type) {
+                                case Hls.ErrorTypes.NETWORK_ERROR: hlsInst.startLoad(); break;
+                                case Hls.ErrorTypes.MEDIA_ERROR: hlsInst.recoverMediaError(); break;
+                                default: resetPlayers(); break;
+                            }
+                        }
+                    });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
                     v.src = ch.url; v.play();
                 }
@@ -87,33 +105,16 @@
                 if (typeof dashjs !== 'undefined') {
                     dashInst = dashjs.MediaPlayer().create();
                     dashInst.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                    dashInst.initialize(v, ch.url, true);
+                    dashInstance.initialize(v, ch.url, true);
                 }
             }
         }
     }
 
-    // INTELLIGENCE: First Frame Detection
+    // AI INTELLIGENCE: First Frame Detection
     v.addEventListener('timeupdate', () => { if (v.currentTime > 0.1 && ld) ld.style.display = 'none'; });
     v.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
-    v.addEventListener('error', () => { if(ld) ld.style.display = 'none'; });
-
-    function render(data) {
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div'); b.className = 'channel-card';
-            b.innerHTML = `<span>${ch.name}</span>`;
-            b.onclick = () => play(ch); fr.appendChild(b);
-        });
-        l.innerHTML = ''; l.appendChild(fr);
-    }
-
-    fetch('channels2.json').then(r => r.json()).then(data => { allCh = data; render(allCh); });
-    
-    document.getElementById('searchInput').oninput = (e) => {
-        const val = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
-    };
+    v.addEventListener('playing', () => { if (v.currentTime > 0.1 && ld) ld.style.display = 'none'; });
 </script>
 </body>
 </html>

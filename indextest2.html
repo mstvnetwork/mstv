@@ -88,54 +88,92 @@
     </style>
 
     <!-- INTEGRATED SCRIPTS -->
-    <script>
-        let allCh = []; // Your channel data should populate this
-        const l = document.getElementById('channelList');
+<script>
+    let allCh = []; 
+    const l = document.getElementById('channelList');
 
-        window.addEventListener('DOMContentLoaded', () => {
-            // 1. Set Canonical
-            const canonical = document.getElementById('canonical-link');
-            if (canonical) {
-                canonical.setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);
-            }
-
-            // 2. Yield to Main Thread: Delay heavy elements to let H1 paint
-            setTimeout(() => {
-                document.getElementById('mainTicker').style.display = 'flex';
-                
-                // 3. Analytics Script (Delayed 5s as per your original)
-                const s = document.createElement('script'); 
-                s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; 
-                document.head.appendChild(s);
-            }, 1000);
-        });
-
-        // 4. Render Function (Optimized with DocumentFragment)
-        function render(data) {
-            const fr = document.createDocumentFragment();
-            data.forEach(ch => {
-                const b = document.createElement('div'); 
-                b.className = 'channel-card';
-                b.setAttribute('role', 'listitem');
-                b.setAttribute('tabindex', '0');
-                b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-                b.onclick = () => play(ch);
-                b.onkeydown = (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch); } };
-                fr.appendChild(b);
-            });
-            l.innerHTML = ''; 
-            l.appendChild(fr);
+    // 1. PERFORMANCE: Load data without blocking the H1 render
+    window.addEventListener('DOMContentLoaded', () => {
+        // Set Canonical
+        const canonical = document.getElementById('canonical-link');
+        if (canonical) {
+            canonical.setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);
         }
 
-        // 5. Search Function
-        document.getElementById('searchInput').oninput = (e) => {
-            const term = e.target.value.toLowerCase();
-            render(allCh.filter(c => c.name.toLowerCase().includes(term)));
-        };
+        // 2. FETCH DATA: Get your channels and then show the grid
+        fetch('channels2.json')
+            .then(response => response.json())
+            .then(data => {
+                allCh = data;
+                render(allCh); // Show the grid once data is ready
+            })
+            .catch(err => console.error("Error loading channels:", err));
 
-        // Placeholder for your 'play' function
-        function play(ch) { console.log("Playing:", ch.name); }
-    </script>
+        // 3. SECONDARY UI: Show ticker and analytics after a delay
+        setTimeout(() => {
+            const ticker = document.getElementById('mainTicker');
+            if(ticker) ticker.style.display = 'flex';
+            
+            const s = document.createElement('script'); 
+            s.async = true; 
+            s.src = "https://zgo.at"; 
+            document.head.appendChild(s);
+        }, 1200);
+    });
+
+    // 4. RENDER: Optimized grid creation
+    function render(data) {
+        const fr = document.createDocumentFragment();
+        data.forEach(ch => {
+            const b = document.createElement('div'); 
+            b.className = 'channel-card';
+            b.setAttribute('role', 'listitem');
+            b.setAttribute('tabindex', '0');
+            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            
+            // Interaction logic
+            b.onclick = () => play(ch);
+            b.onkeydown = (e) => { 
+                if(e.key === 'Enter' || e.key === ' ') { 
+                    e.preventDefault(); 
+                    play(ch); 
+                } 
+            };
+            fr.appendChild(b);
+        });
+        l.innerHTML = ''; 
+        l.appendChild(fr);
+    }
+
+    // 5. SEARCH: Real-time filtering
+    document.getElementById('searchInput').oninput = (e) => {
+        const term = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(term)));
+    };
+
+    // 6. PLAYER LOGIC: Your existing play function
+    function play(ch) {
+        const video = document.getElementById('video');
+        const iframe = document.getElementById('iframePlayer');
+        const placeholder = document.getElementById('placeholder');
+        const title = document.getElementById('current-title');
+
+        title.textContent = ch.name;
+        placeholder.style.display = 'none';
+
+        if (ch.url.includes('.m3u8') || ch.url.includes('.mp4')) {
+            iframe.style.display = 'none';
+            video.style.display = 'block';
+            video.src = ch.url;
+            video.play();
+        } else {
+            video.style.display = 'none';
+            video.pause();
+            iframe.style.display = 'block';
+            iframe.src = ch.url;
+        }
+    }
+</script>
+
 </body>
 </html>

@@ -3,123 +3,84 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Premium Interface</title>
+    <title>MSTV Network Player</title>
     <style>
-        :root {
-            --bg: #0f0f0f;
-            --card: #1e1e1e;
-            --accent: #ff0055;
-            --text: #ffffff;
-            --subtext: #aaaaaa;
-        }
-
-        body {
-            background-color: var(--bg);
-            color: var(--text);
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        /* This section creates the "Look" of the page */
+        body { 
+            background: #000000; 
+            color: white; 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            padding: 20px; 
             margin: 0;
-            padding: 20px;
         }
-
-        .header {
-            text-align: center;
-            padding-bottom: 30px;
-            border-bottom: 1px solid #333;
-            margin-bottom: 30px;
-        }
-
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-            max-width: 1200px;
+        .container {
+            max-width: 1000px;
             margin: 0 auto;
         }
-
-        .channel-card {
-            background: var(--card);
-            border-radius: 12px;
+        .header {
+            border-bottom: 2px solid #222;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        .card {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 10px;
             padding: 20px;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            border: 1px solid #2a2a2a;
-            transition: transform 0.2s, border-color 0.2s;
+            text-align: center;
+            transition: 0.3s;
         }
-
-        .channel-card:hover {
-            transform: translateY(-5px);
-            border-color: var(--accent);
+        .card:hover {
+            border-color: #ff0055;
+            background: #222;
         }
-
-        .channel-name {
+        .name {
             font-size: 1.2rem;
             font-weight: bold;
-            margin-bottom: 8px;
-            color: var(--text);
+            margin-bottom: 10px;
+            display: block;
         }
-
-        .channel-meta {
-            font-size: 0.8rem;
-            color: var(--subtext);
-            margin-bottom: 15px;
-            word-break: break-all;
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 3px 8px;
-            border-radius: 4px;
+        .type-tag {
+            background: #333;
+            padding: 4px 10px;
+            border-radius: 5px;
             font-size: 0.7rem;
             text-transform: uppercase;
-            font-weight: bold;
-            margin-bottom: 10px;
-            background: #333;
+            color: #aaa;
         }
-
-        .badge.hls { color: #00ffcc; border: 1px solid #00ffcc; }
-        .badge.iframe { color: #ffcc00; border: 1px solid #ffcc00; }
-
-        .play-button {
-            background: var(--accent);
+        .btn {
+            display: block;
+            margin-top: 15px;
+            background: #ff0055;
             color: white;
-            border: none;
-            padding: 10px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
-            text-align: center;
             text-decoration: none;
-            transition: opacity 0.2s;
-        }
-
-        .play-button:hover {
-            opacity: 0.9;
-        }
-
-        #stats {
-            text-align: center;
-            font-size: 0.8rem;
-            color: #555;
-            margin-top: 40px;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
 
+<div class="container">
     <div class="header">
-        <h1>MSTV Network</h1>
-        <p style="color: var(--subtext)">Premium Live Streaming</p>
+        <h1>MSTV LIVE</h1>
+        <p>Optimized Stream Directory</p>
     </div>
 
-    <div id="channel-grid" class="grid">
+    <div id="main-grid" class="grid">
         </div>
-
-    <div id="stats"></div>
+</div>
 
 <script>
-    // PASTE YOUR FULL JSON ARRAY HERE
-    const rawData = [
+    // 1. PASTE YOUR FULL JSON DATA HERE
+    const myChannels = [
         {
             "name": "9x Jalwa",
             "url": "https://d14c63magvk61v.cloudfront.net/strm/channels/9xjalwa/master.m3u8",
@@ -149,54 +110,38 @@
             "url": "https://streamcrichd.com/update/skys2.php",
             "type": "iframe",
             "logo": "..."
+        },
+        {
+            "name": "Hollywood Mix",
+            "url": "https://ml-pull-hwc.myco.io/MixTV/hls/index.m3u8",
+            "type": "hls",
+            "logo": "..."
+        },
+        {
+            "name": "Mh1 Movies",
+            "url": "https://mumt03.tangotv.in/MHONEMOVIE/index.m3u8",
+            "type": "hls",
+            "logo": "..."
         }
     ];
 
-    /**
-     * PERFORMANCE OPTIMIZATION:
-     * This line extracts only what we need. 
-     * The "logo" field is effectively deleted from the app's working memory here.
-     */
-    const cleanData = rawData.map(({ name, url, type }) => ({ name, url, type }));
-
-    function initApp() {
-        const grid = document.getElementById('channel-grid');
-        const stats = document.getElementById('stats');
+    // 2. THE LOGIC (This builds the interface)
+    function buildInterface() {
+        const grid = document.getElementById('main-grid');
         
-        // Use a DocumentFragment for better Lighthouse "Total Blocking Time" scores
-        const fragment = document.createDocumentFragment();
-
-        cleanData.forEach(item => {
-            const card = document.createElement('div');
-            card.className = 'channel-card';
-            
-            card.innerHTML = `
-                <div>
-                    <span class="badge ${item.type}">${item.type}</span>
-                    <div class="channel-name">${item.name}</div>
-                    <div class="channel-meta">${item.url.substring(0, 50)}...</div>
-                </div>
-                <button class="play-button" onclick="handlePlay('${item.url}', '${item.type}')">WATCH NOW</button>
-            `;
-            fragment.appendChild(card);
-        });
-
-        grid.appendChild(fragment);
-        stats.innerText = `Optimization Active: ${cleanData.length} items parsed. Logos ignored for performance.`;
+        // This clears any "raw text" and replaces it with organized cards
+        grid.innerHTML = myChannels.map(item => `
+            <div class="card">
+                <span class="type-tag">${item.type}</span>
+                <span class="name">${item.name}</span>
+                <a href="${item.url}" target="_blank" class="btn">WATCH NOW</a>
+            </div>
+        `).join('');
     }
 
-    function handlePlay(url, type) {
-        if (type === 'iframe') {
-            window.open(url, '_blank');
-        } else {
-            // For HLS, you could redirect to your player page
-            alert("Opening HLS Stream: " + url);
-            // window.location.href = `your-player.html?src=${encodeURIComponent(url)}`;
-        }
-    }
-
-    // Run on load
-    document.addEventListener('DOMContentLoaded', initApp);
+    // Run the build
+    buildInterface();
 </script>
+
 </body>
 </html>

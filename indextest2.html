@@ -54,86 +54,124 @@
     </main>
 
 <script>
-    let allCh = [], hlsInst = null, dashInst = null;
-    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), t = document.getElementById('current-title'),
+    let allCh = [], hlsInstance = null, dashInstance = null;
+    let lastTime = -1; // Tracks the "Video Clock Heartbeat"
+    const v = document.getElementById('video'), 
+          f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          t = document.getElementById('current-title'),
+          ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
+    // SURGICAL CLEANUP: Ensures every switch starts from a clean slate
     function resetPlayers() {
-        if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
-        if (dashInst) { dashInst.destroy(); dashInst = null; }
-        v.pause(); v.src = ""; v.load();
-        v.style.display = 'none'; f.style.display = 'none'; f.src = "";
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (dashInstance) { dashInstance.destroy(); dashInstance = null; }
+        v.pause();
+        v.src = "";
+        v.load(); 
+        lastTime = -1; // Reset scene detection heartbeat
+        v.style.display = 'none';
+        f.style.display = 'none';
+        f.src = "";
     }
 
     async function play(ch) {
         if (!ch || !ch.url) return;
-        resetPlayers();
         
+        resetPlayers();
         t.innerText = ch.name;
-        ld.style.display = 'flex'; // Show spinner immediately
+        ph.style.display = 'none';
+        
+        // FORCED SPINNER: Always show immediately on click
+        if(ld) ld.style.display = 'flex'; 
         window.scrollTo({ top: 0, behavior: 'instant' });
 
+        // IFRAME LOGIC: Spinner stays until the iframe page is fully loaded
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; f.src = ch.url;
-            f.onload = () => { ld.style.display = 'none'; };
+            f.style.display = 'block';
+            f.src = ch.url;
+            f.onload = () => { 
+                if(ld) ld.style.display = 'none'; 
+            };
         } else {
             v.style.display = 'block';
+            
+            // HLS LOGIC
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
-                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
+                    hlsInstance = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
+                    hlsInstance.loadSource(ch.url);
+                    hlsInstance.attachMedia(v);
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                        v.play().catch(() => { if(ld) ld.style.display = 'none'; });
+                    });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                    v.src = ch.url; v.play();
+                    v.src = ch.url;
+                    v.play().catch(() => { if(ld) ld.style.display = 'none'; });
                 }
-            } else if (ch.url.includes('.mpd')) {
+            } 
+            // DASH LOGIC
+            else if (ch.url.includes('.mpd')) {
                 if (typeof dashjs !== 'undefined') {
-                    dashInst = dashjs.MediaPlayer().create();
-                    dashInst.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                    dashInst.initialize(v, ch.url, true);
+                    dashInstance = dashjs.MediaPlayer().create();
+                    dashInstance.updateSettings({ 
+                        'streaming': { 
+                            'abr': { 'initialBitrate': { 'video': 250 } }, 
+                            'buffer': { 'stableBufferTime': 4 } 
+                        } 
+                    });
+                    dashInstance.initialize(v, ch.url, true);
                 }
             }
         }
     }
 
-    /* SURGICAL AI SPINNER LOGIC */
-    // On 3G, we only hide when the clock is > 0.5s (Guarantees pixels are visible)
+    // AI INTELLIGENCE: MONITORING THE CLOCK
+    // This hides the spinner ONLY when the video has physically progressed.
     v.addEventListener('timeupdate', () => {
-        if (v.currentTime > 0.5) {
-            ld.style.display = 'none';
+        // Threshold of 0.5s ensures the first scene is visible on 3G
+        if (v.currentTime > 0.5 && v.currentTime !== lastTime) {
+            if(ld) ld.style.display = 'none';
+            lastTime = v.currentTime;
         }
     });
 
-    // If 3G drops mid-stream, bring spinner back
-    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    // Handle mid-stream buffering (re-show spinner)
+    v.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
     
-    // Safety: Hide if the stream crashes
-    v.addEventListener('error', () => { ld.style.display = 'none'; });
+    // Safety: Hide if the stream crashes so the UI isn't stuck
+    v.addEventListener('error', () => { if(ld) ld.style.display = 'none'; });
 
-    function render(data) {
-        if (!l) return;
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div'); b.className = 'channel-card';
-            b.innerHTML = `<span>${ch.name}</span>`;
-            b.onclick = () => play(ch); 
-            fr.appendChild(b);
-        });
-        l.innerHTML = ''; l.appendChild(fr);
-    }
-
+    // Initial Data Load
     document.addEventListener('DOMContentLoaded', () => {
         fetch('channels2.json', { priority: 'high' })
             .then(r => r.json())
-            .then(data => { allCh = data; render(allCh); })
-            .catch(err => console.error("Data error:", err));
+            .then(data => { 
+                allCh = data; 
+                render(allCh); 
+            });
         
         document.getElementById('searchInput').oninput = (e) => {
             const val = e.target.value.toLowerCase();
             render(allCh.filter(c => c.name.toLowerCase().includes(val)));
         };
     });
+
+    function render(data) {
+        if (!l) return;
+        const fr = document.createDocumentFragment();
+        data.forEach(ch => {
+            const b = document.createElement('div');
+            b.className = 'channel-card';
+            b.innerHTML = `<span>${ch.name}</span>`;
+            b.onclick = () => play(ch);
+            fr.appendChild(b);
+        });
+        l.innerHTML = '';
+        l.appendChild(fr);
+    }
 </script>
+
 </body>
 </html>

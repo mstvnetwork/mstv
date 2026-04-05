@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Optimized</title>
+    <title>MSTV Network | Optimized Player</title>
     
-    <!-- LOAD LIBRARIES FIRST - Using allowed cdn subdomain -->
+    <!-- 1. FIXED CSP: Only using allowed cdn. subdomain -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cloudflare.com https://zgo.at blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev blob: *; img-src 'self' data: *; frame-src 'self' *;">
+
+    <!-- 2. CORRECTED LIBRARY LINKS (Matches CSP) -->
     <script src="https://jsdelivr.net"></script>
     <script src="https://jsdelivr.net"></script>
 
@@ -16,32 +19,18 @@
         header { height: 70px; background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
         #searchInput { padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; width: 180px; }
-            /* INTELLIGENCE: Perfect Centering for the AI Spinner */
-    .sticky-player-wrapper { 
-        position: sticky; top: 70px; z-index: 900; background: #000; 
-        width: 100%; aspect-ratio: 16 / 9; 
-        display: flex; align-items: center; justify-content: center; /* Centers children */
-    }
+        
+        .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; background: #000; border: 0; }
+        
+        /* THE SPINNER (Required for JavaScript to find it) */
+        #loader { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); z-index: 1001; }
+        .spinner { width: 35px; height: 35px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; }
-        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 90px; text-align: center; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-            #loader { 
-        position: absolute; 
-        top: 0; left: 0; right: 0; bottom: 0;
-        display: none; flex-direction: column;
-        align-items: center; justify-content: center; 
-        color: white; z-index: 1001; background: rgba(0,0,0,0.5);
-            }
-        .spinner { 
-        width: 40px; height: 40px; 
-        border: 4px solid rgba(255,255,255,0.1); 
-        border-top: 4px solid var(--accent); 
-        border-radius: 50%; 
-        animation: spin 0.8s linear infinite; 
-        margin-bottom: 10px;
-    }
-    @keyframes spin { to { transform: rotate(360deg); 
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px; }
+        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 80px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -51,7 +40,7 @@
     </header>
 
     <div class="sticky-player-wrapper">
-        <div id="loader"><div class="spinner"></div><div style="font-size: 10px;">OPTIMIZING...</div></div>
+        <div id="loader"><div class="spinner"></div><div style="color:white; font-size:10px;">OPTIMIZING...</div></div>
         <video id="video" controls playsinline></video>
         <iframe id="iframePlayer" allow="autoplay; fullscreen"></iframe>
     </div>
@@ -62,121 +51,69 @@
     </main>
 
 <script>
-    let allCh = [], hlsInstance = null, dashInstance = null;
-    const v = document.getElementById('video'), 
-          f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), 
-          t = document.getElementById('current-title'),
-          ph = document.getElementById('placeholder'),
+    let allCh = [], hlsInst = null, dashInst = null;
+    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), t = document.getElementById('current-title'),
           ld = document.getElementById('loader');
 
-    // Reset player states to prevent 3G memory leaks or library conflicts
-    function cleanUp() {
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-        if (dashInstance) { dashInstance.destroy(); dashInstance = null; }
-        v.pause();
-        v.src = "";
-        v.load(); // Vital for clearing the hardware decoder
-        v.style.display = 'none';
-        f.style.display = 'none';
-        f.src = "";
+    function resetPlayers() {
+        if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
+        if (dashInst) { dashInst.destroy(); dashInst = null; }
+        v.pause(); v.src = ""; v.load();
+        v.style.display = 'none'; f.style.display = 'none'; f.src = "";
     }
 
     async function play(ch) {
         if (!ch || !ch.url) return;
-        cleanUp();
-        
+        resetPlayers();
         t.innerText = ch.name;
-        ph.style.display = 'none';
-        ld.style.display = 'flex'; // Show AI Spinner immediately
+        if(ld) ld.style.display = 'flex'; // FIXED: Null check
         window.scrollTo({ top: 0, behavior: 'instant' });
 
-        // IFRAME & EXTERNAL URL FALLBACK
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block';
-            f.src = ch.url;
-            f.onload = () => ld.style.display = 'none';
+            f.style.display = 'block'; f.src = ch.url;
+            f.onload = () => { if(ld) ld.style.display = 'none'; };
         } else {
             v.style.display = 'block';
-            
-            // HLS LOGIC (Optimized for 3G Fast-Start)
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInstance = new Hls({ 
-                        startLevel: 0, 
-                        maxBufferLength: 10, 
-                        enableWorker: true,
-                        autoStartLoad: true 
-                    });
-                    hlsInstance.loadSource(ch.url);
-                    hlsInstance.attachMedia(v);
-                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                        v.play().catch(() => {});
-                    });
+                    hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
+                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
+                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                    v.src = ch.url;
-                    v.play().catch(() => {});
+                    v.src = ch.url; v.play();
                 }
-            } 
-            // DASH LOGIC (Optimized for 3G Low-Latency)
-            else if (ch.url.includes('.mpd')) {
+            } else if (ch.url.includes('.mpd')) {
                 if (typeof dashjs !== 'undefined') {
-                    dashInstance = dashjs.MediaPlayer().create();
-                    dashInstance.updateSettings({ 
-                        'streaming': { 
-                            'abr': { 'initialBitrate': { 'video': 250 } }, 
-                            'buffer': { 'stableBufferTime': 4 } 
-                        } 
-                    });
-                    dashInstance.initialize(v, ch.url, true);
+                    dashInst = dashjs.MediaPlayer().create();
+                    dashInst.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
+                    dashInst.initialize(v, ch.url, true);
                 }
             }
         }
     }
 
-    // AI INTELLIGENCE: MONITORING THE CLOCK
-    // This is the only reliable way on 3G to know a scene is actually visible.
-    v.addEventListener('timeupdate', () => {
-        if (v.currentTime > 0.1) {
-            ld.style.display = 'none';
-        }
-    });
-
-    // Handle mid-stream buffering or signal loss
-    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-    
-    // Safety: Hide loader if the stream fails so the UI doesn't lock
-    v.addEventListener('error', () => { ld.style.display = 'none'; });
-
-    // Initial Data Load
-    document.addEventListener('DOMContentLoaded', () => {
-        fetch('channels2.json', { priority: 'high' })
-            .then(r => r.json())
-            .then(data => { 
-                allCh = data; 
-                render(allCh); 
-            })
-            .catch(() => { console.error("Data Load Failed"); });
-        
-        document.getElementById('searchInput').oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            render(allCh.filter(c => c.name.toLowerCase().includes(val)));
-        };
-    });
+    // INTELLIGENCE: First Frame Detection
+    v.addEventListener('timeupdate', () => { if (v.currentTime > 0.1 && ld) ld.style.display = 'none'; });
+    v.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
+    v.addEventListener('error', () => { if(ld) ld.style.display = 'none'; });
 
     function render(data) {
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
-            const b = document.createElement('div');
-            b.className = 'channel-card';
+            const b = document.createElement('div'); b.className = 'channel-card';
             b.innerHTML = `<span>${ch.name}</span>`;
-            b.onclick = () => play(ch);
-            fr.appendChild(b);
+            b.onclick = () => play(ch); fr.appendChild(b);
         });
-        l.innerHTML = '';
-        l.appendChild(fr);
+        l.innerHTML = ''; l.appendChild(fr);
     }
-</script>
 
+    fetch('channels2.json').then(r => r.json()).then(data => { allCh = data; render(allCh); });
+    
+    document.getElementById('searchInput').oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+    };
+</script>
 </body>
 </html>

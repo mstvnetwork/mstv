@@ -3,40 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Universal Player</title>
-    <!-- Single CSS for the player -->
+    <title>MSTV Network | Optimized Player</title>
     <link href="https://jsdelivr.net" rel="stylesheet">
     <script src="https://jsdelivr.net"></script>
-    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { --bg-dark: #111419; --accent: #2ECC71; }
         body { font-family: system-ui, sans-serif; background: #F8F9FA; color: #212529; }
         header { height: 70px; background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
-        .search-container { flex: 0.6; max-width: 200px; }
-        #searchInput { width: 100%; padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; }
+        #searchInput { padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; width: 200px; }
         .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; }
-        /* Video.js specific responsive sizing */
         .video-js { width: 100% !important; height: auto !important; aspect-ratio: 16/9; }
-        #iframePlayer { width: 100%; aspect-ratio: 16/9; background: #000; display: none; }
+        #iframePlayer { width: 100%; aspect-ratio: 16/9; background: #000; display: none; border: 0; }
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px; }
-        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 80px; text-align: center; font-weight: bold; }
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; }
+        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 90px; text-align: center; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
 </head>
 <body>
     <header>
         <h1 class="brand-name">MSTV NETWORK</h1>
-        <div class="search-container"><input type="text" id="searchInput" placeholder="Search..."></div>
+        <input type="text" id="searchInput" placeholder="Search...">
     </header>
 
     <div class="sticky-player-wrapper">
-        <div id="player-target">
-            <!-- Video.js will inject itself here -->
-            <video id="universal-video" class="video-js vjs-default-skin vjs-big-play-centered" controls playsinline preload="auto"></video>
-            <iframe id="iframePlayer" frameborder="0" allowfullscreen></iframe>
-        </div>
+        <video id="universal-video" class="video-js vjs-default-skin vjs-big-play-centered" controls playsinline preload="auto"></video>
+        <iframe id="iframePlayer" allow="autoplay; fullscreen"></iframe>
     </div>
 
     <main class="main-content">
@@ -45,75 +38,62 @@
     </main>
 
 <script>
-    let allCh = [];
-    const player = videojs('universal-video', {
-        fluid: true,
-        autoplay: false,
-        controls: true,
-        preload: 'auto',
-        // 3G OPTIMIZATION: Small buffer goal for fast start
-        html5: {
-            vhs: { 
-                overrideNative: true,
-                enableLowInitialPlaylist: true, // Start at lowest bitrate
-                fastStart: true,
-                limitMaxHeight: 720 // Prevent 4K/1080p on 3G to save data
-            }
-        }
-    });
-
+    let allCh = [], vjsPlayer = null;
     const f = document.getElementById('iframePlayer'), 
           l = document.getElementById('channelList'), 
           t = document.getElementById('current-title');
 
+    // Initialize Video.js first
+    vjsPlayer = videojs('universal-video', {
+        fluid: true,
+        html5: { vhs: { overrideNative: true, enableLowInitialPlaylist: true, fastStart: true } }
+    });
+
     async function play(ch) {
         if (!ch || !ch.url) return;
-
         t.innerText = ch.name;
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            player.hide();
+            vjsPlayer.hide();
             f.style.display = 'block';
             f.src = ch.url;
         } else {
             f.style.display = 'none';
             f.src = "";
-            player.show();
-            
-            // Detect type and set source
+            vjsPlayer.show();
             let type = ch.url.includes('.m3u8') ? 'application/x-mpegURL' : 'application/dash+xml';
-            
-            player.src({ src: ch.url, type: type });
-            player.ready(() => {
-                player.play().catch(() => {});
-            });
+            vjsPlayer.src({ src: ch.url, type: type });
+            vjsPlayer.play().catch(() => {});
         }
     }
-
-    // Load Data
-    document.addEventListener('DOMContentLoaded', () => {
-        fetch('channels2.json').then(r => r.json()).then(data => { 
-            allCh = data; 
-            render(allCh); 
-        });
-        
-        document.getElementById('searchInput').oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            render(allCh.filter(c => c.name.toLowerCase().includes(val)));
-        };
-    });
 
     function render(data) {
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
-            const b = document.createElement('div'); b.className = 'channel-card';
+            const b = document.createElement('div');
+            b.className = 'channel-card';
             b.innerHTML = `<span>${ch.name}</span>`;
             b.onclick = () => play(ch);
             fr.appendChild(b);
         });
-        l.innerHTML = ''; l.appendChild(fr);
+        l.innerHTML = '';
+        l.appendChild(fr);
     }
+
+    // Load channel data immediately
+    fetch('channels2.json')
+        .then(r => r.json())
+        .then(data => {
+            allCh = data;
+            render(allCh);
+        })
+        .catch(err => console.error("Error loading channels:", err));
+
+    document.getElementById('searchInput').oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+    };
 </script>
 </body>
 </html>

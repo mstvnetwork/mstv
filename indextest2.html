@@ -62,40 +62,48 @@
         if (!ch || !ch.url) return;
         cleanUp();
         t.innerText = ch.name;
-        ld.style.display = 'block';
+        ld.style.display = 'flex'; // Show spinner immediately on click
         window.scrollTo({ top: 0, behavior: 'instant' });
 
-        // IFRAME FALLBACK
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block';
             f.src = ch.url;
             f.onload = () => ld.style.display = 'none';
         } else {
             v.style.display = 'block';
-            // HLS LOGIC
-            if (ch.url.includes('.m3u8')) {
-                if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInstance = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInstance.loadSource(ch.url);
-                    hlsInstance.attachMedia(v);
-                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); ld.style.display = 'none'; });
-                } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                    v.src = ch.url;
-                    v.play().catch(()=>{});
-                    ld.style.display = 'none';
-                }
+            
+            // INTELLIGENCE: HLS BUFFER TRACKING
+            if (ch.url.includes('.m3u8') && typeof Hls !== 'undefined') {
+                hlsInstance = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
+                hlsInstance.loadSource(ch.url);
+                hlsInstance.attachMedia(v);
+                
+                // Hide spinner only when data is actually flowing
+                hlsInstance.on(Hls.Events.FRAG_BUFFERED, () => {
+                    if(v.readyState >= 3) ld.style.display = 'none';
+                });
             } 
-            // DASH LOGIC
-            else if (ch.url.includes('.mpd')) {
-                if (typeof dashjs !== 'undefined') {
-                    dashInstance = dashjs.MediaPlayer().create();
-                    dashInstance.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                    dashInstance.initialize(v, ch.url, true);
-                    v.addEventListener('playing', () => ld.style.display = 'none', {once: true});
-                }
+            
+            // INTELLIGENCE: DASH BUFFER TRACKING
+            else if (ch.url.includes('.mpd') && typeof dashjs !== 'undefined') {
+                dashInstance = dashjs.MediaPlayer().create();
+                dashInstance.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
+                dashInstance.initialize(v, ch.url, true);
+                
+                // DASH specific: Hide when the first stream segment is ready
+                dashInstance.on(dashjs.MediaPlayer.events.CAN_PLAY, () => {
+                    ld.style.display = 'none';
+                });
             }
         }
     }
+
+    // GLOBAL VIDEO "SMART" LISTENERS
+    // This catches the spinner if the network dips mid-stream
+    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    v.addEventListener('playing', () => { ld.style.display = 'none'; });
+    v.addEventListener('stalled', () => { ld.style.display = 'flex'; });
+
 
     function render(data) {
         const fr = document.createDocumentFragment();

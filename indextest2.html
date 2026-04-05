@@ -63,27 +63,35 @@
 
 <script>
     let allCh = [], hlsInstance = null, dashInstance = null;
-    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), t = document.getElementById('current-title'),
+    const v = document.getElementById('video'), 
+          f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          t = document.getElementById('current-title'),
+          ph = document.getElementById('placeholder'),
           ld = document.getElementById('loader');
 
+    // Reset player states to prevent 3G memory leaks or library conflicts
     function cleanUp() {
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         if (dashInstance) { dashInstance.destroy(); dashInstance = null; }
-        v.pause(); v.src = ""; v.load();
+        v.pause();
+        v.src = "";
+        v.load(); // Vital for clearing the hardware decoder
         v.style.display = 'none';
         f.style.display = 'none';
         f.src = "";
     }
 
-    
     async function play(ch) {
         if (!ch || !ch.url) return;
         cleanUp();
+        
         t.innerText = ch.name;
+        ph.style.display = 'none';
         ld.style.display = 'flex'; // Show AI Spinner immediately
         window.scrollTo({ top: 0, behavior: 'instant' });
 
+        // IFRAME & EXTERNAL URL FALLBACK
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block';
             f.src = ch.url;
@@ -91,45 +99,70 @@
         } else {
             v.style.display = 'block';
             
-            // HLS FIX: Ensuring startLoad() and simplified event
+            // HLS LOGIC (Optimized for 3G Fast-Start)
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInstance = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
+                    hlsInstance = new Hls({ 
+                        startLevel: 0, 
+                        maxBufferLength: 10, 
+                        enableWorker: true,
+                        autoStartLoad: true 
+                    });
                     hlsInstance.loadSource(ch.url);
                     hlsInstance.attachMedia(v);
                     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                        v.play().catch(() => { ld.style.display = 'none'; });
-                        // Spinner is handled by 'playing' event listener below
+                        v.play().catch(() => {});
                     });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
                     v.src = ch.url;
-                    v.play();
+                    v.play().catch(() => {});
                 }
             } 
-            
-            // DASH FIX: Clean initialization
-            else if (ch.url.includes('.mpd') && typeof dashjs !== 'undefined') {
-                dashInstance = dashjs.MediaPlayer().create();
-                dashInstance.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                dashInstance.initialize(v, ch.url, true);
+            // DASH LOGIC (Optimized for 3G Low-Latency)
+            else if (ch.url.includes('.mpd')) {
+                if (typeof dashjs !== 'undefined') {
+                    dashInstance = dashjs.MediaPlayer().create();
+                    dashInstance.updateSettings({ 
+                        'streaming': { 
+                            'abr': { 'initialBitrate': { 'video': 250 } }, 
+                            'buffer': { 'stableBufferTime': 4 } 
+                        } 
+                    });
+                    dashInstance.initialize(v, ch.url, true);
+                }
             }
         }
     }
 
-    // AI INTELLIGENCE: Universal playback listeners
-    // This is the most reliable way to hide/show spinner for ALL formats
-    v.addEventListener('playing', () => { ld.style.display = 'none'; });
+    // AI INTELLIGENCE: MONITORING THE CLOCK
+    // This is the only reliable way on 3G to know a scene is actually visible.
+    v.addEventListener('timeupdate', () => {
+        if (v.currentTime > 0.1) {
+            ld.style.display = 'none';
+        }
+    });
+
+    // Handle mid-stream buffering or signal loss
     v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-    v.addEventListener('canplay', () => { ld.style.display = 'none'; });
+    
+    // Safety: Hide loader if the stream fails so the UI doesn't lock
     v.addEventListener('error', () => { ld.style.display = 'none'; });
 
-
-    // GLOBAL VIDEO "SMART" LISTENERS
-    // This catches the spinner if the network dips mid-stream
-    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-    v.addEventListener('playing', () => { ld.style.display = 'none'; });
-    v.addEventListener('stalled', () => { ld.style.display = 'flex'; });
-
+    // Initial Data Load
+    document.addEventListener('DOMContentLoaded', () => {
+        fetch('channels2.json', { priority: 'high' })
+            .then(r => r.json())
+            .then(data => { 
+                allCh = data; 
+                render(allCh); 
+            })
+            .catch(() => { console.error("Data Load Failed"); });
+        
+        document.getElementById('searchInput').oninput = (e) => {
+            const val = e.target.value.toLowerCase();
+            render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+        };
+    });
 
     function render(data) {
         const fr = document.createDocumentFragment();
@@ -140,15 +173,10 @@
             b.onclick = () => play(ch);
             fr.appendChild(b);
         });
-        l.innerHTML = ''; l.appendChild(fr);
+        l.innerHTML = '';
+        l.appendChild(fr);
     }
-
-    fetch('channels2.json').then(r => r.json()).then(data => { allCh = data; render(allCh); }).catch(e => console.error("JSON Error"));
-    
-    document.getElementById('searchInput').oninput = (e) => {
-        const val = e.target.value.toLowerCase();
-        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
-    };
 </script>
+
 </body>
 </html>

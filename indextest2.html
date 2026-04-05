@@ -215,42 +215,35 @@
         }
         .channel-card:hover { border-color: var(--accent); transform: scale(1.02); }
         .channel-name { font-size: 0.95rem; font-weight: 700; color: #333; text-align: center; }
+        
         .channel-card:focus {
-    outline: 3px solid var(--accent);
-    outline-offset: 2px;
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
         }
+
+        /* UPDATED CONTRAST COLOR HERE */
+        .channel-subtext {
+            display: block;
+            font-size: 0.65rem;
+            color: #B32617; /* Darker red for higher contrast (WCAG Compliant) */
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-top: 4px;
+            letter-spacing: 0.5px;
+            animation: alertPulse 1.5s infinite ease-in-out;
+        }
+
+        @keyframes alertPulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(0.95); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
         .channel-card {
-    flex-direction: column; /* Stacks name and subtext */
-    gap: 5px;
-}
-
-        /* Styling for the second line */
-.channel-subtext {
-    display: block;
-    font-size: 0.65rem;
-    color: #E74C3C; /* A soft red/coral for attention */
-    font-weight: 800;
-    text-transform: uppercase;
-    margin-top: 4px;
-    letter-spacing: 0.5px;
-    animation: alertPulse 1.5s infinite ease-in-out;
-}
-
-/* Subtle attention-grabbing animation */
-@keyframes alertPulse {
-    0% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(0.95); }
-    100% { opacity: 1; transform: scale(1); }
-}
-
-/* Ensure the card container stacks them correctly */
-.channel-card {
-    flex-direction: column !important;
-    text-align: center;
-    gap: 2px;
-}
-
-
+            flex-direction: column !important;
+            text-align: center;
+            gap: 2px;
+        }
 
         .site-footer { background: #111419; color: #FFFFFF; padding: 60px 20px; margin-top: 50px; }
         .footer-bottom { text-align: center; margin-top: 40px; font-size: 14px; color: #888; }
@@ -276,7 +269,9 @@
                 <div class="loading-text">Optimizing Stream...</div>
             </div>
             <div id="placeholder" aria-hidden="true">📺</div>
-            <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
+            <video id="video" playsinline controls aria-label="MSTV Live Video">
+                <track kind="captions" src="" srclang="en" label="English" default>
+            </video>
             <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
         </section>
         <div class="ticker" role="status">
@@ -289,7 +284,7 @@
 
     <main class="main-content">
         <section class="title-area" aria-labelledby="current-title">
-    <h2 id="current-title">Select & Play</h2>
+            <h2 id="current-title">Select & Play</h2>
         </section>
         
         <div class="channel-grid" id="channelList" role="list"></div>
@@ -308,7 +303,8 @@
         </footer>
     </main>
 </div>
-          <script>
+
+<script>
     let allCh = [], hlsE = null, scP = null;
     const v = document.getElementById('video'), 
           f = document.getElementById('iframePlayer'), 
@@ -345,7 +341,7 @@
         setTimeout(async () => {
             if (ph.style.display !== 'none') ph.style.display = 'none';
             ld.style.display = 'flex'; 
-            t.innerText = ch.name;
+            t.innerText = ch.name.split('|').trim(); // Clean title for player
             v.style.display = 'none';
             f.style.display = 'none'; 
             f.src = "";
@@ -367,7 +363,6 @@
                 }
             }
         }, 10);
-        
     }
 
     v.addEventListener('playing', () => { ld.style.display = 'none'; });
@@ -382,21 +377,11 @@
 
         window.addEventListener('load', () => {
             setTimeout(() => {
-                if ('requestIdleCallback' in window) {
-                    requestIdleCallback(() => {
-                        const s = document.createElement('script');
-                        s.async = true;
-                        s.src = "https://gc.zgo.at/count.js";
-                        s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
-                        document.head.appendChild(s);
-                    });
-                } else {
-                    const s = document.createElement('script');
-                    s.async = true;
-                    s.src = "https://gc.zgo.at/count.js";
-                    s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
-                    document.head.appendChild(s);
-                }
+                const s = document.createElement('script');
+                s.async = true;
+                s.src = "https://gc.zgo.at/count.js";
+                s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
+                document.head.appendChild(s);
             }, 15000);
         });
     });
@@ -408,10 +393,14 @@
         const b = document.createElement('div');
         b.className = 'channel-card';
         
-        // Split name: "Sony Pix Hd|Double Tap" -> ["Sony Pix Hd", "Double Tap"]
+        // ADDED ARIA ROLES AND TABINDEX FOR KEYBOARD ACCESSIBILITY
+        b.setAttribute('role', 'listitem');
+        b.setAttribute('tabindex', '0');
+        b.setAttribute('aria-label', `Play ${ch.name.replace('|', ' ')}`);
+
         const parts = ch.name.split('|');
-        const mainTitle = parts[0].trim();
-        const subTitle = parts[1] ? parts[1].trim() : '';
+        const mainTitle = parts.trim();
+        const subTitle = parts ? parts.trim() : '';
 
         let content = `<span class="channel-name">${mainTitle}</span>`;
         if (subTitle) {
@@ -419,7 +408,13 @@
         }
 
         b.innerHTML = content;
-        b.onclick = () => play(ch); 
+        
+        const triggerPlay = () => play(ch);
+        b.onclick = triggerPlay; 
+        
+        // Allow Enter key to play the channel
+        b.onkeydown = (e) => { if(e.key === 'Enter') triggerPlay(); };
+
         fr.appendChild(b);
     });
     l.innerHTML = '';

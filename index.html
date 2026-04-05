@@ -9,9 +9,6 @@
     <meta name="robots" content="index, follow">
     
     <link id="canonical-link" rel="canonical" href="">
-    <script>
-        document.getElementById('canonical-link').setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);
-    </script>
 
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#111419">
@@ -103,16 +100,13 @@
 
        .player-container {
     width: 100%;
-    /* FIX: Reserve space using aspect-ratio */
     aspect-ratio: 16 / 9; 
     background: #000;
     position: relative;
     overflow: hidden;
-    /* Force the browser to treat this as a fixed-size block */
     contain: size layout;
 }
 
-/* Ensure the video and iframe fill the reserved space perfectly */
 #video, #iframePlayer, .placeholder {
     position: absolute;
     top: 0;
@@ -131,12 +125,11 @@
             background: #000;
         }
 
-        /* Aggressive Loading Spinner */
         #loader {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
-            display: none; /* Hidden by default */
+            display: none;
             flex-direction: column;
             align-items: center;
             justify-content: center;
@@ -167,10 +160,9 @@
     align-items: center; 
     overflow: hidden; 
     font-size: 0.8rem;
-    /* FIX: Ensure the ticker doesn't compete for LCP priority */
     contain: strict; 
     opacity: 0;
-    animation: fadeInTicker 0.5s ease-in forwards 1s; /* Delay the visual load by 1s */
+    animation: fadeInTicker 0.3s ease-in forwards 0.1s;
 }
 
 @keyframes fadeInTicker {
@@ -181,7 +173,6 @@
 .ticker-track { 
     display: flex; 
     white-space: nowrap; 
-    /* Optimization: Use translate3d for hardware acceleration */
     animation: ticker-loop 15s linear infinite; 
     will-change: transform;
 }
@@ -194,22 +185,15 @@
         .title-area { 
     padding: 25px 15px; 
     text-align: center; 
-    /* FIX: Force the browser to treat this as an independent layer */
     contain: layout style;
     content-visibility: auto;
-    /* Give the browser a fixed 'guess' of the height so it doesn't wait to calculate */
     contain-intrinsic-size: 78px;
     min-height: 78px;
 }
         .title-area h2 { 
     font-weight: 700; 
     font-size: 1.2rem;
-    color: var(--text);
-    /* Removes any "fade-in" or movement that delays the LCP paint */
-    transition: none !important;
-    animation: none !important;
-    /* Ensures the text is treated as a priority paint */
-    content-visibility: visible;
+    color: #212529;
         }
 
 
@@ -320,25 +304,24 @@
         if (!ch || !ch.url) return;
         if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
 
-        // PHASE 1: CLEANUP
         if (hlsE) { hlsE.destroy(); hlsE = null; }
         v.pause();
         v.src = ""; 
         v.removeAttribute("src");
         v.load();
 
-        // PHASE 2: ASYNC LAUNCH (10ms Breath)
         setTimeout(async () => {
             if (ph.style.display !== 'none') ph.style.display = 'none';
             ld.style.display = 'flex'; 
             t.innerText = ch.name;
-            v.style.display = f.style.display = 'none'; 
+            v.style.display = 'none';
+            f.style.display = 'none'; 
             f.src = "";
             
             if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
                 f.style.display = 'block'; 
                 f.src = ch.url; 
-                f.onload = () => ld.style.display = 'none';
+                f.onload = () => { ld.style.display = 'none'; };
             } else {
                 await loadS(); 
                 if (ch.url.includes('.mpd')) {
@@ -355,23 +338,34 @@
         window.scrollTo({ top: 0, behavior: 'instant' }); 
     }
 
-    v.addEventListener('playing', () => ld.style.display = 'none');
-    v.addEventListener('waiting', () => ld.style.display = 'flex');
-    v.addEventListener('canplay', () => ld.style.display = 'none');
+    v.addEventListener('playing', () => { ld.style.display = 'none'; });
+    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    v.addEventListener('canplay', () => { ld.style.display = 'none'; });
 
     document.addEventListener('DOMContentLoaded', () => {
-        // High-Priority Data Fetch
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
-            .catch(e => {});
+            .catch(() => {});
 
-        // Delayed Analytics
         window.addEventListener('load', () => {
             setTimeout(() => {
-                const s = document.createElement('script'); s.async = true; 
-                s.src = "https://gc.zgo.at/count.js"; document.head.appendChild(s);
-            }, 5000);
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(() => {
+                        const s = document.createElement('script');
+                        s.async = true;
+                        s.src = "https://gc.zgo.at/count.js";
+                        s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
+                        document.head.appendChild(s);
+                    });
+                } else {
+                    const s = document.createElement('script');
+                    s.async = true;
+                    s.src = "https://gc.zgo.at/count.js";
+                    s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
+                    document.head.appendChild(s);
+                }
+            }, 15000);
         });
     });
 
@@ -393,8 +387,8 @@
     document.getElementById('searchInput').oninput = (e) => {
         render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
     };
- 
-    </script>
 
+    document.getElementById('canonical-link').setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);
+    </script>
 </body>
 </html>

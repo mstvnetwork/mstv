@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | High-Speed Live TV</title>
+    <title>MSTV Network | Optimized 3G Player</title>
 
-    <!-- 1. BROAD CSP: Explicitly allows external media and connections for Amagi/Third-party URLs -->
+    <!-- CSP: Allows external media and library connections -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://jsdelivr.net https://cloudflare.com https://zgo.at blob:; style-src 'self' 'unsafe-inline' https://jsdelivr.net; connect-src 'self' https://jsdelivr.net blob: data: *; media-src 'self' blob: data: *; img-src 'self' data: *; frame-src 'self' *;">
 
-    <!-- 2. LIGHTWEIGHT LIBRARIES -->
+    <!-- LIGHTWEIGHT LIBRARIES -->
     <script src="https://jsdelivr.net/npm/hls.js@latest/dist/hls.light.min.js"></script>
     <script src="https://jsdelivr.net/npm/dashjs@latest/dist/dash.mediaplayer.min.js"></script>
 
@@ -23,12 +23,13 @@
         .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; background: #000; border: 0; }
         
-        #loader { position: absolute; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1001; }
-        .spinner { width: 35px; height: 35px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 8px; }
+        /* INTELLIGENT SPINNER: Centered and visible over black screen */
+        #loader { position: absolute; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1001; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+        .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 10px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; min-height: 200px; }
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; }
         .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 90px; text-align: center; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
     </style>
 </head>
@@ -39,7 +40,10 @@
     </header>
 
     <div class="sticky-player-wrapper">
-        <div id="loader"><div class="spinner"></div><div style="color:white; font-size:10px; font-weight:bold;">LOADING...</div></div>
+        <div id="loader">
+            <div class="spinner"></div>
+            <div style="color:white; font-size:11px; font-weight:bold; letter-spacing:1px;">SYNCING SCENE...</div>
+        </div>
         <video id="video" controls playsinline></video>
         <iframe id="iframePlayer" allow="autoplay; fullscreen"></iframe>
     </div>
@@ -65,23 +69,21 @@
     async function play(ch) {
         if (!ch || !ch.url) return;
         resetPlayers();
+        
         t.innerText = ch.name;
-        if(ld) ld.style.display = 'flex'; // Spinner ON
+        ld.style.display = 'flex'; // Show spinner immediately
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
             f.style.display = 'block'; f.src = ch.url;
-            f.onload = () => { if(ld) ld.style.display = 'none'; };
+            f.onload = () => { ld.style.display = 'none'; };
         } else {
             v.style.display = 'block';
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInst.loadSource(ch.url); 
-                    hlsInst.attachMedia(v);
-                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { 
-                        v.play().catch(()=>{}); 
-                    });
+                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
+                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
                     v.src = ch.url; v.play();
                 }
@@ -95,26 +97,19 @@
         }
     }
 
-    /** 
-     * SURGICAL INTERVENTION: THE "SCENE DETECTOR"
-     * We only hide the spinner once the video clock has actually moved.
-     */
+    /* SURGICAL AI SPINNER LOGIC */
+    // On 3G, we only hide when the clock is > 0.5s (Guarantees pixels are visible)
     v.addEventListener('timeupdate', () => {
-        // 0.2s threshold ensures the first frame is fully rendered on screen
-        if (v.currentTime > 0.2 && ld) {
+        if (v.currentTime > 0.5) {
             ld.style.display = 'none';
         }
     });
 
-    // If the video buffers/stalls mid-stream on 3G, bring the spinner back
-    v.addEventListener('waiting', () => { 
-        if(ld) ld.style.display = 'flex'; 
-    });
-
-    // Safety: If playback fails, hide spinner so UI isn't stuck
-    v.addEventListener('error', () => { 
-        if(ld) ld.style.display = 'none'; 
-    });
+    // If 3G drops mid-stream, bring spinner back
+    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    
+    // Safety: Hide if the stream crashes
+    v.addEventListener('error', () => { ld.style.display = 'none'; });
 
     function render(data) {
         if (!l) return;
@@ -132,7 +127,7 @@
         fetch('channels2.json', { priority: 'high' })
             .then(r => r.json())
             .then(data => { allCh = data; render(allCh); })
-            .catch(err => { console.error("Data error:", err); });
+            .catch(err => console.error("Data error:", err));
         
         document.getElementById('searchInput').oninput = (e) => {
             const val = e.target.value.toLowerCase();
@@ -140,6 +135,5 @@
         };
     });
 </script>
-
 </body>
 </html>

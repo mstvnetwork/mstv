@@ -3,31 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Live TV</title>
-    <!-- UPDATED CSP: Added blob: and data: for MSE compatibility -->
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://jsdelivr.net https://cloudflare.com https://zgo.at blob:; connect-src 'self' https://jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev https://*.googlevideo.com https://*.fastly.net https://*.twitch.tv blob: data: *;">
+    <title>MSTV Network | Universal Player</title>
+    <!-- Single CSS for the player -->
+    <link href="https://jsdelivr.net" rel="stylesheet">
+    <script src="https://jsdelivr.net"></script>
+    
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root { --bg-dark: #111419; --accent: #2ECC71; --header-h: 70px; --ticker-h: 30px; }
-        body { font-family: system-ui, sans-serif; background: #F8F9FA; color: #212529; overflow-x: hidden; }
-        header { height: var(--header-h); background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
+        :root { --bg-dark: #111419; --accent: #2ECC71; }
+        body { font-family: system-ui, sans-serif; background: #F8F9FA; color: #212529; }
+        header { height: 70px; background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
         .search-container { flex: 0.6; max-width: 200px; }
         #searchInput { width: 100%; padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; }
-        .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
-        .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
-        #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
-        #placeholder { display: flex; align-items: center; justify-content: center; font-size: 3rem; z-index: 10; }
-        #loader { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; background: rgba(0,0,0,0.7); }
-        .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #2ECC71; border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { margin-top: 10px; font-size: 12px; color: #2ECC71; font-weight: bold; }
-        .ticker { width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.8rem; }
-        .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 15s linear infinite; }
-        @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; }
+        /* Video.js specific responsive sizing */
+        .video-js { width: 100% !important; height: auto !important; aspect-ratio: 16/9; }
+        #iframePlayer { width: 100%; aspect-ratio: 16/9; background: #000; display: none; }
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
         .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px; }
-        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 80px; text-align: center; font-weight: bold; font-size: 0.9rem; }
+        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 80px; text-align: center; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -35,99 +30,74 @@
         <h1 class="brand-name">MSTV NETWORK</h1>
         <div class="search-container"><input type="text" id="searchInput" placeholder="Search..."></div>
     </header>
+
     <div class="sticky-player-wrapper">
-        <section class="player-container">
-            <div id="loader"><div class="spinner"></div><div class="loading-text">Loading Stream...</div></div>
-            <div id="placeholder">📺</div>
-            <video id="video" playsinline controls style="display:none;"></video>
-            <iframe id="iframePlayer" style="display:none;" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
-        </section>
-        <div class="ticker"><div class="ticker-track"><div>VPN Australia recommended for blocked channels. &nbsp;</div><div>VPN Australia recommended for blocked channels. &nbsp;</div></div></div>
+        <div id="player-target">
+            <!-- Video.js will inject itself here -->
+            <video id="universal-video" class="video-js vjs-default-skin vjs-big-play-centered" controls playsinline preload="auto"></video>
+            <iframe id="iframePlayer" frameborder="0" allowfullscreen></iframe>
+        </div>
     </div>
+
     <main class="main-content">
-        <h2 id="current-title" style="text-align:center; margin-bottom:20px;">Select a Channel</h2>
+        <h2 id="current-title" style="text-align:center; margin-bottom:20px;">Select & Play</h2>
         <div class="channel-grid" id="channelList"></div>
     </main>
 
 <script>
-    let allCh = [], hlsE = null, dashP = null, scP = null;
-    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), t = document.getElementById('current-title'), 
-          ph = document.getElementById('placeholder'), ld = document.getElementById('loader');
+    let allCh = [];
+    const player = videojs('universal-video', {
+        fluid: true,
+        autoplay: false,
+        controls: true,
+        preload: 'auto',
+        // 3G OPTIMIZATION: Small buffer goal for fast start
+        html5: {
+            vhs: { 
+                overrideNative: true,
+                enableLowInitialPlaylist: true, // Start at lowest bitrate
+                fastStart: true,
+                limitMaxHeight: 720 // Prevent 4K/1080p on 3G to save data
+            }
+        }
+    });
 
-    function loadS() {
-        if (scP) return scP;
-        scP = new Promise(res => {
-            const s1 = document.createElement('script');
-            s1.src = "https://jsdelivr.net/npm/hls.js@latest/dist/hls.light.min.js";
-            s1.async = true; s1.crossOrigin = "anonymous";
-            s1.onload = () => {
-                const s2 = document.createElement('script');
-                s2.src = "https://jsdelivr.net/npm/dashjs@latest/dist/dash.mediaplayer.min.js";
-                s2.async = true; s2.crossOrigin = "anonymous";
-                s2.onload = res;
-                document.head.append(s2);
-            };
-            document.head.append(s1);
-        });
-        return scP;
-    }
+    const f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), 
+          t = document.getElementById('current-title');
 
     async function play(ch) {
         if (!ch || !ch.url) return;
 
-        // --- DEEP CLEANUP TO PREVENT CONFLICTS ---
-        if (hlsE) { hlsE.destroy(); hlsE = null; }
-        if (dashP) { 
-            dashP.destroy(); // destroy() is safer than reset() for HLS switching
-            dashP = null; 
-        }
-        
-        v.pause();
-        v.src = "";
-        v.load(); // Forces the browser to release the old MediaSource
-        
-        ph.style.display = 'none'; ld.style.display = 'flex'; t.innerText = ch.name;
-        v.style.display = 'none'; f.style.display = 'none'; f.src = "";
+        t.innerText = ch.name;
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block'; f.src = ch.url; f.onload = () => { ld.style.display = 'none'; };
+            player.hide();
+            f.style.display = 'block';
+            f.src = ch.url;
         } else {
-            await loadS();
-            if (ch.url.includes('.mpd')) {
-                dashP = dashjs.MediaPlayer().create();
-                dashP.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                dashP.initialize(v, ch.url, true);
-                v.style.display = 'block';
-            } 
-            else if (window.Hls && Hls.isSupported()) {
-                // --- HLS FIX: Ensuring startLoad is called ---
-                hlsE = new Hls({ 
-                    enableWorker: true, 
-                    startLevel: 0, 
-                    maxBufferLength: 10,
-                    autoStartLoad: true // Explicitly set to true
-                }); 
-                hlsE.loadSource(ch.url); 
-                hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
-                    v.play().catch(() => { ld.style.display = 'none'; }); 
-                    v.style.display = 'block'; 
-                    hlsE.startLoad(); // FORCE LOAD for slow 3G
-                });
-                hlsE.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) hlsE.recoverMediaError();
-                });
-            }
+            f.style.display = 'none';
+            f.src = "";
+            player.show();
+            
+            // Detect type and set source
+            let type = ch.url.includes('.m3u8') ? 'application/x-mpegURL' : 'application/dash+xml';
+            
+            player.src({ src: ch.url, type: type });
+            player.ready(() => {
+                player.play().catch(() => {});
+            });
         }
     }
 
-    v.addEventListener('playing', () => { ld.style.display = 'none'; });
-    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-
+    // Load Data
     document.addEventListener('DOMContentLoaded', () => {
-        fetch('channels2.json', { priority: 'high' }).then(r => r.json()).then(data => { allCh = data; render(allCh); });
+        fetch('channels2.json').then(r => r.json()).then(data => { 
+            allCh = data; 
+            render(allCh); 
+        });
+        
         document.getElementById('searchInput').oninput = (e) => {
             const val = e.target.value.toLowerCase();
             render(allCh.filter(c => c.name.toLowerCase().includes(val)));
@@ -139,7 +109,8 @@
         data.forEach(ch => {
             const b = document.createElement('div'); b.className = 'channel-card';
             b.innerHTML = `<span>${ch.name}</span>`;
-            b.onclick = () => play(ch); fr.appendChild(b);
+            b.onclick = () => play(ch);
+            fr.appendChild(b);
         });
         l.innerHTML = ''; l.appendChild(fr);
     }

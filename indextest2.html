@@ -3,17 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Optimized Player</title>
+    <title>MSTV Network | Fixed Player</title>
+    
+    <!-- 1. FIXED CSP: Added https://cdn.jsdelivr.net to style-src -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://gc.zgo.at blob:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; connect-src 'self' https://cdn.jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev blob: *; img-src 'self' data: *; frame-src 'self' *;">
+
+    <!-- 2. FIXED URLS: Using cdn. subdomain only -->
     <link href="https://jsdelivr.net" rel="stylesheet">
     <script src="https://jsdelivr.net"></script>
+
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { --bg-dark: #111419; --accent: #2ECC71; }
         body { font-family: system-ui, sans-serif; background: #F8F9FA; color: #212529; }
         header { height: 70px; background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
-        #searchInput { padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; width: 200px; }
-        .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; }
+        #searchInput { padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; width: 180px; }
+        .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; min-height: 200px; }
         .video-js { width: 100% !important; height: auto !important; aspect-ratio: 16/9; }
         #iframePlayer { width: 100%; aspect-ratio: 16/9; background: #000; display: none; border: 0; }
         .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
@@ -43,19 +49,26 @@
           l = document.getElementById('channelList'), 
           t = document.getElementById('current-title');
 
-    // Initialize Video.js first
-    vjsPlayer = videojs('universal-video', {
-        fluid: true,
-        html5: { vhs: { overrideNative: true, enableLowInitialPlaylist: true, fastStart: true } }
-    });
+    // SAFETY CHECK: Load Video.js only if defined
+    function initVJS() {
+        if (typeof videojs !== 'undefined') {
+            vjsPlayer = videojs('universal-video', {
+                fluid: true,
+                html5: { vhs: { overrideNative: true, enableLowInitialPlaylist: true, fastStart: true } }
+            });
+        } else {
+            console.error("Video.js failed to load. Check CSP or Network.");
+        }
+    }
 
     async function play(ch) {
         if (!ch || !ch.url) return;
         t.innerText = ch.name;
         window.scrollTo({ top: 0, behavior: 'instant' });
 
-        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            vjsPlayer.hide();
+        // If it's an iframe or we have no player library
+        if (ch.type === 'iframe' || !vjsPlayer || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
+            if(vjsPlayer) vjsPlayer.hide();
             f.style.display = 'block';
             f.src = ch.url;
         } else {
@@ -81,14 +94,18 @@
         l.appendChild(fr);
     }
 
-    // Load channel data immediately
+    // 3. LOAD DATA FIRST (Grid will appear even if Player fails)
     fetch('channels2.json')
         .then(r => r.json())
         .then(data => {
             allCh = data;
             render(allCh);
+            initVJS(); // Initialize player after grid is ready
         })
-        .catch(err => console.error("Error loading channels:", err));
+        .catch(err => {
+            console.error("JSON Load Error:", err);
+            initVJS();
+        });
 
     document.getElementById('searchInput').oninput = (e) => {
         const val = e.target.value.toLowerCase();

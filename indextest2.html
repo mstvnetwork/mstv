@@ -55,7 +55,6 @@
           l = document.getElementById('channelList'), t = document.getElementById('current-title'),
           ld = document.getElementById('loader');
 
-    // DEEP CLEANUP: Prevents conflicts between HLS and DASH
     function resetPlayers() {
         if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
         if (dashInst) { dashInst.destroy(); dashInst = null; }
@@ -67,7 +66,7 @@
         if (!ch || !ch.url) return;
         resetPlayers();
         t.innerText = ch.name;
-        if(ld) ld.style.display = 'flex';
+        if(ld) ld.style.display = 'flex'; // Spinner ON
         window.scrollTo({ top: 0, behavior: 'instant' });
 
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
@@ -78,8 +77,11 @@
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                     hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
-                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
+                    hlsInst.loadSource(ch.url); 
+                    hlsInst.attachMedia(v);
+                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { 
+                        v.play().catch(()=>{}); 
+                    });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
                     v.src = ch.url; v.play();
                 }
@@ -93,12 +95,27 @@
         }
     }
 
-    // INTELLIGENCE: Hides spinner only when frames actually start moving
-    v.addEventListener('timeupdate', () => { if (v.currentTime > 0.1 && ld) ld.style.display = 'none'; });
-    v.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
-    v.addEventListener('playing', () => { if (v.currentTime > 0.1 && ld) ld.style.display = 'none'; });
+    /** 
+     * SURGICAL INTERVENTION: THE "SCENE DETECTOR"
+     * We only hide the spinner once the video clock has actually moved.
+     */
+    v.addEventListener('timeupdate', () => {
+        // 0.2s threshold ensures the first frame is fully rendered on screen
+        if (v.currentTime > 0.2 && ld) {
+            ld.style.display = 'none';
+        }
+    });
 
-    // RENDER: Builds the channel grid
+    // If the video buffers/stalls mid-stream on 3G, bring the spinner back
+    v.addEventListener('waiting', () => { 
+        if(ld) ld.style.display = 'flex'; 
+    });
+
+    // Safety: If playback fails, hide spinner so UI isn't stuck
+    v.addEventListener('error', () => { 
+        if(ld) ld.style.display = 'none'; 
+    });
+
     function render(data) {
         if (!l) return;
         const fr = document.createDocumentFragment();
@@ -111,7 +128,6 @@
         l.innerHTML = ''; l.appendChild(fr);
     }
 
-    // INITIAL LOAD: Fetches channel data immediately
     document.addEventListener('DOMContentLoaded', () => {
         fetch('channels2.json', { priority: 'high' })
             .then(r => r.json())
@@ -124,5 +140,6 @@
         };
     });
 </script>
+
 </body>
 </html>

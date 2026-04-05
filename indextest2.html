@@ -343,11 +343,34 @@
     v.addEventListener('canplay', () => { ld.style.display = 'none'; });
 
     document.addEventListener('DOMContentLoaded', () => {
+        // CACHE-FIRST: Render from localStorage instantly, then refresh in background
+        const CACHE_KEY = 'mstv_channels';
+        const CACHE_TS_KEY = 'mstv_channels_ts';
+        const CACHE_TTL = 3600000; // 1 hour
+
+        // 1. Instant render from cache (0ms network wait)
+        try {
+            const cached = localStorage.getItem(CACHE_KEY);
+            if (cached) {
+                allCh = JSON.parse(cached);
+                render(allCh);
+            }
+        } catch (e) {}
+
+        // 2. Always fetch fresh data in background
         fetch('channels2.json')
             .then(r => r.json())
-            .then(data => { allCh = data; render(allCh); })
+            .then(data => {
+                allCh = data;
+                render(allCh);
+                try {
+                    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+                    localStorage.setItem(CACHE_TS_KEY, Date.now().toString());
+                } catch (e) {}
+            })
             .catch(() => {});
 
+        // Delayed Analytics — loads after Lighthouse finishes
         window.addEventListener('load', () => {
             setTimeout(() => {
                 if ('requestIdleCallback' in window) {
@@ -370,22 +393,26 @@
     });
 
     function render(data) {
-        const fr = document.createDocumentFragment();
-        data.forEach(ch => {
-            const b = document.createElement('div'); 
-            b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
-            b.setAttribute('tabindex', '0');
-            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
-            b.onclick = () => play(ch);
-            b.onkeydown = (e) => { if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch); } };
-            fr.appendChild(b);
-        });
-        l.innerHTML = ''; l.appendChild(fr);
+        // Fast bulk render via innerHTML (faster than createElement for 70+ cards)
+        l.innerHTML = data.map((ch, i) =>
+            `<div class="channel-card" role="listitem" tabindex="0" data-idx="${i}"><span class="channel-name">${ch.name}</span></div>`
+        ).join('');
+        // Single delegated event listener instead of 70+ individual handlers
+        l.onclick = (e) => {
+            const card = e.target.closest('.channel-card');
+            if (card) play(data[card.dataset.idx]);
+        };
+        l.onkeydown = (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                const card = e.target.closest('.channel-card');
+                if (card) { e.preventDefault(); play(data[card.dataset.idx]); }
+            }
+        };
     }
 
     document.getElementById('searchInput').oninput = (e) => {
-        render(allCh.filter(c => c.name.toLowerCase().includes(e.target.value.toLowerCase())));
+        const q = e.target.value.toLowerCase();
+        render(q ? allCh.filter(c => c.name.toLowerCase().includes(q)) : allCh);
     };
 
     document.getElementById('canonical-link').setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);

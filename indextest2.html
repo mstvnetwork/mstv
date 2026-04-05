@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Optimized 3G Player</title>
+    <title>MSTV Network | Stable HD Player</title>
 
-    <!-- CSP: Allows external media and library connections -->
+    <!-- 1. CORRECTED CSP: Allows video data and segments from external servers -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://jsdelivr.net https://cloudflare.com https://zgo.at blob:; style-src 'self' 'unsafe-inline' https://jsdelivr.net; connect-src 'self' https://jsdelivr.net blob: data: *; media-src 'self' blob: data: *; img-src 'self' data: *; frame-src 'self' *;">
 
-    <!-- LIGHTWEIGHT LIBRARIES -->
-    <script src="https://jsdelivr.net/npm/hls.js@latest/dist/hls.light.min.js"></script>
-    <script src="https://jsdelivr.net/npm/dashjs@latest/dist/dash.mediaplayer.min.js"></script>
+    <!-- 2. STABLE LIBRARIES: Full versions to ensure audio/video compatibility -->
+    <script src="https://jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+    <script src="https://jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
 
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -23,8 +23,7 @@
         .sticky-player-wrapper { position: sticky; top: 70px; z-index: 900; background: #000; width: 100%; aspect-ratio: 16 / 9; display: flex; align-items: center; justify-content: center; }
         #video, #iframePlayer { width: 100%; height: 100%; display: none; background: #000; border: 0; }
         
-        /* INTELLIGENT SPINNER: Centered and visible over black screen */
-        #loader { position: absolute; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1001; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+        #loader { position: absolute; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 1001; width: 100%; height: 100%; background: rgba(0,0,0,0.7); }
         .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 10px; }
         @keyframes spin { to { transform: rotate(360deg); } }
         
@@ -40,11 +39,8 @@
     </header>
 
     <div class="sticky-player-wrapper">
-        <div id="loader">
-            <div class="spinner"></div>
-            <div style="color:white; font-size:11px; font-weight:bold; letter-spacing:1px;">SYNCING SCENE...</div>
-        </div>
-        <video id="video" controls playsinline></video>
+        <div id="loader"><div class="spinner"></div><div style="color:white; font-size:11px; font-weight:bold;">ESTABLISHING SCENE...</div></div>
+        <video id="video" controls playsinline preload="auto"></video>
         <iframe id="iframePlayer" allow="autoplay; fullscreen"></iframe>
     </div>
 
@@ -54,124 +50,71 @@
     </main>
 
 <script>
-    let allCh = [], hlsInstance = null, dashInstance = null;
-    let lastTime = -1; // Tracks the "Video Clock Heartbeat"
-    const v = document.getElementById('video'), 
-          f = document.getElementById('iframePlayer'), 
-          l = document.getElementById('channelList'), 
-          t = document.getElementById('current-title'),
-          ph = document.getElementById('placeholder'),
+    let allCh = [], hlsInst = null, dashInst = null;
+    const v = document.getElementById('video'), f = document.getElementById('iframePlayer'), 
+          l = document.getElementById('channelList'), t = document.getElementById('current-title'),
           ld = document.getElementById('loader');
 
-    // SURGICAL CLEANUP: Ensures every switch starts from a clean slate
     function resetPlayers() {
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-        if (dashInstance) { dashInstance.destroy(); dashInstance = null; }
-        v.pause();
-        v.src = "";
-        v.load(); 
-        lastTime = -1; // Reset scene detection heartbeat
-        v.style.display = 'none';
-        f.style.display = 'none';
-        f.src = "";
+        if (hlsInst) { hlsInst.destroy(); hlsInst = null; }
+        if (dashInst) { dashInst.destroy(); dashInst = null; }
+        v.pause(); v.src = ""; v.removeAttribute("src"); v.load();
+        v.style.display = 'none'; f.style.display = 'none'; f.src = "";
     }
 
     async function play(ch) {
         if (!ch || !ch.url) return;
-        
         resetPlayers();
         t.innerText = ch.name;
-        ph.style.display = 'none';
-        
-        // FORCED SPINNER: Always show immediately on click
-        if(ld) ld.style.display = 'flex'; 
+        ld.style.display = 'flex';
         window.scrollTo({ top: 0, behavior: 'instant' });
 
-        // IFRAME LOGIC: Spinner stays until the iframe page is fully loaded
         if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-            f.style.display = 'block';
-            f.src = ch.url;
-            f.onload = () => { 
-                if(ld) ld.style.display = 'none'; 
-            };
+            f.style.display = 'block'; f.src = ch.url;
+            f.onload = () => { ld.style.display = 'none'; };
         } else {
             v.style.display = 'block';
-            
-            // HLS LOGIC
             if (ch.url.includes('.m3u8')) {
                 if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                    hlsInstance = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
-                    hlsInstance.loadSource(ch.url);
-                    hlsInstance.attachMedia(v);
-                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                        v.play().catch(() => { if(ld) ld.style.display = 'none'; });
-                    });
+                    hlsInst = new Hls({ startLevel: 0, maxBufferLength: 10, enableWorker: true });
+                    hlsInst.loadSource(ch.url); hlsInst.attachMedia(v);
+                    hlsInst.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(()=>{}); });
+                    hlsInst.on(Hls.Events.ERROR, (e, data) => { if(data.fatal) hlsInst.recoverMediaError(); });
                 } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                    v.src = ch.url;
-                    v.play().catch(() => { if(ld) ld.style.display = 'none'; });
+                    v.src = ch.url; v.play();
                 }
-            } 
-            // DASH LOGIC
-            else if (ch.url.includes('.mpd')) {
+            } else if (ch.url.includes('.mpd')) {
                 if (typeof dashjs !== 'undefined') {
-                    dashInstance = dashjs.MediaPlayer().create();
-                    dashInstance.updateSettings({ 
-                        'streaming': { 
-                            'abr': { 'initialBitrate': { 'video': 250 } }, 
-                            'buffer': { 'stableBufferTime': 4 } 
-                        } 
-                    });
-                    dashInstance.initialize(v, ch.url, true);
+                    dashInst = dashjs.MediaPlayer().create();
+                    dashInst.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
+                    dashInst.initialize(v, ch.url, true);
                 }
             }
         }
     }
 
-    // AI INTELLIGENCE: MONITORING THE CLOCK
-    // This hides the spinner ONLY when the video has physically progressed.
-    v.addEventListener('timeupdate', () => {
-        // Threshold of 0.5s ensures the first scene is visible on 3G
-        if (v.currentTime > 0.5 && v.currentTime !== lastTime) {
-            if(ld) ld.style.display = 'none';
-            lastTime = v.currentTime;
-        }
-    });
-
-    // Handle mid-stream buffering (re-show spinner)
-    v.addEventListener('waiting', () => { if(ld) ld.style.display = 'flex'; });
-    
-    // Safety: Hide if the stream crashes so the UI isn't stuck
-    v.addEventListener('error', () => { if(ld) ld.style.display = 'none'; });
-
-    // Initial Data Load
-    document.addEventListener('DOMContentLoaded', () => {
-        fetch('channels2.json', { priority: 'high' })
-            .then(r => r.json())
-            .then(data => { 
-                allCh = data; 
-                render(allCh); 
-            });
-        
-        document.getElementById('searchInput').oninput = (e) => {
-            const val = e.target.value.toLowerCase();
-            render(allCh.filter(c => c.name.toLowerCase().includes(val)));
-        };
-    });
+    // SCENE DETECTION: Spinner only hides once the video clock moves past 0.5s
+    v.addEventListener('timeupdate', () => { if (v.currentTime > 0.5) ld.style.display = 'none'; });
+    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    v.addEventListener('playing', () => { if(v.currentTime > 0.5) ld.style.display = 'none'; });
+    v.addEventListener('error', () => { ld.style.display = 'none'; });
 
     function render(data) {
         if (!l) return;
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
-            const b = document.createElement('div');
-            b.className = 'channel-card';
+            const b = document.createElement('div'); b.className = 'channel-card';
             b.innerHTML = `<span>${ch.name}</span>`;
-            b.onclick = () => play(ch);
-            fr.appendChild(b);
+            b.onclick = () => play(ch); fr.appendChild(b);
         });
-        l.innerHTML = '';
-        l.appendChild(fr);
+        l.innerHTML = ''; l.appendChild(fr);
     }
-</script>
 
+    fetch('channels2.json').then(r => r.json()).then(data => { allCh = data; render(allCh); });
+    document.getElementById('searchInput').oninput = (e) => {
+        const val = e.target.value.toLowerCase();
+        render(allCh.filter(c => c.name.toLowerCase().includes(val)));
+    };
+</script>
 </body>
 </html>

@@ -1,27 +1,43 @@
 [build]
-  # This tells Netlify to run your script BEFORE deploying
   command = "node generate-sitemap.js"
   publish = "."
 
+# 1. Specific headers for your sitemap
 [[headers]]
   for = "/sitemap.xml"
   [headers.values]
     Content-Type = "application/xml"
     X-Content-Type-Options = "nosniff"
 
-# 1. Direct access to your SEO pages for Google
+# 2. Global security headers for ALL other pages
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Fixes: "Ensure CSP is effective" and "Mitigate DOM-based XSS"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; object-src 'none'; upgrade-insecure-requests; require-trusted-types-for 'script';"
+    
+    # Fixes: "Ensure proper origin isolation with COOP"
+    Cross-Origin-Opener-Policy = "same-origin"
+    
+    # Fixes: "Mitigate clickjacking with XFO or CSP"
+    X-Frame-Options = "DENY"
+    
+    # Extra security best practices
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "same-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
+
+# --- Keep your redirects below exactly as they are ---
 [[redirects]]
   from = "/channels_pages/*"
   to = "/channels_pages/:splat"
   status = 200
 
-# 2. Clean URLs (e.g., /channel/9x-jalwa -> player)
 [[redirects]]
   from = "/channel/:slug"
   to = "/index.html?ch=:slug"
   status = 200
 
-# 3. Catch-all for your Single Page App (Moved to bottom)
 [[redirects]]
   from = "/*"
   to = "/index.html"

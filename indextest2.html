@@ -3,44 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MSTV Network | Live Indian TV & Punjabi Channels</title>
-    
-    <!-- FIXED CSP: Explicitly allows scripts and data from external video providers -->
-    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://zgo.at blob:; connect-src 'self' https://cdn.jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev https://*.googlevideo.com https://*.fastly.net https://*.twitch.tv https://*.pndsn.com https://*.msgpns.com https://*.vimeo.com https://*.ytimg.com https://*.google.com https://*.doubleclick.net https://*.youtube.com https://*.facebook.com;">
-
-    <meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment.">
-    <link rel="icon" href="/favicon.ico">
-    <meta name="theme-color" content="#111419">
-
-    <!-- Performance Hints -->
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
-
+    <title>MSTV Network | Live TV</title>
+    <!-- UPDATED CSP: Added blob: and data: for MSE compatibility -->
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline' 'unsafe-eval' https://jsdelivr.net https://cloudflare.com https://zgo.at blob:; connect-src 'self' https://jsdelivr.net https://*.akamaized.net https://*.cloudfront.net https://*.mux.dev https://*.googlevideo.com https://*.fastly.net https://*.twitch.tv blob: data: *;">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root { --bg-dark: #111419; --accent: #2ECC71; --header-h: 70px; --ticker-h: 30px; }
-        body { font-family: system-ui, -apple-system, sans-serif; background: #F8F9FA; color: #212529; line-height: 1.5; overflow-x: hidden; }
+        body { font-family: system-ui, sans-serif; background: #F8F9FA; color: #212529; overflow-x: hidden; }
         header { height: var(--header-h); background: var(--bg-dark); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; position: sticky; top: 0; z-index: 1000; }
         .brand-name { font-size: 1.25rem; font-weight: 800; color: var(--accent); }
         .search-container { flex: 0.6; max-width: 200px; }
-        #searchInput { width: 100%; padding: 12px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; font-size: 16px; }
-        .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; min-height: calc(100vw * 9 / 16 + var(--ticker-h)); display: flex; flex-direction: column; align-items: center; }
+        #searchInput { width: 100%; padding: 10px 15px; border-radius: 20px; border: 1px solid #444; background: #1A1D20; color: #fff; }
+        .sticky-player-wrapper { position: sticky; top: var(--header-h); z-index: 900; background: #000; width: 100%; }
         .player-container { width: 100%; aspect-ratio: 16 / 9; background: #000; position: relative; overflow: hidden; }
-        #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        #placeholder { display: flex; align-items: center; justify-content: center; font-size: 3rem; z-index: 10; background: #000; }
-        #loader { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; background: rgba(0,0,0,0.6); pointer-events: none; }
-        .spinner { width: 45px; height: 45px; border: 4px solid rgba(255, 255, 255, 0.1); border-top: 4px solid #2ECC71; border-radius: 50%; animation: spin 0.8s linear infinite; }
+        #video, #iframePlayer, #placeholder { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #000; }
+        #placeholder { display: flex; align-items: center; justify-content: center; font-size: 3rem; z-index: 10; }
+        #loader { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 20; background: rgba(0,0,0,0.7); }
+        .spinner { width: 40px; height: 40px; border: 4px solid rgba(255,255,255,0.1); border-top: 4px solid #2ECC71; border-radius: 50%; animation: spin 0.8s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .loading-text { margin-top: 15px; font-size: 11px; color: #2ECC71; font-weight: bold; text-transform: uppercase; }
+        .loading-text { margin-top: 10px; font-size: 12px; color: #2ECC71; font-weight: bold; }
         .ticker { width: 100%; height: var(--ticker-h); background: #D00000; color: #fff; display: flex; align-items: center; overflow: hidden; font-size: 0.8rem; }
         .ticker-track { display: flex; white-space: nowrap; animation: ticker-loop 15s linear infinite; }
-        @keyframes ticker-loop { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-50%, 0, 0); } }
-        .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding-bottom: 50px; }
-        .title-area { padding: 25px 15px; text-align: center; }
-        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 20px; padding: 0 20px; }
-        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 12px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 95px; box-shadow: 0 2px 5px rgba(0,0,0,0.06); }
-        .channel-name { font-size: 0.95rem; font-weight: 700; color: #333; text-align: center; }
-        .footer-bottom { text-align: center; padding: 40px 0; color: #888; background: #111419; margin-top: 40px; }
+        @keyframes ticker-loop { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .main-content { width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .channel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 15px; }
+        .channel-card { background: #fff; border: 1px solid #ddd; border-radius: 10px; display: flex; align-items: center; justify-content: center; padding: 15px; cursor: pointer; min-height: 80px; text-align: center; font-weight: bold; font-size: 0.9rem; }
     </style>
 </head>
 <body>
@@ -50,18 +37,17 @@
     </header>
     <div class="sticky-player-wrapper">
         <section class="player-container">
-            <div id="loader"><div class="spinner"></div><div class="loading-text">Optimizing...</div></div>
+            <div id="loader"><div class="spinner"></div><div class="loading-text">Loading Stream...</div></div>
             <div id="placeholder">📺</div>
             <video id="video" playsinline controls style="display:none;"></video>
             <iframe id="iframePlayer" style="display:none;" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
         </section>
-        <div class="ticker"><div class="ticker-track"><div>Use VPN Australia for blocked channels. Optimized for 3G/Mobile. &nbsp;</div><div>Use VPN Australia for blocked channels. Optimized for 3G/Mobile. &nbsp;</div></div></div>
+        <div class="ticker"><div class="ticker-track"><div>VPN Australia recommended for blocked channels. &nbsp;</div><div>VPN Australia recommended for blocked channels. &nbsp;</div></div></div>
     </div>
     <main class="main-content">
-        <section class="title-area"><h2 id="current-title">Select & Play</h2></section>
+        <h2 id="current-title" style="text-align:center; margin-bottom:20px;">Select a Channel</h2>
         <div class="channel-grid" id="channelList"></div>
     </main>
-    <div class="footer-bottom"><p>© 2026 MSTV Network</p></div>
 
 <script>
     let allCh = [], hlsE = null, dashP = null, scP = null;
@@ -69,16 +55,15 @@
           l = document.getElementById('channelList'), t = document.getElementById('current-title'), 
           ph = document.getElementById('placeholder'), ld = document.getElementById('loader');
 
-    // FIXED: CSP-friendly loader using exact cdn.jsdelivr.net domain
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
             const s1 = document.createElement('script');
-            s1.src = "https://jsdelivr.net";
+            s1.src = "https://jsdelivr.net/npm/hls.js@latest/dist/hls.light.min.js";
             s1.async = true; s1.crossOrigin = "anonymous";
             s1.onload = () => {
                 const s2 = document.createElement('script');
-                s2.src = "https://jsdelivr.net";
+                s2.src = "https://jsdelivr.net/npm/dashjs@latest/dist/dash.mediaplayer.min.js";
                 s2.async = true; s2.crossOrigin = "anonymous";
                 s2.onload = res;
                 document.head.append(s2);
@@ -90,10 +75,18 @@
 
     async function play(ch) {
         if (!ch || !ch.url) return;
+
+        // --- DEEP CLEANUP TO PREVENT CONFLICTS ---
         if (hlsE) { hlsE.destroy(); hlsE = null; }
-        if (dashP) { dashP.reset(); dashP = null; }
+        if (dashP) { 
+            dashP.destroy(); // destroy() is safer than reset() for HLS switching
+            dashP = null; 
+        }
         
-        v.pause(); v.src = ""; v.load();
+        v.pause();
+        v.src = "";
+        v.load(); // Forces the browser to release the old MediaSource
+        
         ph.style.display = 'none'; ld.style.display = 'flex'; t.innerText = ch.name;
         v.style.display = 'none'; f.style.display = 'none'; f.src = "";
         window.scrollTo({ top: 0, behavior: 'instant' });
@@ -105,11 +98,27 @@
             if (ch.url.includes('.mpd')) {
                 dashP = dashjs.MediaPlayer().create();
                 dashP.updateSettings({ 'streaming': { 'abr': { 'initialBitrate': { 'video': 250 } }, 'buffer': { 'stableBufferTime': 4 } } });
-                dashP.initialize(v, ch.url, true); v.style.display = 'block';
-            } else if (window.Hls && Hls.isSupported()) {
-                hlsE = new Hls({ enableWorker: true, startLevel: 0, maxBufferLength: 10, capLevelToPlayerSize: true }); 
-                hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.play().catch(() => {}); v.style.display = 'block'; ld.style.display = 'none'; });
+                dashP.initialize(v, ch.url, true);
+                v.style.display = 'block';
+            } 
+            else if (window.Hls && Hls.isSupported()) {
+                // --- HLS FIX: Ensuring startLoad is called ---
+                hlsE = new Hls({ 
+                    enableWorker: true, 
+                    startLevel: 0, 
+                    maxBufferLength: 10,
+                    autoStartLoad: true // Explicitly set to true
+                }); 
+                hlsE.loadSource(ch.url); 
+                hlsE.attachMedia(v);
+                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { 
+                    v.play().catch(() => { ld.style.display = 'none'; }); 
+                    v.style.display = 'block'; 
+                    hlsE.startLoad(); // FORCE LOAD for slow 3G
+                });
+                hlsE.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) hlsE.recoverMediaError();
+                });
             }
         }
     }
@@ -129,7 +138,7 @@
         const fr = document.createDocumentFragment();
         data.forEach(ch => {
             const b = document.createElement('div'); b.className = 'channel-card';
-            b.innerHTML = `<span class="channel-name">${ch.name}</span>`;
+            b.innerHTML = `<span>${ch.name}</span>`;
             b.onclick = () => play(ch); fr.appendChild(b);
         });
         l.innerHTML = ''; l.appendChild(fr);

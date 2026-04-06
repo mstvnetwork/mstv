@@ -730,7 +730,7 @@
         </div>
     </div>
 </footer>
-          <script>
+        <script>
     let allCh = [], activeCard = null;
     const f = document.getElementById('iframePlayer'),
           l = document.getElementById('channelList'),
@@ -739,76 +739,57 @@
           ld = document.getElementById('loader'),
           cc = document.getElementById('channel-count');
 
-    /**
-     * Core Playback Logic
-     * Surgically hands off HLS/DASH to player.html for 3G performance
-     */
     async function play(ch, cardEl) {
         if (!ch || !ch.url) return;
         
-        // Handle non-secure or external protocol links
+        // Handle External Links
         if (ch.url.startsWith('http://') && !ch.url.includes(window.location.hostname)) { 
             window.open(ch.url, '_blank', 'noopener,noreferrer'); 
             return; 
         }
 
-        // Visual feedback for the selected channel
+        // UI Feedback
         if (activeCard) activeCard.classList.remove('active');
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
-        // Prepare UI for new stream
+        // Reset Player State
         if (ph.style.display !== 'none') ph.style.display = 'none';
         ld.style.display = 'flex';
         t.innerText = ch.name;
         t.classList.add('has-channel');
         
-        // Clear previous iframe session to free up 3G bandwidth/memory
-        f.src = "about:blank";
+        // The 3G "Fast-Path" Logic
+        if (ch.url.includes('.m3u8')) {
+            // Use our specialized internal player for HLS
+            f.src = "/player.html?url=" + encodeURIComponent(ch.url);
+        } else {
+            // Use direct URL for YouTube/Other iframes
+            f.src = ch.url;
+        }
 
-        // Small timeout ensures the browser flushes the old player before starting the new one
-        setTimeout(() => {
-            if (ch.url.includes('.m3u8') || ch.url.includes('.mpd')) {
-                // Use our Universal "Turbo" Player for HLS and DASH
-                f.src = "/player.html?url=" + encodeURIComponent(ch.url);
-            } else {
-                // Direct load for YouTube or other third-party embed links
-                f.src = ch.url;
-            }
-        }, 50);
-
-        // Hide loader once the iframe document has finished its initial load
         f.onload = () => { ld.style.display = 'none'; };
     }
 
-    /**
-     * UI Helper: Generates initials for channels without logos
-     */
     function getInitials(name) {
         const words = name.trim().split(/\s+/);
         return words.length >= 2 ? (words + words).toUpperCase() : name.substring(0, 2).toUpperCase();
     }
 
-    /**
-     * Render Logic: Optimized for smooth scrolling on slow mobile CPUs
-     */
     function render(data) {
         const fr = document.createDocumentFragment();
         if (data.length === 0) {
             const d = document.createElement('div');
             d.className = 'no-results';
-            d.innerHTML = '<strong>No channels found</strong>Try another search term';
+            d.innerHTML = '<strong>No channels found</strong>Try another search';
             fr.appendChild(d);
             l.innerHTML = ''; l.appendChild(fr);
             return;
         }
-
         data.forEach((ch, i) => {
             const b = document.createElement('div');
             b.className = 'channel-card';
             b.setAttribute('tabindex', '0');
-            b.setAttribute('role', 'button');
-            // Staggered animation but capped to prevent 3G lag
-            b.style.animationDelay = Math.min(i * 12, 250) + 'ms';
+            b.style.animationDelay = Math.min(i * 15, 300) + 'ms';
 
             const icon = document.createElement('div');
             icon.className = 'ch-icon';
@@ -816,15 +797,10 @@
                 const img = document.createElement('img');
                 img.className = 'ch-logo';
                 img.src = ch.logo;
-                img.loading = 'lazy'; // Don't waste 3G data on off-screen logos
-                img.onerror = function() { 
-                    this.remove(); 
-                    icon.textContent = getInitials(ch.name); 
-                };
+                img.loading = 'lazy';
+                img.onerror = function() { this.remove(); icon.textContent = getInitials(ch.name); };
                 icon.appendChild(img);
-            } else {
-                icon.textContent = getInitials(ch.name);
-            }
+            } else { icon.textContent = getInitials(ch.name); }
 
             const name = document.createElement('span');
             name.className = 'channel-name';
@@ -836,16 +812,14 @@
             b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); }};
             fr.appendChild(b);
         });
-        
-        l.innerHTML = ''; 
-        l.appendChild(fr);
+        l.innerHTML = ''; l.appendChild(fr);
     }
 
-    /**
-     * Initialization & Search
-     */
     document.addEventListener('DOMContentLoaded', () => {
-        // Fetch channel data
+        // Set canonical
+        const cl = document.getElementById('canonical-link');
+        if (cl) cl.setAttribute('href', window.location.origin + window.location.pathname);
+
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => {
@@ -853,17 +827,9 @@
                 cc.textContent = data.length + ' channels';
                 render(allCh);
             })
-            .catch(err => console.error("Could not load channels", err));
+            .catch(err => console.error("Data load failed", err));
 
-        // Search Input Handling
-        document.getElementById('searchInput').oninput = (e) => {
-            const q = e.target.value.toLowerCase();
-            const filtered = allCh.filter(c => c.name.toLowerCase().includes(q));
-            cc.textContent = filtered.length + ' channels';
-            render(filtered);
-        };
-
-        // Analytics: Highly delayed to prioritize video playback on 3G
+        // Analytics / Counter (Delayed for Performance)
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script');
@@ -871,9 +837,16 @@
                 s.src = "https://gc.zgo.at/count.js";
                 s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
                 document.head.appendChild(s);
-            }, 12000);
+            }, 10000);
         });
     });
-          </script>  
+
+    document.getElementById('searchInput').oninput = (e) => {
+        const q = e.target.value.toLowerCase();
+        const filtered = allCh.filter(c => c.name.toLowerCase().includes(q));
+        cc.textContent = filtered.length + ' channels';
+        render(filtered);
+    };
+        </script>
 </body>
 </html>

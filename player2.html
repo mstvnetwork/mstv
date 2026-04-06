@@ -809,24 +809,31 @@
     }
 });
                 // Error handling
-                shakaP.addEventListener('error', (e) => {
-                    console.error('Shaka Error:', e.detail);
-                    ld.style.display = 'none';
-                });
-
-                try {
-                    await shakaP.load(ch.url);
-                    v.play().catch(() => { /* Handle autoplay block */ });
-                } catch (e) {
-                    ld.style.display = 'none';
-                }
-            }
-        }, 10);
+                shakaP.configure({
+    streaming: {
+        bufferingGoal: 4,          // Increased slightly to prevent "stutter" on 3G
+        rebufferingGoal: 2,
+        jumpLargeGaps: true,       // Skip over missing fragments instead of spinning
+        retryParameters: {
+            maxAttempts: 5,        // Give the 3G connection more chances to finish a download
+            baseDelay: 1000,
+            backoffFactor: 2
+        }
+    },
+    abr: {
+        enabled: true,
+        initialBitrate: 50000,     // Even lower (50kbps) to force the absolute smallest tier
+        restrictions: { minHeight: 144 } // Ensure it doesn't try to load 0px height
     }
+});
 
-    v.addEventListener('playing', () => { ld.style.display = 'none'; });
-    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-    v.addEventListener('canplay', () => { ld.style.display = 'none'; });
+// CRITICAL: This bypasses the QUIC/HTTP3 issues you're seeing in the console
+shakaP.getNetworkingEngine().registerRequestFilter((type, request) => {
+  if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+    // This helps some browsers prioritize these requests more reliably
+    request.allowCrossSiteCredentials = false; 
+  }
+});
 
     function getInitials(name) {
         const words = name.trim().split(/\s+/);

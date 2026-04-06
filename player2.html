@@ -729,7 +729,6 @@
         </div>
     </div>
 </footer>
-
     <script>
     let allCh = [], shakaP = null, scP = null, activeCard = null;
     const v = document.getElementById('video'),
@@ -740,7 +739,7 @@
           ld = document.getElementById('loader'),
           cc = document.getElementById('channel-count');
 
-    // 1. Single Library Loader (Shaka Only)
+    // 1. Optimized Loader (Shaka Only)
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
@@ -750,11 +749,7 @@
             s.crossOrigin = "anonymous"; 
             s.onload = () => { 
                 window.shaka.polyfill.installAll(); 
-                if (shaka.Player.isBrowserSupported()) {
-                    res();
-                } else {
-                    console.error('Browser not supported by Shaka');
-                }
+                res();
             };
             document.head.appendChild(s);
         });
@@ -768,7 +763,7 @@
         if (activeCard) activeCard.classList.remove('active');
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
-        // Clean up previous instances
+        // Clean up previous instance
         if (shakaP) { try { await shakaP.destroy(); } catch(e){} shakaP = null; }
         v.pause();
         v.removeAttribute("src"); 
@@ -782,58 +777,56 @@
             v.style.display = 'none';
             f.style.display = 'none'; f.src = "";
 
-            // Handle Iframes
             if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
                 f.style.display = 'block'; f.src = ch.url;
                 f.onload = () => { ld.style.display = 'none'; };
-            } 
-            // Handle HLS & DASH via Shaka
-            else {
+            } else {
                 await loadS();
                 v.style.display = 'block';
                 v.controls = true;
                 
                 shakaP = new shaka.Player(v);
 
-                // 2. Optimization for Slow Networks (3G)
+                // 2. High-Performance 3G Configuration
                 shakaP.configure({
-    streaming: {
-        bufferingGoal: 2,         // Start after 2s buffered
-        rebufferingGoal: 1,       // Faster recovery
-        bufferBehind: 0          // Save memory/data
-    },
-    abr: {
-        enabled: true,
-        initialBitrate: 100000,   // Force 100kbps start (Lowest Quality)
-        switchInterval: 1        // Check for better speed every 1 second
-    }
-});
-                // Error handling
-                shakaP.configure({
-    streaming: {
-        bufferingGoal: 4,          // Increased slightly to prevent "stutter" on 3G
-        rebufferingGoal: 2,
-        jumpLargeGaps: true,       // Skip over missing fragments instead of spinning
-        retryParameters: {
-            maxAttempts: 5,        // Give the 3G connection more chances to finish a download
-            baseDelay: 1000,
-            backoffFactor: 2
-        }
-    },
-    abr: {
-        enabled: true,
-        initialBitrate: 50000,     // Even lower (50kbps) to force the absolute smallest tier
-        restrictions: { minHeight: 144 } // Ensure it doesn't try to load 0px height
-    }
-});
+                    streaming: {
+                        bufferingGoal: 4,          // 4s buffer to handle 3G jitter
+                        rebufferingGoal: 2,        // Quick resume
+                        jumpLargeGaps: true,       // Don't stall on missing segments
+                        retryParameters: {
+                            maxAttempts: 4,        // More retries for unstable 3G
+                            baseDelay: 1000,
+                            backoffFactor: 2
+                        }
+                    },
+                    abr: {
+                        enabled: true,
+                        initialBitrate: 50000,     // Force absolute lowest quality first
+                        switchInterval: 1
+                    }
+                });
 
-// CRITICAL: This bypasses the QUIC/HTTP3 issues you're seeing in the console
-shakaP.getNetworkingEngine().registerRequestFilter((type, request) => {
-  if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-    // This helps some browsers prioritize these requests more reliably
-    request.allowCrossSiteCredentials = false; 
-  }
-});
+                // 3. Network Fix for QUIC/HTTP3 Errors
+                shakaP.getNetworkingEngine().registerRequestFilter((type, request) => {
+                    if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                        request.allowCrossSiteCredentials = false;
+                    }
+                });
+
+                try {
+                    await shakaP.load(ch.url);
+                    v.play().catch(() => { /* Autoplay block handled by loader visibility */ });
+                } catch (e) {
+                    console.error('Shaka Load Error:', e);
+                    ld.style.display = 'none';
+                }
+            }
+        }, 10);
+    }
+
+    v.addEventListener('playing', () => { ld.style.display = 'none'; });
+    v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
+    v.addEventListener('canplay', () => { ld.style.display = 'none'; });
 
     function getInitials(name) {
         const words = name.trim().split(/\s+/);
@@ -924,7 +917,8 @@ shakaP.getNetworkingEngine().registerRequestFilter((type, request) => {
         cc.textContent = filtered.length + ' channels';
         render(filtered);
     };
-          </script>
+        </script>
+
 
 </body>
     </html>

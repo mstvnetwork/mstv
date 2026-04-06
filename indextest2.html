@@ -17,7 +17,8 @@
     <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap"></noscript>
 
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://mstvnet.netlify.app/">
@@ -138,9 +139,9 @@
             background: rgba(230,57,70,0.15);
             border: 1px solid rgba(230,57,70,0.4);
             color: #FF6B75;
-            font-size: 10px;
-            font-weight: 500;
-            letter-spacing: 0.08em;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
             padding: 3px 8px;
             border-radius: 20px;
             text-transform: uppercase;
@@ -185,13 +186,14 @@
             font-family: 'DM Sans', sans-serif;
             font-size: 14px;
             transition: border-color 0.2s, background 0.2s;
-            outline: none;
         }
 
         #searchInput::placeholder { color: var(--text3); }
         #searchInput:focus {
             border-color: rgba(201,168,76,0.5);
             background: var(--surface2);
+            outline: 2px solid rgba(201,168,76,0.4);
+            outline-offset: 2px;
         }
 
         /* ── STICKY PLAYER ── */
@@ -297,8 +299,8 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .loading-text {
-            font-size: 10px;
-            letter-spacing: 0.2em;
+            font-size: 12px;
+            letter-spacing: 0.18em;
             color: var(--gold);
             font-family: 'Syne', sans-serif;
             font-weight: 600;
@@ -318,9 +320,9 @@
 
         .np-label {
             font-family: 'Syne', sans-serif;
-            font-size: 9px;
+            font-size: 12px;
             font-weight: 700;
-            letter-spacing: 0.15em;
+            letter-spacing: 0.12em;
             color: var(--gold);
             text-transform: uppercase;
             white-space: nowrap;
@@ -679,7 +681,7 @@
             <span class="placeholder-text">Select a channel to watch</span>
         </div>
         <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
-        <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
+        <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation allow-forms" allow="autoplay; fullscreen;"></iframe>
     </section>
     <div class="now-playing-bar" role="status">
         <span class="np-label">Info</span>
@@ -817,10 +819,35 @@
             b.setAttribute('tabindex', '0');
             b.setAttribute('aria-label', ch.name);
             b.style.animationDelay = Math.min(i * 18, 300) + 'ms';
-            const iconHTML = ch.logo
-                ? `<div class="ch-icon"><img class="ch-logo" src="${ch.logo}" alt="${ch.name} logo" loading="lazy" decoding="async" onerror="this.style.display='none';this.parentNode.textContent='${getInitials(ch.name).replace(/'/g,"\\'")}';"></div>`
-                : `<div class="ch-icon">${getInitials(ch.name)}</div>`;
-            b.innerHTML = `${iconHTML}<span class="channel-name">${ch.name}</span>`;
+
+            const icon = document.createElement('div');
+            icon.className = 'ch-icon';
+
+            if (ch.logo) {
+                const img = document.createElement('img');
+                img.className = 'ch-logo';
+                img.src = ch.logo;
+                img.alt = ch.name + ' logo';
+                img.width = 52;
+                img.height = 52;
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                const initials = getInitials(ch.name);
+                img.addEventListener('error', function() {
+                    this.remove();
+                    icon.textContent = initials;
+                }, { once: true });
+                icon.appendChild(img);
+            } else {
+                icon.textContent = getInitials(ch.name);
+            }
+
+            const name = document.createElement('span');
+            name.className = 'channel-name';
+            name.textContent = ch.name;
+
+            b.appendChild(icon);
+            b.appendChild(name);
             b.onclick = () => play(ch, b);
             b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); } };
             fr.appendChild(b);

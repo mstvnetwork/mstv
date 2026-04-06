@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Stream Player</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;display:flex;align-items:center;justify-content:center;min-height:100vh}
+video{width:100%;max-width:100%;height:auto}
+</style>
+</head><body>
+<video id="v" controls crossorigin="anonymous"></video>
+<script>
+(function(){
+  var url="https://autumn-shape-b04a.soft-disk-1347.workers.dev/?url=http://maxotts.maxdigitaltv.com/x-media/C490/master.m3u8";
+  var type="hls";
+  var ckPairs=[];
+  var v=document.getElementById("v");
+
+  function hexToB64(h){var b=new Uint8Array(h.match(/.{1,2}/g).map(function(x){return parseInt(x,16)}));var s="";b.forEach(function(x){s+=String.fromCharCode(x)});return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/g,"")}
+
+  function setupEME(pairs){
+    v.addEventListener("encrypted",function(e){
+      navigator.requestMediaKeySystemAccess("org.w3.clearkey",[{initDataTypes:[e.initDataType||"cenc"],videoCapabilities:[{contentType:"video/mp4;codecs=\"avc1.42E01E\""}],audioCapabilities:[{contentType:"audio/mp4;codecs=\"mp4a.40.2\""}]}]).then(function(a){return a.createMediaKeys()}).then(function(mk){return v.setMediaKeys(mk)}).then(function(){var s=v.mediaKeys.createSession();s.addEventListener("message",function(me){var lic={keys:pairs.map(function(p){return{kty:"oct",kid:hexToB64(p.kid),k:hexToB64(p.key)}}),type:"temporary"};s.update(new TextEncoder().encode(JSON.stringify(lic)))});s.generateRequest(e.initDataType||"cenc",e.initData)})
+    },{once:true});
+  }
+
+  if(type==="hls"){
+    if(Hls.isSupported()){var h=new Hls();h.loadSource(url);h.attachMedia(v);h.on(Hls.Events.MANIFEST_PARSED,function(){v.play()});if(ckPairs.length)setupEME(ckPairs)}
+    else{v.src=url;v.play()}
+  }else{
+    var d=dashjs.MediaPlayer().create();
+    if(ckPairs.length){var ck={};ckPairs.forEach(function(p){ck[p.kid]=p.key});d.setProtectionData({"org.w3.clearkey":{clearkeys:ck}})}
+    d.initialize(v,url,true);
+  }
+})();
+</script>
+</body></html>

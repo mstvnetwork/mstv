@@ -11,7 +11,6 @@
     <link id="canonical-link" rel="canonical" href="">
     <link rel="icon" href="/favicon.ico">
     <meta name="theme-color" content="#0C0E14">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://gc.zgo.at; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net https://mstvnet.netlify.app; media-src 'self' https: blob:; frame-src https:; connect-src 'self' https:;">
 
     <link rel="preload" href="channels2.json" as="fetch" crossorigin="anonymous">
     <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
@@ -685,7 +684,7 @@
             </div>
             <span class="placeholder-text">Select a channel to watch</span>
         </div>
-        <video id="video" playsinline controls aria-label="MSTV Live Video"></video>
+        <video id="video" playsinline aria-label="MSTV Live Video" style="display:none"></video>
         <iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-presentation allow-forms allow-popups" allow="autoplay; fullscreen;"></iframe>
     </section>
     <div class="now-playing-bar" role="status">
@@ -764,7 +763,7 @@
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
         if (hlsE) { hlsE.destroy(); hlsE = null; }
-        v.pause(); v.src = ""; v.removeAttribute("src"); v.load();
+        if (v.src) { v.pause(); v.src = ""; v.removeAttribute("src"); v.load(); }
 
         setTimeout(async () => {
             if (ph.style.display !== 'none') ph.style.display = 'none';
@@ -782,11 +781,12 @@
                 if (ch.url.includes('.mpd')) {
                     const p = new shaka.Player(v);
                     p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-                    try { await p.load(ch.url); v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
+                    try { await p.load(ch.url); v.controls = true; v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
                 } else if (window.Hls && Hls.isSupported()) {
                     hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, startFragPrefetch: true, maxBufferLength: 10 });
                     hlsE.loadSource(ch.url); hlsE.attachMedia(v);
                     hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
+                        v.controls = true;
                         v.play().catch(() => { ld.style.display = 'none'; });
                         v.style.display = 'block';
                     });
@@ -902,4 +902,4 @@
     });
 </script>
 </body>
-    </html>
+</html>

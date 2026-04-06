@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+    </style>
+</head>
+<body>
+    <video id="v" playsinline controls autoplay></video>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
+    <script>
+        async function init() {
+            const url = new URLSearchParams(window.location.search).get('url');
+            const v = document.getElementById('v');
+            if (!url) return;
+
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                const p = new shaka.Player(v);
+                p.configure({
+                    streaming: { bufferingGoal: 2, rebufferingGoal: 1 },
+                    abr: { enabled: true, initialBitrate: 100000 } // Force 3G-friendly start
+                });
+                try { await p.load(url); } catch (e) { console.error(e); }
+            } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+                v.src = url; // Native HLS Safari Fallback
+            }
+        }
+        init();
+    </script>
+</body>
+</html>

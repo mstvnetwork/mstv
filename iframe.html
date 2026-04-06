@@ -741,26 +741,28 @@
     async function play(ch, cardEl) {
         if (!ch || !ch.url) return;
         
-        // Handle standard external links
+        // Handle External Links
         if (ch.url.startsWith('http://') && !ch.url.includes(window.location.hostname)) { 
             window.open(ch.url, '_blank', 'noopener,noreferrer'); 
             return; 
         }
 
-        // UI Updates
+        // UI Feedback
         if (activeCard) activeCard.classList.remove('active');
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
+        // Reset Player State
         if (ph.style.display !== 'none') ph.style.display = 'none';
         ld.style.display = 'flex';
         t.innerText = ch.name;
         t.classList.add('has-channel');
         
-        // 3G "Fast-Path" Logic: Send HLS and DASH to our internal sandbox
-        if (ch.url.includes('.m3u8') || ch.url.includes('.mpd')) {
+        // The 3G "Fast-Path" Logic
+        if (ch.url.includes('.m3u8')) {
+            // Use our specialized internal player for HLS
             f.src = "/player.html?url=" + encodeURIComponent(ch.url);
         } else {
-            // Direct load for YouTube/Embeds
+            // Use direct URL for YouTube/Other iframes
             f.src = ch.url;
         }
 
@@ -777,7 +779,7 @@
         if (data.length === 0) {
             const d = document.createElement('div');
             d.className = 'no-results';
-            d.innerHTML = '<strong>No channels found</strong>Try another search term';
+            d.innerHTML = '<strong>No channels found</strong>Try another search';
             fr.appendChild(d);
             l.innerHTML = ''; l.appendChild(fr);
             return;
@@ -792,15 +794,19 @@
             icon.className = 'ch-icon';
             if (ch.logo) {
                 const img = document.createElement('img');
-                img.className = 'ch-logo'; img.src = ch.logo; img.loading = 'lazy';
+                img.className = 'ch-logo';
+                img.src = ch.logo;
+                img.loading = 'lazy';
                 img.onerror = function() { this.remove(); icon.textContent = getInitials(ch.name); };
                 icon.appendChild(img);
             } else { icon.textContent = getInitials(ch.name); }
 
             const name = document.createElement('span');
-            name.className = 'channel-name'; name.textContent = ch.name;
+            name.className = 'channel-name';
+            name.textContent = ch.name;
 
-            b.appendChild(icon); b.appendChild(name);
+            b.appendChild(icon);
+            b.appendChild(name);
             b.onclick = () => play(ch, b);
             b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); }};
             fr.appendChild(b);
@@ -809,19 +815,25 @@
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+        // Set canonical
+        const cl = document.getElementById('canonical-link');
+        if (cl) cl.setAttribute('href', window.location.origin + window.location.pathname);
+
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => {
                 allCh = data;
                 cc.textContent = data.length + ' channels';
                 render(allCh);
-            });
+            })
+            .catch(err => console.error("Data load failed", err));
 
-        // Background analytics (Wait 10s to keep 3G performance high)
+        // Analytics / Counter (Delayed for Performance)
         window.addEventListener('load', () => {
             setTimeout(() => {
                 const s = document.createElement('script');
-                s.async = true; s.src = "https://gc.zgo.at/count.js";
+                s.async = true;
+                s.src = "https://gc.zgo.at/count.js";
                 s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
                 document.head.appendChild(s);
             }, 10000);
@@ -834,4 +846,6 @@
         cc.textContent = filtered.length + ' channels';
         render(filtered);
     };
-      </script>
+</script>
+</body>
+</html>

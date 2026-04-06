@@ -729,8 +729,8 @@
         </div>
     </div>
 </footer>
-    <script>
-    let allCh = [], shakaP = null, scP = null, activeCard = null;
+      <script>
+    let allCh = [], hlsE = null, scP = null, activeCard = null;
     const v = document.getElementById('video'),
           f = document.getElementById('iframePlayer'),
           l = document.getElementById('channelList'),
@@ -739,90 +739,89 @@
           ld = document.getElementById('loader'),
           cc = document.getElementById('channel-count');
 
-    // 1. Optimized Loader (Shaka Only)
+    // 1. Surgical Loader for HLS.js
     function loadS() {
         if (scP) return scP;
         scP = new Promise(res => {
             const s = document.createElement('script');
-            // Point to your local file instead of the CDN
-            s.src = "/shaka.js";
+            // Using the latest stable HLS.js
+            s.src = "https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js";
             s.async = true; 
             s.crossOrigin = "anonymous"; 
-            s.onload = () => { 
-                window.shaka.polyfill.installAll(); 
-                res();
-            };
+            s.onload = res;
             document.head.appendChild(s);
         });
         return scP;
     }
 
+    // 2. The "Pre-Warm" Logic
+    // This starts downloading the FIRST channel's data before the user clicks anything
+    async function preWarm(url) {
+        await loadS();
+        if (!Hls.isSupported()) return;
+        
+        if (hlsE) hlsE.destroy();
+
+        hlsE = new Hls({
+            capLevelToPlayerSize: true,
+            startLevel: 0,             // Always start at lowest quality for 3G
+            startFragPrefetch: true,   // PRELOAD the first segment immediately
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 0        // Save memory on mobile
+        });
+
+        hlsE.loadSource(url);
+        hlsE.attachMedia(v);
+        // Note: We do NOT call v.play() here. We just let it buffer.
+    }
+
     async function play(ch, cardEl) {
         if (!ch || !ch.url) return;
-        if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank', 'noopener,noreferrer'); return; }
+        if (ch.url.startsWith('http://')) { window.open(ch.url, '_blank'); return; }
 
         if (activeCard) activeCard.classList.remove('active');
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
-        // Clean up previous instance
-        if (shakaP) { try { await shakaP.destroy(); } catch(e){} shakaP = null; }
-        v.pause();
-        v.removeAttribute("src"); 
-        v.load();
+        if (ph.style.display !== 'none') ph.style.display = 'none';
+        ld.style.display = 'flex';
+        t.innerText = ch.name;
+        t.classList.add('has-channel');
 
-        setTimeout(async () => {
-            if (ph.style.display !== 'none') ph.style.display = 'none';
-            ld.style.display = 'flex';
-            t.innerText = ch.name;
-            t.classList.add('has-channel');
+        // Handle Iframes
+        if (ch.type === 'iframe' || (!ch.url.includes('.m3u8'))) {
+            if (hlsE) { hlsE.destroy(); hlsE = null; }
             v.style.display = 'none';
+            f.style.display = 'block'; f.src = ch.url;
+            f.onload = () => { ld.style.display = 'none'; };
+        } 
+        // Handle HLS
+        else {
             f.style.display = 'none'; f.src = "";
+            v.style.display = 'block';
+            v.controls = true;
 
-            if (ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'))) {
-                f.style.display = 'block'; f.src = ch.url;
-                f.onload = () => { ld.style.display = 'none'; };
+            await loadS();
+
+            // If this channel was already being pre-warmed, just play it!
+            if (hlsE && hlsE.url === ch.url) {
+                v.play().catch(() => { ld.style.display = 'none'; });
             } else {
-                await loadS();
-                v.style.display = 'block';
-                v.controls = true;
-                
-                shakaP = new shaka.Player(v);
-
-                // 2. High-Performance 3G Configuration
-                shakaP.configure({
-                    streaming: {
-                        bufferingGoal: 4,          // 4s buffer to handle 3G jitter
-                        rebufferingGoal: 2,        // Quick resume
-                        jumpLargeGaps: true,       // Don't stall on missing segments
-                        retryParameters: {
-                            maxAttempts: 4,        // More retries for unstable 3G
-                            baseDelay: 1000,
-                            backoffFactor: 2
-                        }
-                    },
-                    abr: {
-                        enabled: true,
-                        initialBitrate: 50000,     // Force absolute lowest quality first
-                        switchInterval: 1
-                    }
+                // Otherwise, stop the old one and start this new one
+                if (hlsE) hlsE.destroy();
+                hlsE = new Hls({
+                    startLevel: 0,
+                    startFragPrefetch: true,
+                    enableWorker: true,
+                    lowLatencyMode: true
                 });
-
-                // 3. Network Fix for QUIC/HTTP3 Errors
-                shakaP.getNetworkingEngine().registerRequestFilter((type, request) => {
-                    if (type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
-                        request.allowCrossSiteCredentials = false;
-                    }
+                hlsE.loadSource(ch.url);
+                hlsE.attachMedia(v);
+                hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
+                    v.play().catch(() => { ld.style.display = 'none'; });
                 });
-
-                try {
-                    await shakaP.load(ch.url);
-                    v.play().catch(() => { /* Autoplay block handled by loader visibility */ });
-                } catch (e) {
-                    console.error('Shaka Load Error:', e);
-                    ld.style.display = 'none';
-                }
             }
-        }, 10);
+        }
     }
 
     v.addEventListener('playing', () => { ld.style.display = 'none'; });
@@ -831,94 +830,61 @@
 
     function getInitials(name) {
         const words = name.trim().split(/\s+/);
-        if (words.length >= 2) return (words + words).toUpperCase();
-        return name.substring(0, 2).toUpperCase();
+        return words.length >= 2 ? (words + words).toUpperCase() : name.substring(0, 2).toUpperCase();
     }
 
     function render(data) {
         const fr = document.createDocumentFragment();
-        if (data.length === 0) {
-            const d = document.createElement('div');
-            d.className = 'no-results';
-            d.innerHTML = '<strong>No channels found</strong>Try a different search term';
-            fr.appendChild(d);
-            l.innerHTML = ''; l.appendChild(fr);
-            return;
-        }
         data.forEach((ch, i) => {
             const b = document.createElement('div');
             b.className = 'channel-card';
-            b.setAttribute('role', 'listitem');
             b.setAttribute('tabindex', '0');
-            b.setAttribute('aria-label', ch.name);
-            b.style.animationDelay = Math.min(i * 18, 300) + 'ms';
+            b.style.animationDelay = Math.min(i * 15, 300) + 'ms';
 
             const icon = document.createElement('div');
             icon.className = 'ch-icon';
-
             if (ch.logo) {
                 const img = document.createElement('img');
-                img.className = 'ch-logo';
-                img.src = ch.logo;
-                img.alt = ch.name + ' logo';
-                img.width = 52; img.height = 52;
-                img.loading = 'lazy'; img.decoding = 'async';
-                const initials = getInitials(ch.name);
-                img.onerror = function() { this.remove(); icon.textContent = initials; };
+                img.className = 'ch-logo'; img.src = ch.logo;
+                img.loading = 'lazy';
+                img.onerror = function() { this.remove(); icon.textContent = getInitials(ch.name); };
                 icon.appendChild(img);
-            } else {
-                icon.textContent = getInitials(ch.name);
-            }
+            } else { icon.textContent = getInitials(ch.name); }
 
             const name = document.createElement('span');
-            name.className = 'channel-name';
-            name.textContent = ch.name;
+            name.className = 'channel-name'; name.textContent = ch.name;
 
-            b.appendChild(icon);
-            b.appendChild(name);
+            b.appendChild(icon); b.appendChild(name);
             b.onclick = () => play(ch, b);
-            b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); } };
             fr.appendChild(b);
         });
         l.innerHTML = ''; l.appendChild(fr);
-        activeCard = null;
     }
 
     document.addEventListener('DOMContentLoaded', () => {
-        var cl = document.getElementById('canonical-link');
-        if (cl) cl.setAttribute('href', window.location.protocol + '//' + window.location.host + window.location.pathname);
-
         fetch('channels2.json')
             .then(r => r.json())
             .then(data => {
                 allCh = data;
                 cc.textContent = data.length + ' channels';
                 render(allCh);
-            })
-            .catch(() => {});
-
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const inject = () => {
-                    const s = document.createElement('script');
-                    s.async = true;
-                    s.src = "https://gc.zgo.at/count.js";
-                    s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
-                    document.head.appendChild(s);
-                };
-                if ('requestIdleCallback' in window) requestIdleCallback(inject);
-                else inject();
-            }, 15000);
-        });
+                
+                // --- IDLE PRELOAD START ---
+                // We preload the very first channel in your list after 2 seconds of idle time
+                if (allCh.length > 0 && allCh.url.includes('.m3u8')) {
+                    setTimeout(() => {
+                        if (!activeCard) preWarm(allCh.url);
+                    }, 2000); 
+                }
+            });
     });
 
     document.getElementById('searchInput').oninput = (e) => {
         const q = e.target.value.toLowerCase();
         const filtered = allCh.filter(c => c.name.toLowerCase().includes(q));
-        cc.textContent = filtered.length + ' channels';
         render(filtered);
     };
-        </script>
+            </script>                      
 
 
 </body>

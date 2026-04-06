@@ -8,24 +8,47 @@
     </style>
 </head>
 <body>
-    <video id="v" aria-label="Video Player" playsinline controls autoplay></video>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <video id="v" playsinline controls autoplay></video>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <script>
-        const url = new URLSearchParams(window.location.search).get('url');
-        const v = document.getElementById('v');
-        if (url) {
-            if (Hls.isSupported()) {
-                const hls = new Hls({ 
-                    startLevel: 0, // Force lowest quality for 3G speed
-                    capLevelToPlayerSize: true,
-                    startFragPrefetch: true 
+        async function init() {
+            const url = new URLSearchParams(window.location.search).get('url');
+            const v = document.getElementById('v');
+            if (!url) return;
+
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                const p = new shaka.Player(v);
+                
+                p.configure({
+                    streaming: {
+                        bufferingGoal: 2,           // 2 seconds is the "sweet spot" for 3G
+                        rebufferingGoal: 1,
+                        lowLatencyMode: true,       // CRITICAL: Reduces delay for DASH
+                        jumpLargeGaps: true         // Skip gaps instead of spinning
+                    },
+                    manifest: {
+                        retryParameters: {
+                            maxAttempts: 4,         // Be persistent on 3G
+                            baseDelay: 1000
+                        }
+                    },
+                    abr: {
+                        enabled: true,
+                        initialBitrate: 75000       // Start even lower (75kbps) for instant-on
+                    }
                 });
-                hls.loadSource(url);
-                hls.attachMedia(v);
+
+                try { 
+                    await p.load(url); 
+                } catch (e) { 
+                    console.error("Load failed", e); 
+                }
             } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                v.src = url; // Native support for Safari/iOS
+                v.src = url; // Safari native
             }
         }
+        init();
     </script>
 </body>
 </html>

@@ -731,7 +731,7 @@
 </footer>
 
 <script>
-    let allCh = [], hlsE = null, scP = null, activeCard = null;
+    let allCh = [], hlsE = null, shakaP = null, scP = null, activeCard = null;
     const v = document.getElementById('video'),
           f = document.getElementById('iframePlayer'),
           l = document.getElementById('channelList'),
@@ -763,7 +763,9 @@
         if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
         if (hlsE) { hlsE.destroy(); hlsE = null; }
-        v.pause(); v.removeAttribute("src"); v.load();
+        if (shakaP) { try { await shakaP.detach(); } catch(e){} shakaP = null; }
+        v.pause();
+        if (v.src || v.currentSrc) { v.removeAttribute("src"); v.load(); }
 
         setTimeout(async () => {
             if (ph.style.display !== 'none') ph.style.display = 'none';
@@ -779,9 +781,10 @@
             } else {
                 await loadS();
                 if (ch.url.includes('.mpd')) {
-                    const p = new shaka.Player(v);
-                    p.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-                    try { await p.load(ch.url); v.controls = true; v.style.display = 'block'; } catch (e) { ld.style.display = 'none'; }
+                    v.controls = true; v.style.display = 'block';
+                    shakaP = new shaka.Player(v);
+                    shakaP.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
+                    try { await shakaP.load(ch.url); } catch (e) { ld.style.display = 'none'; }
                 } else if (window.Hls && Hls.isSupported()) {
                     hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, startFragPrefetch: true, maxBufferLength: 10 });
                     hlsE.loadSource(ch.url); hlsE.attachMedia(v);
@@ -898,4 +901,4 @@
     // Activate fonts after page load — non-blocking, no inline handlers
 </script>
 </body>
-</html>
+    </html>

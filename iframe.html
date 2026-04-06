@@ -1,7 +1,106 @@
-<iframe 
-  src="/player2.html?url=https://cdn-uw2-prod.tsv2.amagi.tv/linear/amg01412-xiaomiasia-yrfmusic-xiaomi/playlist.m3u8" 
-  width="100%" 
-  height="360" 
-  loading="lazy" 
-  allowfullscreen>
-</iframe>
+<script>
+    let allCh = [], activeCard = null;
+    const f = document.getElementById('iframePlayer'),
+          l = document.getElementById('channelList'),
+          t = document.getElementById('current-title'),
+          ph = document.getElementById('placeholder'),
+          ld = document.getElementById('loader'),
+          cc = document.getElementById('channel-count');
+
+    async function play(ch, cardEl) {
+        if (!ch || !ch.url) return;
+        
+        // Handle standard external links
+        if (ch.url.startsWith('http://') && !ch.url.includes(window.location.hostname)) { 
+            window.open(ch.url, '_blank', 'noopener,noreferrer'); 
+            return; 
+        }
+
+        // UI Updates
+        if (activeCard) activeCard.classList.remove('active');
+        if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
+
+        if (ph.style.display !== 'none') ph.style.display = 'none';
+        ld.style.display = 'flex';
+        t.innerText = ch.name;
+        t.classList.add('has-channel');
+        
+        // 3G "Fast-Path" Logic: Send HLS and DASH to our internal sandbox
+        if (ch.url.includes('.m3u8') || ch.url.includes('.mpd')) {
+            f.src = "/player.html?url=" + encodeURIComponent(ch.url);
+        } else {
+            // Direct load for YouTube/Embeds
+            f.src = ch.url;
+        }
+
+        f.onload = () => { ld.style.display = 'none'; };
+    }
+
+    function getInitials(name) {
+        const words = name.trim().split(/\s+/);
+        return words.length >= 2 ? (words + words).toUpperCase() : name.substring(0, 2).toUpperCase();
+    }
+
+    function render(data) {
+        const fr = document.createDocumentFragment();
+        if (data.length === 0) {
+            const d = document.createElement('div');
+            d.className = 'no-results';
+            d.innerHTML = '<strong>No channels found</strong>Try another search term';
+            fr.appendChild(d);
+            l.innerHTML = ''; l.appendChild(fr);
+            return;
+        }
+        data.forEach((ch, i) => {
+            const b = document.createElement('div');
+            b.className = 'channel-card';
+            b.setAttribute('tabindex', '0');
+            b.style.animationDelay = Math.min(i * 15, 300) + 'ms';
+
+            const icon = document.createElement('div');
+            icon.className = 'ch-icon';
+            if (ch.logo) {
+                const img = document.createElement('img');
+                img.className = 'ch-logo'; img.src = ch.logo; img.loading = 'lazy';
+                img.onerror = function() { this.remove(); icon.textContent = getInitials(ch.name); };
+                icon.appendChild(img);
+            } else { icon.textContent = getInitials(ch.name); }
+
+            const name = document.createElement('span');
+            name.className = 'channel-name'; name.textContent = ch.name;
+
+            b.appendChild(icon); b.appendChild(name);
+            b.onclick = () => play(ch, b);
+            b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); }};
+            fr.appendChild(b);
+        });
+        l.innerHTML = ''; l.appendChild(fr);
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        fetch('channels2.json')
+            .then(r => r.json())
+            .then(data => {
+                allCh = data;
+                cc.textContent = data.length + ' channels';
+                render(allCh);
+            });
+
+        // Background analytics (Wait 10s to keep 3G performance high)
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const s = document.createElement('script');
+                s.async = true; s.src = "https://gc.zgo.at/count.js";
+                s.dataset.goatcounter = "https://mstv.goatcounter.com/count";
+                document.head.appendChild(s);
+            }, 10000);
+        });
+    });
+
+    document.getElementById('searchInput').oninput = (e) => {
+        const q = e.target.value.toLowerCase();
+        const filtered = allCh.filter(c => c.name.toLowerCase().includes(q));
+        cc.textContent = filtered.length + ' channels';
+        render(filtered);
+    };
+      </script>

@@ -13,7 +13,7 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-family: 'Segoe UI', Helvetica, Arial, sans-serif;
     background: radial-gradient(circle at top, #1a1a1a, #000);
     color: #fff;
     min-height: 100vh;
@@ -37,15 +37,15 @@ header h2 { font-size: 1.1rem; color: #aaa; margin-top: 8px; }
     width: 100%;
     max-width: 1100px;
     aspect-ratio: 16 / 9;
-    background-color: #000;
-    /* YOUR PLACEHOLDER IMAGE */
-    background-image: url('https://mstvnetwork.github.io/mstv4/assets/apna1.webp'); 
-    background-size: contain;
-    background-repeat: no-repeat;
-    background-position: center;
+    background-color: #080808 !important;
+    /* PLACEHOLDER IMAGE */
+    background-image: url('https://mstvnetwork.github.io/mstv4/assets/apna1.webp') !important; 
+    background-size: contain !important;
+    background-repeat: no-repeat !important;
+    background-position: center !important;
     border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.8);
     margin: 20px;
     position: relative;
     border: 1px solid #222;
@@ -56,11 +56,11 @@ header h2 { font-size: 1.1rem; color: #aaa; margin-top: 8px; }
     top: 0; left: 0;
     width: 100%; height: 100%;
     border: none;
-    display: none; /* Hidden until video loads */
+    display: none; /* JavaScript will flip this to 'block' when video is found */
     z-index: 1;
 }
 
-/* --- LOCK SCREEN LAYER --- */
+/* --- LOCK SCREEN & NOTIFICATIONS --- */
 #lock-screen {
     position: absolute;
     top: 0; left: 0;
@@ -73,7 +73,7 @@ header h2 { font-size: 1.1rem; color: #aaa; margin-top: 8px; }
 #lock-status {
     position: absolute;
     top: 20px; right: 20px;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.85);
     color: #00ff88;
     padding: 8px 16px;
     border-radius: 30px;
@@ -107,9 +107,6 @@ header h2 { font-size: 1.1rem; color: #aaa; margin-top: 8px; }
     to { transform: translateX(-100%); }
 }
 
-.instructions { text-align: center; color: #666; font-size: 0.9rem; margin: 20px; }
-.instructions span { color: #ff4d4d; font-weight: bold; }
-
 footer { padding: 20px; color: #444; font-size: 0.8rem; text-align: center; margin-top: auto; }
 
 @media (max-width: 768px) {
@@ -125,22 +122,19 @@ footer { padding: 20px; color: #444; font-size: 0.8rem; text-align: center; marg
     <h2>Premium Live Streaming Experience</h2>
 </header>
 
-<div class="player-wrapper">
+<div class="player-wrapper" id="mainWrapper">
     <div id="lock-screen"></div>
     <div id="lock-status">Screen lock is on</div>
     <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
 </div>
 
-<div class="ticker" id="ticker">Loading global schedule...</div>
-
-<div class="instructions">
-    <p><span>Note:</span> Cinema mode will auto-lock the screen after 30 seconds of playback.</p>
-</div>
+<div class="ticker" id="ticker">Connecting to schedule...</div>
 
 <footer id="footer">© 2026 Apna TV. All Rights Reserved.</footer>
 
 <script>
-const EPG_URL = "epg.json"; // Works in your private repo
+// CONFIG
+const EPG_URL = "epg.json"; 
 const ticker = document.getElementById("ticker");
 const videoPlayer = document.getElementById("videoPlayer");
 const lockScreen = document.getElementById("lock-screen");
@@ -148,11 +142,11 @@ const lockStatus = document.getElementById("lock-status");
 
 let lockTimer = null;
 
-// --- LOCK LOGIC ---
+// LOCK LOGIC
 function resetLockTimer() {
     if (lockTimer) clearTimeout(lockTimer);
     lockScreen.style.display = "none";
-    lockStatus.innerText = "Screen lock will engage in 30s";
+    lockStatus.innerText = "Interaction allowed for 30s";
     lockStatus.style.display = "block";
 
     lockTimer = setTimeout(() => {
@@ -162,7 +156,7 @@ function resetLockTimer() {
     }, 30000);
 }
 
-// --- TIME CALCULATIONS (UTC) ---
+// TIME CONVERSION (UTC)
 function getSecondsSinceMidnight(input) {
     const d = new Date(input);
     return isNaN(d.getTime()) ? 0 : (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
@@ -174,12 +168,11 @@ function formatTime(isoStr) {
 
 async function updatePlayerAndTicker() {
     try {
-        // Cache busting: Real-time update check every 15s
-        const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
-        if (!res.ok) throw new Error("Fetch Failed");
+        const res = await fetch(EPG_URL + "?nocache=" + Date.now(), { cache: "no-store" });
+        if (!res.ok) throw new Error("JSON 404");
         
         const data = await res.json();
-        const schedule = data.schedule;
+        const schedule = data.schedule || [];
 
         const nowSec = getSecondsSinceMidnight(new Date());
         let current = null;
@@ -197,40 +190,45 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        // 2. Continuous Loop (If no match, default to start)
+        // 2. Continuous Loop (If no match, default to show 1)
         if (!current && schedule.length > 0) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Render
+        // 3. Execution Logic
         if (current && current.url) {
+            // SHOW PLAYER
             videoPlayer.style.display = "block";
 
             if (videoPlayer.src !== current.url) {
                 videoPlayer.src = current.url;
-                resetLockTimer(); // Reset lock on every rotation
+                resetLockTimer(); // Start 30s lock countdown
             }
 
-            const tickerText = `🔴 Now: ${current.title} (Ends ${formatTime(current.end)}) &nbsp;&nbsp;&nbsp; ➡️ Next: ${next.title}`;
+            // UPDATE TICKER
+            const tickerText = `🔴 Now Playing: ${current.title} (Ends ${formatTime(current.end)}) &nbsp;&nbsp;&nbsp; ➡️ Next: ${next.title}`;
             if (ticker.getAttribute('data-last') !== tickerText) {
                 ticker.innerHTML = `<span>${tickerText}</span>`;
                 ticker.setAttribute('data-last', tickerText);
             }
         } else {
-            // OFF AIR State
+            // OFF AIR - SHOW PLACEHOLDER IMAGE
             videoPlayer.style.display = "none";
             videoPlayer.src = "";
-            ticker.innerHTML = "<span>OFF AIR: Scheduled programming will resume shortly.</span>";
+            ticker.innerHTML = "<span>OFF AIR: Stay tuned for the next program.</span>";
             lockScreen.style.display = "none";
             lockStatus.style.display = "none";
         }
     } catch (err) {
         console.error("Sync Error:", err);
+        // Show placeholder on error
+        videoPlayer.style.display = "none";
+        ticker.innerHTML = "<span>Syncing schedule...</span>";
     }
 }
 
-// Check for updates every 15 seconds
+// Initial Run and 15s check
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 15000);
 </script>

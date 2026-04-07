@@ -154,80 +154,84 @@ footer {
 
 
 <script>
-// SEO FOOTER
-document.getElementById("footer").innerHTML =
-"Apna TV 24/7 provides free access to live TV serials, movies, and web series. Stream anytime anywhere.";
-    
-
-// SCHEMA
-const schema = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "Apna TV 24/7",
-    "url": window.location.href,
-    "description": "Watch latest TV serials, movies and web series online 24/7."
-};
-const script = document.createElement('script');
-script.type = "application/ld+json";
-script.text = JSON.stringify(schema);
-document.head.appendChild(script);
-
 // --- EPG TICKER LOGIC ---
 const ticker = document.getElementById("ticker");
 
-async function loadEPG() {
-    // 1. URL-based cache busting (GitHub supports this without CORS issues)
-    // Correct Raw URL format
-const freshUrl = "https://raw.githubusercontent.com/mstvnetwork/mstv/main/epg.json" + Date.now();
+// Helper: Converts a Date object or ISO string to total seconds since midnight UTC
+function getSecondsSinceMidnight(input) {
+    const d = new Date(input);
+    return (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
+}
 
+async function loadEPG() {
+    // Cache busting URL
+    const freshUrl = "https://raw.githubusercontent.com/mstvnetwork/mstv/main/epg.json?t=" + Date.now();
 
     try {
-        // 2. Simple fetch: no extra headers or 'cache' options to avoid CORS preflight
         const res = await fetch(freshUrl);
-        
         if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
         
         const data = await res.json();
-        const now = new Date(); 
+        
+        // Current Time in total seconds today
+        const now = new Date();
+        const nowSec = getSecondsSinceMidnight(now);
 
         let current = null;
         let next = null;
 
         for (let i = 0; i < data.schedule.length; i++) {
-            const start = new Date(data.schedule[i].start);
-            const end = new Date(data.schedule[i].end);
+            const startSec = getSecondsSinceMidnight(data.schedule[i].start);
+            const endSec = getSecondsSinceMidnight(data.schedule[i].end);
 
-            if (now >= start && now < end) {
+            // Check if 'now' falls within the time slot (Date ignored)
+            if (nowSec >= startSec && nowSec < endSec) {
                 current = data.schedule[i];
-                next = data.schedule[i + 1] || null;
+                next = data.schedule[i + 1] || data.schedule; // Loop back to first show if at end
                 break;
             }
         }
 
+        // If no match found (e.g., after the last show of the night), default to first show
+        if (!current && data.schedule.length > 0) {
+            current = data.schedule;
+            next = data.schedule;
+        }
+
         if (current) {
-            const formatTime = (t) =>
-                new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const formatTime = (isoStr) => {
+                const d = new Date(isoStr);
+                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            };
 
             const text = `
                 🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
                 &nbsp;&nbsp;&nbsp;➡️ Next: ${next ? next.title : "N/A"} 
-                ${next ? `(Ends ${formatTime(next.end)})` : ""}
+                ${next ? `(Starts ${formatTime(next.start)})` : ""}
             `;
 
             ticker.innerHTML = `<span>${text}</span>`;
+            
+            // IFRAME UPDATE LOGIC:
+            // Assuming your JSON will eventually include a "url" field:
+            /*
+            const player = document.getElementById("videoPlayer");
+            if (player.src !== current.url) {
+                player.src = current.url;
+            }
+            */
         } else {
-            ticker.innerHTML = `<span>No program data available (Time: ${now.toLocaleTimeString()})</span>`;
+            ticker.innerHTML = `<span>No program data available</span>`;
         }
 
     } catch (err) {
         console.error("Ticker Fetch Error:", err);
-        ticker.innerHTML = `<span>EPG loading error (CORS/Network)</span>`;
+        ticker.innerHTML = `<span>EPG loading error</span>`;
     }
 }
 
 // Initial load
 loadEPG();
-
 // Refresh every 30 seconds
 setInterval(loadEPG, 30000);
 </script>

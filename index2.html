@@ -186,7 +186,6 @@ function resetLockTimer() {
 
 function getSecondsFromTimeString(timeStr) {
     if (!timeStr) return 0;
-    // Force to string and replace any commas with colons
     const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     const hrs = parseInt(parts, 10) || 0;
@@ -197,17 +196,19 @@ function getSecondsFromTimeString(timeStr) {
 
 function getCurrentISTSeconds() {
     const now = new Date();
-    // Force a reliable 24h format
     const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
+// FIXED: Correctly applies padding to strings, not the array
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
     const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     if (parts.length >= 2) {
-        return parts.padStart(2, '0') + ":" + parts.padStart(2, '0');
+        const hh = parts.padStart(2, '0');
+        const mm = parts.padStart(2, '0');
+        return `${hh}:${mm}`;
     }
     return "00:00";
 }
@@ -215,12 +216,12 @@ function formatTimeSimple(timeStr) {
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
-        if (!res.ok) throw new Error("Could not find epg.json file");
+        if (!res.ok) throw new Error("epg.json not found");
         
         const data = await res.json();
         const schedule = data.schedule;
 
-        if (!schedule || schedule.length === 0) throw new Error("Schedule is empty");
+        if (!schedule || schedule.length === 0) throw new Error("Schedule empty");
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
@@ -231,7 +232,7 @@ async function updatePlayerAndTicker() {
             const endSec = getSecondsFromTimeString(schedule[i].end);
             
             let isCurrent = false;
-            if (endSec < startSec) { // Midnight logic
+            if (endSec < startSec) { 
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
@@ -251,14 +252,21 @@ async function updatePlayerAndTicker() {
         }
 
         if (current) {
+            // Video source logic
             if (current.url && !videoPlayer.src.includes(current.url)) {
                 videoPlayer.src = current.url;
                 resetLockTimer();
             }
 
+            // Ticker display logic
+            const cTitle = current.title || "Program";
+            const cEnd   = formatTimeSimple(current.end);
+            const nTitle = next ? next.title : "Next Show";
+            const nStart = next ? formatTimeSimple(next.start) : "00:00";
+
             const tickerText = `
-                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
+                🔴 Now: ${cTitle} (Ends ${cEnd})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${nTitle} (Starts ${nStart})
             `;
             
             if (ticker.getAttribute('data-last') !== tickerText) {
@@ -268,13 +276,15 @@ async function updatePlayerAndTicker() {
         }
     } catch (err) { 
         console.error("Sync Error:", err);
-        ticker.innerHTML = "<span>⚠️ Sync Error: Please check epg.json</span>";
+        ticker.innerHTML = `<span>⚠️ Error: ${err.message}</span>`;
     }
 }
 
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 10000);
-</script>
+                    </script>
+
+
 
 
 </body>

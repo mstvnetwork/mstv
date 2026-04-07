@@ -174,31 +174,26 @@ const lockStatus = document.getElementById("lock-status");
 let lockTimer = null;
 
 /**
- * Handles the screen locking logic
+ * Screen Lock Logic
  */
 function resetLockTimer() {
     if (lockTimer) clearTimeout(lockTimer);
-
     lockScreen.style.display = "none";
     lockStatus.innerText = "Apna Tv";
     lockStatus.style.display = "block";
 
-    console.log("New video started. Interaction allowed for 30s.");
-
     lockTimer = setTimeout(() => {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock";
-        
         setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-        console.log("Cinema Mode Active: Interaction Locked");
     }, 30000); 
 }
 
 /**
- * Converts "HH:mm:ss" directly into total seconds (e.g., "01:00:00" -> 3600)
+ * Parses "HH:mm:ss" into total seconds
  */
 function getSecondsFromTimeString(timeStr) {
-    if (!timeStr) return 0;
+    if (!timeStr || typeof timeStr !== 'string') return 0;
     const parts = timeStr.split(':');
     const hrs = parseInt(parts, 10) || 0;
     const mins = parseInt(parts, 10) || 0;
@@ -207,11 +202,10 @@ function getSecondsFromTimeString(timeStr) {
 }
 
 /**
- * Gets current IST seconds from the system clock
+ * Gets current IST seconds (Forcing Asia/Kolkata)
  */
 function getCurrentISTSeconds() {
     const now = new Date();
-    // Forces 24-hour format specifically for the Asia/Kolkata timezone
     const istStr = now.toLocaleTimeString('en-GB', { 
         timeZone: 'Asia/Kolkata', 
         hour12: false 
@@ -220,16 +214,17 @@ function getCurrentISTSeconds() {
 }
 
 /**
- * Formats "HH:mm:ss" to "HH:mm" for the ticker display
+ * Formats "HH:mm:ss" to "HH:mm" for the UI
  */
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "N/A";
     const parts = timeStr.split(':');
+    if (parts.length < 2) return "N/A";
     return `${parts}:${parts}`;
 }
 
 /**
- * Main function to sync the player with the JSON schedule
+ * Main Sync Function
  */
 async function updatePlayerAndTicker() {
     try {
@@ -237,49 +232,53 @@ async function updatePlayerAndTicker() {
         const data = await res.json();
         const schedule = data.schedule;
 
-        if (!schedule || schedule.length === 0) return;
+        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
+            console.error("Schedule is empty or invalid");
+            return;
+        }
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
-        // 1. Loop through schedule to find what is playing "Now"
+        // 1. Find Current Show
         for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsFromTimeString(schedule[i].start);
-            const endSec = getSecondsFromTimeString(schedule[i].end);
+            const item = schedule[i];
+            const startSec = getSecondsFromTimeString(item.start);
+            const endSec = getSecondsFromTimeString(item.end);
             
             let isCurrent = false;
 
-            // Handle shows that cross over Midnight (e.g. 23:00 to 02:00)
+            // Midnight Logic Check
             if (endSec < startSec) {
-                if (nowSec >= startSec || nowSec < endSec) {
-                    isCurrent = true;
-                }
+                if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
-                // Standard daytime logic
-                if (nowSec >= startSec && nowSec < endSec) {
-                    isCurrent = true;
-                }
+                if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
             }
 
             if (isCurrent) {
-                current = schedule[i];
-                // Circular Logic: If last item, "Next" is the first item
-                next = schedule[i + 1] || schedule;
+                current = item;
+                next = schedule[i + 1] || schedule; // Loop back to start if at end
                 break;
             }
         }
 
-        // 2. Infinite Loop Fallback: If current time matches nothing, play the first item
+        // 2. Fallback: If current time is in a gap, show the first item
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
+        // 3. Safety Check to prevent "undefined" in UI
+        const currentTitle = current.title || "No Program";
+        const currentEnd = formatTimeSimple(current.end);
+        const nextTitle = (next && next.title) ? next.title : "Upcoming";
+        const nextStart = (next && next.start) ? formatTimeSimple(next.start) : "--:--";
+
         if (current) {
-            // Update video only if the URL is different to prevent refreshing
+            // Update Video Source (only if different)
             if (current.url && videoPlayer.src !== current.url) {
-                // Support for absolute or relative URLs
+                // Normalize URL to prevent redundant reloads
                 const absoluteUrl = new URL(current.url, window.location.href).href;
                 if (videoPlayer.src !== absoluteUrl) {
                     videoPlayer.src = current.url;
@@ -287,10 +286,10 @@ async function updatePlayerAndTicker() {
                 }
             }
 
-            // 3. Update the Ticker Text
+            // 4. Update Ticker UI
             const tickerText = `
-                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
+                🔴 Now: ${currentTitle} (Ends ${currentEnd})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${nextTitle} (Starts ${nextStart})
             `;
             
             if (ticker.getAttribute('data-last') !== tickerText) {
@@ -303,12 +302,11 @@ async function updatePlayerAndTicker() {
     }
 }
 
-// Initial trigger
+// Initial Run
 updatePlayerAndTicker();
 
 // Check for updates every 15 seconds
 setInterval(updatePlayerAndTicker, 15000);
-</script>
-
+                </script>
 </body>
 </html>

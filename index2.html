@@ -37,20 +37,22 @@ header h2 { font-size: 1.1rem; color: #aaa; margin-top: 8px; }
     width: 100%;
     max-width: 1100px;
     aspect-ratio: 16 / 9;
-    background-color: #080808 !important;
-    /* PLACEHOLDER IMAGE */
-    background-image: url('https://mstvnetwork.github.io/mstv4/assets/apna1.webp') !important; 
-    background-size: contain !important;
-    background-repeat: no-repeat !important;
-    background-position: center !important;
+    margin: 20px auto;
     border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0,0,0,0.8);
-    margin: 20px;
     position: relative;
-    border: 1px solid #222;
+    overflow: hidden;
+    
+    /* THE FIX: Force the background to be visible */
+    background-color: #1a1a1a !important; 
+    background-image: url('https://mstvnetwork.github.io/mstv4/assets/apna1.webp') !important;
+    background-repeat: no-repeat !important;
+    background-position: center center !important;
+    background-size: contain !important; /* Shows full logo without cropping */
+    
+    /* Temporary Test Border - Remove this once you see the image */
+    border: 2px solid red !important; 
+    display: block !important;
 }
-
 #videoPlayer {
     position: absolute;
     top: 0; left: 0;
@@ -133,7 +135,7 @@ footer { padding: 20px; color: #444; font-size: 0.8rem; text-align: center; marg
 <footer id="footer">© 2026 Apna TV. All Rights Reserved.</footer>
 
 <script>
-// CONFIG
+// --- CONFIGURATION ---
 const EPG_URL = "epg.json"; 
 const ticker = document.getElementById("ticker");
 const videoPlayer = document.getElementById("videoPlayer");
@@ -142,9 +144,13 @@ const lockStatus = document.getElementById("lock-status");
 
 let lockTimer = null;
 
-// LOCK LOGIC
+/**
+ * Handles the 30-second interaction window before locking the screen.
+ */
 function resetLockTimer() {
     if (lockTimer) clearTimeout(lockTimer);
+    
+    // Unlock and show countdown message
     lockScreen.style.display = "none";
     lockStatus.innerText = "Interaction allowed for 30s";
     lockStatus.style.display = "block";
@@ -152,11 +158,14 @@ function resetLockTimer() {
     lockTimer = setTimeout(() => {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock is ON";
+        // Hide message after 3 seconds of being locked
         setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-    }, 30000);
+    }, 30000); 
 }
 
-// TIME CONVERSION (UTC)
+/**
+ * UTC Time Helpers
+ */
 function getSecondsSinceMidnight(input) {
     const d = new Date(input);
     return isNaN(d.getTime()) ? 0 : (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
@@ -168,7 +177,8 @@ function formatTime(isoStr) {
 
 async function updatePlayerAndTicker() {
     try {
-        const res = await fetch(EPG_URL + "?nocache=" + Date.now(), { cache: "no-store" });
+        // Cache busting ensures real-time updates from GitHub
+        const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
         if (!res.ok) throw new Error("JSON 404");
         
         const data = await res.json();
@@ -178,7 +188,7 @@ async function updatePlayerAndTicker() {
         let current = null;
         let next = null;
 
-        // 1. Find Current Show
+        // 1. Find the show for the CURRENT UTC TIME
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsSinceMidnight(schedule[i].start);
             const endSec = getSecondsSinceMidnight(schedule[i].end);
@@ -190,48 +200,59 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        // 2. Continuous Loop (If no match, default to show 1)
+        // 2. Continuous Loop Fallback (Optional: remove if you prefer "Off Air" in gaps)
         if (!current && schedule.length > 0) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Execution Logic
+        // 3. THE RENDER ENGINE
         if (current && current.url) {
-            // SHOW PLAYER
+            // SHOW THE VIDEO PLAYER
             videoPlayer.style.display = "block";
+            videoPlayer.style.visibility = "visible";
+            videoPlayer.style.opacity = "1";
 
+            // If the URL changed, update the player and reset the 30s lock
             if (videoPlayer.src !== current.url) {
                 videoPlayer.src = current.url;
-                resetLockTimer(); // Start 30s lock countdown
+                resetLockTimer(); 
             }
 
-            // UPDATE TICKER
-            const tickerText = `🔴 Now Playing: ${current.title} (Ends ${formatTime(current.end)}) &nbsp;&nbsp;&nbsp; ➡️ Next: ${next.title}`;
+            // Update Ticker Text
+            const tickerText = `🔴 Now: ${current.title} (Ends ${formatTime(current.end)}) &nbsp;&nbsp;&nbsp; ➡️ Next: ${next.title}`;
             if (ticker.getAttribute('data-last') !== tickerText) {
                 ticker.innerHTML = `<span>${tickerText}</span>`;
                 ticker.setAttribute('data-last', tickerText);
             }
         } else {
-            // OFF AIR - SHOW PLACEHOLDER IMAGE
+            // --- NO VIDEO: REVEAL PLACEHOLDER IMAGE ---
+            // Completely hide the iframe so the CSS background shows
             videoPlayer.style.display = "none";
-            videoPlayer.src = "";
+            videoPlayer.style.visibility = "hidden";
+            videoPlayer.style.opacity = "0";
+            videoPlayer.src = ""; 
+
             ticker.innerHTML = "<span>OFF AIR: Stay tuned for the next program.</span>";
+            
+            // Kill any active locks while off-air
+            if (lockTimer) clearTimeout(lockTimer);
             lockScreen.style.display = "none";
             lockStatus.style.display = "none";
         }
     } catch (err) {
-        console.error("Sync Error:", err);
-        // Show placeholder on error
+        console.error("Real-time Sync Error:", err);
+        // On error, hide player to show placeholder image
         videoPlayer.style.display = "none";
-        ticker.innerHTML = "<span>Syncing schedule...</span>";
     }
 }
 
-// Initial Run and 15s check
+// Initial Run
 updatePlayerAndTicker();
+
+// Heartbeat check every 15 seconds for rotation and real-time updates
 setInterval(updatePlayerAndTicker, 15000);
-</script>
+                    </script>
 
 </body>
 </html>

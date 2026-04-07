@@ -174,91 +174,139 @@ const lockStatus = document.getElementById("lock-status");
 let lockTimer = null;
 
 /**
- * Resets the lock: unlocks the screen, shows the message, 
- * and sets a 30s timer to lock it again.
+ * Handles the screen locking logic
  */
 function resetLockTimer() {
-    // 1. Clear any existing timer
     if (lockTimer) clearTimeout(lockTimer);
 
-    // 2. Unlock the screen and show status
     lockScreen.style.display = "none";
     lockStatus.innerText = "Apna Tv";
     lockStatus.style.display = "block";
 
     console.log("New video started. Interaction allowed for 30s.");
 
-    // 3. Set timer to lock after 30s
     lockTimer = setTimeout(() => {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock";
         
-        // Hide the message 3 seconds after lock is engaged to keep screen clean
         setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-        
         console.log("Cinema Mode Active: Interaction Locked");
     }, 30000); 
 }
 
-// Time calculation functions
-function getSecondsSinceMidnight(input) {
-    const d = new Date(input);
-    return isNaN(d.getTime()) ? 0 : (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
+/**
+ * Converts "HH:mm:ss" directly into total seconds (e.g., "01:00:00" -> 3600)
+ */
+function getSecondsFromTimeString(timeStr) {
+    if (!timeStr) return 0;
+    const parts = timeStr.split(':');
+    const hrs = parseInt(parts, 10) || 0;
+    const mins = parseInt(parts, 10) || 0;
+    const secs = parseInt(parts, 10) || 0;
+    return (hrs * 3600) + (mins * 60) + secs;
 }
 
-function formatTime(isoStr) {
-    if (!isoStr) return "N/A";
-    return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+/**
+ * Gets current IST seconds from the system clock
+ */
+function getCurrentISTSeconds() {
+    const now = new Date();
+    // Forces 24-hour format specifically for the Asia/Kolkata timezone
+    const istStr = now.toLocaleTimeString('en-GB', { 
+        timeZone: 'Asia/Kolkata', 
+        hour12: false 
+    });
+    return getSecondsFromTimeString(istStr);
 }
 
+/**
+ * Formats "HH:mm:ss" to "HH:mm" for the ticker display
+ */
+function formatTimeSimple(timeStr) {
+    if (!timeStr) return "N/A";
+    const parts = timeStr.split(':');
+    return `${parts}:${parts}`;
+}
+
+/**
+ * Main function to sync the player with the JSON schedule
+ */
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
         const data = await res.json();
         const schedule = data.schedule;
 
-        const nowSec = getSecondsSinceMidnight(new Date());
+        if (!schedule || schedule.length === 0) return;
+
+        const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
+        // 1. Loop through schedule to find what is playing "Now"
         for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsSinceMidnight(schedule[i].start);
-            const endSec = getSecondsSinceMidnight(schedule[i].end);
-            if (nowSec >= startSec && nowSec < endSec) {
+            const startSec = getSecondsFromTimeString(schedule[i].start);
+            const endSec = getSecondsFromTimeString(schedule[i].end);
+            
+            let isCurrent = false;
+
+            // Handle shows that cross over Midnight (e.g. 23:00 to 02:00)
+            if (endSec < startSec) {
+                if (nowSec >= startSec || nowSec < endSec) {
+                    isCurrent = true;
+                }
+            } else {
+                // Standard daytime logic
+                if (nowSec >= startSec && nowSec < endSec) {
+                    isCurrent = true;
+                }
+            }
+
+            if (isCurrent) {
                 current = schedule[i];
+                // Circular Logic: If last item, "Next" is the first item
                 next = schedule[i + 1] || schedule;
                 break;
             }
         }
 
-        if (!current && schedule.length > 0) {
+        // 2. Infinite Loop Fallback: If current time matches nothing, play the first item
+        if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
         if (current) {
-            // Check if the video has changed
+            // Update video only if the URL is different to prevent refreshing
             if (current.url && videoPlayer.src !== current.url) {
-                videoPlayer.src = current.url;
-                
-                // TRIGGER LOCK RESET because a new video started
-                resetLockTimer();
+                // Support for absolute or relative URLs
+                const absoluteUrl = new URL(current.url, window.location.href).href;
+                if (videoPlayer.src !== absoluteUrl) {
+                    videoPlayer.src = current.url;
+                    resetLockTimer();
+                }
             }
 
+            // 3. Update the Ticker Text
             const tickerText = `
-                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
+                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
             `;
+            
             if (ticker.getAttribute('data-last') !== tickerText) {
                 ticker.innerHTML = `<span>${tickerText}</span>`;
                 ticker.setAttribute('data-last', tickerText);
             }
         }
-    } catch (err) { console.error("Sync Error:", err); }
+    } catch (err) { 
+        console.error("Sync Error:", err); 
+    }
 }
 
-// Initial Run
+// Initial trigger
 updatePlayerAndTicker();
+
+// Check for updates every 15 seconds
 setInterval(updatePlayerAndTicker, 15000);
 </script>
 

@@ -163,7 +163,8 @@ footer {
 </div>
 <footer id="footer">© 2026 Apna TV. All Rights Reserved.</footer>
 
-<script>
+    
+    <script>
 const EPG_URL = "epg.json"; 
 
 const ticker = document.getElementById("ticker");
@@ -185,40 +186,31 @@ function resetLockTimer() {
     }, 30000); 
 }
 
-/**
- * Robustly turns "19:30:00" or "19,30,00" into total seconds
- */
 function getSecondsFromTimeString(timeStr) {
     if (!timeStr) return 0;
-    // Replace anything that isn't a digit with a colon to standardize
     const cleanStr = String(timeStr).replace(/[^\d]/g, ':');
     const parts = cleanStr.split(':').filter(p => p !== "");
-    const hrs = parseInt(parts, 10) || 0;
-    const mins = parseInt(parts, 10) || 0;
-    const secs = parseInt(parts, 10) || 0;
+    const hrs  = parseInt(parts[0], 10) || 0;
+    const mins = parseInt(parts[1], 10) || 0;
+    const secs = parseInt(parts[2], 10) || 0;
     return (hrs * 3600) + (mins * 60) + secs;
 }
 
 function getCurrentISTSeconds() {
     const now = new Date();
-    // Use en-GB to get a 24-hour baseline
     const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
-/**
- * FIXED: Returns ONLY the first two parts (HH:mm) and blocks duplication
- */
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
-    // Replace commas/dots with colons and split
     const cleanStr = String(timeStr).replace(/[^\d]/g, ':');
     const parts = cleanStr.split(':').filter(p => p !== "");
     
     if (parts.length >= 2) {
-        const hh = String(parts).padStart(2, '0');
-        const mm = String(parts).padStart(2, '0');
-        return hh + ":" + mm; // Returns only HH:mm
+        const hh = String(parts[0]).padStart(2, '0');
+        const mm = String(parts[1]).padStart(2, '0');
+        return hh + ":" + mm;
     }
     return "00:00";
 }
@@ -250,15 +242,15 @@ async function updatePlayerAndTicker() {
 
             if (isCurrent) {
                 current = schedule[i];
-                next = schedule[i + 1] || schedule;
+                next = schedule[i + 1] || schedule[0];
                 break;
             }
         }
 
         // Loop Fallback
         if (!current) {
-            current = schedule;
-            next = schedule || schedule;
+            current = schedule[0];
+            next = schedule[1] || schedule[0];
         }
 
         if (current) {
@@ -267,7 +259,6 @@ async function updatePlayerAndTicker() {
                 resetLockTimer();
             }
 
-            // Ticker UI update
             const cTitle = current.title || "Program";
             const cEnd   = formatTimeSimple(current.end);
             const nTitle = (next && next.title) ? next.title : "Next Show";
@@ -290,6 +281,6 @@ async function updatePlayerAndTicker() {
 
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 10000);
-</script>
+        </script>
 </body>
 </html>

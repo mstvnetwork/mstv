@@ -747,49 +747,54 @@
 
     async function play(ch, cardEl) {
     if (!ch || !ch.url) return;
-    
-    // 1. External Link Safety: If it's a raw http link that isn't yours, open in new tab
-    // This prevents "Mixed Content" errors on your main UI
-    if (ch.url.startsWith('http://') && !ch.url.includes(window.location.hostname)) { 
-        window.open(ch.url, '_blank', 'noopener,noreferrer'); 
-        return; 
-    }
 
-    // 2. UI Feedback: Highlight the active channel
+    // UI Feedback
     if (activeCard) activeCard.classList.remove('active');
     if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
-
-    // 3. Reset Player State
     if (ph.style.display !== 'none') ph.style.display = 'none';
     ld.style.display = 'flex';
     t.innerText = ch.name;
-    t.classList.add('has-channel');
     
-    // 4. THE POP-OUT FIX: Clear the iframe first. 
-    // This stops the browser from trying to "resume" a broken session in a new window.
+    // 1. CLEAR THE IFRAME & STOP ALL REDIRECTS
     f.src = "about:blank";
-
-    // 5. Short delay (50ms) to allow the mobile browser to "flush" its memory
+    
+    // 2. THE FORCE-EMBED TRICK
+    // Instead of setting a URL, we write the player's HTML directly into the frame.
+    // This bypasses many "Frame-Buster" security checks.
     setTimeout(() => {
-        let finalUrl;
-
-        if (ch.url.includes('.m3u8') || ch.url.includes('.mpd')) {
-            // Send to our internal Turbo Player
-            // encodeURIComponent ensures special characters in your URL don't break the link
-            finalUrl = "/player.html?url=" + encodeURIComponent(ch.url);
-        } else {
-            // Use direct URL for YouTube, DailyMotion, or other embedded players
-            finalUrl = ch.url;
-        }
-
-        // 6. Force the URL into the iframe's specific window context
-        // This is a "stronger" way than f.src to keep the video EMBEDDED
-        f.src = finalUrl;
+        const proxiedUrl = "https://corsproxy.io/?url=" + encodeURIComponent(ch.url);
         
-    }, 50);
+        // We build a mini-player right here
+        const playerHtml = `
+            <html>
+            <head>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"><\/script>
+                <style>body,html{margin:0;padding:0;background:#000;overflow:hidden;}video{width:100%;height:100%;}<\/style>
+            </head>
+            <body>
+                <video id="v" playsinline controls autoplay><\/video>
+                <script>
+                    async function start() {
+                        const v = document.getElementById('v');
+                        shaka.polyfill.installAll();
+                        const p = new shaka.Player(v);
+                        p.configure({ streaming: { bufferingGoal: 2 }, abr: { initialBitrate: 100000 } });
+                        try { await p.load("${proxiedUrl}"); } catch(e) { await p.load("${ch.url}"); }
+                    }
+                    start();
+                <\/script>
+            </body>
+            </html>
+        `;
 
-    // 7. Hide loader once the iframe has finished handshaking
-    f.onload = () => { ld.style.display = 'none'; };
+        // Inject the player directly into the iframe's document
+        const doc = f.contentWindow.document;
+        doc.open();
+        doc.write(playerHtml);
+        doc.close();
+        
+        ld.style.display = 'none';
+    }, 100);
     }
 
     function getInitials(name) {

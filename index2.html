@@ -185,22 +185,38 @@ function resetLockTimer() {
     }, 30000); 
 }
 
+/**
+ * Cleanly extracts seconds from "19:30:00" or even "19,30,00"
+ */
 function getSecondsFromTimeString(timeStr) {
     if (!timeStr || typeof timeStr !== 'string') return 0;
-    const parts = timeStr.split(':');
-    return (parseInt(parts, 10) * 3600) + (parseInt(parts, 10) * 60) + (parseInt(parts, 10) || 0);
+    // Replace commas with colons just in case browser formatting is weird
+    const cleanStr = timeStr.replace(/,/g, ':');
+    const parts = cleanStr.split(':');
+    const hrs = parseInt(parts, 10) || 0;
+    const mins = parseInt(parts, 10) || 0;
+    const secs = parseInt(parts, 10) || 0;
+    return (hrs * 3600) + (mins * 60) + secs;
 }
 
 function getCurrentISTSeconds() {
     const now = new Date();
+    // Using 'en-GB' and 'hour12: false' usually gives "HH:mm:ss"
     const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
+/**
+ * Returns a clean "HH:mm" display for the UI
+ */
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
-    const parts = timeStr.split(':');
-    return parts.length >= 2 ? `${parts}:${parts}` : "00:00";
+    const cleanStr = timeStr.replace(/,/g, ':');
+    const parts = cleanStr.split(':');
+    if (parts.length >= 2) {
+        return `${parts.padStart(2, '0')}:${parts.padStart(2, '0')}`;
+    }
+    return "00:00";
 }
 
 async function updatePlayerAndTicker() {
@@ -208,7 +224,6 @@ async function updatePlayerAndTicker() {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
         const data = await res.json();
         
-        // Ensure schedule exists
         if (!data || !data.schedule || data.schedule.length === 0) return;
         const schedule = data.schedule;
 
@@ -216,14 +231,14 @@ async function updatePlayerAndTicker() {
         let current = null;
         let next = null;
 
-        // 1. Find Match
+        // 1. Find the current matching show
         for (let i = 0; i < schedule.length; i++) {
             const item = schedule[i];
             const startSec = getSecondsFromTimeString(item.start);
             const endSec = getSecondsFromTimeString(item.end);
             
             let isCurrent = false;
-            if (endSec < startSec) { // Midnight
+            if (endSec < startSec) { // Midnight Cross
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
@@ -236,24 +251,24 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        // 2. FORCE FALLBACK (Prevents 'undefined')
+        // 2. Loop Fallback if no time matches
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Final Render with "Short-Circuit" Protection
-        const cTitle = current?.title || "Program";
-        const cEnd   = formatTimeSimple(current?.end);
-        const nTitle = next?.title || "Next Program";
-        const nStart = formatTimeSimple(next?.start);
-
+        // 3. Update the Video Player
         if (current && current.url) {
-            // Only update if URL changed
             if (!videoPlayer.src.includes(current.url)) {
                 videoPlayer.src = current.url;
                 resetLockTimer();
             }
+
+            // 4. Update the Ticker Text with clean variables
+            const cTitle = current.title || "Program";
+            const cEnd   = formatTimeSimple(current.end);
+            const nTitle = next ? (next.title || "Next Show") : "Upcoming";
+            const nStart = next ? formatTimeSimple(next.start) : "--:--";
 
             const tickerText = `
                 🔴 Now: ${cTitle} (Ends ${cEnd})
@@ -265,11 +280,13 @@ async function updatePlayerAndTicker() {
                 ticker.setAttribute('data-last', tickerText);
             }
         }
-    } catch (err) { console.error("Sync Error:", err); }
+    } catch (err) { 
+        console.error("Sync Error:", err); 
+    }
 }
 
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 10000);
-</script>
+    </script>
 </body>
 </html>

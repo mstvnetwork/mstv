@@ -1,37 +1,31 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
         video { width: 100%; height: 100%; object-fit: contain; }
     </style>
 </head>
 <body>
-    <video id="v" playsinline controls autoplay></video>
-<script>
-    const url = new URLSearchParams(window.location.search).get('url');
-    const video = document.getElementById('v');
-    
-    // YOUR NEW WORKER URL
-    const myWorker = "https://zee5.mchoudhry482.workers.dev/?url=";
-
-    if (Hls.isSupported()) {
-        const hls = new Hls({ startLevel: 0 }); // Fast start for 3G
-        
-        // This combines your worker + the channel URL
-        hls.loadSource(myWorker + encodeURIComponent(url));
-        hls.attachMedia(video);
-        
-        hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) hls.startLoad(); 
-        });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Fallback for iPhones/Safari
-        video.src = myWorker + encodeURIComponent(url);
-    }
-</script>
+    <video id="v" aria-label="Video Player" playsinline controls autoplay></video>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <script>
+        const url = new URLSearchParams(window.location.search).get('url');
+        const v = document.getElementById('v');
+        if (url) {
+            if (Hls.isSupported()) {
+                const hls = new Hls({ 
+                    startLevel: 0, // Force lowest quality for 3G speed
+                    capLevelToPlayerSize: true,
+                    startFragPrefetch: true 
+                });
+                hls.loadSource(url);
+                hls.attachMedia(v);
+            } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+                v.src = url; // Native support for Safari/iOS
+            }
+        }
+    </script>
 </body>
 </html>

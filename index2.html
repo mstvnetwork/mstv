@@ -186,6 +186,7 @@ function resetLockTimer() {
 
 function getSecondsFromTimeString(timeStr) {
     if (!timeStr) return 0;
+    // Force to string and replace commas (some browsers use commas for time)
     const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     const hrs = parseInt(parts, 10) || 0;
@@ -196,19 +197,23 @@ function getSecondsFromTimeString(timeStr) {
 
 function getCurrentISTSeconds() {
     const now = new Date();
+    // Forces 24-hour format specifically for India
     const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
-// FIXED: Correctly applies padding to strings, not the array
+/**
+ * FIXED: Explicitly converts to String before padding to prevent TypeError
+ */
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
     const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     if (parts.length >= 2) {
-        const hh = parts.padStart(2, '0');
-        const mm = parts.padStart(2, '0');
-        return `${hh}:${mm}`;
+        // Ensure parts are treated as strings before using padStart
+        const hh = String(parts).padStart(2, '0');
+        const mm = String(parts).padStart(2, '0');
+        return hh + ":" + mm;
     }
     return "00:00";
 }
@@ -216,22 +221,26 @@ function formatTimeSimple(timeStr) {
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
-        if (!res.ok) throw new Error("epg.json not found");
+        if (!res.ok) throw new Error("epg.json file not found");
         
         const data = await res.json();
         const schedule = data.schedule;
 
-        if (!schedule || schedule.length === 0) throw new Error("Schedule empty");
+        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
+            throw new Error("Schedule is empty or invalid");
+        }
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
+        // 1. Find Current Show
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsFromTimeString(schedule[i].start);
             const endSec = getSecondsFromTimeString(schedule[i].end);
             
             let isCurrent = false;
+            // Midnight Logic (e.g., 23:00 to 01:00)
             if (endSec < startSec) { 
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
@@ -245,14 +254,14 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        // Infinite Loop Fallback
+        // 2. Loop Fallback: If no match, start from the beginning
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
         if (current) {
-            // Video source logic
+            // Update Video Player (only if different)
             if (current.url && !videoPlayer.src.includes(current.url)) {
                 videoPlayer.src = current.url;
                 resetLockTimer();
@@ -261,8 +270,8 @@ async function updatePlayerAndTicker() {
             // Ticker display logic
             const cTitle = current.title || "Program";
             const cEnd   = formatTimeSimple(current.end);
-            const nTitle = next ? next.title : "Next Show";
-            const nStart = next ? formatTimeSimple(next.start) : "00:00";
+            const nTitle = (next && next.title) ? next.title : "Next Show";
+            const nStart = (next && next.start) ? formatTimeSimple(next.start) : "00:00";
 
             const tickerText = `
                 🔴 Now: ${cTitle} (Ends ${cEnd})
@@ -276,15 +285,14 @@ async function updatePlayerAndTicker() {
         }
     } catch (err) { 
         console.error("Sync Error:", err);
-        ticker.innerHTML = `<span>⚠️ Error: ${err.message}</span>`;
+        ticker.innerHTML = "<span>⚠️ Sync Error: " + err.message + "</span>";
     }
 }
 
+// Check every 10 seconds
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 10000);
-                    </script>
-
-
+            </script>
 
 
 </body>

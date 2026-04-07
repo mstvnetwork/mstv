@@ -162,7 +162,6 @@ footer {
     <p>If refreshed accidentally, the video may restart from beginning until next program starts.</p>
 </div>
 <footer id="footer">© 2026 Apna TV. All Rights Reserved.</footer>
-
 <script>
 const EPG_URL = "epg.json"; 
 
@@ -185,13 +184,10 @@ function resetLockTimer() {
     }, 30000); 
 }
 
-/**
- * Cleanly extracts seconds from "19:30:00" or even "19,30,00"
- */
 function getSecondsFromTimeString(timeStr) {
-    if (!timeStr || typeof timeStr !== 'string') return 0;
-    // Replace commas with colons just in case browser formatting is weird
-    const cleanStr = timeStr.replace(/,/g, ':');
+    if (!timeStr) return 0;
+    // Force to string and replace any commas with colons
+    const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     const hrs = parseInt(parts, 10) || 0;
     const mins = parseInt(parts, 10) || 0;
@@ -201,20 +197,17 @@ function getSecondsFromTimeString(timeStr) {
 
 function getCurrentISTSeconds() {
     const now = new Date();
-    // Using 'en-GB' and 'hour12: false' usually gives "HH:mm:ss"
+    // Force a reliable 24h format
     const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
-/**
- * Returns a clean "HH:mm" display for the UI
- */
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
-    const cleanStr = timeStr.replace(/,/g, ':');
+    const cleanStr = String(timeStr).replace(/,/g, ':');
     const parts = cleanStr.split(':');
     if (parts.length >= 2) {
-        return `${parts.padStart(2, '0')}:${parts.padStart(2, '0')}`;
+        return parts.padStart(2, '0') + ":" + parts.padStart(2, '0');
     }
     return "00:00";
 }
@@ -222,57 +215,50 @@ function formatTimeSimple(timeStr) {
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
-        const data = await res.json();
+        if (!res.ok) throw new Error("Could not find epg.json file");
         
-        if (!data || !data.schedule || data.schedule.length === 0) return;
+        const data = await res.json();
         const schedule = data.schedule;
+
+        if (!schedule || schedule.length === 0) throw new Error("Schedule is empty");
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
-        // 1. Find the current matching show
         for (let i = 0; i < schedule.length; i++) {
-            const item = schedule[i];
-            const startSec = getSecondsFromTimeString(item.start);
-            const endSec = getSecondsFromTimeString(item.end);
+            const startSec = getSecondsFromTimeString(schedule[i].start);
+            const endSec = getSecondsFromTimeString(schedule[i].end);
             
             let isCurrent = false;
-            if (endSec < startSec) { // Midnight Cross
+            if (endSec < startSec) { // Midnight logic
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
             }
 
             if (isCurrent) {
-                current = item;
+                current = schedule[i];
                 next = schedule[i + 1] || schedule;
                 break;
             }
         }
 
-        // 2. Loop Fallback if no time matches
+        // Infinite Loop Fallback
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Update the Video Player
-        if (current && current.url) {
-            if (!videoPlayer.src.includes(current.url)) {
+        if (current) {
+            if (current.url && !videoPlayer.src.includes(current.url)) {
                 videoPlayer.src = current.url;
                 resetLockTimer();
             }
 
-            // 4. Update the Ticker Text with clean variables
-            const cTitle = current.title || "Program";
-            const cEnd   = formatTimeSimple(current.end);
-            const nTitle = next ? (next.title || "Next Show") : "Upcoming";
-            const nStart = next ? formatTimeSimple(next.start) : "--:--";
-
             const tickerText = `
-                🔴 Now: ${cTitle} (Ends ${cEnd})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${nTitle} (Starts ${nStart})
+                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
             `;
             
             if (ticker.getAttribute('data-last') !== tickerText) {
@@ -281,12 +267,15 @@ async function updatePlayerAndTicker() {
             }
         }
     } catch (err) { 
-        console.error("Sync Error:", err); 
+        console.error("Sync Error:", err);
+        ticker.innerHTML = "<span>⚠️ Sync Error: Please check epg.json</span>";
     }
 }
 
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 10000);
-    </script>
+</script>
+
+
 </body>
 </html>

@@ -186,7 +186,7 @@ function resetLockTimer() {
 }
 
 function getSecondsFromTimeString(timeStr) {
-    if (!timeStr) return 0;
+    if (!timeStr || typeof timeStr !== 'string') return 0;
     const parts = timeStr.split(':');
     return (parseInt(parts, 10) * 3600) + (parseInt(parts, 10) * 60) + (parseInt(parts, 10) || 0);
 }
@@ -198,61 +198,66 @@ function getCurrentISTSeconds() {
 }
 
 function formatTimeSimple(timeStr) {
-    if (!timeStr) return "--:--";
+    if (!timeStr) return "00:00";
     const parts = timeStr.split(':');
-    return `${parts}:${parts}`;
+    return parts.length >= 2 ? `${parts}:${parts}` : "00:00";
 }
 
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
         const data = await res.json();
+        
+        // Ensure schedule exists
+        if (!data || !data.schedule || data.schedule.length === 0) return;
         const schedule = data.schedule;
-
-        if (!schedule || schedule.length === 0) return;
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
-        // 1. Try to find a match based on current IST time
+        // 1. Find Match
         for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsFromTimeString(schedule[i].start);
-            const endSec = getSecondsFromTimeString(schedule[i].end);
+            const item = schedule[i];
+            const startSec = getSecondsFromTimeString(item.start);
+            const endSec = getSecondsFromTimeString(item.end);
             
             let isCurrent = false;
-            if (endSec < startSec) { // Midnight Cross Logic
+            if (endSec < startSec) { // Midnight
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
             }
 
             if (isCurrent) {
-                current = schedule[i];
+                current = item;
                 next = schedule[i + 1] || schedule;
                 break;
             }
         }
 
-        // 2. INFINITE LOOP FALLBACK
-        // If it's 19:16 and your schedule ended at 19:15, 
-        // this forces it back to the first item (Morning Show).
+        // 2. FORCE FALLBACK (Prevents 'undefined')
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Update Player & UI
-        if (current) {
-            // Only change source if the URL is actually different
-            if (current.url && !videoPlayer.src.includes(current.url)) {
+        // 3. Final Render with "Short-Circuit" Protection
+        const cTitle = current?.title || "Program";
+        const cEnd   = formatTimeSimple(current?.end);
+        const nTitle = next?.title || "Next Program";
+        const nStart = formatTimeSimple(next?.start);
+
+        if (current && current.url) {
+            // Only update if URL changed
+            if (!videoPlayer.src.includes(current.url)) {
                 videoPlayer.src = current.url;
                 resetLockTimer();
             }
 
             const tickerText = `
-                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
+                🔴 Now: ${cTitle} (Ends ${cEnd})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${nTitle} (Starts ${nStart})
             `;
             
             if (ticker.getAttribute('data-last') !== tickerText) {
@@ -264,7 +269,7 @@ async function updatePlayerAndTicker() {
 }
 
 updatePlayerAndTicker();
-setInterval(updatePlayerAndTicker, 10000); // Check every 10 seconds for tighter syncing
-            </script>
+setInterval(updatePlayerAndTicker, 10000);
+</script>
 </body>
 </html>

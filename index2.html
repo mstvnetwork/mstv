@@ -152,95 +152,99 @@ footer {
   <p>&copy; 2026 Apna Tv. All Rights Reserved.</p>
 </footer>
 <script>
-// Base URL for the JSON file
-const BASE_JSON_URL = "epg.json";
+// --- CONFIGURATION ---
+const EPG_URL = "epg.json"; 
+const ticker = document.getElementById("ticker");
+const videoPlayer = document.getElementById("videoPlayer");
 
-
-
-let silentLockTimer;
-const lockOverlay = document.getElementById('silentLockOverlay');
-
-function isStrictChrome() {
-    const ua = navigator.userAgent;
-    const isChrome = (ua.indexOf("Chrome") > -1 || ua.indexOf("CriOS") > -1);
-    const isOther = (ua.indexOf("Edg") > -1 || ua.indexOf("SamsungBrowser") > -1 || ua.indexOf("OPR") > -1);
-    return isChrome && !isOther;
+/**
+ * Normalizes UTC ISO strings to seconds since midnight for easy comparison.
+ */
+function getSecondsSinceMidnight(input) {
+    const d = new Date(input);
+    if (isNaN(d.getTime())) return 0;
+    return (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
 }
 
-async function loadEPG() {
-    // 1. Keep the dynamic URL for cache-busting
-    const freshUrl = BASE_JSON_URL + "?v=" + Date.now();
-    
+/**
+ * Formats time for the display (e.g., 05:30 PM).
+ */
+function formatTime(isoStr) {
+    if (!isoStr) return "N/A";
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function updatePlayerAndTicker() {
     try {
-        // 2. Remove 'headers' and 'cache: no-store' to keep the request "simple"
-        // This prevents the browser from sending a CORS pre-flight OPTIONS request.
-        const res = await fetch(freshUrl);
-        
-        if (!res.ok) throw new Error("Network response was not ok");
+        // --- REAL-TIME CACHE BUSTING ---
+        // Adding a unique timestamp (?v=...) forces the browser to bypass any cache
+        // and fetch the absolute latest version from GitHub.
+        const cacheBuster = "?v=" + new Date().getTime();
+        const res = await fetch(EPG_URL + cacheBuster, {
+            cache: "no-store", // Explicitly tells browser NOT to store this file
+            headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+        });
+
+        if (!res.ok) throw new Error("JSON Fetch Failed");
         
         const data = await res.json();
-        const now = new Date();
-        let currentProgramTitle = null;
+        const schedule = data.schedule;
+        if (!schedule || schedule.length === 0) return;
 
-        // Same logic as before...
-        for (let i = 0; i < data.schedule.length; i++) {
-            const start = new Date(data.schedule[i].start);
-            const end = new Date(data.schedule[i].end);
-            if (now >= start && now < end) {
-                currentProgramTitle = data.schedule[i].title;
+        const now = new Date();
+        const nowSec = getSecondsSinceMidnight(now);
+
+        let current = null;
+        let next = null;
+
+        // 1. FIND CURRENT SHOW
+        for (let i = 0; i < schedule.length; i++) {
+            const startSec = getSecondsSinceMidnight(schedule[i].start);
+            const endSec = getSecondsSinceMidnight(schedule[i].end);
+
+            if (nowSec >= startSec && nowSec < endSec) {
+                current = schedule[i];
+                next = schedule[i + 1] || schedule; 
                 break;
             }
         }
 
-        if(!currentProgramTitle) {
-            rotateLocal();
-        } else {
-            syncVideo(currentProgramTitle);
+        // 2. LOOP LOGIC (If no time match, default to start)
+        if (!current) {
+            current = schedule;
+            next = schedule || schedule;
         }
 
-    } catch(e) {
-        console.error("CORS or Fetch error, rotating locally:", e);
-        rotateLocal();
+        if (current) {
+            // 3. REAL-TIME URL UPDATE
+            // If you update the URL in JSON, this triggers an immediate player change.
+            if (current.url && videoPlayer.src !== current.url) {
+                console.log("Real-time Update: Switching to " + current.title);
+                videoPlayer.src = current.url;
+            }
+
+            // 4. REAL-TIME TICKER UPDATE
+            // If you change the title in JSON, this updates the text for the viewer.
+            const tickerText = `
+                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
+            `;
+            
+            // Only update innerHTML if text changed to keep the scroll smooth
+            if (ticker.getAttribute('data-last-text') !== tickerText) {
+                ticker.innerHTML = `<span>${tickerText}</span>`;
+                ticker.setAttribute('data-last-text', tickerText);
+            }
+        }
+    } catch (err) {
+        console.error("Real-time Sync Error:", err);
     }
 }
 
-
-function rotateLocal() {
-    const player = document.getElementById('videoPlayer');
-    const currentIndex = playlist.findIndex(v => v.url === player.src);
-    const nextIndex = (currentIndex + 1) % playlist.length;
-    syncVideo(playlist[nextIndex].title);
-}
-
-function syncVideo(liveTitle){
-    const player = document.getElementById('videoPlayer');
-    let liveVideo = playlist.find(v => v.title === liveTitle);
-
-    if(liveVideo && player.src !== liveVideo.url){
-        player.src = liveVideo.url;
-
-        // Reset Interaction Lock for 40 seconds
-        clearTimeout(silentLockTimer);
-        lockOverlay.style.pointerEvents = 'none'; 
-
-        silentLockTimer = setTimeout(() => {
-            lockOverlay.style.pointerEvents = 'auto';
-        }, 40000); 
-    }
-}
-
-window.onload = function(){
-    if(isStrictChrome()){
-        document.getElementById('chrome-only-content').style.display='block';
-        document.getElementById('browser-error').style.display='none';
-        loadEPG();
-        // Check for latest updates from JSON every 60 seconds
-        setInterval(loadEPG, 60000); 
-    } else {
-        document.getElementById('browser-error').style.display='block';
-        document.getElementById('chrome-only-content').style.display='none';
-    }
-};
+// Check for JSON updates every 15 seconds
+updatePlayerAndTicker();
+setInterval(updatePlayerAndTicker, 15000);
 </script>
 </body>
 </html>

@@ -69,7 +69,7 @@ iframe {
     border: none;
     display: block;
 }
-    /* --- LOCK SCREEN LAYER --- */
+    /* --- LOCK SCREEN & NOTIFICATION --- */
 #lock-screen {
     position: absolute;
     top: 0;
@@ -77,15 +77,26 @@ iframe {
     width: 100%;
     height: 100%;
     background: transparent;
-    z-index: 10; /* Sits above the iframe */
-    display: none; /* Hidden by default */
-    cursor: default;
+    z-index: 10;
+    display: none; /* Initially hidden */
 }
 
-/* Ensure the player wrapper is the reference for the lock */
-.player-wrapper {
-    position: relative; 
+#lock-status {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #00ff00;
+    padding: 5px 12px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    z-index: 11;
+    display: none;
+    border: 1px solid #00ff00;
+    pointer-events: none;
 }
+
+.player-wrapper { position: relative; }
 
 /* --- TICKER BELOW PLAYER --- */
 .ticker {
@@ -150,7 +161,9 @@ footer {
 </header>
 
 <div class="player-wrapper">
-    <div id="lock-screen"></div> <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
+    <div id="lock-screen"></div>
+    <div id="lock-status">Screen lock is on</div>
+    <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
 </div>
 
 <!-- Ticker directly below player -->
@@ -172,88 +185,98 @@ const EPG_URL = "epg.json";
 const ticker = document.getElementById("ticker");
 const videoPlayer = document.getElementById("videoPlayer");
 const lockScreen = document.getElementById("lock-screen");
+const lockStatus = document.getElementById("lock-status");
 
-// --- LOCK SCREEN LOGIC ---
-// This will enable the transparent overlay 30 seconds after the page loads
-setTimeout(() => {
-    lockScreen.style.display = "block";
-    console.log("Player Interaction Locked (Cinema Mode Active)");
-}, 30000); // 30,000 milliseconds = 30 seconds
+let lockTimer = null;
 
+/**
+ * Resets the lock: unlocks the screen, shows the message, 
+ * and sets a 30s timer to lock it again.
+ */
+function resetLockTimer() {
+    // 1. Clear any existing timer
+    if (lockTimer) clearTimeout(lockTimer);
 
-// --- EPG & ROTATION LOGIC ---
+    // 2. Unlock the screen and show status
+    lockScreen.style.display = "none";
+    lockStatus.innerText = "Screen lock will engage in 30s";
+    lockStatus.style.display = "block";
+
+    console.log("New video started. Interaction allowed for 30s.");
+
+    // 3. Set timer to lock after 30s
+    lockTimer = setTimeout(() => {
+        lockScreen.style.display = "block";
+        lockStatus.innerText = "Screen lock is ON";
+        
+        // Hide the message 3 seconds after lock is engaged to keep screen clean
+        setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
+        
+        console.log("Cinema Mode Active: Interaction Locked");
+    }, 30000); 
+}
+
+// Time calculation functions
 function getSecondsSinceMidnight(input) {
     const d = new Date(input);
-    if (isNaN(d.getTime())) return 0;
-    return (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
+    return isNaN(d.getTime()) ? 0 : (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
 }
 
 function formatTime(isoStr) {
     if (!isoStr) return "N/A";
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return new Date(isoStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 async function updatePlayerAndTicker() {
     try {
-        // Fetch with Cache Busting for Real-Time Updates
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
-        if (!res.ok) throw new Error("JSON Fetch Failed");
-        
         const data = await res.json();
         const schedule = data.schedule;
-        if (!schedule || schedule.length === 0) return;
 
-        const now = new Date();
-        const nowSec = getSecondsSinceMidnight(now);
-
+        const nowSec = getSecondsSinceMidnight(new Date());
         let current = null;
         let next = null;
 
-        // 1. Find Current Show
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsSinceMidnight(schedule[i].start);
             const endSec = getSecondsSinceMidnight(schedule[i].end);
-
             if (nowSec >= startSec && nowSec < endSec) {
                 current = schedule[i];
-                next = schedule[i + 1] || schedule; 
+                next = schedule[i + 1] || schedule;
                 break;
             }
         }
 
-        // 2. Continuous Loop Fallback
-        if (!current) {
+        if (!current && schedule.length > 0) {
             current = schedule;
             next = schedule || schedule;
         }
 
         if (current) {
-            // 3. Auto-Rotate Iframe
+            // Check if the video has changed
             if (current.url && videoPlayer.src !== current.url) {
                 videoPlayer.src = current.url;
+                
+                // TRIGGER LOCK RESET because a new video started
+                resetLockTimer();
             }
 
-            // 4. Update Ticker (Only if text changed to preserve scroll)
             const tickerText = `
                 🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
                 &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
             `;
-            
             if (ticker.getAttribute('data-last') !== tickerText) {
                 ticker.innerHTML = `<span>${tickerText}</span>`;
                 ticker.setAttribute('data-last', tickerText);
             }
         }
-    } catch (err) {
-        console.error("Sync Error:", err);
-    }
+    } catch (err) { console.error("Sync Error:", err); }
 }
 
-// Check every 15 seconds
+// Initial Run
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 15000);
-    </script>
+</script>
 </body>
 </html>
 

@@ -683,9 +683,14 @@
             <span class="placeholder-text">Select a channel to watch</span>
         </div>
         <video id="video" playsinline aria-label="MSTV Live Video" style="display:none"></video>
-        <iframe id="iframePlayer" allow="autoplay; fullscreen" style="background:#000; border:none;"></iframe>
+        <iframe 
+    id="iframePlayer" 
+    src="about:blank" 
+    allow="autoplay; fullscreen; encrypted-media" 
+    allowfullscreen 
+    style="background:#000; border:none; width:100%; height:100%;">
+        </iframe>
     </section>
-        
     <div class="now-playing-bar" role="status">
         <span class="np-label">Info</span>
         <div class="np-divider"></div>
@@ -742,52 +747,27 @@
     async function play(ch, cardEl) {
     if (!ch || !ch.url) return;
 
-    // UI Feedback
+    // UI Updates
     if (activeCard) activeCard.classList.remove('active');
     if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
     if (ph.style.display !== 'none') ph.style.display = 'none';
     ld.style.display = 'flex';
     t.innerText = ch.name;
     
-    // 1. CLEAR THE IFRAME & STOP ALL REDIRECTS
+    // THE ULTIMATE FIX: 
+    // We use an external, specialized HLS/DASH player engine.
+    // This engine handles the security blocks (CORS) and 3G optimization automatically.
+    const encodedUrl = encodeURIComponent(ch.url);
+    const playerEngine = `https://m3u8player.org/embed.html?url=${encodedUrl}`;
+
+    // Reset and load the iframe
     f.src = "about:blank";
     
-    // 2. THE FORCE-EMBED TRICK
-    // Instead of setting a URL, we write the player's HTML directly into the frame.
-    // This bypasses many "Frame-Buster" security checks.
     setTimeout(() => {
-        const proxiedUrl = "https://corsproxy.io/?url=" + encodeURIComponent(ch.url);
+        // We load the specialized engine into your iframe
+        f.src = playerEngine;
         
-        // We build a mini-player right here
-        const playerHtml = `
-            <html>
-            <head>
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"><\/script>
-                <style>body,html{margin:0;padding:0;background:#000;overflow:hidden;}video{width:100%;height:100%;}<\/style>
-            </head>
-            <body>
-                <video id="v" playsinline controls autoplay><\/video>
-                <script>
-                    async function start() {
-                        const v = document.getElementById('v');
-                        shaka.polyfill.installAll();
-                        const p = new shaka.Player(v);
-                        p.configure({ streaming: { bufferingGoal: 2 }, abr: { initialBitrate: 100000 } });
-                        try { await p.load("${proxiedUrl}"); } catch(e) { await p.load("${ch.url}"); }
-                    }
-                    start();
-                <\/script>
-            </body>
-            </html>
-        `;
-
-        // Inject the player directly into the iframe's document
-        const doc = f.contentWindow.document;
-        doc.open();
-        doc.write(playerHtml);
-        doc.close();
-        
-        ld.style.display = 'none';
+        f.onload = () => { ld.style.display = 'none'; };
     }, 100);
     }
 

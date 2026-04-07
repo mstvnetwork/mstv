@@ -173,15 +173,11 @@ const lockStatus = document.getElementById("lock-status");
 
 let lockTimer = null;
 
-/**
- * Screen Lock Logic
- */
 function resetLockTimer() {
     if (lockTimer) clearTimeout(lockTimer);
     lockScreen.style.display = "none";
     lockStatus.innerText = "Apna Tv";
     lockStatus.style.display = "block";
-
     lockTimer = setTimeout(() => {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock";
@@ -189,107 +185,74 @@ function resetLockTimer() {
     }, 30000); 
 }
 
-/**
- * Parses "HH:mm:ss" into total seconds
- */
 function getSecondsFromTimeString(timeStr) {
-    if (!timeStr || typeof timeStr !== 'string') return 0;
+    if (!timeStr) return 0;
     const parts = timeStr.split(':');
-    const hrs = parseInt(parts, 10) || 0;
-    const mins = parseInt(parts, 10) || 0;
-    const secs = parseInt(parts, 10) || 0;
-    return (hrs * 3600) + (mins * 60) + secs;
+    return (parseInt(parts, 10) * 3600) + (parseInt(parts, 10) * 60) + (parseInt(parts, 10) || 0);
 }
 
-/**
- * Gets current IST seconds (Forcing Asia/Kolkata)
- */
 function getCurrentISTSeconds() {
     const now = new Date();
-    const istStr = now.toLocaleTimeString('en-GB', { 
-        timeZone: 'Asia/Kolkata', 
-        hour12: false 
-    });
+    const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
     return getSecondsFromTimeString(istStr);
 }
 
-/**
- * Formats "HH:mm:ss" to "HH:mm" for the UI
- */
 function formatTimeSimple(timeStr) {
-    if (!timeStr) return "N/A";
+    if (!timeStr) return "--:--";
     const parts = timeStr.split(':');
-    if (parts.length < 2) return "N/A";
     return `${parts}:${parts}`;
 }
 
-/**
- * Main Sync Function
- */
 async function updatePlayerAndTicker() {
     try {
         const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
         const data = await res.json();
         const schedule = data.schedule;
 
-        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
-            console.error("Schedule is empty or invalid");
-            return;
-        }
+        if (!schedule || schedule.length === 0) return;
 
         const nowSec = getCurrentISTSeconds(); 
         let current = null;
         let next = null;
 
-        // 1. Find Current Show
+        // 1. Try to find a match based on current IST time
         for (let i = 0; i < schedule.length; i++) {
-            const item = schedule[i];
-            const startSec = getSecondsFromTimeString(item.start);
-            const endSec = getSecondsFromTimeString(item.end);
+            const startSec = getSecondsFromTimeString(schedule[i].start);
+            const endSec = getSecondsFromTimeString(schedule[i].end);
             
             let isCurrent = false;
-
-            // Midnight Logic Check
-            if (endSec < startSec) {
+            if (endSec < startSec) { // Midnight Cross Logic
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
             }
 
             if (isCurrent) {
-                current = item;
-                next = schedule[i + 1] || schedule; // Loop back to start if at end
+                current = schedule[i];
+                next = schedule[i + 1] || schedule;
                 break;
             }
         }
 
-        // 2. Fallback: If current time is in a gap, show the first item
+        // 2. INFINITE LOOP FALLBACK
+        // If it's 19:16 and your schedule ended at 19:15, 
+        // this forces it back to the first item (Morning Show).
         if (!current) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        // 3. Safety Check to prevent "undefined" in UI
-        const currentTitle = current.title || "No Program";
-        const currentEnd = formatTimeSimple(current.end);
-        const nextTitle = (next && next.title) ? next.title : "Upcoming";
-        const nextStart = (next && next.start) ? formatTimeSimple(next.start) : "--:--";
-
+        // 3. Update Player & UI
         if (current) {
-            // Update Video Source (only if different)
-            if (current.url && videoPlayer.src !== current.url) {
-                // Normalize URL to prevent redundant reloads
-                const absoluteUrl = new URL(current.url, window.location.href).href;
-                if (videoPlayer.src !== absoluteUrl) {
-                    videoPlayer.src = current.url;
-                    resetLockTimer();
-                }
+            // Only change source if the URL is actually different
+            if (current.url && !videoPlayer.src.includes(current.url)) {
+                videoPlayer.src = current.url;
+                resetLockTimer();
             }
 
-            // 4. Update Ticker UI
             const tickerText = `
-                🔴 Now: ${currentTitle} (Ends ${currentEnd})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${nextTitle} (Starts ${nextStart})
+                🔴 Now: ${current.title} (Ends ${formatTimeSimple(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTimeSimple(next.start)})
             `;
             
             if (ticker.getAttribute('data-last') !== tickerText) {
@@ -297,16 +260,11 @@ async function updatePlayerAndTicker() {
                 ticker.setAttribute('data-last', tickerText);
             }
         }
-    } catch (err) { 
-        console.error("Sync Error:", err); 
-    }
+    } catch (err) { console.error("Sync Error:", err); }
 }
 
-// Initial Run
 updatePlayerAndTicker();
-
-// Check for updates every 15 seconds
-setInterval(updatePlayerAndTicker, 15000);
-                </script>
+setInterval(updatePlayerAndTicker, 10000); // Check every 10 seconds for tighter syncing
+            </script>
 </body>
 </html>

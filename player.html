@@ -2,30 +2,46 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; overflow: hidden; }
         video { width: 100%; height: 100%; object-fit: contain; }
     </style>
 </head>
 <body>
-    <video id="v" aria-label="Video Player" playsinline controls autoplay></video>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <video id="v" playsinline controls autoplay></video>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
     <script>
-        const url = new URLSearchParams(window.location.search).get('url');
-        const v = document.getElementById('v');
-        if (url) {
-            if (Hls.isSupported()) {
-                const hls = new Hls({ 
-                    startLevel: 0, // Force lowest quality for 3G speed
-                    capLevelToPlayerSize: true,
-                    startFragPrefetch: true 
+        async function init() {
+            const params = new URLSearchParams(window.location.search);
+            const rawUrl = params.get('url');
+            const v = document.getElementById('v');
+            if (!rawUrl) return;
+
+            // SURGICAL FIX: Wrap the URL in a proxy to bypass security blocks
+            // This is what Devin does behind the scenes!
+            const proxiedUrl = "https://corsproxy.io/?url=" + encodeURIComponent(rawUrl);
+
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                const p = new shaka.Player(v);
+                p.configure({
+                    streaming: { bufferingGoal: 2, lowLatencyMode: true },
+                    abr: { enabled: true, initialBitrate: 100000 }
                 });
-                hls.loadSource(url);
-                hls.attachMedia(v);
+
+                try { 
+                    // Try the proxied version first for 100% compatibility
+                    await p.load(proxiedUrl); 
+                } catch (e) { 
+                    // Fallback to direct if the proxy is down
+                    await p.load(rawUrl).catch(err => console.error("Total Failure", err));
+                }
             } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-                v.src = url; // Native support for Safari/iOS
+                v.src = proxiedUrl; // Safari Fallback
             }
         }
+        init();
     </script>
 </body>
 </html>

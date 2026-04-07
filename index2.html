@@ -151,116 +151,99 @@ footer {
     <footer>
   <p>&copy; 2026 Apna Tv. All Rights Reserved.</p>
 </footer>
-
-
 <script>
-// --- CONFIGURATION ---
-// To this (if they are in the same folder):
-const EPG_URL = "epg.json";
-const ticker = document.getElementById("ticker");
-const videoPlayer = document.getElementById("videoPlayer");
+// Base URL for the JSON file
+const BASE_JSON_URL = "epg.json";
 
-// --- SEO & SCHEMA ---
-const schema = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    "name": "Apna TV 24/7",
-    "url": window.location.href,
-    "description": "Watch latest TV serials, movies and web series online 24/7."
-};
-const ldJson = document.createElement('script');
-ldJson.type = "application/ld+json";
-ldJson.text = JSON.stringify(schema);
-document.head.appendChild(ldJson);
 
-document.getElementById("footer").innerHTML = 
-    "Apna TV 24/7 provides free access to live TV serials, movies, and web series. Stream anytime anywhere.";
 
-// --- CORE LOGIC ---
+let silentLockTimer;
+const lockOverlay = document.getElementById('silentLockOverlay');
 
-/**
- * Converts any ISO string or Date object into total seconds since midnight UTC.
- * This allows us to compare "14:00:00" regardless of what day the JSON says.
- */
-function getSecondsSinceMidnight(input) {
-    const d = new Date(input);
-    return (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
+function isStrictChrome() {
+    const ua = navigator.userAgent;
+    const isChrome = (ua.indexOf("Chrome") > -1 || ua.indexOf("CriOS") > -1);
+    const isOther = (ua.indexOf("Edg") > -1 || ua.indexOf("SamsungBrowser") > -1 || ua.indexOf("OPR") > -1);
+    return isChrome && !isOther;
 }
 
-/**
- * Formats ISO strings into a clean 12-hour or 24-hour time string.
- */
-function formatTime(isoStr) {
-    if (!isoStr) return "N/A";
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-async function updatePlayerAndTicker() {
-    // Add timestamp to URL to bypass GitHub/Browser caching
-    const freshUrl = `${EPG_URL}?t=${Date.now()}`;
-
+async function loadEPG() {
+    // 1. Keep the dynamic URL for cache-busting
+    const freshUrl = BASE_JSON_URL + "?v=" + Date.now();
+    
     try {
+        // 2. Remove 'headers' and 'cache: no-store' to keep the request "simple"
+        // This prevents the browser from sending a CORS pre-flight OPTIONS request.
         const res = await fetch(freshUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        if (!res.ok) throw new Error("Network response was not ok");
         
         const data = await res.json();
-        const schedule = data.schedule;
-
-        // Get current UTC time in seconds
         const now = new Date();
-        const nowSec = getSecondsSinceMidnight(now);
+        let currentProgramTitle = null;
 
-        let current = null;
-        let next = null;
-
-        // Find the active program based on time-of-day
-        for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsSinceMidnight(schedule[i].start);
-            const endSec = getSecondsSinceMidnight(schedule[i].end);
-
-            if (nowSec >= startSec && nowSec < endSec) {
-                current = schedule[i];
-                // Loop back to the first item if we are at the end of the list
-                next = schedule[i + 1] || schedule; 
+        // Same logic as before...
+        for (let i = 0; i < data.schedule.length; i++) {
+            const start = new Date(data.schedule[i].start);
+            const end = new Date(data.schedule[i].end);
+            if (now >= start && now < end) {
+                currentProgramTitle = data.schedule[i].title;
                 break;
             }
         }
 
-        // Fallback: If no slot matches (e.g., late night), default to the first show
-        if (!current && schedule.length > 0) {
-            current = schedule;
-            next = schedule || schedule;
-        }
-
-        if (current) {
-            // 1. Update Video Player URL (Only if it's different to prevent restarting)
-            if (current.url && videoPlayer.src !== current.url) {
-                console.log("New Program Detected. Changing Stream to:", current.title);
-                videoPlayer.src = current.url;
-            }
-
-            // 2. Update Ticker Text
-            const tickerText = `
-                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
-            `;
-            ticker.innerHTML = `<span>${tickerText}</span>`;
+        if(!currentProgramTitle) {
+            rotateLocal();
         } else {
-            ticker.innerHTML = `<span>No program data found in JSON.</span>`;
+            syncVideo(currentProgramTitle);
         }
 
-    } catch (err) {
-        console.error("EPG Error:", err);
-        ticker.innerHTML = `<span>Error syncing with schedule. Retrying...</span>`;
+    } catch(e) {
+        console.error("CORS or Fetch error, rotating locally:", e);
+        rotateLocal();
     }
 }
 
-// Initial Run
-updatePlayerAndTicker();
 
-// Check for program changes every 30 seconds
-setInterval(updatePlayerAndTicker, 30000);
-            </script>
+function rotateLocal() {
+    const player = document.getElementById('videoPlayer');
+    const currentIndex = playlist.findIndex(v => v.url === player.src);
+    const nextIndex = (currentIndex + 1) % playlist.length;
+    syncVideo(playlist[nextIndex].title);
+}
+
+function syncVideo(liveTitle){
+    const player = document.getElementById('videoPlayer');
+    let liveVideo = playlist.find(v => v.title === liveTitle);
+
+    if(liveVideo && player.src !== liveVideo.url){
+        player.src = liveVideo.url;
+
+        // Reset Interaction Lock for 40 seconds
+        clearTimeout(silentLockTimer);
+        lockOverlay.style.pointerEvents = 'none'; 
+
+        silentLockTimer = setTimeout(() => {
+            lockOverlay.style.pointerEvents = 'auto';
+        }, 40000); 
+    }
+}
+
+window.onload = function(){
+    if(isStrictChrome()){
+        document.getElementById('chrome-only-content').style.display='block';
+        document.getElementById('browser-error').style.display='none';
+        loadEPG();
+        // Check for latest updates from JSON every 60 seconds
+        setInterval(loadEPG, 60000); 
+    } else {
+        document.getElementById('browser-error').style.display='block';
+        document.getElementById('chrome-only-content').style.display='none';
+    }
+};
+</script>
 </body>
 </html>
+
+
+        

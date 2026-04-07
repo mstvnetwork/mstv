@@ -69,6 +69,30 @@ iframe {
     border: none;
     display: block;
 }
+    /* --- PLAYER PLACEHOLDER --- */
+.player-wrapper {
+    position: relative;
+    background-color: #000;
+    background-image: url('https://mstvnetwork.github.io/mstv4/assets/apna1.webp
+'); /* Replace with your image URL */
+    background-size: cover;
+    background-position: center;
+}
+
+#videoPlayer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: none; /* Hidden by default until a video is ready */
+    z-index: 1;
+}
+
+/* Ensure Lock elements stay on top of the iframe */
+#lock-screen { z-index: 10; }
+#lock-status { z-index: 11; }
     /* --- LOCK SCREEN & NOTIFICATION --- */
 #lock-screen {
     position: absolute;
@@ -189,34 +213,21 @@ const lockStatus = document.getElementById("lock-status");
 
 let lockTimer = null;
 
-/**
- * Resets the lock: unlocks the screen, shows the message, 
- * and sets a 30s timer to lock it again.
- */
+// --- LOCK LOGIC ---
 function resetLockTimer() {
-    // 1. Clear any existing timer
     if (lockTimer) clearTimeout(lockTimer);
-
-    // 2. Unlock the screen and show status
     lockScreen.style.display = "none";
-    lockStatus.innerText = "Apna Tv";
+    lockStatus.innerText = "Interaction allowed for 30s";
     lockStatus.style.display = "block";
 
-    console.log("New video started. Interaction allowed for 30s.");
-
-    // 3. Set timer to lock after 30s
     lockTimer = setTimeout(() => {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock";
-        
-        // Hide the message 3 seconds after lock is engaged to keep screen clean
         setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-        
-        console.log("Cinema Mode Active: Interaction Locked");
     }, 30000); 
 }
 
-// Time calculation functions
+// --- TIME CALCULATIONS ---
 function getSecondsSinceMidnight(input) {
     const d = new Date(input);
     return isNaN(d.getTime()) ? 0 : (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
@@ -247,20 +258,24 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        if (!current && schedule.length > 0) {
+        // Continuous Loop Fallback
+        if (!current && schedule && schedule.length > 0) {
             current = schedule;
             next = schedule || schedule;
         }
 
-        if (current) {
-            // Check if the video has changed
-            if (current.url && videoPlayer.src !== current.url) {
+        // --- RENDER LOGIC ---
+        if (current && current.url) {
+            // Show the iframe if it was hidden
+            videoPlayer.style.display = "block";
+
+            // If the URL has changed, update SRC and reset the lock
+            if (videoPlayer.src !== current.url) {
                 videoPlayer.src = current.url;
-                
-                // TRIGGER LOCK RESET because a new video started
                 resetLockTimer();
             }
 
+            // Update Ticker
             const tickerText = `
                 🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
                 &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
@@ -269,11 +284,21 @@ async function updatePlayerAndTicker() {
                 ticker.innerHTML = `<span>${tickerText}</span>`;
                 ticker.setAttribute('data-last', tickerText);
             }
+        } else {
+            // NO PLAYBACK STATE
+            videoPlayer.style.display = "none";
+            videoPlayer.src = ""; // Clear source
+            ticker.innerHTML = "<span>No program currently scheduled.</span>";
+            lockScreen.style.display = "none"; // Remove lock so user can see placeholder clearly
+            lockStatus.style.display = "none";
         }
-    } catch (err) { console.error("Sync Error:", err); }
+    } catch (err) { 
+        console.error("Sync Error:", err);
+        videoPlayer.style.display = "none"; // Show placeholder on error
+    }
 }
 
-// Initial Run
+// Initial Run and 15s Heartbeat
 updatePlayerAndTicker();
 setInterval(updatePlayerAndTicker, 15000);
 </script>

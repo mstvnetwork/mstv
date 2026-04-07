@@ -745,27 +745,34 @@
           cc = document.getElementById('channel-count');
 
     async function play(ch, cardEl) {
-    if (!ch || !ch.url) return;
-
-    // 1. UI Updates (Highlights the channel you clicked)
-    if (activeCard) activeCard.classList.remove('active');
-    if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
-    
-    // Show the loader and update the title
-    if (ph.style.display !== 'none') ph.style.display = 'none';
-    ld.style.display = 'flex';
-    t.innerText = ch.name;
-
-    // 2. THE FIX: Clear the iframe to prevent "ghost" streams or pop-outs
-    f.src = "about:blank";
-    
-    setTimeout(() => {
-        // 3. HANDOFF: Send the URL to your player.html
-        // player.html will then use your Zee5 worker to unlock it
-        f.src = "/player.html?url=" + encodeURIComponent(ch.url);
+        if (!ch || !ch.url) return;
         
+        // Handle External Links
+        if (ch.url.startsWith('http://') && !ch.url.includes(window.location.hostname)) { 
+            window.open(ch.url, '_blank', 'noopener,noreferrer'); 
+            return; 
+        }
+
+        // UI Feedback
+        if (activeCard) activeCard.classList.remove('active');
+        if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
+
+        // Reset Player State
+        if (ph.style.display !== 'none') ph.style.display = 'none';
+        ld.style.display = 'flex';
+        t.innerText = ch.name;
+        t.classList.add('has-channel');
+        
+        // The 3G "Fast-Path" Logic
+        if (ch.url.includes('.m3u8')) {
+            // Use our specialized internal player for HLS
+            f.src = "/player.html?url=" + encodeURIComponent(ch.url);
+        } else {
+            // Use direct URL for YouTube/Other iframes
+            f.src = ch.url;
+        }
+
         f.onload = () => { ld.style.display = 'none'; };
-    }, 50);
     }
 
     function getInitials(name) {
@@ -846,5 +853,6 @@
         render(filtered);
     };
         </script>
+
 </body>
 </html>

@@ -154,87 +154,112 @@ footer {
 
 
 <script>
-// --- EPG TICKER LOGIC ---
+// --- CONFIGURATION ---
+const EPG_URL = "https://raw.githubusercontent.com/mstvnetwork/mstv/main/epg.json";
 const ticker = document.getElementById("ticker");
+const videoPlayer = document.getElementById("videoPlayer");
 
-// Helper: Converts a Date object or ISO string to total seconds since midnight UTC
+// --- SEO & SCHEMA ---
+const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Apna TV 24/7",
+    "url": window.location.href,
+    "description": "Watch latest TV serials, movies and web series online 24/7."
+};
+const ldJson = document.createElement('script');
+ldJson.type = "application/ld+json";
+ldJson.text = JSON.stringify(schema);
+document.head.appendChild(ldJson);
+
+document.getElementById("footer").innerHTML = 
+    "Apna TV 24/7 provides free access to live TV serials, movies, and web series. Stream anytime anywhere.";
+
+// --- CORE LOGIC ---
+
+/**
+ * Converts any ISO string or Date object into total seconds since midnight UTC.
+ * This allows us to compare "14:00:00" regardless of what day the JSON says.
+ */
 function getSecondsSinceMidnight(input) {
     const d = new Date(input);
     return (d.getUTCHours() * 3600) + (d.getUTCMinutes() * 60) + d.getUTCSeconds();
 }
 
-async function loadEPG() {
-    // Cache busting URL
-    const freshUrl = "https://raw.githubusercontent.com/mstvnetwork/mstv/main/epg.json?t=" + Date.now();
+/**
+ * Formats ISO strings into a clean 12-hour or 24-hour time string.
+ */
+function formatTime(isoStr) {
+    if (!isoStr) return "N/A";
+    const d = new Date(isoStr);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+async function updatePlayerAndTicker() {
+    // Add timestamp to URL to bypass GitHub/Browser caching
+    const freshUrl = `${EPG_URL}?t=${Date.now()}`;
 
     try {
         const res = await fetch(freshUrl);
-        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         
         const data = await res.json();
-        
-        // Current Time in total seconds today
+        const schedule = data.schedule;
+
+        // Get current UTC time in seconds
         const now = new Date();
         const nowSec = getSecondsSinceMidnight(now);
 
         let current = null;
         let next = null;
 
-        for (let i = 0; i < data.schedule.length; i++) {
-            const startSec = getSecondsSinceMidnight(data.schedule[i].start);
-            const endSec = getSecondsSinceMidnight(data.schedule[i].end);
+        // Find the active program based on time-of-day
+        for (let i = 0; i < schedule.length; i++) {
+            const startSec = getSecondsSinceMidnight(schedule[i].start);
+            const endSec = getSecondsSinceMidnight(schedule[i].end);
 
-            // Check if 'now' falls within the time slot (Date ignored)
             if (nowSec >= startSec && nowSec < endSec) {
-                current = data.schedule[i];
-                next = data.schedule[i + 1] || data.schedule; // Loop back to first show if at end
+                current = schedule[i];
+                // Loop back to the first item if we are at the end of the list
+                next = schedule[i + 1] || schedule; 
                 break;
             }
         }
 
-        // If no match found (e.g., after the last show of the night), default to first show
-        if (!current && data.schedule.length > 0) {
-            current = data.schedule;
-            next = data.schedule;
+        // Fallback: If no slot matches (e.g., late night), default to the first show
+        if (!current && schedule.length > 0) {
+            current = schedule;
+            next = schedule || schedule;
         }
 
         if (current) {
-            const formatTime = (isoStr) => {
-                const d = new Date(isoStr);
-                return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            };
-
-            const text = `
-                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${next ? next.title : "N/A"} 
-                ${next ? `(Starts ${formatTime(next.start)})` : ""}
-            `;
-
-            ticker.innerHTML = `<span>${text}</span>`;
-            
-            // IFRAME UPDATE LOGIC:
-            // Assuming your JSON will eventually include a "url" field:
-            /*
-            const player = document.getElementById("videoPlayer");
-            if (player.src !== current.url) {
-                player.src = current.url;
+            // 1. Update Video Player URL (Only if it's different to prevent restarting)
+            if (current.url && videoPlayer.src !== current.url) {
+                console.log("New Program Detected. Changing Stream to:", current.title);
+                videoPlayer.src = current.url;
             }
-            */
+
+            // 2. Update Ticker Text
+            const tickerText = `
+                🔴 Now: ${current.title} (Ends ${formatTime(current.end)})
+                &nbsp;&nbsp;&nbsp;➡️ Next: ${next.title} (Starts ${formatTime(next.start)})
+            `;
+            ticker.innerHTML = `<span>${tickerText}</span>`;
         } else {
-            ticker.innerHTML = `<span>No program data available</span>`;
+            ticker.innerHTML = `<span>No program data found in JSON.</span>`;
         }
 
     } catch (err) {
-        console.error("Ticker Fetch Error:", err);
-        ticker.innerHTML = `<span>EPG loading error</span>`;
+        console.error("EPG Error:", err);
+        ticker.innerHTML = `<span>Error syncing with schedule. Retrying...</span>`;
     }
 }
 
-// Initial load
-loadEPG();
-// Refresh every 30 seconds
-setInterval(loadEPG, 30000);
-</script>
+// Initial Run
+updatePlayerAndTicker();
 
+// Check for program changes every 30 seconds
+setInterval(updatePlayerAndTicker, 30000);
+            </script>
 </body>
 </html>

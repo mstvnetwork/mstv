@@ -21,7 +21,6 @@ body {
     align-items:center;
 }
 
-/* --- TITLE --- */
 header {
     text-align:center;
     margin: 20px 10px 10px;
@@ -40,7 +39,6 @@ header h2 {
     margin-top: 5px;
 }
 
-/* --- PLAYER --- */
 .player-wrapper {
     width: 100%;
     max-width: 1200px;
@@ -52,30 +50,27 @@ header h2 {
     margin: 15px;
     position: relative;
 }
-     
+
 iframe {
     width: 100%;
     height: 100%;
     border: none;
     display: block;
 }
-    /* --- LOCK SCREEN & NOTIFICATION --- */
+
 #lock-screen {
     position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     background: transparent;
     z-index: 10;
-    display: none; /* Initially hidden */
+    display: none;
 }
 
 #lock-status {
     position: absolute;
-    top: 10px;
-    right: 10px;
-    background: rgba(0, 0, 0, 0.7);
+    top: 10px; right: 10px;
+    background: rgba(0,0,0,0.7);
     color: #00ff00;
     padding: 5px 12px;
     border-radius: 4px;
@@ -86,30 +81,119 @@ iframe {
     pointer-events: none;
 }
 
-.player-wrapper { position: relative; }
-
-/* --- TICKER BELOW PLAYER --- */
-.ticker {
+/* --- EPG CARDS --- */
+.epg-section {
     width: 100%;
     max-width: 1200px;
+    padding: 0 15px 10px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.epg-card {
+    flex: 1;
+    min-width: 240px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.3s;
+}
+
+.epg-card.live {
+    border-color: #ff2d55;
+    box-shadow: 0 0 14px rgba(255,45,85,0.2);
+}
+
+.epg-logo {
+    width: 54px;
+    height: 54px;
+    border-radius: 10px;
+    object-fit: cover;
     background: #111;
-    color: yellow;
-    font-size: 0.9rem;
-    padding: 8px 0;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 13px;
+    color: #ff2d55;
+    letter-spacing: 0.5px;
     overflow: hidden;
+}
+
+.epg-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.epg-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.epg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.epg-badge.live {
+    background: rgba(255,45,85,0.15);
+    color: #ff2d55;
+    border: 1px solid rgba(255,45,85,0.3);
+}
+
+.epg-badge.next {
+    background: rgba(255,255,255,0.08);
+    color: #aaa;
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ff2d55;
+    animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.epg-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
     white-space: nowrap;
-    border-top: 1px solid #222;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
 }
 
-.ticker span {
-    display: inline-block;
-    padding-left: 100%;
-    animation: scrollTicker 20s linear infinite;
+.epg-time {
+    font-size: 0.8rem;
+    color: #888;
 }
 
-@keyframes scrollTicker {
-    from { transform: translateX(0); }
-    to { transform: translateX(-100%); }
+.epg-time strong {
+    color: #ddd;
+    font-weight: 600;
 }
 
 /* --- INSTRUCTIONS --- */
@@ -118,7 +202,7 @@ iframe {
     text-align:center;
     font-size: 0.9rem;
     color:#aaa;
-    margin: 10px 15px 20px;
+    margin: 6px 15px 20px;
     line-height:1.5;
 }
 .instructions span {
@@ -126,19 +210,19 @@ iframe {
     font-weight:600;
 }
 
-/* --- FOOTER --- */
 footer {
     width:100%;
     text-align:center;
     padding:15px;
     font-size:0.8rem;
-    color:muddy grey;
+    color:#555;
     border-top:1px solid #222;
 }
 
-/* --- MOBILE --- */
 @media(max-width:600px){
     header h1 { font-size:1.8rem; }
+    .epg-section { gap: 10px; }
+    .epg-card { min-width: 100%; }
 }
 </style>
 </head>
@@ -150,27 +234,51 @@ footer {
 </header>
 
 <div class="player-wrapper" id="mainWrapper">
-   
     <div id="lock-screen"></div>
     <div id="lock-status">Screen lock</div>
     <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
 </div>
 
-<div class="ticker" id="ticker">Connecting to schedule...</div>
+<!-- EPG Cards -->
+<div class="epg-section" id="epgSection">
+    <div class="epg-card live" id="cardNow">
+        <div class="epg-logo" id="logoNow">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge live"><div class="live-dot"></div> Live now</div>
+            <div class="epg-title" id="titleNow">Loading…</div>
+            <div class="epg-time">Until <strong id="timeNow">--:--</strong></div>
+        </div>
+    </div>
+    <div class="epg-card" id="cardNext">
+        <div class="epg-logo" id="logoNext">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge next">Up next</div>
+            <div class="epg-title" id="titleNext">Loading…</div>
+            <div class="epg-time">Starts <strong id="timeNext">--:--</strong></div>
+        </div>
+    </div>
+</div>
+
 <div class="instructions">
     <p><span>Note:</span> Do not refresh the webpage unless video does not play.</p>
     <p>If refreshed accidentally, the video may restart from beginning until next program starts.</p>
 </div>
 <footer id="footer">© 2026 Apna TV. All Rights Reserved.</footer>
 
-    
-    <script>
-const EPG_URL = "epg.json"; 
+<script>
+const EPG_URL = "epg.json";
 
-const ticker = document.getElementById("ticker");
 const videoPlayer = document.getElementById("videoPlayer");
-const lockScreen = document.getElementById("lock-screen");
-const lockStatus = document.getElementById("lock-status");
+const lockScreen  = document.getElementById("lock-screen");
+const lockStatus  = document.getElementById("lock-status");
+
+const titleNow = document.getElementById("titleNow");
+const timeNow  = document.getElementById("timeNow");
+const logoNow  = document.getElementById("logoNow");
+
+const titleNext = document.getElementById("titleNext");
+const timeNext  = document.getElementById("timeNext");
+const logoNext  = document.getElementById("logoNext");
 
 let lockTimer = null;
 
@@ -183,58 +291,55 @@ function resetLockTimer() {
         lockScreen.style.display = "block";
         lockStatus.innerText = "Screen lock";
         setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-    }, 30000); 
+    }, 30000);
 }
 
 function getSecondsFromTimeString(timeStr) {
     if (!timeStr) return 0;
-    const cleanStr = String(timeStr).replace(/[^\d]/g, ':');
-    const parts = cleanStr.split(':').filter(p => p !== "");
-    const hrs  = parseInt(parts[0], 10) || 0;
-    const mins = parseInt(parts[1], 10) || 0;
-    const secs = parseInt(parts[2], 10) || 0;
-    return (hrs * 3600) + (mins * 60) + secs;
+    const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+    return (parseInt(parts[0]||0,10)*3600) + (parseInt(parts[1]||0,10)*60) + (parseInt(parts[2]||0,10));
 }
 
 function getCurrentISTSeconds() {
-    const now = new Date();
-    const istStr = now.toLocaleTimeString('en-GB', { timeZone: 'Asia/Kolkata', hour12: false });
+    const istStr = new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
     return getSecondsFromTimeString(istStr);
 }
 
 function formatTimeSimple(timeStr) {
     if (!timeStr) return "00:00";
-    const cleanStr = String(timeStr).replace(/[^\d]/g, ':');
-    const parts = cleanStr.split(':').filter(p => p !== "");
-    
+    const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
     if (parts.length >= 2) {
-        const hh = String(parts[0]).padStart(2, '0');
-        const mm = String(parts[1]).padStart(2, '0');
-        return hh + ":" + mm;
+        return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
     }
     return "00:00";
 }
 
-async function updatePlayerAndTicker() {
+function setLogo(el, logoSrc, fallbackText) {
+    if (logoSrc) {
+        el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
+    } else {
+        el.textContent = fallbackText || "TV";
+    }
+}
+
+async function updatePlayerAndEPG() {
     try {
-        const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache: "no-store" });
+        const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
         if (!res.ok) throw new Error("epg.json not found");
-        
+
         const data = await res.json();
         const schedule = data.schedule;
-
         if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
 
-        const nowSec = getCurrentISTSeconds(); 
-        let current = null;
-        let next = null;
+        const nowSec = getCurrentISTSeconds();
+        let current = null, next = null;
 
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsFromTimeString(schedule[i].start);
-            const endSec = getSecondsFromTimeString(schedule[i].end);
-            
-            let isCurrent = false;
-            if (endSec < startSec) { 
+            const endSec   = getSecondsFromTimeString(schedule[i].end);
+            let isCurrent  = false;
+
+            if (endSec < startSec) {
                 if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
             } else {
                 if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
@@ -247,7 +352,6 @@ async function updatePlayerAndTicker() {
             }
         }
 
-        // Loop Fallback
         if (!current) {
             current = schedule[0];
             next = schedule[1] || schedule[0];
@@ -259,28 +363,27 @@ async function updatePlayerAndTicker() {
                 resetLockTimer();
             }
 
-            const cTitle = current.title || "Program";
-            const cEnd   = formatTimeSimple(current.end);
-            const nTitle = (next && next.title) ? next.title : "Next Show";
-            const nStart = (next && next.start) ? formatTimeSimple(next.start) : "00:00";
+            // Update NOW card
+            titleNow.textContent = current.title || "Programme";
+            timeNow.textContent  = formatTimeSimple(current.end);
+            setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
 
-            const tickerText = `
-                🔴 Now: ${cTitle} (Ends ${cEnd})
-                &nbsp;&nbsp;&nbsp;➡️ Next: ${nTitle} (Starts ${nStart})
-            `;
-            
-            if (ticker.getAttribute('data-last') !== tickerText) {
-                ticker.innerHTML = `<span>${tickerText}</span>`;
-                ticker.setAttribute('data-last', tickerText);
+            // Update NEXT card
+            if (next) {
+                titleNext.textContent = next.title || "Next Show";
+                timeNext.textContent  = formatTimeSimple(next.start);
+                setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
             }
         }
-    } catch (err) { 
+    } catch (err) {
         console.error("Sync Error:", err);
+        titleNow.textContent  = "Connecting…";
+        titleNext.textContent = "Connecting…";
     }
 }
 
-updatePlayerAndTicker();
-setInterval(updatePlayerAndTicker, 10000);
-        </script>
+updatePlayerAndEPG();
+setInterval(updatePlayerAndEPG, 10000);
+</script>
 </body>
 </html>

@@ -143,53 +143,30 @@ const CHANNELS = [
     { name: "Colors Hd", url: "https://tulnit.com/live/bollywood-colors/" }
 ];
 
-(function () {
-    // Check if browser is Google Chrome
-    function isChrome() {
-        const ua = navigator.userAgent;
-        const vendor = navigator.vendor;
-        const isChromium = ua.includes("Chrome");
-        const isGoogle = vendor === "Google Inc.";
-        const isEdge = ua.includes("Edg");
-        const isOpera = ua.includes("OPR");
-
-        // Returns true ONLY for actual Google Chrome (excludes Edge/Opera)
-        return isChromium && isGoogle && !isEdge && !isOpera;
+function isChrome() {
+    // 1. Check for modern Client Hints API (Only in Chromium)
+    if (navigator.userAgentData) {
+        const brands = navigator.userAgentData.brands;
+        // Check if "Google Chrome" is explicitly in the brand list
+        // and ensure "Microsoft Edge" or "Opera" are NOT there
+        const names = brands.map(b => b.brand);
+        const hasChrome = names.includes("Google Chrome");
+        const isEdge = names.some(name => name.includes("Edge") || name.includes("Edg"));
+        const isOpera = names.some(name => name.includes("Opera") || name.includes("OPR"));
+        
+        return hasChrome && !isEdge && !isOpera;
     }
 
-    document.addEventListener("DOMContentLoaded", function () {
-        const playerWrapper = document.getElementById('playerWrapper');
-        const fallback = document.getElementById('fallback');
+    // 2. Fallback for older Chrome versions or specific environments
+    const ua = navigator.userAgent;
+    const vendor = navigator.vendor;
+    const isGoogle = vendor === "Google Inc.";
+    const hasChromeUA = ua.includes("Chrome");
+    const hasEdgeUA = ua.includes("Edg") || ua.includes("Edge");
+    const hasOperaUA = ua.includes("OPR") || ua.includes("Opera");
 
-        // Logic Switch
-        if (!isChrome()) {
-            playerWrapper.style.display = 'none';
-            fallback.style.display = 'block';
-            return;
-        } else {
-            playerWrapper.style.display = 'block';
-        }
-
-        // --- Stream Logic ---
-        const params = new URLSearchParams(window.location.search);
-        const chIndex = parseInt(params.get('ch'), 10);
-        const channel = CHANNELS[chIndex];
-        const iframe = document.getElementById('captureFrame');
-        const errorScreen = document.getElementById('errorScreen');
-        const wrapper = document.getElementById('playerWrapper');
-        const shield = document.getElementById('lockLayer');
-        const status = document.getElementById('status');
-        const frameMover = document.getElementById('frameMover');
-
-        if (isNaN(chIndex) || !channel) {
-            errorScreen.style.display = 'flex';
-            frameMover.style.display = 'none';
-            return;
-        }
-
-        document.title = channel.name;
-        iframe.src = channel.url;
-
+    return isGoogle && hasChromeUA && !hasEdgeUA && !hasOperaUA;
+}
         function autoCenter() {
             var viewportH = wrapper.offsetHeight;
             var moverH = frameMover.offsetHeight;

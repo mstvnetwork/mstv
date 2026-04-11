@@ -243,23 +243,42 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
 
 (function () {
 
-    function isMobile() {
-        return /iPhone|iPad|iPod|Android/i.test(
-            navigator.userAgent || navigator.vendor || window.opera
-        );
-    }
+    // --- NEW BROWSER DETECTION LOGIC ---
+    function isChrome() {
+        const ua = navigator.userAgent;
+        const vendor = navigator.vendor;
+        
+        // Checks if it's Chrome and NOT Opera or Edge (which also use the Chrome engine)
+        const isChromium = ua.includes("Chrome");
+        const isGoogle = vendor === "Google Inc.";
+        const isEdge = ua.includes("Edg");
+        const isOpera = ua.includes("OPR");
 
-    if (!isMobile()) {
-        document.addEventListener("DOMContentLoaded", function () {
-            document.getElementById('playerWrapper').remove();
-            document.getElementById('adjustBar').remove();
-            document.getElementById('fallback').style.display = 'block';
-        });
-        return;
+        return isChromium && isGoogle && !isEdge && !isOpera;
     }
 
     document.addEventListener("DOMContentLoaded", function () {
+        const playerWrapper = document.getElementById('playerWrapper');
+        const fallback = document.getElementById('fallback');
 
+        // Check if browser is NOT Chrome
+        if (!isChrome()) {
+            playerWrapper.style.display = 'none';
+            fallback.innerHTML = `
+                <div style="padding: 40px; border: 2px solid #00ffa0; border-radius: 15px; background: #111;">
+                    <h2 style="color: #00ffa0;">Browser Not Supported</h2>
+                    <p>To watch this live stream, please use <b>Google Chrome</b>.</p>
+                    <a href="https://www.google.com/chrome/" target="_blank" 
+                       style="display:inline-block; margin-top:15px; padding:10px 20px; background:#00ffa0; color:#000; text-decoration:none; border-radius:5px; font-weight:bold;">
+                       Download Chrome
+                    </a>
+                </div>
+            `;
+            fallback.style.display = 'block';
+            return; // Stop execution here
+        }
+
+        // --- REST OF YOUR ORIGINAL LOGIC FOR CHROME USERS ---
         const params      = new URLSearchParams(window.location.search);
         const chIndex     = parseInt(params.get('ch'), 10);
         const channel     = CHANNELS[chIndex];
@@ -269,131 +288,52 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
         const wrapper     = document.getElementById('playerWrapper');
         const shield      = document.getElementById('lockLayer');
         const status      = document.getElementById('status');
-        const frameMover  = document.getElementById('frameMover');
-        const adjustBar   = document.getElementById('adjustBar');
-        const dragHandle  = document.getElementById('dragHandle');
-        const offsetLabel = document.getElementById('offsetLabel');
-        const adjustHint  = document.getElementById('adjustHint');
 
         if (isNaN(chIndex) || !channel) {
             errorScreen.style.display = 'flex';
             document.getElementById('frameMover').style.display = 'none';
-            adjustHint.style.display = 'none';
             return;
         }
 
         document.title = channel.name;
         iframe.src = channel.url;
 
-        // ── Load saved offset for this browser+channel, or use default ──
-        const storageKey = 'streamOffset_ch' + chIndex;
-        var currentTop = parseInt(localStorage.getItem(storageKey) || DEFAULT_TOP_PX, 10);
-        applyTop(currentTop);
+        var frameMover = document.getElementById('frameMover');
 
-        function applyTop(val) {
-            currentTop = val;
-            frameMover.style.top = val + 'px';
-            offsetLabel.textContent = 'top: ' + val + 'px';
+        function autoCenter() {
+            var viewportH   = wrapper.offsetHeight;
+            var moverH      = frameMover.offsetHeight;
+            var rawOffset   = (moverH - viewportH) / 2;
+            var nudge       = moverH * 0.07;
+            var finalOffset = -(rawOffset + nudge);
+            frameMover.style.top = finalOffset + 'px';
         }
 
-        // ── Adjust mode ──
-        var adjustMode = false;
-        var savedTop   = currentTop; // snapshot when entering adjust mode
-
-        function enterAdjustMode() {
-            if (adjustMode) return;
-            adjustMode = true;
-            shield.classList.remove('active'); // unlock so drag handle is tappable
-            locked = true;                     // prevent click-lock logic interfering
-            dragHandle.classList.add('visible');
-            adjustBar.classList.add('visible');
-            adjustHint.style.display = 'none';
-            savedTop = currentTop;
-        }
-
-        function exitAdjustMode(save) {
-            adjustMode = false;
-            dragHandle.classList.remove('visible');
-            adjustBar.classList.remove('visible');
-            adjustHint.style.display = 'block';
-            if (save) {
-                localStorage.setItem(storageKey, currentTop);
-            } else {
-                applyTop(savedTop); // revert
-            }
-        }
-
-        // Toolbar buttons
-        document.getElementById('btnUp').addEventListener('click', function () {
-            applyTop(currentTop - 10);
-        });
-        document.getElementById('btnDown').addEventListener('click', function () {
-            applyTop(currentTop + 10);
-        });
-        document.getElementById('btnSave').addEventListener('click', function () {
-            exitAdjustMode(true);
-        });
-        document.getElementById('btnCancel').addEventListener('click', function () {
-            exitAdjustMode(false);
+        autoCenter();
+        window.addEventListener('resize', autoCenter);
+        iframe.addEventListener('load', function () {
+            setTimeout(autoCenter, 300);
         });
 
-        // ── Drag handle: touch drag to reposition ──
-        var dragStartY   = 0;
-        var dragStartTop = 0;
-
-        dragHandle.addEventListener('touchstart', function (e) {
-            dragStartY   = e.touches[0].clientY;
-            dragStartTop = currentTop;
-            e.preventDefault();
-        }, { passive: false });
-
-        dragHandle.addEventListener('touchmove', function (e) {
-            var dy = e.touches[0].clientY - dragStartY;
-            applyTop(dragStartTop + dy);
-            e.preventDefault();
-        }, { passive: false });
-
-        // ── Long-press on the player to enter adjust mode ──
-        var longPressTimer = null;
-
-        wrapper.addEventListener('touchstart', function (e) {
-            if (adjustMode) return;
-            longPressTimer = setTimeout(function () {
-                enterAdjustMode();
-            }, 800); // 800ms long press
-        });
-
-        wrapper.addEventListener('touchend', function () {
-            clearTimeout(longPressTimer);
-        });
-
-        wrapper.addEventListener('touchmove', function () {
-            clearTimeout(longPressTimer); // cancel if finger moves
-        });
-
-        // ── Click-to-lock (original behaviour) ──
-        var clickCount = 0;
-        var maxClicks  = 4;
-        var locked     = false;
+        let clickCount = 0;
+        const maxClicks = 4;
+        let locked = false;
 
         function lockPlayer() {
             shield.classList.add('active');
             status.innerText = 'CONTROLS LOCKED';
             locked = true;
-            setTimeout(function () { status.style.opacity = '0'; }, 100000);
         }
 
         wrapper.addEventListener('click', function () {
-            if (locked || adjustMode) return;
+            if (locked) return;
             clickCount++;
-            var remaining = maxClicks - clickCount;
+            const remaining = maxClicks - clickCount;
             if (remaining > 0) {
                 status.innerText = 'Setup Mode: ' + remaining + ' clicks left';
             }
             if (clickCount >= maxClicks) { lockPlayer(); }
         });
-
-        setTimeout(lockPlayer, 100000);
     });
 
 })();

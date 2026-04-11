@@ -859,18 +859,25 @@
             t.classList.add('has-channel');
             v.style.display = 'none';
 
+            // External channels: type === 'external' OR http:// without explicit iframe type
+            // → open in new browser window, restore player to idle state.
+            const isExternal = ch.type === 'external'
+                            || (ch.url.startsWith('http://') && ch.type !== 'iframe');
+
+            if (isExternal) {
+                window.open(ch.url, '_blank', 'noopener,noreferrer');
+                ld.style.display = 'none';
+                ph.style.display = 'flex';
+                t.innerText = 'Select & Play';
+                t.classList.remove('has-channel');
+                if (activeCard) { activeCard.classList.remove('active'); activeCard = null; }
+                return;
+            }
+
             const isIframe = ch.type === 'iframe'
-                          || ch.url.startsWith('http://')
                           || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'));
 
             if (isIframe) {
-                /*
-                 * Load in iframe — no external redirect.
-                 * The sandbox already blocks allow-top-navigation so the frame
-                 * cannot navigate the parent page.
-                 * The shield div sits on top of the iframe after it loads,
-                 * swallowing any stray pointer events.
-                 */
                 f.style.display = 'block';
                 f.src = ch.url;
                 f.onload = () => {

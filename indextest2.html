@@ -216,20 +216,35 @@
             border: none;
         }
 
-        /* ── IFRAME CLICK SHIELD ──
-           Transparent overlay that sits above the iframe to block
-           any navigation / redirect events from within the iframe content.
-           It is removed only momentarily when the user interacts with
-           player controls (fullscreen button, etc.) via pointer-events toggle. */
+        /* ── IFRAME EDGE SHIELDS ──
+           Four thin strips along each edge block banner/ad links that
+           live at the borders of embedded pages. The centre of the frame
+           (where the play button lives) is left fully interactive so
+           viewers can start, pause and control playback normally.
+           The sandbox already removes allow-top-navigation so the iframe
+           cannot redirect the parent page regardless of where the user clicks. */
         #iframeShield {
             position: absolute;
             top: 0; left: 0;
             width: 100%; height: 100%;
             z-index: 5;
-            background: transparent;
             display: none;
-            cursor: default;
+            pointer-events: none; /* pass all clicks through to iframe */
+            background: transparent;
         }
+
+        /* Four separate overlay divs for full edge control */
+        .edge-guard {
+            position: absolute;
+            z-index: 6;
+            background: transparent;
+            pointer-events: all;
+            display: none;
+        }
+        #eg-top    { top: 0;    left: 0; right: 0;  height: 52px; }
+        #eg-bottom { bottom: 0; left: 0; right: 0;  height: 52px; }
+        #eg-left   { top: 52px; left: 0; bottom: 52px; width: 52px; }
+        #eg-right  { top: 52px; right: 0; bottom: 52px; width: 52px; }
 
         #placeholder {
             position: absolute;
@@ -534,27 +549,31 @@
             transition: color 0.18s;
         }
 
-        /* ── SECOND LINE (subtitle) ── */
+        /* ── SECOND LINE (subtitle) — red zoom-pulse ── */
         .channel-sub {
-            font-size: 10.5px;
-            font-weight: 400;
-            color: var(--text3);
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--red);
             text-align: center;
             line-height: 1.25;
-            margin-top: 3px;
-            transition: color 0.18s;
-            letter-spacing: 0.01em;
+            margin-top: 4px;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            display: inline-block;
+            animation: sub-zoom 1.8s ease-in-out infinite;
+            transform-origin: center;
+        }
+
+        @keyframes sub-zoom {
+            0%,100% { transform: scale(1);    opacity: 1; }
+            50%      { transform: scale(1.22); opacity: 0.7; }
         }
 
         .channel-card:hover .channel-name,
         .channel-card.active .channel-name {
             color: var(--text);
         }
-
-        .channel-card:hover .channel-sub,
-        .channel-card.active .channel-sub {
-            color: var(--text2);
-        }
+        /* subtitle stays red on all states — no colour override */
 
         /* ── SEARCH RESULTS STATE ── */
         .no-results {
@@ -703,9 +722,14 @@
             allow="autoplay; fullscreen;"
             style="display:none; border:none;"
         ></iframe>
-        <!-- Transparent shield overlay — sits above the iframe to catch
-             stray pointer events that could trigger navigations.  -->
+        <!-- Transparent shield — pointer-events:none so centre clicks reach iframe -->
         <div id="iframeShield"></div>
+        <!-- Four thin edge guards block banner/ad links at iframe borders
+             while leaving the centre (play button area) fully interactive -->
+        <div class="edge-guard" id="eg-top"></div>
+        <div class="edge-guard" id="eg-bottom"></div>
+        <div class="edge-guard" id="eg-left"></div>
+        <div class="edge-guard" id="eg-right"></div>
     </section>
     <div class="now-playing-bar" role="status">
         <span class="np-label">Info</span>
@@ -801,7 +825,13 @@
         return scP;
     }
 
-    /* ── player ── */
+    /* ── Edge guard helpers ── */
+    const edgeGuards = ['eg-top','eg-bottom','eg-left','eg-right'].map(id => document.getElementById(id));
+
+    function showEdgeGuards(on) {
+        edgeGuards.forEach(el => { if (el) el.style.display = on ? 'block' : 'none'; });
+        if (sh) sh.style.display = 'none'; /* full shield stays off */
+    }
 
     async function play(ch, cardEl) {
         if (!ch || !ch.url) return;
@@ -814,8 +844,9 @@
         v.pause();
         if (v.src || v.currentSrc) { v.removeAttribute('src'); v.load(); }
 
-        // Hide shield while we switch
+        // Hide shield and edge guards while we switch
         sh.style.display = 'none';
+        showEdgeGuards(false);
         f.style.display  = 'none';
         f.src            = '';
 
@@ -844,8 +875,10 @@
                 f.src = ch.url;
                 f.onload = () => {
                     ld.style.display = 'none';
-                    // Activate shield above the iframe to block any click-out attempts
-                    sh.style.display = 'block';
+                    // Show only edge guards — centre of iframe stays clickable
+                    // so viewers can press play / interact with player controls.
+                    // Edge guards block banner/ad link areas at the frame borders.
+                    showEdgeGuards(true);
                 };
             } else {
                 await loadS();

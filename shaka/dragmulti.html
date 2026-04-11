@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Stream</title>
+
+    <script src="https://unpkg.com/x-frame-bypass"></script>
+    <script type="module" src="https://unpkg.com/x-frame-bypass"></script>
+
+    <style>
+        :root { --primary: #00ffA0; }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+
+        .viewport {
+            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9;
+            overflow: hidden; position: relative;
+            border: 4px solid var(--primary); border-radius: 12px;
+            background: #000;
+        }
+
+        #frameMover {
+            position: absolute; width: 100%; height: 270%; left: 0;
+            top: -160px; /* default fallback — overridden by saved value */
+        }
+
+        #captureFrame {
+            width: 100%; height: 100%; border: none;
+        }
+
+        /* ── Drag handle — shown only in adjust mode ── */
+        #dragHandle {
+            display: none;
+            position: absolute;
+            left: 0; right: 0;
+            height: 44px;
+            background: rgba(0,255,160,0.18);
+            border-top: 2px solid #00ffa0;
+            border-bottom: 2px solid #00ffa0;
+            cursor: ns-resize;
+            z-index: 10005;
+            align-items: center;
+            justify-content: center;
+            color: #00ffa0;
+            font-family: sans-serif;
+            font-size: 13px;
+            letter-spacing: 1px;
+            user-select: none;
+            touch-action: none;
+        }
+
+        #dragHandle.visible { display: flex; }
+
+        /* ── Adjust mode toolbar ── */
+        #adjustBar {
+            display: none;
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.88);
+            border-top: 1px solid rgba(0,255,160,0.3);
+            padding: 10px 12px;
+            z-index: 10010;
+            gap: 8px;
+            align-items: center;
+            justify-content: space-between;
+            font-family: sans-serif;
+        }
+
+        #adjustBar.visible { display: flex; }
+
+        #offsetLabel {
+            color: #00ffa0;
+            font-size: 13px;
+            min-width: 80px;
+        }
+
+        .adj-btn {
+            padding: 7px 16px;
+            background: rgba(0,255,160,0.12);
+            color: #00ffa0;
+            border: 1px solid rgba(0,255,160,0.5);
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: sans-serif;
+        }
+
+        .adj-btn.save {
+            background: rgba(0,255,160,0.28);
+            font-weight: bold;
+        }
+
+        /* ── Normal UI ── */
+        #lockLayer {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 9999;
+            background: rgba(0,0,0,0.01);
+            pointer-events: none;
+        }
+
+        #lockLayer.active { pointer-events: all !important; }
+
+        .click-hint {
+            position: absolute; bottom: 60px; right: 15px;
+            color: var(--primary); font-family: sans-serif; font-size: 12px;
+            z-index: 10000; pointer-events: none; opacity: 0.7;
+        }
+
+        #resetBtn {
+            position: fixed; bottom: 12px; right: 12px;
+            padding: 8px 15px;
+            background: rgba(0,255,160,0.15); color: #00ffa0;
+            border: 1px solid rgba(0,255,160,0.6); border-radius: 30px;
+            font-family: sans-serif; font-size: 14px;
+            backdrop-filter: blur(10px); cursor: pointer; z-index: 10002;
+        }
+
+        /* Long-press hint bubble */
+        #adjustHint {
+            position: fixed; bottom: 55px; left: 12px;
+            color: rgba(0,255,160,0.5);
+            font-family: sans-serif; font-size: 11px;
+            z-index: 10001; pointer-events: none;
+        }
+
+        #ticker {
+            position: absolute; top: 0; left: 0;
+            width: 100%; background: transparent;
+            overflow: hidden; white-space: nowrap;
+            z-index: 10000; padding: 11px 0;
+        }
+
+        #ticker span {
+            display: inline-block; padding-left: 100%;
+            animation: scroll 15s linear infinite;
+            color: #ff3b3b; font-family: sans-serif; font-size: 14px;
+        }
+
+        @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        #errorScreen {
+            display: none;
+            position: absolute; inset: 0;
+            background: #000; color: var(--primary);
+            font-family: sans-serif; font-size: 15px;
+            align-items: center; justify-content: center;
+            text-align: center; padding: 20px; z-index: 20000;
+            flex-direction: column; gap: 10px;
+        }
+
+        #fallback {
+            display: none; text-align: center;
+            color: #fff; font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+
+<div class="viewport" id="playerWrapper">
+    <div id="lockLayer"></div>
+
+    <div id="ticker"><span>Press refresh and click play button 3-4 times · अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।</span></div>
+    <div class="click-hint" id="status"></div>
+
+    <button id="resetBtn" onclick="location.reload()">⟳ Refresh</button>
+    <div id="adjustHint">Hold to align</div>
+
+    <div id="errorScreen">
+        ⚠️ Invalid or missing channel.<br>
+        Add <code style="color:#fff">?ch=0</code> for channel 1,<br>
+        <code style="color:#fff">?ch=1</code> for channel 2, etc.
+    </div>
+
+    <!-- Drag handle sits inside viewport, above the iframe -->
+    <div id="dragHandle">⠿ DRAG TO ALIGN ⠿</div>
+
+    <div id="frameMover">
+        <iframe id="captureFrame" is="x-frame-bypass" scrolling="no"></iframe>
+    </div>
+</div>
+
+<!-- Adjust toolbar (outside viewport so it's always reachable) -->
+<div id="adjustBar">
+    <span id="offsetLabel">top: 0px</span>
+    <button class="adj-btn" id="btnUp">▲ Up</button>
+    <button class="adj-btn" id="btnDown">▼ Down</button>
+    <button class="adj-btn save" id="btnSave">✓ Save</button>
+    <button class="adj-btn" id="btnCancel">✕</button>
+</div>
+
+<div id="fallback">
+    <h2>Mobile Device Required</h2>
+    <p>Open on Android or iOS to view the stream.</p>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  CHANNEL LIST
+//  Each channel gets its own embed URL:
+//    stream-player.html?ch=0  →  CHANNELS[0]
+//    stream-player.html?ch=1  →  CHANNELS[1]  … etc.
+//
+//  DEFAULT_TOP_PX — starting crop offset (negative = shift iframe up).
+//  Set this to whatever looks closest on most browsers. Users can then
+//  fine-tune per-browser using the long-press align tool, and it saves.
+// ═══════════════════════════════════════════════════════════════════
+const CHANNELS = [
+
+
+const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
+// ═══════════════════════════════════════════════════════════════════
+
+(function () {
+
+    function isMobile() {
+        return /iPhone|iPad|iPod|Android/i.test(
+            navigator.userAgent || navigator.vendor || window.opera
+        );
+    }
+
+    if (!isMobile()) {
+        document.addEventListener("DOMContentLoaded", function () {
+            document.getElementById('playerWrapper').remove();
+            document.getElementById('adjustBar').remove();
+            document.getElementById('fallback').style.display = 'block';
+        });
+        return;
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+
+        const params      = new URLSearchParams(window.location.search);
+        const chIndex     = parseInt(params.get('ch'), 10);
+        const channel     = CHANNELS[chIndex];
+
+        const iframe      = document.getElementById('captureFrame');
+        const errorScreen = document.getElementById('errorScreen');
+        const wrapper     = document.getElementById('playerWrapper');
+        const shield      = document.getElementById('lockLayer');
+        const status      = document.getElementById('status');
+        const frameMover  = document.getElementById('frameMover');
+        const adjustBar   = document.getElementById('adjustBar');
+        const dragHandle  = document.getElementById('dragHandle');
+        const offsetLabel = document.getElementById('offsetLabel');
+        const adjustHint  = document.getElementById('adjustHint');
+
+        if (isNaN(chIndex) || !channel) {
+            errorScreen.style.display = 'flex';
+            document.getElementById('frameMover').style.display = 'none';
+            adjustHint.style.display = 'none';
+            return;
+        }
+
+        document.title = channel.name;
+        iframe.src = channel.url;
+
+        // ── Load saved offset for this browser+channel, or use default ──
+        const storageKey = 'streamOffset_ch' + chIndex;
+        var currentTop = parseInt(localStorage.getItem(storageKey) || DEFAULT_TOP_PX, 10);
+        applyTop(currentTop);
+
+        function applyTop(val) {
+            currentTop = val;
+            frameMover.style.top = val + 'px';
+            offsetLabel.textContent = 'top: ' + val + 'px';
+        }
+
+        // ── Adjust mode ──
+        var adjustMode = false;
+        var savedTop   = currentTop; // snapshot when entering adjust mode
+
+        function enterAdjustMode() {
+            if (adjustMode) return;
+            adjustMode = true;
+            shield.classList.remove('active'); // unlock so drag handle is tappable
+            locked = true;                     // prevent click-lock logic interfering
+            dragHandle.classList.add('visible');
+            adjustBar.classList.add('visible');
+            adjustHint.style.display = 'none';
+            savedTop = currentTop;
+        }
+
+        function exitAdjustMode(save) {
+            adjustMode = false;
+            dragHandle.classList.remove('visible');
+            adjustBar.classList.remove('visible');
+            adjustHint.style.display = 'block';
+            if (save) {
+                localStorage.setItem(storageKey, currentTop);
+            } else {
+                applyTop(savedTop); // revert
+            }
+        }
+
+        // Toolbar buttons
+        document.getElementById('btnUp').addEventListener('click', function () {
+            applyTop(currentTop - 10);
+        });
+        document.getElementById('btnDown').addEventListener('click', function () {
+            applyTop(currentTop + 10);
+        });
+        document.getElementById('btnSave').addEventListener('click', function () {
+            exitAdjustMode(true);
+        });
+        document.getElementById('btnCancel').addEventListener('click', function () {
+            exitAdjustMode(false);
+        });
+
+        // ── Drag handle: touch drag to reposition ──
+        var dragStartY   = 0;
+        var dragStartTop = 0;
+
+        dragHandle.addEventListener('touchstart', function (e) {
+            dragStartY   = e.touches[0].clientY;
+            dragStartTop = currentTop;
+            e.preventDefault();
+        }, { passive: false });
+
+        dragHandle.addEventListener('touchmove', function (e) {
+            var dy = e.touches[0].clientY - dragStartY;
+            applyTop(dragStartTop + dy);
+            e.preventDefault();
+        }, { passive: false });
+
+        // ── Long-press on the player to enter adjust mode ──
+        var longPressTimer = null;
+
+        wrapper.addEventListener('touchstart', function (e) {
+            if (adjustMode) return;
+            longPressTimer = setTimeout(function () {
+                enterAdjustMode();
+            }, 800); // 800ms long press
+        });
+
+        wrapper.addEventListener('touchend', function () {
+            clearTimeout(longPressTimer);
+        });
+
+        wrapper.addEventListener('touchmove', function () {
+            clearTimeout(longPressTimer); // cancel if finger moves
+        });
+
+        // ── Click-to-lock (original behaviour) ──
+        var clickCount = 0;
+        var maxClicks  = 4;
+        var locked     = false;
+
+        function lockPlayer() {
+            shield.classList.add('active');
+            status.innerText = 'CONTROLS LOCKED';
+            locked = true;
+            setTimeout(function () { status.style.opacity = '0'; }, 100000);
+        }
+
+        wrapper.addEventListener('click', function () {
+            if (locked || adjustMode) return;
+            clickCount++;
+            var remaining = maxClicks - clickCount;
+            if (remaining > 0) {
+                status.innerText = 'Setup Mode: ' + remaining + ' clicks left';
+            }
+            if (clickCount >= maxClicks) { lockPlayer(); }
+        });
+
+        setTimeout(lockPlayer, 100000);
+    });
+
+})();
+</script>
+</body>
+</html>

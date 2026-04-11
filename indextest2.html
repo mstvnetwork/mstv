@@ -216,35 +216,9 @@
             border: none;
         }
 
-        /* ── IFRAME EDGE SHIELDS ──
-           Four thin strips along each edge block banner/ad links that
-           live at the borders of embedded pages. The centre of the frame
-           (where the play button lives) is left fully interactive so
-           viewers can start, pause and control playback normally.
-           The sandbox already removes allow-top-navigation so the iframe
-           cannot redirect the parent page regardless of where the user clicks. */
-        #iframeShield {
-            position: absolute;
-            top: 0; left: 0;
-            width: 100%; height: 100%;
-            z-index: 5;
-            display: none;
-            pointer-events: none; /* pass all clicks through to iframe */
-            background: transparent;
-        }
-
-        /* Four separate overlay divs for full edge control */
-        .edge-guard {
-            position: absolute;
-            z-index: 6;
-            background: transparent;
-            pointer-events: all;
-            display: none;
-        }
-        #eg-top    { top: 0;    left: 0; right: 0;  height: 52px; }
-        #eg-bottom { bottom: 0; left: 0; right: 0;  height: 52px; }
-        #eg-left   { top: 52px; left: 0; bottom: 52px; width: 52px; }
-        #eg-right  { top: 52px; right: 0; bottom: 52px; width: 52px; }
+        /* Iframe redirects are blocked at browser level: allow-top-navigation
+           is omitted from the sandbox attribute so the embedded page cannot
+           navigate the parent. No overlay or shield element is required. */
 
         #placeholder {
             position: absolute;
@@ -715,15 +689,14 @@
           Notably: allow-top-navigation and allow-top-navigation-by-user-activation
           are OMITTED so the iframe CANNOT redirect the top-level page.
         -->
-<iframe id="iframePlayer" title="Stream Content" sandbox="allow-scripts allow-same-origin allow-presentation" allow="autoplay; fullscreen;"></iframe>
-        <!-- Transparent shield — pointer-events:none so centre clicks reach iframe -->
-        <div id="iframeShield"></div>
-        <!-- Four thin edge guards block banner/ad links at iframe borders
-             while leaving the centre (play button area) fully interactive -->
-        <div class="edge-guard" id="eg-top"></div>
-        <div class="edge-guard" id="eg-bottom"></div>
-        <div class="edge-guard" id="eg-left"></div>
-        <div class="edge-guard" id="eg-right"></div>
+        <iframe
+            id="iframePlayer"
+            title="Stream Content"
+            sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
+            allow="autoplay; fullscreen;"
+            style="display:none; border:none;"
+        ></iframe>
+     
     </section>
     <div class="now-playing-bar" role="status">
         <span class="np-label">Info</span>
@@ -774,7 +747,6 @@
     let allCh = [], hlsE = null, shakaP = null, scP = null, activeCard = null;
     const v   = document.getElementById('video'),
           f   = document.getElementById('iframePlayer'),
-          sh  = document.getElementById('iframeShield'),
           l   = document.getElementById('channelList'),
           t   = document.getElementById('current-title'),
           ph  = document.getElementById('placeholder'),
@@ -819,14 +791,6 @@
         return scP;
     }
 
-    /* ── Edge guard helpers ── */
-    const edgeGuards = ['eg-top','eg-bottom','eg-left','eg-right'].map(id => document.getElementById(id));
-
-    function showEdgeGuards(on) {
-        edgeGuards.forEach(el => { if (el) el.style.display = on ? 'block' : 'none'; });
-        if (sh) sh.style.display = 'none'; /* full shield stays off */
-    }
-
     async function play(ch, cardEl) {
         if (!ch || !ch.url) return;
 
@@ -838,11 +802,8 @@
         v.pause();
         if (v.src || v.currentSrc) { v.removeAttribute('src'); v.load(); }
 
-        // Hide shield and edge guards while we switch
-        sh.style.display = 'none';
-        showEdgeGuards(false);
-        f.style.display  = 'none';
-        f.src            = '';
+        f.style.display = 'none';
+        f.src           = '';
 
         setTimeout(async () => {
             if (ph.style.display !== 'none') ph.style.display = 'none';
@@ -874,13 +835,7 @@
             if (isIframe) {
                 f.style.display = 'block';
                 f.src = ch.url;
-                f.onload = () => {
-                    ld.style.display = 'none';
-                    // Show only edge guards — centre of iframe stays clickable
-                    // so viewers can press play / interact with player controls.
-                    // Edge guards block banner/ad link areas at the frame borders.
-                    showEdgeGuards(true);
-                };
+                f.onload = () => { ld.style.display = 'none'; };
             } else {
                 await loadS();
                 if (ch.url.includes('.mpd')) {
@@ -1030,4 +985,4 @@
     };
 </script>
 </body>
-</html>
+    </html>

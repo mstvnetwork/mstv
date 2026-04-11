@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,14 +16,16 @@
             background: #000;
             display: flex; align-items: center; justify-content: center;
             overflow: hidden;
+            font-family: sans-serif;
         }
 
+        /* The player is HIDDEN by default */
         .viewport {
             width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9;
             overflow: hidden; position: relative;
             border: 4px solid var(--primary); border-radius: 12px;
             background: #000;
-            display: none; /* Hidden by default, shown via JS if Chrome */
+            display: none; 
         }
 
         #frameMover {
@@ -50,7 +52,7 @@
 
         .click-hint {
             position: absolute; bottom: 60px; right: 15px;
-            color: var(--primary); font-family: sans-serif; font-size: 12px;
+            color: var(--primary); font-size: 12px;
             z-index: 10000; pointer-events: none; opacity: 0.7;
         }
 
@@ -59,8 +61,7 @@
             padding: 8px 15px;
             background: rgba(0,255,160,0.15); color: #00ffa0;
             border: 1px solid rgba(0,255,160,0.6); border-radius: 30px;
-            font-family: sans-serif; font-size: 14px;
-            backdrop-filter: blur(10px); cursor: pointer; z-index: 10002;
+            font-size: 14px; backdrop-filter: blur(10px); cursor: pointer; z-index: 10002;
         }
 
         #ticker {
@@ -73,7 +74,7 @@
         #ticker span {
             display: inline-block; padding-left: 100%;
             animation: scroll 15s linear infinite;
-            color: #ff3b3b; font-family: sans-serif; font-size: 14px;
+            color: #ff3b3b; font-size: 14px;
         }
 
         @keyframes scroll {
@@ -81,32 +82,22 @@
             100% { transform: translateX(-100%); }
         }
 
-        #errorScreen {
-            display: none;
-            position: absolute; inset: 0;
-            background: #000; color: var(--primary);
-            font-family: sans-serif; font-size: 15px;
-            align-items: center; justify-content: center;
-            text-align: center; padding: 20px; z-index: 20000;
-            flex-direction: column; gap: 10px;
-        }
-
         #fallback {
-            display: none; 
+            display: none; /* Shown only if NOT Chrome */
             text-align: center;
-            color: #fff; 
-            font-family: sans-serif;
-            padding: 20px;
+            color: #fff;
+            padding: 30px;
+            max-width: 400px;
         }
 
         .chrome-btn {
             display: inline-block;
-            margin-top: 15px;
-            padding: 12px 24px;
+            margin-top: 20px;
+            padding: 12px 25px;
             background: var(--primary);
             color: #000;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 50px;
             font-weight: bold;
         }
     </style>
@@ -118,23 +109,20 @@
     <div id="ticker"><span>Press refresh and click play button 3-4 times · अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।</span></div>
     <div class="click-hint" id="status"></div>
     <button id="resetBtn" onclick="location.reload()">⟳ Refresh</button>
-    <div id="errorScreen">
-        ⚠️ Invalid or missing channel.<br>
-        Add <code style="color:#fff">?ch=0</code> to the URL.
-    </div>
     <div id="frameMover">
         <iframe id="captureFrame" is="x-frame-bypass" scrolling="no"></iframe>
     </div>
 </div>
 
 <div id="fallback">
-    <h2 style="color: var(--primary);">Google Chrome Required</h2>
-    <p>This stream is optimized exclusively for Chrome browsers.</p>
-    <p>Please open this link in <b>Google Chrome</b> to watch.</p>
-    <a href="https://www.google.com/chrome/" class="chrome-btn">Get Chrome</a>
+    <h1 style="color: var(--primary); font-size: 40px; margin-bottom: 10px;">Oops!</h1>
+    <p>This live stream is only available on <b>Google Chrome</b>.</p>
+    <p style="font-size: 0.9em; color: #888;">Other browsers (Edge, Safari, Firefox) are not supported.</p>
+    <a href="https://www.google.com/chrome/" class="chrome-btn">Download Chrome</a>
 </div>
 
 <script>
+// --- Channel Config ---
 const CHANNELS = [
     { name: "Vision Punjab", url: "https://tulnit.com/live/vision-punjab-tv-hd/" },
     { name: "Sony Tv Hd", url: "https://tulnit.com/live/sony-tv-hd/" },
@@ -143,32 +131,58 @@ const CHANNELS = [
     { name: "Colors Hd", url: "https://tulnit.com/live/bollywood-colors/" }
 ];
 
-function isChrome() {
-    // 1. Check for modern Client Hints API (Only in Chromium)
-    if (navigator.userAgentData) {
-        const brands = navigator.userAgentData.brands;
-        // Check if "Google Chrome" is explicitly in the brand list
-        // and ensure "Microsoft Edge" or "Opera" are NOT there
-        const names = brands.map(b => b.brand);
-        const hasChrome = names.includes("Google Chrome");
-        const isEdge = names.some(name => name.includes("Edge") || name.includes("Edg"));
-        const isOpera = names.some(name => name.includes("Opera") || name.includes("OPR"));
+(function () {
+    /**
+     * Strict Chrome Detection
+     */
+    function isStrictChrome() {
+        const ua = navigator.userAgent;
+        const vendor = navigator.vendor;
         
-        return hasChrome && !isEdge && !isOpera;
+        // 1. Must be Google Inc vendor
+        const isGoogle = vendor === "Google Inc.";
+        // 2. Must contain Chrome in UA
+        const hasChrome = ua.includes("Chrome");
+        // 3. Must NOT contain Edge (Edg) or Opera (OPR)
+        const isEdge = ua.includes("Edg") || ua.includes("Edge");
+        const isOpera = ua.includes("OPR") || ua.includes("Opera");
+        
+        return isGoogle && hasChrome && !isEdge && !isOpera;
     }
 
-    // 2. Fallback for older Chrome versions or specific environments
-    const ua = navigator.userAgent;
-    const vendor = navigator.vendor;
-    const isGoogle = vendor === "Google Inc.";
-    const hasChromeUA = ua.includes("Chrome");
-    const hasEdgeUA = ua.includes("Edg") || ua.includes("Edge");
-    const hasOperaUA = ua.includes("OPR") || ua.includes("Opera");
+    document.addEventListener("DOMContentLoaded", function () {
+        const playerWrapper = document.getElementById('playerWrapper');
+        const fallback = document.getElementById('fallback');
+        const iframe = document.getElementById('captureFrame');
+        const status = document.getElementById('status');
+        const frameMover = document.getElementById('frameMover');
 
-    return isGoogle && hasChromeUA && !hasEdgeUA && !hasOperaUA;
-}
+        // Check browser
+        if (!isStrictChrome()) {
+            playerWrapper.remove(); // Delete player from DOM entirely
+            fallback.style.display = 'block';
+            return;
+        }
+
+        // If Chrome, show player
+        playerWrapper.style.display = 'block';
+
+        // Get Channel
+        const params = new URLSearchParams(window.location.search);
+        const chIndex = parseInt(params.get('ch'), 10);
+        const channel = CHANNELS[chIndex];
+
+        if (isNaN(chIndex) || !channel) {
+            playerWrapper.innerHTML = "<h2 style='color:white;text-align:center'>Invalid Channel ID</h2>";
+            return;
+        }
+
+        document.title = channel.name;
+        iframe.src = channel.url;
+
+        // Positioning Logic
         function autoCenter() {
-            var viewportH = wrapper.offsetHeight;
+            var viewportH = playerWrapper.offsetHeight;
             var moverH = frameMover.offsetHeight;
             var rawOffset = (moverH - viewportH) / 2;
             var nudge = moverH * 0.07;
@@ -180,12 +194,12 @@ function isChrome() {
         window.addEventListener('resize', autoCenter);
         iframe.addEventListener('load', () => setTimeout(autoCenter, 300));
 
-        // Lock Logic
+        // Click-to-lock Logic
         let clickCount = 0;
         const maxClicks = 4;
         let locked = false;
 
-        wrapper.addEventListener('click', function () {
+        playerWrapper.addEventListener('click', function () {
             if (locked) return;
             clickCount++;
             const remaining = maxClicks - clickCount;
@@ -193,7 +207,7 @@ function isChrome() {
                 status.innerText = 'Setup Mode: ' + remaining + ' clicks left';
             }
             if (clickCount >= maxClicks) {
-                shield.classList.add('active');
+                document.getElementById('lockLayer').classList.add('active');
                 status.innerText = 'CONTROLS LOCKED';
                 locked = true;
             }

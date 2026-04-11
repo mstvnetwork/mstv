@@ -25,86 +25,28 @@
             background: #000;
         }
 
-#frameMover {
-            position: absolute; width: 100%; height: 600%; top: -180px; left: 0%;"
-}
+        /* Your Custom Configuration Applied Here */
+        #frameMover {
+            position: absolute; width: 100%; height: 600%; top: -180px; left: 0%;
+        }
 
         #captureFrame {
             width: 100%; height: 100%; border: none;
         }
 
-        /* ── Drag handle — shown only in adjust mode ── */
-        #dragHandle {
-            display: none;
-            position: absolute;
-            left: 0; right: 0;
-            height: 44px;
-            background: rgba(0,255,160,0.18);
-            border-top: 2px solid #00ffa0;
-            border-bottom: 2px solid #00ffa0;
-            cursor: ns-resize;
-            z-index: 10005;
-            align-items: center;
-            justify-content: center;
-            color: #00ffa0;
-            font-family: sans-serif;
-            font-size: 13px;
-            letter-spacing: 1px;
-            user-select: none;
-            touch-action: none;
-        }
-
-        #dragHandle.visible { display: flex; }
-
-        /* ── Adjust mode toolbar ── */
-        #adjustBar {
-            display: none;
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            background: rgba(0,0,0,0.88);
-            border-top: 1px solid rgba(0,255,160,0.3);
-            padding: 10px 12px;
-            z-index: 10010;
-            gap: 8px;
-            align-items: center;
-            justify-content: space-between;
-            font-family: sans-serif;
-        }
-
-        #adjustBar.visible { display: flex; }
-
-        #offsetLabel {
-            color: #00ffa0;
-            font-size: 13px;
-            min-width: 80px;
-        }
-
-        .adj-btn {
-            padding: 7px 16px;
-            background: rgba(0,255,160,0.12);
-            color: #00ffa0;
-            border: 1px solid rgba(0,255,160,0.5);
-            border-radius: 20px;
-            font-size: 13px;
-            cursor: pointer;
-            font-family: sans-serif;
-        }
-
-        .adj-btn.save {
-            background: rgba(0,255,160,0.28);
-            font-weight: bold;
-        }
-
-        /* ── Normal UI ── */
         #lockLayer {
             position: absolute; top: 0; left: 0;
             width: 100%; height: 100%;
             z-index: 9999;
             background: rgba(0,0,0,0.01);
             pointer-events: none;
+            cursor: pointer;
         }
 
-        #lockLayer.active { pointer-events: all !important; }
+        #lockLayer.active {
+            pointer-events: all !important;
+            cursor: default;
+        }
 
         .click-hint {
             position: absolute; bottom: 60px; right: 15px;
@@ -119,14 +61,6 @@
             border: 1px solid rgba(0,255,160,0.6); border-radius: 30px;
             font-family: sans-serif; font-size: 14px;
             backdrop-filter: blur(10px); cursor: pointer; z-index: 10002;
-        }
-
-        /* Long-press hint bubble */
-        #adjustHint {
-            position: fixed; bottom: 55px; left: 12px;
-            color: rgba(0,255,160,0.5);
-            font-family: sans-serif; font-size: 11px;
-            z-index: 10001; pointer-events: none;
         }
 
         #ticker {
@@ -167,54 +101,38 @@
 
 <div class="viewport" id="playerWrapper">
     <div id="lockLayer"></div>
-
     <div id="ticker"><span>Press refresh and click play button 3-4 times · अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।</span></div>
     <div class="click-hint" id="status"></div>
-
     <button id="resetBtn" onclick="location.reload()">⟳ Refresh</button>
-    <div id="adjustHint">Hold to align</div>
-
     <div id="errorScreen">
         ⚠️ Invalid or missing channel.<br>
         Add <code style="color:#fff">?ch=0</code> for channel 1,<br>
         <code style="color:#fff">?ch=1</code> for channel 2, etc.
     </div>
-
-    <!-- Drag handle sits inside viewport, above the iframe -->
-    <div id="dragHandle">⠿ DRAG TO ALIGN ⠿</div>
-
     <div id="frameMover">
         <iframe id="captureFrame" is="x-frame-bypass" scrolling="no"></iframe>
     </div>
 </div>
 
-<!-- Adjust toolbar (outside viewport so it's always reachable) -->
-<div id="adjustBar">
-    <span id="offsetLabel">top: 0px</span>
-    <button class="adj-btn" id="btnUp">▲ Up</button>
-    <button class="adj-btn" id="btnDown">▼ Down</button>
-    <button class="adj-btn save" id="btnSave">✓ Save</button>
-    <button class="adj-btn" id="btnCancel">✕</button>
-</div>
-
 <div id="fallback">
     <h2>Mobile Device Required</h2>
-    <p>Open on Android or iOS to view the stream.</p>
+    <p>Please open this page on Android or iOS to view the stream.</p>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════════
 //  CHANNEL LIST
-//  Each channel gets its own embed URL:
-//    stream-player.html?ch=0  →  CHANNELS[0]
-//    stream-player.html?ch=1  →  CHANNELS[1]  … etc.
+//  Each channel gets its own unique embed URL:
 //
-//  DEFAULT_TOP_PX — starting crop offset (negative = shift iframe up).
-//  Set this to whatever looks closest on most browsers. Users can then
-//  fine-tune per-browser using the long-press align tool, and it saves.
+//    stream-player.html?ch=0  →  CHANNELS[0]
+//    stream-player.html?ch=1  →  CHANNELS[1]
+//    ... and so on
+//
+//  Embed on any page with: <iframe src="stream-player.html?ch=0"></iframe>
 // ═══════════════════════════════════════════════════════════════════
 const CHANNELS = [
- { name: "Sony Sab Hd", url: "https://tulnit.com/live/sony-tv-hd/" },
+    
+    { name: "Sony Sab Hd", url: "https://tulnit.com/live/sony-tv-hd/" },
     { name: "Sony Sab Hd", url: "https://tulnit.com/live/sony-sab-hd/" },
     { name: "Sony Max", url: "https://tulnit.com/live/sony-max-hd-ind/" },
     { name: "Colors Hd", url: "https://tulnit.com/live/bollywood-colors/" },
@@ -224,9 +142,6 @@ const CHANNELS = [
     
     
 ];
-
-
-const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
 // ═══════════════════════════════════════════════════════════════════
 
 (function () {
@@ -240,7 +155,6 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
     if (!isMobile()) {
         document.addEventListener("DOMContentLoaded", function () {
             document.getElementById('playerWrapper').remove();
-            document.getElementById('adjustBar').remove();
             document.getElementById('fallback').style.display = 'block';
         });
         return;
@@ -257,112 +171,20 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
         const wrapper     = document.getElementById('playerWrapper');
         const shield      = document.getElementById('lockLayer');
         const status      = document.getElementById('status');
-        const frameMover  = document.getElementById('frameMover');
-        const adjustBar   = document.getElementById('adjustBar');
-        const dragHandle  = document.getElementById('dragHandle');
-        const offsetLabel = document.getElementById('offsetLabel');
-        const adjustHint  = document.getElementById('adjustHint');
 
         if (isNaN(chIndex) || !channel) {
             errorScreen.style.display = 'flex';
             document.getElementById('frameMover').style.display = 'none';
-            adjustHint.style.display = 'none';
             return;
         }
 
         document.title = channel.name;
         iframe.src = channel.url;
 
-        // ── Load saved offset for this browser+channel, or use default ──
-        const storageKey = 'streamOffset_ch' + chIndex;
-        var currentTop = parseInt(localStorage.getItem(storageKey) || DEFAULT_TOP_PX, 10);
-        applyTop(currentTop);
-
-        function applyTop(val) {
-            currentTop = val;
-            frameMover.style.top = val + 'px';
-            offsetLabel.textContent = 'top: ' + val + 'px';
-        }
-
-        // ── Adjust mode ──
-        var adjustMode = false;
-        var savedTop   = currentTop; // snapshot when entering adjust mode
-
-        function enterAdjustMode() {
-            if (adjustMode) return;
-            adjustMode = true;
-            shield.classList.remove('active'); // unlock so drag handle is tappable
-            locked = true;                     // prevent click-lock logic interfering
-            dragHandle.classList.add('visible');
-            adjustBar.classList.add('visible');
-            adjustHint.style.display = 'none';
-            savedTop = currentTop;
-        }
-
-        function exitAdjustMode(save) {
-            adjustMode = false;
-            dragHandle.classList.remove('visible');
-            adjustBar.classList.remove('visible');
-            adjustHint.style.display = 'block';
-            if (save) {
-                localStorage.setItem(storageKey, currentTop);
-            } else {
-                applyTop(savedTop); // revert
-            }
-        }
-
-        // Toolbar buttons
-        document.getElementById('btnUp').addEventListener('click', function () {
-            applyTop(currentTop - 10);
-        });
-        document.getElementById('btnDown').addEventListener('click', function () {
-            applyTop(currentTop + 10);
-        });
-        document.getElementById('btnSave').addEventListener('click', function () {
-            exitAdjustMode(true);
-        });
-        document.getElementById('btnCancel').addEventListener('click', function () {
-            exitAdjustMode(false);
-        });
-
-        // ── Drag handle: touch drag to reposition ──
-        var dragStartY   = 0;
-        var dragStartTop = 0;
-
-        dragHandle.addEventListener('touchstart', function (e) {
-            dragStartY   = e.touches[0].clientY;
-            dragStartTop = currentTop;
-            e.preventDefault();
-        }, { passive: false });
-
-        dragHandle.addEventListener('touchmove', function (e) {
-            var dy = e.touches[0].clientY - dragStartY;
-            applyTop(dragStartTop + dy);
-            e.preventDefault();
-        }, { passive: false });
-
-        // ── Long-press on the player to enter adjust mode ──
-        var longPressTimer = null;
-
-        wrapper.addEventListener('touchstart', function (e) {
-            if (adjustMode) return;
-            longPressTimer = setTimeout(function () {
-                enterAdjustMode();
-            }, 800); // 800ms long press
-        });
-
-        wrapper.addEventListener('touchend', function () {
-            clearTimeout(longPressTimer);
-        });
-
-        wrapper.addEventListener('touchmove', function () {
-            clearTimeout(longPressTimer); // cancel if finger moves
-        });
-
-        // ── Click-to-lock (original behaviour) ──
-        var clickCount = 0;
-        var maxClicks  = 4;
-        var locked     = false;
+        // ── Click-to-lock ──
+        let clickCount = 0;
+        const maxClicks = 4;
+        let locked = false;
 
         function lockPlayer() {
             shield.classList.add('active');
@@ -372,9 +194,9 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
         }
 
         wrapper.addEventListener('click', function () {
-            if (locked || adjustMode) return;
+            if (locked) return;
             clickCount++;
-            var remaining = maxClicks - clickCount;
+            const remaining = maxClicks - clickCount;
             if (remaining > 0) {
                 status.innerText = 'Setup Mode: ' + remaining + ' clicks left';
             }
@@ -388,3 +210,19 @@ const DEFAULT_TOP_PX = -160; // adjust this as your global starting point
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

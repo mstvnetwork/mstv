@@ -1,5 +1,20 @@
 'use strict';
 
+/* Trusted Types default policy — allows 3rd-party libs (HLS.js, Shaka)
+   that use innerHTML internally to work under require-trusted-types-for 'script'.
+   The policy is intentionally permissive; actual XSS prevention is done by
+   the strict-dynamic CSP which blocks any scripts not loaded from mstv.js. */
+if (window.trustedTypes && window.trustedTypes.createPolicy) {
+    try {
+        window.trustedTypes.createPolicy('default', {
+            createHTML:      s => s,
+            createScript:    s => s,
+            createScriptURL: s => s,
+        });
+    } catch (_) { /* policy already exists */ }
+}
+
+
 /* ─────────────────────────────────────────────
    STATE
 ───────────────────────────────────────────── */

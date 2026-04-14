@@ -1,183 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sony TV HD - Mobile Stream</title>
-    
-    <!-- Required Libraries for Iframe Capture -->
-    <script src="https://unpkg.com"></script>
-    <script type="module" src="https://unpkg.com"></script>
-
     <style>
-        :root { --primary: #00ffA0; }
-        body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background: #000;
-            display: flex; align-items: center; justify-content: center;
+        /* Container that acts as the 'window' */
+        #view-window {
+            width: 800px;  /* Width of the section you want to show */
+            height: 450px; /* Height of the section you want to show */
             overflow: hidden;
+            position: relative;
+            border: 2px solid #333;
+            margin: 20px auto;
         }
 
-        .viewport {
-            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
-            overflow: hidden; position: relative;
-            border: 4px solid var(--primary); border-radius: 12px;
-            background: #000;
-        }
-
-        /* Your Custom Configuration Applied Here */
-        #frameMover {
-            position: absolute; width: 100%; height: 600%; top: -370px; left: 0%;"
-        }
-
-        #captureFrame {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        #lockLayer {
+        /* The actual embedded page */
+        #target-site {
             position: absolute;
-            top: 0; left: 0; 
-            width: 100%; height: 100%;
-            z-index: 9999; 
-            background: rgba(0,0,0,0.01); 
-            pointer-events: none; 
-            cursor: pointer;
+            width: 1920px;  /* Total width of the target site */
+            height: 3000px; /* Total height of the target site */
+            border: none;
+            transition: all 0.5s ease; /* Smooth transition when switching */
+            
+            /* INITIAL POSITION: Focus on the 'Button Area' */
+            top: -200px;   /* Vertical distance to the button */
+            left: -400px;  /* Horizontal distance to the button */
         }
 
-        #lockLayer.active {
-            pointer-events: all !important;
-            cursor: default;
-        }
-
-        .click-hint {
-            position: absolute; bottom: 60px; right: 15px;
-            color: var(--primary);
-            font-family: sans-serif;
-            font-size: 12px;
-            z-index: 10000;
-            pointer-events: none;
-            opacity: 0.7;
-        }
-
-        #resetBtn {
-            position: fixed; bottom: 12px; right: 12px;
-            padding: 8px 15px;
-            background: rgba(0, 255, 160, 0.15);
-            color: #00ffa0;
-            border: 1px solid rgba(0, 255, 160, 0.6);
-            border-radius: 30px;
-            font-family: sans-serif;
-            font-size: 14px;
-            backdrop-filter: blur(10px);
-            cursor: pointer;
-            z-index: 10002;
-        }
-
-        #ticker {
-            position: absolute; top: 0px; left: 0;
-            width: 100%; background: transparent;
-            overflow: hidden; white-space: nowrap;
-            z-index: 10000; padding: 11px 0;
-        }
-
-        #ticker span {
-            display: inline-block; padding-left: 100%;
-            animation: scroll 15s linear infinite;
-            color: #ff3b3b; font-family: sans-serif; font-size: 14px;
-        }
-
-        @keyframes scroll {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-100%); }
-        }
-
-        #fallback {
-            display: none; text-align: center; color: #fff; font-family: sans-serif;
-        }
+        .controls { text-align: center; }
+        button { padding: 10px 20px; cursor: pointer; }
     </style>
 </head>
 <body>
 
-    <!-- Mobile Viewer -->
-    <!-- Ticker -->
-        <div id="ticker"><span>Press refresh and click in screen channel button..अगर क्लिक न हो तो रिफ्रेश बटन दबाएं। </span></div>
-
-    <div class="viewport" id="playerWrapper">
-        <div id="lockLayer"></div>
-
-        
-
-        <div id="status" class="click-hint"></div>
-        <button id="resetBtn" onclick="location.reload()">Refresh</button>
-
-        <!-- The Fixed Capture Window -->
-        <div id="frameMover">
-            <iframe id="captureFrame" 
-                    is="x-frame-bypass"
-                    src="https://tulnit.com/live/sony-tv-hd/" 
-                    scrolling="no">
-            </iframe>
-        </div>
+    <div class="controls">
+        <button onclick="showPlayer()">Show Player Area</button>
+        <button onclick="showButton()">Back to Button Area</button>
     </div>
 
-    <!-- Non-Mobile Fallback -->
-    <div id="fallback">
-        <h2>Mobile Device Required</h2>
-        <p>Please open this page on Android or iOS to view the stream.</p>
+    <div id="view-window">
+        <!-- Replace 'URL_HERE' with your actual target webpage -->
+        <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
     </div>
 
-<script>
-(function() {
-    function isAllowedDevice() {
-        const ua = navigator.userAgent || navigator.vendor || window.opera;
-        return /iPhone|iPad|iPod|Android/i.test(ua);
-    }
+    <script>
+        const frame = document.getElementById('target-site');
 
-    if (!isAllowedDevice()) {
-        document.addEventListener("DOMContentLoaded", function() {
-            const wrapper = document.getElementById('playerWrapper');
-            const fallback = document.getElementById('fallback');
-            if (wrapper) wrapper.remove();
-            if (fallback) fallback.style.display = 'block';
-        });
-        return;
-    }
-
-    document.addEventListener("DOMContentLoaded", function() {
-        const wrapper = document.getElementById('playerWrapper');
-        const shield = document.getElementById('lockLayer');
-        const status = document.getElementById('status');
-        
-        let clickCount = 0;
-        const maxClicks = 10;
-        let locked = false;
-
-        function lockPlayer() {
-            shield.classList.add('active');
-            status.innerText = "CONTROLS LOCKED";
-            locked = true;
-            setTimeout(() => { status.style.opacity = "0"; }, 100000);
+        function showPlayer() {
+            // These numbers should be the coordinates of the player
+            frame.style.top = '-800px'; 
+            frame.style.left = '-200px';
         }
 
-        wrapper.addEventListener('click', function() {
-            if (locked) return;
-            clickCount++;
-            let remaining = maxClicks - clickCount;
-            if (remaining > 0) {
-                status.innerText = `Setup Mode: ${remaining} clicks left`;
-            }
-            if (clickCount >= maxClicks) {
-                lockPlayer();
-            }
-        });
+        function showButton() {
+            // These numbers should be the coordinates of the button
+            frame.style.top = '-200px';
+            frame.style.left = '-400px';
+        }
+    </script>
 
-        // Auto-lock after 60 seconds
-        setTimeout(lockPlayer, 100000);
-    });
-})();
-</script>
 </body>
 </html>

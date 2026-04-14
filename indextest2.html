@@ -542,17 +542,18 @@
     </div>
 </footer>
 
-<script>
-'use strict';
+ <script>
+let allCh = [], hlsE = null, shakaP = null, activeCard = null;
+let lastDataHash = '';
+let currentChannelId = null;
 
-/* ─────────────────────────────────────────────
-   STATE
-───────────────────────────────────────────── */
-let allCh = [], hlsE = null, shakaP = null, activeCard = null, isPlaying = false;
+let shakaReady = false;
 
-/* ─────────────────────────────────────────────
-   DOM refs (gathered once)
-───────────────────────────────────────────── */
+document.getElementById('shaka-script').addEventListener('load', () => {
+    if (window.shaka) { window.shaka.polyfill.installAll(); }
+    shakaReady = true;
+});
+
 const v   = document.getElementById('video'),
       f   = document.getElementById('iframePlayer'),
       l   = document.getElementById('channelList'),
@@ -561,131 +562,104 @@ const v   = document.getElementById('video'),
       ld  = document.getElementById('loader'),
       cc  = document.getElementById('channel-count');
 
-/* ─────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────── */
+/* helpers */
+
 function splitName(raw) {
     const idx = raw.indexOf('|');
-    return idx === -1
-        ? { primary: raw.trim(), sub: '' }
-        : { primary: raw.slice(0, idx).trim(), sub: raw.slice(idx + 1).trim() };
+    if (idx === -1) return { primary: raw.trim(), sub: '' };
+    return { primary: raw.slice(0, idx).trim(), sub: raw.slice(idx + 1).trim() };
 }
 
 function getInitials(name) {
-    const w = name.trim().split(/\s+/);
-    return w.length >= 2 ? (w[0][0] + w[1][0]).toUpperCase() : name.substring(0, 2).toUpperCase();
+    const words = name.trim().split(/\s+/);
+    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+    return name.substring(0, 2).toUpperCase();
 }
 
-/* ─────────────────────────────────────────────
-   ON-DEMAND SCRIPT LOADER
-   Scripts are loaded once per session and cached
-   in module-level promises so subsequent clicks
-   are instant.
-───────────────────────────────────────────── */
-let _hlsPromise = null, _shakaPromise = null;
+function waitForScripts() {
+    if (window.Hls && (shakaReady || window.shaka)) return Promise.resolve();
 
-function loadHls() {
-    if (window.Hls) return Promise.resolve();
-    if (_hlsPromise) return _hlsPromise;
-    _hlsPromise = new Promise((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js';
-        s.crossOrigin = 'anonymous';
-        s.onload = res; s.onerror = rej;
-        document.head.appendChild(s);
+    return new Promise(resolve => {
+        let checks = 0;
+        const id = setInterval(() => {
+            checks++;
+            if ((window.Hls && (shakaReady || window.shaka)) || checks > 80) {
+                clearInterval(id);
+                resolve();
+            }
+        }, 50);
     });
-    return _hlsPromise;
 }
 
-function loadShaka() {
-    if (window.shaka) return Promise.resolve();
-    if (_shakaPromise) return _shakaPromise;
-    _shakaPromise = new Promise((res, rej) => {
-        const s = document.createElement('script');
-        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js';
-        s.crossOrigin = 'anonymous';
-        s.onload = () => { if (window.shaka) window.shaka.polyfill.installAll(); res(); };
-        s.onerror = rej;
-        document.head.appendChild(s);
-    });
-    return _shakaPromise;
-}
+/* play */
 
-/* ─────────────────────────────────────────────
-   PLAY
-───────────────────────────────────────────── */
+let isPlaying = false;
+
 async function play(ch, cardEl) {
-    if (!ch?.url || isPlaying) return;
+    if (!ch || !ch.url || isPlaying) return;
     isPlaying = true;
 
-    /* tear down */
+    currentChannelId = ch.name; // track active
+
     if (activeCard) activeCard.classList.remove('active');
     if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
 
-    if (hlsE)  { hlsE.destroy(); hlsE = null; }
-    if (shakaP){ try { await shakaP.detach(); } catch(_){} shakaP = null; }
+    if (hlsE) { hlsE.destroy(); hlsE = null; }
+    if (shakaP){ try { await shakaP.detach(); } catch(e){} shakaP = null; }
 
     v.pause();
     v.removeAttribute('src');
     v.load();
     v.style.display = 'none';
     v.controls = false;
+
     f.style.display = 'none';
     f.src = '';
 
     ph.style.display = 'none';
     ld.style.display = 'flex';
 
-    t.textContent = splitName(ch.name).primary;
+    t.innerText = splitName(ch.name).primary;
     t.classList.add('has-channel');
 
-    /* external */
-    if (ch.type === 'external' || (ch.url.startsWith('http://') && ch.type !== 'iframe')) {
+    const isExternal = ch.type === 'external' || (ch.url.startsWith('http://') && ch.type !== 'iframe');
+
+    if (isExternal) {
         window.open(ch.url, '_blank', 'noopener,noreferrer');
-        ld.style.display = 'none';
-        ph.style.display = 'flex';
-        t.textContent = 'Select & Play';
-        t.classList.remove('has-channel');
-        if (activeCard) { activeCard.classList.remove('active'); activeCard = null; }
-        isPlaying = false;
+        resetPlayer();
         return;
     }
 
     const isIframe = ch.type === 'iframe'
-                  || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'));
+        || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'));
 
     if (isIframe) {
-        const guard = setTimeout(() => { ld.style.display = 'none'; }, 5000);
-        f.onload = () => { clearTimeout(guard); ld.style.display = 'none'; };
+        const timeout = setTimeout(() => ld.style.display = 'none', 5000);
+        f.onload = () => { clearTimeout(timeout); ld.style.display = 'none'; };
         f.style.display = 'block';
         f.src = ch.url;
-
-    } else if (ch.url.includes('.mpd')) {
-        try {
-            await loadShaka();
-            v.controls = true; v.style.display = 'block';
-            shakaP = new shaka.Player(v);
-            shakaP.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
-            await shakaP.load(ch.url);
-        } catch(_) { ld.style.display = 'none'; }
-
     } else {
-        try { await loadHls(); } catch(_) {}
+        await waitForScripts();
 
-        if (window.Hls?.isSupported()) {
-            hlsE = new Hls({ enableWorker: true, lowLatencyMode: true, startFragPrefetch: true, maxBufferLength: 10 });
+        if (ch.url.includes('.mpd') && (shakaReady || window.shaka)) {
+            v.controls = true;
+            v.style.display = 'block';
+            shakaP = new shaka.Player(v);
+            try { await shakaP.load(ch.url); } catch(e){ ld.style.display = 'none'; }
+        } else if (window.Hls && Hls.isSupported()) {
+            hlsE = new Hls({ lowLatencyMode: true });
             hlsE.loadSource(ch.url);
             hlsE.attachMedia(v);
             hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
-                v.controls = true; v.style.display = 'block';
-                v.play().catch(() => { ld.style.display = 'none'; });
+                v.controls = true;
+                v.style.display = 'block';
+                v.play().catch(() => ld.style.display = 'none');
             });
-            hlsE.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) ld.style.display = 'none'; });
-
         } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-            v.src = ch.url; v.controls = true; v.style.display = 'block';
-            v.play().catch(() => { ld.style.display = 'none'; });
-
+            v.src = ch.url;
+            v.controls = true;
+            v.style.display = 'block';
+            v.play().catch(() => ld.style.display = 'none');
         } else {
             ld.style.display = 'none';
         }
@@ -694,126 +668,118 @@ async function play(ch, cardEl) {
     isPlaying = false;
 }
 
-v.addEventListener('playing', () => { ld.style.display = 'none'; });
-v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
-v.addEventListener('canplay', () => { ld.style.display = 'none'; });
+function resetPlayer() {
+    ld.style.display = 'none';
+    ph.style.display = 'flex';
+    t.innerText = 'Select & Play';
+    t.classList.remove('has-channel');
+    if (activeCard) activeCard.classList.remove('active');
+    activeCard = null;
+    currentChannelId = null;
+    isPlaying = false;
+}
 
-/* ─────────────────────────────────────────────
-   RENDER
-───────────────────────────────────────────── */
+v.addEventListener('playing', () => ld.style.display = 'none');
+
+/* render (smart update, no flicker) */
+
 function render(data) {
-    const fr = document.createDocumentFragment();
+    const existing = new Map();
+    Array.from(l.children).forEach(el => {
+        existing.set(el.dataset.name, el);
+    });
 
-    if (!data.length) {
-        const d = document.createElement('div');
-        d.className = 'no-results';
-        d.innerHTML = '<strong>No channels found</strong>Try a different search term';
-        l.innerHTML = '';
-        l.appendChild(d);
-        return;
-    }
+    const fragment = document.createDocumentFragment();
 
     data.forEach((ch, i) => {
-        const { primary, sub } = splitName(ch.name);
+        let card = existing.get(ch.name);
 
-        const b = document.createElement('div');
-        b.className = 'channel-card';
-        b.setAttribute('role', 'listitem');
-        b.setAttribute('tabindex', '0');
-        b.setAttribute('aria-label', primary + (sub ? ' – ' + sub : ''));
-        /* Only animate first 20 visible cards to avoid "long tasks" */
-        if (i < 20) b.style.animationDelay = (i * 18) + 'ms';
-        else b.style.animation = 'none';
+        if (!card) {
+            const { primary, sub } = splitName(ch.name);
 
-        const icon = document.createElement('div');
-        icon.className = 'ch-icon';
-        icon.setAttribute('aria-hidden', 'true');
+            card = document.createElement('div');
+            card.className = 'channel-card';
+            card.dataset.name = ch.name;
 
-        if (ch.logo) {
-            const img = document.createElement('img');
-            img.className = 'ch-logo';
-            img.src = ch.logo;
-            img.alt = '';             /* decorative; card aria-label covers it */
-            img.width = 52; img.height = 52;
-            img.loading = 'lazy'; img.decoding = 'async';
-            img.addEventListener('error', function() {
-                this.remove(); icon.textContent = getInitials(primary);
-            }, { once: true });
-            icon.appendChild(img);
-        } else {
-            icon.textContent = getInitials(primary);
+            const icon = document.createElement('div');
+            icon.className = 'ch-icon';
+
+            if (ch.logo) {
+                const img = document.createElement('img');
+                img.className = 'ch-logo';
+                img.src = ch.logo;
+                img.loading = 'lazy';
+                icon.appendChild(img);
+            } else {
+                icon.textContent = getInitials(primary);
+            }
+
+            const nameEl = document.createElement('span');
+            nameEl.className = 'channel-name';
+            nameEl.textContent = primary;
+
+            card.appendChild(icon);
+            card.appendChild(nameEl);
+
+            if (sub) {
+                const subEl = document.createElement('span');
+                subEl.className = 'channel-sub';
+                subEl.textContent = sub;
+                card.appendChild(subEl);
+            }
+
+            card.onclick = () => play(ch, card);
         }
 
-        const nameEl = document.createElement('span');
-        nameEl.className = 'channel-name';
-        nameEl.textContent = primary;
-
-        b.appendChild(icon);
-        b.appendChild(nameEl);
-
-        if (sub) {
-            const subEl = document.createElement('span');
-            subEl.className = 'channel-sub';
-            subEl.setAttribute('aria-hidden', 'true');
-            subEl.textContent = sub;
-            b.appendChild(subEl);
+        if (ch.name === currentChannelId) {
+            card.classList.add('active');
+            activeCard = card;
         }
 
-        b.onclick   = () => play(ch, b);
-        b.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); play(ch, b); } };
-
-        fr.appendChild(b);
+        fragment.appendChild(card);
     });
 
     l.innerHTML = '';
-    l.appendChild(fr);
-    activeCard = null;
+    l.appendChild(fragment);
 }
 
-/* ─────────────────────────────────────────────
-   SEARCH (debounced)
-───────────────────────────────────────────── */
-let searchTimer;
-document.getElementById('searchInput').addEventListener('input', (e) => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-        const q = e.target.value.toLowerCase();
-        const filtered = q ? allCh.filter(c => c.name.toLowerCase().includes(q)) : allCh;
-        cc.textContent = filtered.length + ' channels';
-        render(filtered);
-    }, 120);
+/* 🔴 LIVE JSON UPDATE */
+
+async function loadChannelsLive() {
+    try {
+        const res = await fetch('channels2.json?t=' + Date.now());
+        const data = await res.json();
+
+        const hash = JSON.stringify(data);
+
+        if (hash !== lastDataHash) {
+            lastDataHash = hash;
+            allCh = data;
+            cc.textContent = data.length + ' channels';
+            render(allCh);
+            console.log('Updated live');
+        }
+    } catch (e) {
+        console.warn('Update failed');
+    }
+}
+
+/* init */
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadChannelsLive();
+    setInterval(loadChannelsLive, 5000);
 });
 
-/* ─────────────────────────────────────────────
-   INIT
-───────────────────────────────────────────── */
-// Set canonical immediately — no need to wait for DOMContentLoaded
-const cl = document.getElementById('canonical-link');
-if (cl) cl.setAttribute('href', location.protocol + '//' + location.host + location.pathname);
+document.getElementById('searchInput').oninput = (e) => {
+    const q = e.target.value.toLowerCase();
+    const filtered = allCh.filter(c => c.name.toLowerCase().includes(q));
+    cc.textContent = filtered.length + ' channels';
+    render(filtered);
+};
+    </script>
 
-// Fetch channels — data is already being downloaded via <link rel="preload">
-fetch('channels2.json')
-    .then(r => r.json())
-    .then(data => {
-        allCh = data;
-        cc.textContent = data.length + ' channels';
-        render(allCh);
-    })
-    .catch(() => {});
 
-// Analytics: load after 15 s of idle to avoid ANY Lighthouse impact
-window.addEventListener('load', () => {
-    setTimeout(() => {
-        const inject = () => {
-            const s = document.createElement('script');
-            s.async = true;
-            s.src = 'https://gc.zgo.at/count.js';
-            s.dataset.goatcounter = 'https://mstv.goatcounter.com/count';
-            document.head.appendChild(s);
-        };
-        'requestIdleCallback' in window ? requestIdleCallback(inject) : inject();
-    }, 15000);
-});
-</script>
+        
 </body>
             </html>

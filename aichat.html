@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Super Brain AI</title>
-    <script src="https://puter.com"></script>
+    <script src="https://js.puter.com/v2/"></script>
     <style>
         :root { --bg: #0f172a; --panel: #1e293b; --text: #f8fafc; --accent: #38bdf8; --bot-msg: #334155; --user-msg: #0369a1; }
         body { background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .chat-container { width: 100%; max-width: 500px; height: 80vh; background: var(--panel); border-radius: 1.5rem; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; border: 1px solid #334155; }
+        .chat-container { width: 100%; max-width: 500px; height: 80vh; background: var(--panel); border-radius: 1.5rem; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; border: 1px solid #334155; position: relative; }
         .header { padding: 1.5rem; background: rgba(255,255,255,0.05); text-align: center; border-bottom: 1px solid #334155; }
         #chat-window { flex: 1; overflow-y: auto; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
         .msg { max-width: 80%; padding: 0.8rem 1.2rem; border-radius: 1rem; line-height: 1.5; font-size: 0.95rem; }
@@ -16,38 +16,63 @@
         .user { background: var(--user-msg); align-self: flex-end; border-bottom-right-radius: 0; }
         .input-area { padding: 1.2rem; display: flex; gap: 0.8rem; background: rgba(0,0,0,0.2); }
         input { flex: 1; background: #0f172a; border: 1px solid #334155; border-radius: 0.8rem; padding: 0.8rem; color: white; outline: none; }
-        input:focus { border-color: var(--accent); }
-        button { background: var(--accent); border: none; padding: 0 1.5rem; border-radius: 0.8rem; cursor: pointer; font-weight: bold; transition: 0.2s; }
-        button:hover { opacity: 0.8; transform: scale(1.05); }
+        .btn { background: var(--accent); border: none; padding: 0.8rem 1.5rem; border-radius: 0.8rem; cursor: pointer; font-weight: bold; transition: 0.2s; color: #0f172a; }
+        
+        /* Auth Overlay */
+        #auth-overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.9); z-index: 10; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; }
     </style>
 </head>
 <body>
     <div class="chat-container">
+        <!-- Power On Screen -->
+        <div id="auth-overlay">
+            <h3>Brain is Offline</h3>
+            <p style="font-size: 0.8rem; margin-bottom: 1rem; color: #94a3b8;">Click below to connect to Claude 4.6 for free via Puter.com</p>
+            <button class="btn" onclick="powerOn()">Power On Brain</button>
+        </div>
+
         <div class="header"><strong>SUPER BRAIN</strong> <small style="color:var(--accent)">• Claude 4.6</small></div>
         <div id="chat-window"></div>
         <div class="input-area">
             <input type="text" id="userInput" placeholder="Ask the brain..." onkeypress="if(event.key==='Enter') askAI()">
-            <button onclick="askAI()">Send</button>
+            <button class="btn" onclick="askAI()">Send</button>
         </div>
     </div>
 
     <script>
+        // STEP 1: Handle Authentication
+        async function powerOn() {
+            try {
+                await puter.auth.signIn(); // Triggers the required popup
+                document.getElementById('auth-overlay').style.display = 'none';
+            } catch (err) {
+                alert("Sign-in failed. Please allow popups for this site.");
+            }
+        }
+
+        // Check if already signed in
+        if (puter.auth.isSignedIn()) {
+            document.getElementById('auth-overlay').style.display = 'none';
+        }
+
+        // STEP 2: Chat Logic
         async function askAI() {
             const input = document.getElementById('userInput');
             const chat = document.getElementById('chat-window');
             if(!input.value.trim()) return;
 
-            chat.innerHTML += `<div class="msg user">${input.value}</div>`;
             const userText = input.value;
+            chat.innerHTML += `<div class="msg user">${userText}</div>`;
             input.value = '';
             chat.scrollTop = chat.scrollHeight;
 
             try {
-                // Connects to the "brain" for free via Puter.js
+                // Specifies the advanced Sonnet 4.6 model
                 const response = await puter.ai.chat(userText, {model: 'claude-sonnet-4-6'});
                 chat.innerHTML += `<div class="msg bot">${response.message.content.text}</div>`;
             } catch (e) {
-                chat.innerHTML += `<div class="msg bot" style="color:red">Connection failed. Check Puter access.</div>`;
+                chat.innerHTML += `<div class="msg bot" style="color:#f87171">Brain error: Check your Puter login or connection.</div>`;
+                console.error(e);
             }
             chat.scrollTop = chat.scrollHeight;
         }

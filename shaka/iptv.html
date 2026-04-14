@@ -1,58 +1,202 @@
 <!DOCTYPE html>
 <html>
 <head>
-   <style>
-        #view-window {
-            width: 800px;
-            height: 450px;
-            overflow: hidden;
-            position: relative;
-            border: 2px solid #333;
-            margin: 20px auto;
-        }
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
-        #target-site {
-            position: absolute;
-            width: 1920px;
-            height: 3000px;
-            border: none;
-            transition: all 0.5s ease;
-            top: -200px;
-            left: -400px;
-            transform: scale(0.55);
-            transform-origin: top left;
-        }
+    body {
+      background: #111;
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
 
-        .controls { text-align: center; margin-bottom: 8px; }
-        button { padding: 10px 20px; cursor: pointer; margin: 4px; }
-   </style>
+    /* ── Player window ── */
+    #view-window {
+      width: 800px;
+      height: 450px;
+      overflow: hidden;
+      position: relative;
+      border: 2px solid #444;
+      background: #000;
+    }
+
+    #target-site {
+      position: absolute;
+      width: 1920px;
+      height: 3000px;
+      border: none;
+      transition: all 0.5s ease;
+      transform: scale(0.55);
+      transform-origin: top left;
+      /* Default: player position */
+      top: -350px;
+      left: -350px;
+    }
+
+    /* ── Channel selector bar ── */
+    #channel-bar {
+      width: 800px;
+      background: #1a1a1a;
+      border: 2px solid #444;
+      border-top: none;
+      padding: 12px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    #channel-bar span {
+      color: #888;
+      font-size: 13px;
+      margin-right: 4px;
+    }
+
+    .ch-btn {
+      background: #2a2a2a;
+      color: #ccc;
+      border: 1px solid #444;
+      padding: 7px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s, border-color 0.2s, color 0.2s;
+    }
+
+    .ch-btn:hover {
+      background: #3a3a3a;
+      border-color: #666;
+      color: #fff;
+    }
+
+    .ch-btn.active {
+      background: #c0392b;
+      border-color: #e74c3c;
+      color: #fff;
+    }
+
+    .ch-btn img {
+      width: 18px;
+      height: 12px;
+      object-fit: cover;
+      border-radius: 2px;
+    }
+
+    /* Loading overlay */
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 15px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s;
+      z-index: 10;
+    }
+
+    #loading-overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+  </style>
 </head>
 <body>
 
-    <div class="controls">
-        <button onclick="showPlayer()">Show Player Area</button>
-        <button onclick="showButton()">Back to Button Area</button>
-    </div>
+  <div id="view-window">
+    <div id="loading-overlay">Loading stream...</div>
+    <iframe
+      src="https://tulnit.com/live/sony-tv-hd/"
+      id="target-site"
+      scrolling="no"
+      allowfullscreen>
+    </iframe>
+  </div>
 
-    <div id="view-window">
-        <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
-    </div>
+  <div id="channel-bar">
+    <span>Streams:</span>
 
-    <script>
-        const frame = document.getElementById('target-site');
+    <!--
+      ADD / REMOVE CHANNELS HERE
+      Each button needs:
+        data-url  = the tulnit.com/live/slug/ URL
+        data-top  = iframe top offset when player is in view (tune per channel if needed)
+        data-left = iframe left offset
+    -->
+    <button class="ch-btn active"
+            data-url="https://tulnit.com/live/sony-tv-hd/"
+            data-top="-350" data-left="-350"
+            onclick="switchChannel(this)">
+      <img src="https://tulnit.com/wp-content/themes/dooplay/assets/img/flags/in.png" alt="">
+      Sony TV HD
+    </button>
 
-        function showPlayer() {
-            frame.style.top = '-350px';
-            frame.style.left = '-350px';
-            frame.style.transform = 'scale(0.55)';
-        }
+    <button class="ch-btn"
+            data-url="https://tulnit.com/live/zee-tv-hd/"
+            data-top="-350" data-left="-350"
+            onclick="switchChannel(this)">
+      <img src="https://tulnit.com/wp-content/themes/dooplay/assets/img/flags/in.png" alt="">
+      Zee TV HD
+    </button>
 
-        function showButton() {
-            frame.style.top = '-200px';
-            frame.style.left = '-400px';
-            frame.style.transform = 'scale(0.55)';
-        }
-    </script>
+    <button class="ch-btn"
+            data-url="https://tulnit.com/live/star-plus-hd/"
+            data-top="-350" data-left="-350"
+            onclick="switchChannel(this)">
+      <img src="https://tulnit.com/wp-content/themes/dooplay/assets/img/flags/in.png" alt="">
+      Star Plus HD
+    </button>
+
+    <button class="ch-btn"
+            data-url="https://tulnit.com/live/colors-hd/"
+            data-top="-350" data-left="-350"
+            onclick="switchChannel(this)">
+      <img src="https://tulnit.com/wp-content/themes/dooplay/assets/img/flags/in.png" alt="">
+      Colors HD
+    </button>
+
+    <!-- Add more channels following the same pattern above -->
+
+  </div>
+
+  <script>
+    const frame = document.getElementById('target-site');
+    const overlay = document.getElementById('loading-overlay');
+
+    function switchChannel(btn) {
+      // Update active button style
+      document.querySelectorAll('.ch-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      // Show loading overlay
+      overlay.classList.add('show');
+
+      // Get values from button attributes
+      const url  = btn.getAttribute('data-url');
+      const top  = btn.getAttribute('data-top')  || '-350';
+      const left = btn.getAttribute('data-left') || '-350';
+
+      // Reposition iframe to player area
+      frame.style.top       = top  + 'px';
+      frame.style.left      = left + 'px';
+      frame.style.transform = 'scale(0.55)';
+
+      // Load the new channel
+      frame.src = url;
+
+      // Hide overlay once iframe loads
+      frame.onload = () => overlay.classList.remove('show');
+    }
+  </script>
 
 </body>
 </html>

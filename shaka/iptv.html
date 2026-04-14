@@ -2,31 +2,29 @@
 <html>
 <head>
     <style>
-        /* Container that acts as the 'window' */
         #view-window {
-            width: 800px;  /* Width of the section you want to show */
-            height: 450px; /* Height of the section you want to show */
+            width: 800px; 
+            height: 450px;
             overflow: hidden;
             position: relative;
-            border: 2px solid #333;
+            border: 5px solid #333;
             margin: 20px auto;
         }
 
-        /* The actual embedded page */
         #target-site {
             position: absolute;
-            width: 1920px;  /* Total width of the target site */
-            height: 3000px; /* Total height of the target site */
+            width: 1920px; 
+            height: 3000px;
             border: none;
-            transition: all 0.5s ease; /* Smooth transition when switching */
-            
-            /* INITIAL POSITION: Focus on the 'Button Area' */
-            top: -200px;   /* Vertical distance to the button */
-            left: -400px;  /* Horizontal distance to the button */
+            /* Transition disabled during calibration for better precision */
+            transition: top 0.2s, left 0.2s; 
+            top: -200px;
+            left: -400px;
         }
 
-        .controls { text-align: center; }
-        button { padding: 10px 20px; cursor: pointer; }
+        .controls { text-align: center; font-family: sans-serif; margin-bottom: 10px; }
+        .hint { font-size: 12px; color: #666; margin-top: 5px; }
+        button { padding: 10px 20px; cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -34,27 +32,48 @@
     <div class="controls">
         <button onclick="showPlayer()">Show Player Area</button>
         <button onclick="showButton()">Back to Button Area</button>
+        <div class="hint">
+            <strong>Calibration Mode:</strong> Use <b>Arrow Keys</b> to align. <br>
+            Press <b>"S"</b> to save/get coordinates.
+        </div>
     </div>
 
     <div id="view-window">
-        <!-- Replace 'URL_HERE' with your actual target webpage -->
         <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
     </div>
 
     <script>
         const frame = document.getElementById('target-site');
+        let step = 10; // Pixels per arrow press
 
+        // 1. Navigation Functions
         function showPlayer() {
-            // These numbers should be the coordinates of the player
-            frame.style.top = '-500px'; 
+            frame.style.top = '-800px'; 
             frame.style.left = '-200px';
         }
 
         function showButton() {
-            // These numbers should be the coordinates of the button
-            frame.style.top = '-500px';
+            frame.style.top = '-200px';
             frame.style.left = '-400px';
         }
+
+        // 2. Alignment Script (The "Nudge" Tool)
+        window.addEventListener('keydown', (e) => {
+            let top = parseInt(window.getComputedStyle(frame).top);
+            let left = parseInt(window.getComputedStyle(frame).left);
+
+            if (e.key === 'ArrowUp')    frame.style.top = (top - step) + 'px';
+            if (e.key === 'ArrowDown')  frame.style.top = (top + step) + 'px';
+            if (e.key === 'ArrowLeft')  frame.style.left = (left - step) + 'px';
+            if (e.key === 'ArrowRight') frame.style.left = (left + step) + 'px';
+
+            // 3. Configuration Grabber
+            if (e.key.toLowerCase() === 's') {
+                const config = `Current Position:\ntop: '${frame.style.top}';\nleft: '${frame.style.left}';`;
+                alert(config);
+                console.log(config);
+            }
+        });
     </script>
 
 </body>

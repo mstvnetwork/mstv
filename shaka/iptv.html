@@ -2,61 +2,97 @@
 <html>
 <head>
     <style>
+        body { background: #111; color: #eee; font-family: sans-serif; text-align: center; }
+
+        /* The 'View Window' (Your viewport) */
         #view-window {
             width: 800px;
             height: 450px;
             overflow: hidden;
             position: relative;
-            border: 2px solid #333;
+            border: 4px solid #444;
             margin: 20px auto;
             background: #000;
+            border-radius: 8px;
         }
 
+        /* The Embedded Webpage */
         #target-site {
             position: absolute;
-            width: 1920px; 
+            width: 1920px; /* Adjust to match the source site's desktop width */
             height: 5000px;
             border: none;
-            transition: all 0.5s ease;
+            transition: all 0.6s cubic-bezier(0.25, 1, 0.5, 1);
             
-            /* REDUCE ZOOM HERE (0.75 = 75% zoom) */
-            transform: scale(0.75); 
+            /* REDUCED ZOOM: Change 0.6 to your preferred size */
+            transform: scale(0.6); 
             transform-origin: 0 0; 
-            
-            /* Initial position (Button) */
-            top: -150px; 
-            left: -300px;
         }
 
-        .controls { text-align: center; margin-bottom: 10px; }
-        button { padding: 10px 20px; cursor: pointer; }
+        .controls { margin-top: 20px; }
+        button { 
+            padding: 12px 24px; 
+            cursor: pointer; 
+            background: #333; 
+            color: white; 
+            border: 1px solid #555;
+            border-radius: 4px;
+            margin: 0 5px;
+            transition: background 0.3s;
+        }
+        button:hover { background: #555; }
     </style>
 </head>
 <body>
 
-    <div class="controls">
-        <button onclick="showPlayer()">Show Player Area</button>
-        <button onclick="showButton()">Back to Button Area</button>
-    </div>
+    <h2>Remote Player View</h2>
 
     <div id="view-window">
+        <!-- REPLACE 'URL_HERE' with your actual target URL -->
         <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
     </div>
 
+    <div class="controls">
+        <button onclick="focusArea(200, 450)">1. Focus Button</button>
+        <button onclick="focusArea(800, 960)">2. Focus Player (Centered)</button>
+    </div>
+
+    <p style="color: #888; font-size: 12px; margin-top: 20px;">
+        Tip: Click anywhere in the window to get exact coordinates for your code.
+    </p>
+
     <script>
         const frame = document.getElementById('target-site');
+        const container = document.getElementById('view-window');
+        const zoomLevel = 0.6; // MUST MATCH THE 'SCALE' IN CSS
 
-        function showPlayer() {
-            // To push the player UP, make this number less negative (e.g., -600 instead of -800)
-            // To center it LEFT/RIGHT, adjust the second number
-            frame.style.top = '-600px'; 
-            frame.style.left = '-100px';
+        /**
+         * Pushes target coordinates to the center of your 800x450 window.
+         * targetTop: Y-coordinate on the original webpage
+         * targetLeft: X-coordinate on the original webpage
+         */
+        function focusArea(targetTop, targetLeft) {
+            // Subtract half the window size (400 width, 225 height) to center the target
+            const offsetX = (400 - (targetLeft * zoomLevel));
+            const offsetY = (225 - (targetTop * zoomLevel));
+
+            frame.style.left = offsetX + 'px';
+            frame.style.top = offsetY + 'px';
         }
 
-        function showButton() {
-            frame.style.top = '-150px';
-            frame.style.left = '-300px';
-        }
+        // --- COORDINATE TRACKER (Remove this part once you have your numbers) ---
+        container.addEventListener('click', function(e) {
+            const rect = this.getBoundingClientRect();
+            
+            // Reverses the zoom and centering to find the RAW coordinate on the source page
+            const currentLeft = parseFloat(frame.style.left) || 0;
+            const currentTop = parseFloat(frame.style.top) || 0;
+
+            const rawX = (e.clientX - rect.left - currentLeft) / zoomLevel;
+            const rawY = (e.clientY - rect.top - currentTop) / zoomLevel;
+
+            alert("Raw Coordinates for focusArea():\nTop: " + Math.round(rawY) + "\nLeft: " + Math.round(rawX));
+        });
     </script>
 
 </body>

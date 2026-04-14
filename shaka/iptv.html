@@ -2,68 +2,61 @@
 <html>
 <head>
     <style>
-        body { background: #1a1a1a; color: white; font-family: sans-serif; text-align: center; }
-
-        /* General style for the windowed containers */
-        .crop-container {
+        #view-window {
+            width: 90vw;
+            height: 80vh;
             overflow: hidden;
             position: relative;
             margin: 20px auto;
-            border: 2px solid #444;
+            border: 3px solid #333;
             background: #000;
         }
 
-        /* 1. BUTTON WINDOW: Only shows the trigger button */
-        #button-window {
-            width: 200px;  /* Width of the button area */
-            height: 80px;  /* Height of the button area */
-        }
-
-        /* 2. PLAYER WINDOW: Only shows the video player */
-        #player-window {
-            width: 800px;  /* Width of the player area */
-            height: 450px; /* Height of the player area */
-            display: block;
-        }
-
-        /* The actual embedded frames */
-        .target-frame {
+        #target-site {
             position: absolute;
-            width: 1920px;  /* Match total width of the source site */
-            height: 5000px; /* Match total height of the source site */
+            /* 1. INCREASE SIZE TO PREVENT CLIPPING AT LOW ZOOM */
+            width: 2500px; 
+            height: 6000px;
             border: none;
+            transition: all 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+            
+            /* 2. REDUCE ZOOM (0.8 = 80%, 0.5 = 50%) */
+            transform: scale(0.75); 
+            transform-origin: 0 0; /* Keeps the scaling anchored to the top-left */
         }
 
-        /* COORDINATES: Adjust these using your measurements */
-        #frame-button { top: -200px; left: -400px; } /* Coordinates for button */
-        #frame-player { top: -850px; left: -150px; } /* Coordinates for player */
-
-        h3 { color: #888; margin-top: 50px; }
+        .controls { text-align: center; padding: 10px; }
+        button { padding: 10px 20px; cursor: pointer; margin: 0 5px; }
     </style>
 </head>
 <body>
 
-    <h3>Step 1: Click the Button Below</h3>
-    <div id="button-window" class="crop-container" onclick="scrollToPlayer()">
-        <iframe src="https://tulnit.com/live/sony-tv-hd/" class="target-frame" id="frame-button" scrolling="no"></iframe>
-        <!-- Invisible overlay to make the whole 'window' clickable for scrolling -->
-        <div style="position:absolute; top:0; left:0; width:100%; height:100%; cursor:pointer;"></div>
+    <div class="controls">
+        <!-- Adjust the first number (Top) to push the view up or down -->
+        <button onclick="focusArea(150, 400)">Show Button Area</button>
+        <button onclick="focusArea(600, 150)">Show Player (Pushed Up)</button>
     </div>
 
-    <div style="height: 600px;"> <!-- Space between elements --> </div>
-
-    <h3 id="player-label">Step 2: Watch the Player Here</h3>
-    <div id="player-window" class="crop-container">
-        <iframe src="URL_HERE" class="target-frame" id="frame-player" scrolling="no"></iframe>
+    <div id="view-window">
+        <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
     </div>
 
     <script>
-        function scrollToPlayer() {
-            const playerArea = document.getElementById('player-window');
-            playerArea.scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'center' // This ensures the player is centered in the screen
-            });
+        const frame = document.getElementById('target-site');
+        const container = document.getElementById('view-window');
+        const zoomLevel = 0.75; // Must match the 'scale' in CSS
+
+        function focusArea(targetTop, targetLeft) {
+            const winWidth = container.offsetWidth;
+            const winHeight = container.offsetHeight;
+
+            // We multiply the target coordinates by zoomLevel 
+            // so the centering math stays accurate at lower zooms
+            const centerX = (winWidth / 2) - (targetLeft * zoomLevel);
+            const centerY = (winHeight / 2) - (targetTop * zoomLevel);
+
+            frame.style.left = centerX + 'px';
+            frame.style.top = centerY + 'px';
         }
     </script>
 

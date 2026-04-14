@@ -1,61 +1,86 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Split Player Bridge</title>
     <style>
-        /* Container that acts as the 'window' */
-        #view-window {
-            width: 800px;  /* Width of the section you want to show */
-            height: 450px; /* Height of the section you want to show */
-            overflow: hidden;
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        .container { display: flex; flex-direction: column; height: 100vh; }
+
+        /* Top 16:9 Player */
+        .top-section {
             position: relative;
-            border: 2px solid #333;
-            margin: 20px auto;
+            width: 100%;
+            padding-top: 56.25%; /* 16:9 ratio */
+            background: #111;
+        }
+        .top-section iframe {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;
         }
 
-        /* The actual embedded page */
-        #target-site {
+        /* Bottom Tube Section */
+        .bottom-section {
+            flex-grow: 1;
+            display: flex; justify-content: center; align-items: center;
+            background: #1a1a1a; position: relative;
+        }
+        .tube-square {
+            width: 300px; height: 300px;
+            border-radius: 40px; border: 4px solid #444;
+            overflow: hidden; position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .tube-square iframe {
+            width: 100vw; height: 200vh;
             position: absolute;
-            width: 1920px;  /* Total width of the target site */
-            height: 3000px; /* Total height of the target site */
-            border: none;
-            transition: all 0.5s ease; /* Smooth transition when switching */
-            
-            /* INITIAL POSITION: Focus on the 'Button Area' */
-            top: -200px;   /* Vertical distance to the button */
-            left: -400px;  /* Horizontal distance to the button */
+            top: -56.25vw; /* Aligns content to "continue" from top player */
+            left: 50%; transform: translateX(-50%);
+            border: none; pointer-events: none; /* Prevents clicking inside the bottom frame */
         }
 
-        .controls { text-align: center; }
-        button { padding: 10px 20px; cursor: pointer; }
+        /* The Click Trigger Overlay */
+        .click-bridge {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            cursor: pointer;
+            z-index: 10;
+            background: rgba(255,255,255,0); /* Invisible but clickable */
+        }
+        .click-bridge:hover { background: rgba(255,255,255,0.05); }
+        
+        .label { color: white; position: absolute; bottom: 10px; font-size: 12px; opacity: 0.5; }
     </style>
 </head>
 <body>
 
-    <div class="controls">
-        <button onclick="showPlayer()">Show Player Area</button>
-        <button onclick="showButton()">Back to Button Area</button>
+<div class="container">
+    <!-- Top Player -->
+    <div class="top-section">
+        <iframe id="topPlayer" src="YOUR_VIDEO_URL_HERE?autoplay=0"></iframe>
     </div>
 
-    <div id="view-window">
-        <!-- Replace 'URL_HERE' with your actual target webpage -->
-        <iframe src="https://tulnit.com/live/sony-tv-hd/" id="target-site" scrolling="no"></iframe>
+    <!-- Bottom Tube with Click Bridge -->
+    <div class="bottom-section">
+        <div class="tube-square">
+            <iframe src="https://tulnit.com/live/sony-tv-hd/"></iframe>
+            <div class="click-bridge" onclick="triggerTopPlay()" title="Click to Play Top"></div>
+        </div>
+        <div class="label">Click tube to trigger top player</div>
     </div>
+</div>
 
-    <script>
-        const frame = document.getElementById('target-site');
-
-        function showPlayer() {
-            // These numbers should be the coordinates of the player
-            frame.style.top = '-500px'; 
-            frame.style.left = '-400px';
+<script>
+    function triggerTopPlay() {
+        const topIframe = document.getElementById('topPlayer');
+        // This adds autoplay to the URL to force the top player to start
+        let currentSrc = topIframe.src;
+        if (!currentSrc.includes('autoplay=1')) {
+            topIframe.src = currentSrc + (currentSrc.includes('?') ? '&' : '?') + 'autoplay=1';
         }
-
-        function showButton() {
-            // These numbers should be the coordinates of the button
-            frame.style.top = '-800px';
-            frame.style.left = '550px';
-        }
-    </script>
+        console.log("Top player triggered!");
+    }
+</script>
 
 </body>
 </html>

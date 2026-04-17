@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stream Player - Auto Hide Tuner</title>
+    <title>Advanced Stream Aligner</title>
     
     <script src="https://unpkg.com"></script>
     <script type="module" src="https://unpkg.com"></script>
@@ -25,37 +25,45 @@
             background: #000;
         }
 
+        /* The container we move and scale */
         #frameMover {
-            position: absolute; width: 100%; height: 600%; top: -179px; left: 0%;
+            position: absolute; 
+            width: 100%; 
+            height: 600%; 
+            top: -179px; 
+            left: 0%;
+            transform-origin: top left; /* Ensures zoom happens from the corner */
+            transform: scale(1);
         }
 
         #captureFrame { width: 100%; height: 100%; border: none; }
 
-        /* Fine-Tune Tool Styling */
+        /* --- ADVANCED TUNER BOX --- */
         #tunerBox {
             position: fixed; bottom: 60px; left: 12px;
-            background: rgba(0, 0, 0, 0.85);
+            background: rgba(0, 0, 0, 0.9);
             border: 1px solid var(--primary);
-            padding: 12px; border-radius: 12px;
+            padding: 15px; border-radius: 12px;
             z-index: 10005; font-family: sans-serif;
-            color: white; display: flex; flex-direction: column; gap: 8px;
-            backdrop-filter: blur(5px);
+            color: white; display: flex; flex-direction: column; gap: 12px;
+            backdrop-filter: blur(8px);
             transition: opacity 0.5s ease;
         }
-        #tunerBox label { font-size: 12px; color: var(--primary); font-weight: bold; }
-        #tunerBox input { width: 160px; accent-color: var(--primary); }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-group label { font-size: 11px; color: var(--primary); text-transform: uppercase; letter-spacing: 1px; }
+        #tunerBox input { width: 180px; accent-color: var(--primary); }
 
         #lockLayer {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 9999; background: rgba(0,0,0,0.01); 
-            pointer-events: none; cursor: pointer;
+            pointer-events: none;
         }
         #lockLayer.active { pointer-events: all !important; }
 
         .click-hint {
             position: absolute; bottom: 60px; right: 15px;
             color: var(--primary); font-family: sans-serif; font-size: 11px;
-            z-index: 10000; pointer-events: none;
+            z-index: 10000;
         }
 
         #resetBtn {
@@ -80,11 +88,24 @@
 </head>
 <body>
 
-    <div id="ticker"><span>Use slider to align. Number will hide when locked.</span></div>
+    <div id="ticker"><span>Adjust Top, Left, and Zoom. Controls hide automatically when locked.</span></div>
 
+    <!-- Advanced Multi-Tuner -->
     <div id="tunerBox">
-        <label id="valDisplay">Top: -179px</label>
-        <input type="range" id="topSlider" min="-400" max="0" value="-179">
+        <div class="control-group">
+            <label id="lblTop">Top: -179px</label>
+            <input type="range" id="topSlider" min="-500" max="0" value="-179">
+        </div>
+        
+        <div class="control-group">
+            <label id="lblLeft">Left: 0px</label>
+            <input type="range" id="leftSlider" min="-200" max="200" value="0">
+        </div>
+
+        <div class="control-group">
+            <label id="lblZoom">Zoom: 100%</label>
+            <input type="range" id="zoomSlider" min="50" max="200" value="100">
+        </div>
     </div>
 
     <div class="viewport" id="playerWrapper">
@@ -100,15 +121,8 @@
 <script>
 (function() {
     const channelList = {
-        "1": "https://tulnit.com/live/shemaroo-filmi-gaane/",
-        "2": "https://tulnit.com/live/vision-punjab-tv-hd/", // Add your next URL here
-        "3": "https://tulnit.com/live/sony-pix-hd/",  // Add more as needed
-        "4": "https://tulnit.com/live/sony-max-hd-ind/",
-        "5": "https://tulnit.com/live/sony-pal/",
-        "6": "https://tulnit.com/live/bollywood-colors/",
-        "7": "https://tulnit.com/live/sony-tv-hd/",
-        "8": "https://tulnit.com/live/runn-action/",
-        "9": "https://tulnit.com/live/sony-sab-hd/"
+        "1": "https://tulnit.com",
+        "2": "https://tulnit.com"
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -116,8 +130,17 @@
     
     const iframe = document.getElementById('captureFrame');
     const mover = document.getElementById('frameMover');
-    const slider = document.getElementById('topSlider');
-    const display = document.getElementById('valDisplay');
+    
+    // Selectors for sliders
+    const topS = document.getElementById('topSlider');
+    const leftS = document.getElementById('leftSlider');
+    const zoomS = document.getElementById('zoomSlider');
+    
+    // Selectors for labels
+    const lblTop = document.getElementById('lblTop');
+    const lblLeft = document.getElementById('lblLeft');
+    const lblZoom = document.getElementById('lblZoom');
+
     const tuner = document.getElementById('tunerBox');
     const shield = document.getElementById('lockLayer');
     const status = document.getElementById('status');
@@ -125,12 +148,21 @@
 
     iframe.src = channelList[selectedID] || channelList["1"];
 
-    // Slider Logic
-    slider.addEventListener('input', function() {
-        const newVal = this.value + "px";
-        mover.style.top = newVal;
-        display.innerText = "Top: " + newVal;
-    });
+    // Update Function
+    function updateLayout() {
+        mover.style.top = topS.value + "px";
+        mover.style.left = leftS.value + "px";
+        mover.style.transform = `scale(${zoomS.value / 100})`;
+        
+        lblTop.innerText = `Top: ${topS.value}px`;
+        lblLeft.innerText = `Left: ${leftS.value}px`;
+        lblZoom.innerText = `Zoom: ${zoomS.value}%`;
+    }
+
+    // Listeners
+    topS.addEventListener('input', updateLayout);
+    leftS.addEventListener('input', updateLayout);
+    zoomS.addEventListener('input', updateLayout);
 
     // Lock Logic
     let clickCount = 0;
@@ -142,8 +174,8 @@
         locked = true;
         shield.classList.add('active');
         status.innerText = "LOCKED";
-        tuner.style.opacity = "0"; // Fade out
-        setTimeout(() => { tuner.style.display = "none"; }, 500); // Remove from view
+        tuner.style.opacity = "0";
+        setTimeout(() => { tuner.style.display = "none"; }, 500);
     }
 
     wrapper.addEventListener('click', function() {
@@ -154,10 +186,24 @@
         if (clickCount >= maxClicks) lockPlayer();
     });
 
-    // Auto-lock after 60 seconds
     setTimeout(lockPlayer, 60000);
-
 })();
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

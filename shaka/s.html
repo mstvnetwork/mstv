@@ -3,19 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Multi-Channel Mobile Stream</title>
+    <title>Multi-Channel Pro Player</title>
     
-    <!-- Required Libraries for Iframe Bypass -->
     <script src="https://unpkg.com"></script>
     <script type="module" src="https://unpkg.com"></script>
 
     <style>
         :root { --primary: #00ffA0; }
         body, html {
-            margin: 0; padding: 0;
-            width: 100%; height: 100%;
-            background: #000;
-            display: flex; align-items: center; justify-content: center;
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: #000; display: flex; align-items: center; justify-content: center;
             overflow: hidden;
         }
 
@@ -26,60 +23,38 @@
             background: #000;
         }
 
+        /* frameMover is now controlled by JavaScript below */
         #frameMover {
-            position: absolute; width: 100%; height: 270%; top: -183px; left: 0%;
+            position: absolute; width: 100%; left: 0;
         }
 
-        #captureFrame {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
+        #captureFrame { width: 100%; height: 100%; border: none; }
 
         #lockLayer {
-            position: absolute;
-            top: 0; left: 0; 
-            width: 100%; height: 100%;
-            z-index: 9999; 
-            background: rgba(0,0,0,0.01); 
-            pointer-events: none; 
-            cursor: pointer;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 9999; background: rgba(0,0,0,0.01); 
+            pointer-events: none; cursor: pointer;
         }
 
-        #lockLayer.active {
-            pointer-events: all !important;
-            cursor: default;
-        }
+        #lockLayer.active { pointer-events: all !important; cursor: default; }
 
         .click-hint {
             position: absolute; bottom: 60px; right: 15px;
-            color: var(--primary);
-            font-family: sans-serif;
-            font-size: 12px;
-            z-index: 10000;
-            pointer-events: none;
-            opacity: 0.7;
+            color: var(--primary); font-family: sans-serif; font-size: 12px;
+            z-index: 10000; pointer-events: none; opacity: 0.7;
         }
 
         #resetBtn {
             position: fixed; bottom: 12px; right: 12px;
-            padding: 8px 15px;
-            background: rgba(0, 255, 160, 0.15);
-            color: #00ffa0;
-            border: 1px solid rgba(0, 255, 160, 0.6);
-            border-radius: 30px;
-            font-family: sans-serif;
-            font-size: 14px;
-            backdrop-filter: blur(10px);
-            cursor: pointer;
-            z-index: 10002;
+            padding: 8px 15px; background: rgba(0, 255, 160, 0.15);
+            color: #00ffa0; border: 1px solid rgba(0, 255, 160, 0.6);
+            border-radius: 30px; font-family: sans-serif; font-size: 14px;
+            backdrop-filter: blur(10px); cursor: pointer; z-index: 10002;
         }
 
         #ticker {
-            position: absolute; top: 0px; left: 0;
-            width: 100%; background: transparent;
-            overflow: hidden; white-space: nowrap;
-            z-index: 10000; padding: 11px 0;
+            position: absolute; top: 0px; left: 0; width: 100%;
+            z-index: 10000; padding: 11px 0; overflow: hidden;
         }
 
         #ticker span {
@@ -88,26 +63,19 @@
             color: #ff3b3b; font-family: sans-serif; font-size: 14px;
         }
 
-        @keyframes scroll {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-100%); }
-        }
-
-        #fallback {
-            display: none; text-align: center; color: #fff; font-family: sans-serif;
-        }
+        @keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+        #fallback { display: none; text-align: center; color: #fff; font-family: sans-serif; }
     </style>
 </head>
 <body>
 
     <div class="viewport" id="playerWrapper">
         <div id="lockLayer"></div>
-        <div id="ticker"><span> Click play button 3-4 times. अगर क्लिक न हो तो रिफ्रेश बटन दबाएं। </span></div>
+        <div id="ticker"><span> Click play button 3-4 times. Refresh if it fails. </span></div>
         <div id="status" class="click-hint"></div>
         <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
         <div id="frameMover">
-            <!-- The SRC is handled by the script below -->
             <iframe id="captureFrame" is="x-frame-bypass" src="" scrolling="no"></iframe>
         </div>
     </div>
@@ -119,66 +87,66 @@
 
 <script>
 (function() {
-    // --- 1. CHANNEL CONFIGURATION ---
+    // --- 1. CONFIGURATION (Edit this) ---
     const channels = {
-        "1": "https://tv-shihab.xyz/live/sony-ten-1/",
-        "2": "https://tv-shihab.xyz",
-        "3": "https://tv-shihab.xyz",
-        "4": "https://tv-shihab.xyz"
+        "1": {
+            url: "https://tv-shihab.xyz/live/sony-ten-1/",
+            top: "-183px",   // Moves the site UP to hide the header
+            height: "270%"   // Makes the iframe taller to fit the player
+        },
+        "2": {
+            url: "https://tv-shihab.xyz",
+            top: "-150px",   // Example adjustment
+            height: "250%"
+        },
+        "3": {
+            url: "https://tv-shihab.xyz",
+            top: "-200px",
+            height: "300%"
+        }
     };
 
-    // --- 2. URL PARAMETER LOGIC ---
+    // --- 2. LOGIC ---
     const urlParams = new URLSearchParams(window.location.search);
-    const ch = urlParams.get('ch') || "1"; // Default to 1 if no ?ch= is found
-    const targetUrl = channels[ch] || channels["1"];
-    
-    const iframe = document.getElementById('captureFrame');
-    iframe.src = targetUrl;
+    const ch = urlParams.get('ch') || "1";
+    const config = channels[ch] || channels["1"];
 
-    // --- 3. MOBILE CHECK ---
+    // Apply URL
+    const iframe = document.getElementById('captureFrame');
+    iframe.src = config.url;
+
+    // Apply Custom Positioning for this channel
+    const mover = document.getElementById('frameMover');
+    mover.style.top = config.top;
+    mover.style.height = config.height;
+
+    // --- 3. MOBILE & LOCK LOGIC ---
     function isAllowedDevice() {
-        const ua = navigator.userAgent || navigator.vendor || window.opera;
-        return /iPhone|iPad|iPod|Android/i.test(ua);
+        return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     }
 
     if (!isAllowedDevice()) {
-        const wrapper = document.getElementById('playerWrapper');
-        const fallback = document.getElementById('fallback');
-        if (wrapper) wrapper.remove();
-        if (fallback) fallback.style.display = 'block';
+        document.getElementById('playerWrapper').remove();
+        document.getElementById('fallback').style.display = 'block';
         return;
     }
 
-    // --- 4. CLICK LOCK LOGIC ---
     document.addEventListener("DOMContentLoaded", function() {
         const wrapper = document.getElementById('playerWrapper');
         const shield = document.getElementById('lockLayer');
         const status = document.getElementById('status');
-        
         let clickCount = 0;
         const maxClicks = 4;
-        let locked = false;
-
-        function lockPlayer() {
-            shield.classList.add('active');
-            status.innerText = "CONTROLS LOCKED";
-            locked = true;
-        }
 
         wrapper.addEventListener('click', function() {
-            if (locked) return;
             clickCount++;
             let remaining = maxClicks - clickCount;
-            if (remaining > 0) {
-                status.innerText = `Setup Mode: ${remaining} clicks left`;
-            }
+            if (remaining > 0) status.innerText = `Setup: ${remaining} clicks left`;
             if (clickCount >= maxClicks) {
-                lockPlayer();
+                shield.classList.add('active');
+                status.innerText = "LOCKED";
             }
         });
-
-        // Fail-safe lock after 30 seconds
-        setTimeout(lockPlayer, 30000);
     });
 })();
 </script>

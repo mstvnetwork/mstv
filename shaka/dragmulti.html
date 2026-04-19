@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Ad-Blocked Multi-Channel Stream</title>
+    <title>Clean Stream Player</title>
     
     <script src="https://unpkg.com"></script>
     <script type="module" src="https://unpkg.com"></script>
@@ -14,93 +14,78 @@
         .viewport { width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; overflow: hidden; position: relative; border: 4px solid var(--primary); border-radius: 12px; background: #000; }
         #frameMover { position: absolute; width: 100%; left: 0; }
         #captureFrame { width: 100%; height: 100%; border: none; }
-        #lockLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: rgba(0,0,0,0.01); pointer-events: none; }
+        
+        /* The Overlay Cleaner: Prevents invisible layers from stealing clicks */
+        .no-pointer { pointer-events: none !important; display: none !important; }
+
+        #lockLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: rgba(0,0,0,0); pointer-events: none; }
         #lockLayer.active { pointer-events: all !important; }
-        .click-hint { position: absolute; bottom: 60px; right: 15px; color: var(--primary); font-family: sans-serif; font-size: 12px; z-index: 10000; pointer-events: none; opacity: 0.7; }
-        #resetBtn { position: fixed; bottom: 12px; right: 12px; padding: 8px 15px; background: rgba(0, 255, 160, 0.15); color: #00ffa0; border: 1px solid rgba(0, 255, 160, 0.6); border-radius: 30px; font-family: sans-serif; font-size: 14px; backdrop-filter: blur(10px); cursor: pointer; z-index: 10002; }
-        #ticker { position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.4); z-index: 10000; padding: 10px 0; overflow: hidden; white-space: nowrap; }
+        #ticker { position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.6); z-index: 10000; padding: 10px 0; overflow: hidden; white-space: nowrap; }
         #ticker span { display: inline-block; padding-left: 100%; animation: ticker-scroll 15s linear infinite; color: #ff3b3b; font-family: sans-serif; font-size: 14px; font-weight: bold; }
         @keyframes ticker-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-        #fallback { display: none; text-align: center; color: #fff; font-family: sans-serif; }
+        #resetBtn { position: fixed; bottom: 12px; right: 12px; padding: 8px 15px; background: rgba(0, 255, 160, 0.2); color: #00ffa0; border: 1px solid #00ffa0; border-radius: 30px; z-index: 10002; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <div class="viewport" id="playerWrapper">
-        <div id="ticker"><span>Click play 3-4 times. Popups are automatically blocked.</span></div>
+        <div id="ticker"><span>Pop-ups Blocked. Click Play. If video doesn't load, use Refresh button.</span></div>
         <div id="lockLayer"></div>
-        <div id="status" class="click-hint"></div>
         <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
         <div id="frameMover">
-            <iframe id="captureFrame" 
-                    is="x-frame-bypass" 
-                    sandbox="allow-forms allow-scripts allow-same-origin allow-top-navigation-by-user-activation"
-                    src="" 
-                    scrolling="no">
-            </iframe>
+            <iframe id="captureFrame" is="x-frame-bypass" src="" scrolling="no"></iframe>
         </div>
     </div>
 
-    <div id="fallback"><h2>Mobile Device Required</h2><p>Please open on Android or iOS.</p></div>
-
 <script>
 (function() {
+    // 1. POP-UP KILLER (Global)
+    window.open = function() { return null; }; // Disables window.open entirely
+
     const channels = {
         "1": { url: "https://tv-shihab.xyz/live/sony-ten-1/", top: "-183px", height: "270%" },
-        "2": { url: "https://tv-shihab.xyz/live/sony-ten-2/", top: "-160px", height: "250%" }
+        "2": { url: "https://tv-shihab.xyz", top: "-160px", height: "250%" }
     };
 
     const urlParams = new URLSearchParams(window.location.search);
-    const ch = urlParams.get('ch') || "1";
-    const config = channels[ch] || channels["1"];
-    
+    const config = channels[urlParams.get('ch')] || channels["1"];
     const iframe = document.getElementById('captureFrame');
     const mover = document.getElementById('frameMover');
+
     iframe.src = config.url;
     mover.style.top = config.top;
     mover.style.height = config.height;
 
-    // --- MUTATION OBSERVER AD BLOCKER ---
-    function startAdScrubber() {
+    // 2. AGGRESSIVE AD SCRUBBER (MutationObserver)
+    function cleanIframe() {
         try {
-            const frameDoc = iframe.contentDocument || iframe.contentWindow.document;
-            const adSelectors = ['.adsbygoogle', '.mgbox', '.inRek', 'iframe[src*="doubleclick"]', 'div[class*="popup"]', 'div[style*="z-index: 2147483647"]'];
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Kill internal popups
+            iframe.contentWindow.open = function() { return null; };
 
-            // Function to delete ads
-            const deleteAds = (root) => {
-                adSelectors.forEach(s => root.querySelectorAll(s).forEach(el => el.remove()));
-            };
-
-            // Observer to watch for new ads appearing
-            const observer = new MutationObserver((mutations) => {
-                mutations.forEach(() => deleteAds(frameDoc));
+            const observer = new MutationObserver(() => {
+                // Target: High z-index overlays and known ad classes
+                const items = doc.querySelectorAll('div[style*="z-index"], [class*="popup"], [id*="ad"], .mgbox, .inRek');
+                items.forEach(el => {
+                    // If it's a giant invisible box, kill its ability to be clicked
+                    const style = window.getComputedStyle(el);
+                    if (parseInt(style.zIndex) > 100 || el.style.position === 'fixed') {
+                        el.remove();
+                    }
+                });
             });
 
-            observer.observe(frameDoc.body, { childList: true, subtree: true });
-            deleteAds(frameDoc); // Initial scrub
-        } catch (e) { console.warn("Ad scrubber failed due to security restrictions."); }
+            observer.observe(doc.body, { childList: true, subtree: true });
+        } catch (e) {}
     }
 
-    iframe.addEventListener('load', startAdScrubber);
+    iframe.addEventListener('load', cleanIframe);
 
-    // --- MOBILE & LOCK LOGIC ---
-    if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        document.getElementById('playerWrapper').remove();
-        document.getElementById('fallback').style.display = 'block';
-        return;
-    }
-
-    document.addEventListener("DOMContentLoaded", () => {
-        const shield = document.getElementById('lockLayer');
-        const status = document.getElementById('status');
-        let clicks = 0;
-        document.getElementById('playerWrapper').addEventListener('click', () => {
-            clicks++;
-            if (clicks < 4) status.innerText = `Setup: ${4 - clicks} clicks left`;
-            if (clicks >= 4) { shield.classList.add('active'); status.innerText = "LOCKED"; }
-        });
-    });
+    // 3. AUTO-LOCK (Optional)
+    // Removed the "click 4 times" requirement so you can try to hit Play immediately.
+    // The pop-up killer should handle the accidental clicks.
 })();
 </script>
 </body>

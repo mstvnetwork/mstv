@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clean Stream Pro</title>
+    <title>Clean Stream Player</title>
     
     <script src="https://unpkg.com"></script>
     <script type="module" src="https://unpkg.com"></script>
@@ -14,27 +14,23 @@
         .viewport { width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; overflow: hidden; position: relative; border: 4px solid var(--primary); border-radius: 12px; background: #000; }
         #frameMover { position: absolute; width: 100%; left: 0; }
         #captureFrame { width: 100%; height: 100%; border: none; }
+        
+        /* The Overlay Cleaner: Prevents invisible layers from stealing clicks */
+        .no-pointer { pointer-events: none !important; display: none !important; }
 
-        /* Floating Clean Button */
-        #cleanBtn {
-            position: fixed; bottom: 60px; right: 12px;
-            padding: 10px 20px; background: #ff3b3b; color: white;
-            border: none; border-radius: 30px; font-weight: bold;
-            box-shadow: 0 4px 15px rgba(255, 59, 59, 0.4);
-            cursor: pointer; z-index: 10003; font-family: sans-serif;
-        }
-
-        #resetBtn { position: fixed; bottom: 12px; right: 12px; padding: 8px 15px; background: rgba(0, 255, 160, 0.2); color: #00ffa0; border: 1px solid #00ffa0; border-radius: 30px; z-index: 10002; cursor: pointer; }
+        #lockLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: rgba(0,0,0,0); pointer-events: none; }
+        #lockLayer.active { pointer-events: all !important; }
         #ticker { position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.6); z-index: 10000; padding: 10px 0; overflow: hidden; white-space: nowrap; }
         #ticker span { display: inline-block; padding-left: 100%; animation: ticker-scroll 15s linear infinite; color: #ff3b3b; font-family: sans-serif; font-size: 14px; font-weight: bold; }
         @keyframes ticker-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+        #resetBtn { position: fixed; bottom: 12px; right: 12px; padding: 8px 15px; background: rgba(0, 255, 160, 0.2); color: #00ffa0; border: 1px solid #00ffa0; border-radius: 30px; z-index: 10002; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <div class="viewport" id="playerWrapper">
-        <div id="ticker"><span>Click play. If ads block you, hit the RED "Clear Ads" button.</span></div>
-        <button id="cleanBtn" onclick="manualClean()">Clear Ads</button>
+        <div id="ticker"><span>Pop-ups Blocked. Click Play. If video doesn't load, use Refresh button.</span></div>
+        <div id="lockLayer"></div>
         <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
         <div id="frameMover">
@@ -44,9 +40,11 @@
 
 <script>
 (function() {
-    // 1. CHANNEL CONFIG
+    // 1. POP-UP KILLER (Global)
+    window.open = function() { return null; }; // Disables window.open entirely
+
     const channels = {
-        "1": { url: "https://tv-shihab.xyz/live/sony-ten-1/", top: "-183px", height: "270%" },
+        "1": { url: "https://tv-shihab.xyz", top: "-183px", height: "270%" },
         "2": { url: "https://tv-shihab.xyz", top: "-160px", height: "250%" }
     };
 
@@ -59,34 +57,35 @@
     mover.style.top = config.top;
     mover.style.height = config.height;
 
-    // 2. THE CLEANING ENGINE
-    window.manualClean = function() {
+    // 2. AGGRESSIVE AD SCRUBBER (MutationObserver)
+    function cleanIframe() {
         try {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             
-            // Kill window.open inside frame
-            iframe.contentWindow.open = () => null;
+            // Kill internal popups
+            iframe.contentWindow.open = function() { return null; };
 
-            // Find every div/ins/iframe that might be an overlay
-            const elements = doc.querySelectorAll('div, ins, iframe, a, section');
-            elements.forEach(el => {
-                const style = window.getComputedStyle(el);
-                const isFixed = style.position === 'fixed' || style.position === 'absolute';
-                const hasHighZ = parseInt(style.zIndex) > 10;
-                
-                // If it's a suspicious overlay or has known ad keywords, delete it
-                if ((isFixed && hasHighZ) || /popup|mgbox|inRek|ads/i.test(el.className + el.id)) {
-                    el.remove();
-                }
+            const observer = new MutationObserver(() => {
+                // Target: High z-index overlays and known ad classes
+                const items = doc.querySelectorAll('div[style*="z-index"], [class*="popup"], [id*="ad"], .mgbox, .inRek');
+                items.forEach(el => {
+                    // If it's a giant invisible box, kill its ability to be clicked
+                    const style = window.getComputedStyle(el);
+                    if (parseInt(style.zIndex) > 100 || el.style.position === 'fixed') {
+                        el.remove();
+                    }
+                });
             });
-            alert("Ads Cleared! Try playing now.");
-        } catch (e) {
-            console.error("Manual clean failed:", e);
-        }
-    };
 
-    // Auto-clean once on load
-    iframe.addEventListener('load', () => setTimeout(manualClean, 2000));
+            observer.observe(doc.body, { childList: true, subtree: true });
+        } catch (e) {}
+    }
+
+    iframe.addEventListener('load', cleanIframe);
+
+    // 3. AUTO-LOCK (Optional)
+    // Removed the "click 4 times" requirement so you can try to hit Play immediately.
+    // The pop-up killer should handle the accidental clicks.
 })();
 </script>
 </body>

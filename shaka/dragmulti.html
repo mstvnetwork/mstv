@@ -1,91 +1,154 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clean Stream Player</title>
+    <title>Pro Stream Player - AdFree</title>
     
+    <!-- Required for bypassing Iframe restrictions -->
     <script src="https://unpkg.com"></script>
     <script type="module" src="https://unpkg.com"></script>
 
     <style>
-        :root { --primary: #00ffA0; }
+        :root { --primary: #00ffA0; --danger: #ff3b3b; }
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        .viewport { width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; overflow: hidden; position: relative; border: 4px solid var(--primary); border-radius: 12px; background: #000; }
-        #frameMover { position: absolute; width: 100%; left: 0; }
-        #captureFrame { width: 100%; height: 100%; border: none; }
         
-        /* The Overlay Cleaner: Prevents invisible layers from stealing clicks */
-        .no-pointer { pointer-events: none !important; display: none !important; }
+        /* The main container */
+        .viewport { 
+            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
+            overflow: hidden; position: relative; 
+            border: 3px solid var(--primary); border-radius: 12px; 
+            background: #000; 
+        }
 
-        #lockLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: rgba(0,0,0,0); pointer-events: none; }
-        #lockLayer.active { pointer-events: all !important; }
-        #ticker { position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.6); z-index: 10000; padding: 10px 0; overflow: hidden; white-space: nowrap; }
-        #ticker span { display: inline-block; padding-left: 100%; animation: ticker-scroll 15s linear infinite; color: #ff3b3b; font-family: sans-serif; font-size: 14px; font-weight: bold; }
+        /* The mover handles Zoom and Position */
+        #frameMover { 
+            position: absolute; width: 100%; left: 0; 
+            transition: transform 0.3s ease; /* Smooth zoom transition */
+        }
+
+        #captureFrame { width: 100%; height: 100%; border: none; }
+
+        /* UI Elements */
+        #ticker { 
+            position: absolute; top: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.7); z-index: 10000; padding: 10px 0; 
+            overflow: hidden; white-space: nowrap; 
+        }
+        #ticker span { 
+            display: inline-block; padding-left: 100%; 
+            animation: ticker-scroll 18s linear infinite; 
+            color: var(--danger); font-family: sans-serif; font-size: 14px; font-weight: bold; 
+        }
         @keyframes ticker-scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
-        #resetBtn { position: fixed; bottom: 12px; right: 12px; padding: 8px 15px; background: rgba(0, 255, 160, 0.2); color: #00ffa0; border: 1px solid #00ffa0; border-radius: 30px; z-index: 10002; cursor: pointer; }
+
+        #cleanBtn { 
+            position: fixed; bottom: 65px; right: 15px; 
+            padding: 10px 18px; background: var(--danger); color: white; 
+            border: none; border-radius: 30px; font-weight: bold; 
+            box-shadow: 0 4px 15px rgba(255, 59, 59, 0.4); 
+            cursor: pointer; z-index: 10003; font-family: sans-serif; font-size: 12px;
+        }
+
+        #resetBtn { 
+            position: fixed; bottom: 15px; right: 15px; 
+            padding: 10px 18px; background: rgba(0, 255, 160, 0.2); 
+            color: var(--primary); border: 1px solid var(--primary); 
+            border-radius: 30px; z-index: 10002; cursor: pointer; font-size: 12px;
+        }
+
+        #fallback { display: none; text-align: center; color: #fff; font-family: sans-serif; padding: 20px; }
     </style>
 </head>
 <body>
 
     <div class="viewport" id="playerWrapper">
-        <div id="ticker"><span>Pop-ups Blocked. Click Play. If video doesn't load, use Refresh button.</span></div>
-        <div id="lockLayer"></div>
-        <button id="resetBtn" onclick="location.reload()">Refresh</button>
+        <div id="ticker"><span>POP-UPS BLOCKED. Click play button. If ads overlap, use the RED "Clear Ads" button. </span></div>
+        <button id="cleanBtn" onclick="manualClean()">CLEAR ADS</button>
+        <button id="resetBtn" onclick="location.reload()">REFRESH</button>
 
         <div id="frameMover">
             <iframe id="captureFrame" is="x-frame-bypass" src="" scrolling="no"></iframe>
         </div>
     </div>
 
+    <div id="fallback">
+        <h2>Mobile View Required</h2>
+        <p>Please open this link on a mobile device or use 'Inspect Element' mobile mode.</p>
+    </div>
+
 <script>
 (function() {
-    // 1. POP-UP KILLER (Global)
-    window.open = function() { return null; }; // Disables window.open entirely
-
+    // --- 1. CHANNEL & ZOOM CONFIGURATION ---
+    // Increase 'scale' to zoom in and hide ads on the edges.
     const channels = {
-        "1": { url: "https://tv-shihab.xyz/live/sony-ten-1/", top: "-200px", height: "270%" },
-        "2": { url: "https://tv-shihab.xyz", top: "-160px", height: "250%" }
+        "1": { url: "https://tv-shihab.xyz/live/sony-ten-1/", top: "-200px", scale: "1.1", height: "270%" },
+        "2": { url: "https://tv-shihab.xyz", top: "-150px", scale: "1.2", height: "250%" },
+        "3": { url: "https://tv-shihab.xyz", top: "-190px", scale: "1.15", height: "280%" }
     };
 
     const urlParams = new URLSearchParams(window.location.search);
-    const config = channels[urlParams.get('ch')] || channels["1"];
+    const ch = urlParams.get('ch') || "1";
+    const config = channels[ch] || channels["1"];
+
     const iframe = document.getElementById('captureFrame');
     const mover = document.getElementById('frameMover');
 
+    // Apply Settings
     iframe.src = config.url;
     mover.style.top = config.top;
     mover.style.height = config.height;
+    mover.style.transform = `scale(${config.scale})`;
+    mover.style.transformOrigin = "top center";
 
-    // 2. AGGRESSIVE AD SCRUBBER (MutationObserver)
-    function cleanIframe() {
+    // --- 2. THE NUCLEAR AD-BLOCKING ENGINE ---
+    window.manualClean = function() {
         try {
             const doc = iframe.contentDocument || iframe.contentWindow.document;
             
             // Kill internal popups
             iframe.contentWindow.open = function() { return null; };
+            iframe.contentWindow.alert = function() { return null; };
 
-            const observer = new MutationObserver(() => {
-                // Target: High z-index overlays and known ad classes
-                const items = doc.querySelectorAll('div[style*="z-index"], [class*="popup"], [id*="ad"], .mgbox, .inRek');
-                items.forEach(el => {
-                    // If it's a giant invisible box, kill its ability to be clicked
-                    const style = window.getComputedStyle(el);
-                    if (parseInt(style.zIndex) > 100 || el.style.position === 'fixed') {
-                        el.remove();
+            // Scan and Destroy
+            const adSelectors = ['div[style*="z-index"]', '[class*="popup"]', '[id*="ad"]', '.mgbox', '.inRek', 'ins', 'iframe:not(#captureFrame)'];
+            
+            const scrub = (root) => {
+                // 1. Remove by Selector
+                adSelectors.forEach(s => root.querySelectorAll(s).forEach(el => el.remove()));
+                
+                // 2. Remove by Behavior (Fixed/Invisible overlays)
+                root.querySelectorAll('div').forEach(div => {
+                    const s = window.getComputedStyle(div);
+                    if (parseInt(s.zIndex) > 100 || (s.position === 'fixed' && div.offsetWidth > 100)) {
+                        div.remove();
                     }
                 });
-            });
+            };
 
-            observer.observe(doc.body, { childList: true, subtree: true });
-        } catch (e) {}
+            scrub(doc);
+            console.log("Cleanup engine executed.");
+        } catch (e) {
+            console.warn("Clean failed: Cross-origin or loading issue.");
+        }
+    };
+
+    // --- 3. AUTO-PROTECTION ---
+    // Block popups on the main window
+    window.open = function() { return null; };
+
+    // Run scrubber when iframe loads and again after 3 seconds for delayed ads
+    iframe.addEventListener('load', () => {
+        setTimeout(manualClean, 1000);
+        setTimeout(manualClean, 4000);
+    });
+
+    // --- 4. MOBILE CHECK ---
+    if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        // Only enforce for actual users, you can comment this out for desktop testing
+        // document.getElementById('playerWrapper').remove();
+        // document.getElementById('fallback').style.display = 'block';
     }
-
-    iframe.addEventListener('load', cleanIframe);
-
-    // 3. AUTO-LOCK (Optional)
-    // Removed the "click 4 times" requirement so you can try to hit Play immediately.
-    // The pop-up killer should handle the accidental clicks.
 })();
 </script>
 </body>

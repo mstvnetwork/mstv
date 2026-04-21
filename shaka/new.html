@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TOFFEE Sports VIP Player</title>
+    <!-- Loading the HLS.js library to handle the .m3u8 stream -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { 
+            background: #121212; 
+            color: white; 
+            font-family: sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+        }
+        .container { width: 90%; max-width: 800px; text-align: center; }
+        video { width: 100%; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); background: #000; }
+        .info { margin-top: 15px; display: flex; align-items: center; justify-content: center; gap: 15px; }
+        img { width: 50px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <video id="video" controls preload="auto"></video>
+    <div class="info">
+        <img src="https://images.toffeelive.com/images/program/19779/logo/240x240/mobile_logo_975410001725875598.png" alt="Logo">
+        <h2>TOFFEE Sports VIP</h2>
+    </div>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const streamUrl = "https://bldcmprod-cdn.toffeelive.com/cdn/live/sports_highlights/playlist.m3u8";
+  const authCookie = "Edge-Cache-Cookie=URLPrefix=aHR0cHM6Ly9ibGRjbXByb2QtY2RuLnRvZmZlZWxpdmUuY29t:Expires=1775818837:KeyName=prod_linear:Signature=GjlF_itApgqpIoIuiai2a8zGYx2HWPJxe7JXOwEgroVLxkSCCtmJW8fLFWMhT-0jA2cyyYXqYY8Navlu07JoDg";
+
+  if (Hls.isSupported()) {
+    const hls = new Hls({
+        xhrSetup: function (xhr, url) {
+            // This attaches the security cookie to every segment request
+            xhr.withCredentials = true; 
+            xhr.setRequestHeader('Cookie', authCookie);
+        }
+    });
+    
+    hls.loadSource(streamUrl);
+    hls.attachMedia(video);
+    
+    hls.on(Hls.Events.MANIFEST_PARSED, function() {
+        console.log("Stream loaded, starting playback...");
+        video.play();
+    });
+
+    // Error handling
+    hls.on(Hls.Events.ERROR, function (event, data) {
+        if (data.fatal) {
+            switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                    console.error("Network error - likely CORS or Cookie expired.");
+                    hls.startLoad();
+                    break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                    console.error("Media error - trying to recover...");
+                    hls.recoverMediaError();
+                    break;
+                default:
+                    hls.destroy();
+                    break;
+            }
+        }
+    });
+  } 
+  else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Basic support for Safari/iOS
+    video.src = streamUrl;
+  }
+</script>
+
+</body>
+</html>

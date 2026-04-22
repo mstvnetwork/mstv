@@ -1,36 +1,78 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Live Stream Player</title>
-    <script src="https://jsdelivr.net"></script>
-    <style>
-        video { width: 100%; max-width: 800px; background: black; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>Secure Player</title>
+
+<style>
+body{
+  margin:0;
+  background:#000;
+}
+
+.player-wrapper{
+  position:relative;
+  width:100%;
+  height:100vh;
+  overflow:hidden;
+}
+
+/* Invisible click shield (anti popup trick) */
+.click-shield{
+  position:absolute;
+  inset:0;
+  z-index:5;
+  background:transparent;
+}
+</style>
 </head>
 <body>
-    <video id="video" controls autoplay></video>
 
-    <script>
-        const video = document.getElementById('video');
-        const streamUrl = 'https://vg-republictvlive.akamaized.net/v1/master/611d79b11b77e2f571934fd80ca1413453772ac7/f12a937b-1d7a-473e-ace1-cf53818bb5a5/main.m3u8?hdnts=st%3D1775690544~exp%3D1775712144~acl%3D%21%2A%2Fv1%2Fmaster%2F611d79b11b77e2f571934fd80ca1413453772ac7%2Ff12a937b-1d7a-473e-ace1-cf53818bb5a5%2F%2A%21%2Fpayload%2Fyupptvott_5_-1_7c03c72952b44aa4_DE_64.236.192.145_yuppfast_2_channel_19_-1%2F%2A~data%3Dyupptvott_5_-1_7c03c72952b44aa4_DE_64.236.192.145_yuppfast_2_channel_19_-1~hmac%3D14f85526c2a400c242ee16eb7d2ebd8af6cae9fa0bd3adcebec0a92dba047fb4';
-        
-        // Browsers block custom User-Agents, so we prefix with a proxy
-        const proxiedUrl = 'https://corsproxy.io/?url=' + encodeURIComponent(streamUrl);
+<div class="player-wrapper">
 
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                xhrSetup: function (xhr) {
-                    // Note: Browsers may still block 'User-Agent' even with a proxy
-                    // because it is a "forbidden header".
-                    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-                }
-            });
-            hls.loadSource(proxiedUrl);
-            hls.attachMedia(video);
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = streamUrl;
-        }
-    </script>
+  <iframe
+    id="videoFrame"
+    src="https://tulnit.com/live/sony-tv-hd/"
+    sandbox="allow-scripts allow-same-origin allow-forms"
+    allowfullscreen
+    referrerpolicy="no-referrer"
+    style="width:100%;height:100%;border:none;">
+  </iframe>
+
+  <div class="click-shield" id="shield"></div>
+
+</div>
+
+<script>
+
+// 🔥 1. Block popup
+window.open = function(){
+  console.log("Popup blocked");
+  return null;
+};
+
+// 🔥 2. Block top redirect
+try {
+  Object.defineProperty(window, "location", {
+    writable: false
+  });
+} catch(e){}
+
+// 🔥 3. Remove shield after user interacts once
+// (Many ad sites need first click to trigger popup)
+document.getElementById("shield").addEventListener("click", function(){
+  this.style.display = "none";
+});
+
+// 🔥 4. Extra safety — detect navigation attempt
+window.addEventListener("beforeunload", function(e){
+  e.preventDefault();
+  e.returnValue = '';
+});
+
+</script>
+
 </body>
 </html>
-

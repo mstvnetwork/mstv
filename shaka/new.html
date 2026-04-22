@@ -1,78 +1,30 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<title>Secure Player</title>
-
-<style>
-body{
-  margin:0;
-  background:#000;
-}
-
-.player-wrapper{
-  position:relative;
-  width:100%;
-  height:100vh;
-  overflow:hidden;
-}
-
-/* Invisible click shield (anti popup trick) */
-.click-shield{
-  position:absolute;
-  inset:0;
-  z-index:5;
-  background:transparent;
-}
-</style>
+    <title>HLS Video Player</title>
+    <!-- Include HLS.js from a CDN -->
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { display: flex; justify-content: center; background: #000; }
+        video { width: 80%; max-width: 800px; margin-top: 50px; }
+    </style>
 </head>
 <body>
+    <video id="video" controls></video>
 
-<div class="player-wrapper">
+    <script>
+        var video = document.getElementById('video');
+        var videoSrc = 'https://s2.videoapne.to/hls/bdohw76l7bboxuzvta2p4cyp36s22nkfkzfj2td7rcuiygxleqtbgfn35mwq/index-v1-a1.m3u8';
 
-  <iframe
-    id="videoFrame"
-    src="https://footfy.space/live/ipl-2026/"
-    sandbox="allow-scripts allow-same-origin allow-forms"
-    allowfullscreen
-    referrerpolicy="no-referrer"
-    style="width:100%;height:100%;border:none;">
-  </iframe>
-
-  <div class="click-shield" id="shield"></div>
-
-</div>
-
-<script>
-
-// 🔥 1. Block popup
-window.open = function(){
-  console.log("Popup blocked");
-  return null;
-};
-
-// 🔥 2. Block top redirect
-try {
-  Object.defineProperty(window, "location", {
-    writable: false
-  });
-} catch(e){}
-
-// 🔥 3. Remove shield after user interacts once
-// (Many ad sites need first click to trigger popup)
-document.getElementById("shield").addEventListener("click", function(){
-  this.style.display = "none";
-});
-
-// 🔥 4. Extra safety — detect navigation attempt
-window.addEventListener("beforeunload", function(e){
-  e.preventDefault();
-  e.returnValue = '';
-});
-
-</script>
-
+        if (Hls.isSupported()) {
+            var hls = new Hls();
+            hls.loadSource(videoSrc);
+            hls.attachMedia(video);
+        }
+        // Native support for Safari
+        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = videoSrc;
+        }
+    </script>
 </body>
 </html>

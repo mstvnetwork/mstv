@@ -121,31 +121,16 @@ header h2 { font-size: 1rem; color: #ccc; margin-top: 5px; }
 iframe {
     width: 100%; height: 100%;
     border: none; display: block;
-    pointer-events: none; /* all clicks go through overlay divs */
+    /* pointer-events left as default — iframe is fully interactive */
 }
 
 /*
-  THREE overlay zones:
-  1. #overlay-top    — top ~12% (menu bars some players show on hover)
-  2. #overlay-mid    — middle area that allows NOTHING (no play/pause clicks)
-     Split into left 40% + right 40% so center 20% is play/pause clickable
-  3. #overlay-bottom — bottom 18% blocks the seekbar / volume / fullscreen
-
-  We want play/pause to work, so we cut a transparent hole in the middle.
-  Concretely:
-    - left blocker:  left 0 → 35%
-    - right blocker: right 0 → 35%
-    - centre strip:  35%→65% is transparent (click falls through to iframe)
-    - top strip:     blocks top controls
-    - bottom strip:  blocks seekbar
-
-  "pointer-events: all" on the overlay divs catches clicks.
-  The iframe itself has pointer-events:none so only the overlays decide.
-  We re-enable pointer-events on iframe ONLY in the transparent centre.
-  (Achieved by stacking a transparent div with pointer-events:none there.)
+  Strategy: only block the BOTTOM strip where the seekbar lives.
+  The rest of the iframe is untouched so play/pause, volume hover,
+  and fullscreen (top-right on some players) all work normally.
+  The bottom overlay intercepts clicks on the progress/seek bar.
 */
 
-/* Base for all overlay segments */
 .ov {
     position: absolute;
     z-index: 10;
@@ -153,40 +138,8 @@ iframe {
     cursor: default;
 }
 
-/* Top strip — blocks top hover menus */
-#ov-top    { top:0; left:0; right:0; height:10%; }
-
-/* Bottom strip — blocks seekbar / controls bar */
-#ov-bottom { bottom:0; left:0; right:0; height:20%; }
-
-/* Left side blocker (middle band) */
-#ov-left  { top:10%; bottom:20%; left:0; width:35%; }
-
-/* Right side blocker (middle band) */
-#ov-right { top:10%; bottom:20%; right:0; width:35%; }
-
-/*
-  Centre transparent pass-through — pointer-events:none
-  lets clicks reach the iframe for play/pause only.
-*/
-#ov-centre {
-    position: absolute;
-    z-index: 9; /* below the blockers */
-    top:10%; bottom:20%; left:35%; right:35%;
-    background: transparent;
-    pointer-events: none;
-    cursor: pointer;
-}
-
-/* Re-enable iframe pointer events only in the centre zone.
-   We achieve this via the z-index layering:
-   ov-centre (z=9, no pointer events) sits between iframe (z=auto)
-   and the blockers (z=10). The iframe itself has pointer-events:none,
-   so we need a tiny shim that re-enables them. We do it differently:
-   We remove pointer-events:none from iframe and instead rely ENTIRELY
-   on the overlay divs to catch everything. The iframe only receives
-   events in the untouched centre gap.
-*/
+/* Bottom strip — covers seekbar area on virtually all players */
+#ov-bottom { bottom:0; left:0; right:0; height:14%; }
 
 /* Lock overlay (full screen tap-lock feature) */
 #lock-screen {
@@ -319,13 +272,8 @@ footer { width:100%; text-align:center; padding:15px; font-size:0.8rem; color:#5
 </div>
 
 <div class="player-wrapper" id="mainWrapper">
-    <!-- Overlay blockers — positioned to cover seekbar & side controls -->
-    <div class="ov" id="ov-top"    oncontextmenu="return false;"></div>
+    <!-- Bottom strip overlay — blocks seekbar/scrubber only -->
     <div class="ov" id="ov-bottom" oncontextmenu="return false;"></div>
-    <div class="ov" id="ov-left"   oncontextmenu="return false;"></div>
-    <div class="ov" id="ov-right"  oncontextmenu="return false;"></div>
-    <!-- Centre transparent pass-through for play/pause -->
-    <div id="ov-centre"></div>
 
     <div id="lock-screen"></div>
     <div id="lock-status">Screen lock</div>

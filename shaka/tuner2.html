@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stream Embed</title>
 
-    <!-- HLS.js -->
+    <!-- HLS.js for m3u8 -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
-    <!-- x-frame-bypass for iframe streams -->
+    <!-- x-frame-bypass for web channels -->
     <script src="https://unpkg.com/x-frame-bypass"></script>
     <script type="module" src="https://unpkg.com/x-frame-bypass"></script>
 
@@ -27,36 +27,31 @@
             border: 4px solid var(--primary); border-radius: 12px;
             background: #000;
         }
-        body.public-mode .viewport {
-            border: none; border-radius: 0; max-width: 100vw;
-        }
+        body.public-mode .viewport { border: none; border-radius: 0; max-width: 100vw; }
 
-        /* iframe mode */
+        /* ── iframe layer (web + mp4-via-blob) ── */
         #frameMover {
             position: absolute; width: 100%; height: 600%;
             transform-origin: top left; display: none;
         }
         #captureFrame { width: 100%; height: 100%; border: none; overflow: hidden; }
 
-        /* Native video mode */
+        /* ── Native HLS layer ── */
         #nativePlayer {
             display: none; position: absolute; inset: 0;
             width: 100%; height: 100%; background: #000; overflow: hidden;
         }
         #nativeVideo {
             width: 100%; height: 100%; object-fit: contain;
-            display: block; outline: none; overflow: hidden;
-            /* kill all native browser UI */
-            pointer-events: none;
+            display: block; pointer-events: none;
         }
-
-        /* Transparent full cover — catches ALL user interaction on video */
+        /* Full-cover shield: blocks seek bar drag, right-click, keyboard seek */
         #videoShield {
             display: none; position: absolute; inset: 0;
             z-index: 50; background: transparent; cursor: default;
         }
 
-        /* Sync / error notice */
+        /* Notice bar */
         #notice {
             display: none; position: absolute;
             top: 10px; left: 50%; transform: translateX(-50%);
@@ -64,44 +59,39 @@
             padding: 5px 16px; border-radius: 20px; z-index: 200;
             pointer-events: none; white-space: nowrap;
         }
-        #notice.sync  { background: rgba(255,80,80,0.92);  color: #fff; }
-        #notice.info  { background: rgba(0,0,0,0.8);       color: #0fa; border: 1px solid #0fa; }
-        #notice.error { background: rgba(180,0,0,0.92);    color: #fff; }
+        #notice.sync  { background: rgba(255,80,80,0.92); color:#fff; }
+        #notice.info  { background: rgba(0,0,0,0.85); color:#0fa; border:1px solid #0fa; }
+        #notice.error { background: rgba(160,0,0,0.92); color:#fff; }
 
-        /* Loading spinner */
+        /* Spinner */
         #loadSpinner {
             display: none; position: absolute; inset: 0;
             align-items: center; justify-content: center;
-            background: rgba(0,0,0,0.6); z-index: 100;
+            background: rgba(0,0,0,0.55); z-index: 100;
         }
         #loadSpinner.show { display: flex; }
         .spinner {
             width: 40px; height: 40px;
-            border: 3px solid rgba(0,255,160,0.3);
+            border: 3px solid rgba(0,255,160,0.25);
             border-top-color: var(--primary);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
 
         /* ── Tuner Box ── */
         #tunerBox {
-            position: fixed; left: 20px; top: 50%;
-            transform: translateY(-50%);
+            position: fixed; left: 20px; top: 50%; transform: translateY(-50%);
             background: rgba(0,0,0,0.92); border: 1px solid var(--primary);
             border-radius: 10px; z-index: 10005;
             font-family: sans-serif; color: white;
             display: flex; flex-direction: column; gap: 0;
-            min-width: 220px;
-            box-shadow: 0 0 20px rgba(0,255,160,0.15);
+            min-width: 220px; box-shadow: 0 0 20px rgba(0,255,160,0.15);
             user-select: none;
         }
         #tunerHeader {
             display: flex; align-items: center; justify-content: space-between;
-            background: rgba(0,255,160,0.1);
-            border-bottom: 1px solid rgba(0,255,160,0.25);
-            border-radius: 9px 9px 0 0;
-            padding: 8px 10px; cursor: grab;
+            background: rgba(0,255,160,0.1); border-bottom: 1px solid rgba(0,255,160,0.25);
+            border-radius: 9px 9px 0 0; padding: 8px 10px; cursor: grab;
         }
         #tunerHeader:active { cursor: grabbing; }
         #tunerHeader .title {
@@ -113,16 +103,13 @@
             font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1; opacity: 0.8;
         }
         #collapseBtn:hover { opacity: 1; }
-
         #tunerBody {
-            padding: 0 14px 14px;
-            display: flex; flex-direction: column; gap: 9px;
+            padding: 0 14px 14px; display: flex; flex-direction: column; gap: 9px;
             overflow: hidden;
             transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.25s ease;
             max-height: 600px; opacity: 1;
         }
         #tunerBody.collapsed { max-height: 0; opacity: 0; padding-bottom: 0; }
-
         #tunerBody label { font-size: 11px; color: #aaa; margin-bottom: -4px; }
         #tunerBody input[type=range] { width: 100%; accent-color: var(--primary); margin: 0; }
         #tunerBody select {
@@ -130,16 +117,13 @@
             border-radius: 5px; padding: 5px 8px; font-size: 12px; cursor: pointer; width: 100%;
         }
         #alignSection { display: flex; flex-direction: column; gap: 9px; }
-
         .tuner-btn {
             padding: 7px 8px; border: none; font-weight: bold;
             cursor: pointer; border-radius: 5px; font-size: 12px; text-align: center;
         }
         #btnGenerate { background: var(--primary); color: #000; }
         #btnSaved    { background: #1a3a2a; color: var(--primary); border: 1px solid var(--primary); }
-
         #savedStatus { font-size: 10px; text-align: center; color: #00ffa0; min-height: 13px; }
-
         #savedPanel {
             display: none; flex-direction: column; gap: 4px;
             border-top: 1px solid #333; padding-top: 8px;
@@ -163,8 +147,8 @@
             font-family: sans-serif; font-size: 11px; font-weight: bold;
             letter-spacing: 1px; z-index: 10010; border: 1px solid;
         }
-        #modeBadge.private { background: rgba(255,200,0,0.15); color: #ffcc00; border-color: rgba(255,200,0,0.5); }
-        #modeBadge.public  { background: rgba(0,255,160,0.1);  color: #00ffa0;  border-color: rgba(0,255,160,0.3); }
+        #modeBadge.private { background: rgba(255,200,0,0.15); color:#ffcc00; border-color:rgba(255,200,0,0.5); }
+        #modeBadge.public  { background: rgba(0,255,160,0.1);  color:#00ffa0;  border-color:rgba(0,255,160,0.3); }
 
         #lockLayer { position: absolute; inset: 0; z-index: 9999; pointer-events: none; }
 
@@ -174,7 +158,6 @@
             color: #00ffa0; border: 1px solid rgba(0,255,160,0.5);
             border-radius: 30px; font-size: 13px; z-index: 10002; cursor: pointer;
         }
-
         body.public-mode #resetBtn  { display: none; }
         body.public-mode #modeBadge { display: none; }
         body.public-mode #tunerBox  { display: none; }
@@ -217,15 +200,12 @@
 <div class="viewport" id="playerWrapper">
     <div id="lockLayer"></div>
     <button id="resetBtn" onclick="location.reload()">Refresh</button>
-
     <div id="notice"></div>
     <div id="loadSpinner"><div class="spinner"></div></div>
     <div id="videoShield"></div>
-
     <div id="nativePlayer">
         <video id="nativeVideo" playsinline webkit-playsinline></video>
     </div>
-
     <div id="frameMover">
         <iframe id="captureFrame" is="x-frame-bypass" scrolling="no"></iframe>
     </div>
@@ -237,35 +217,35 @@
 
     // ══════════════════════════════════════════════════════════════
     //  CHANNEL LIST
-    //  type: 'web'  → iframe embed
-    //  type: 'mp4'  → direct video file
-    //  type: 'm3u8' → HLS stream
+    //  type 'web'  → iframe (alignment tuner applies)
+    //  type 'mp4'  → loaded via blob iframe to preserve Referer
+    //  type 'm3u8' → HLS.js native video
     // ══════════════════════════════════════════════════════════════
     const channelList = {
-        "1":  { name: "Sony Ten 1",        type: "web",  url: "https://tv-shihab.xyz/live/sony-ten-1/" },
-        "2":  { name: "Vision Punjab HD",   type: "web",  url: "https://tulnit.com/live/vision-punjab-tv-hd/" },
-        "3":  { name: "Sony Pix HD",        type: "web",  url: "https://tulnit.com/live/sony-pix-hd/" },
-        "4":  { name: "Sony Max HD",        type: "web",  url: "https://tulnit.com/live/sony-max-hd-ind/" },
-        "5":  { name: "Sony Pal",           type: "web",  url: "https://tulnit.com/live/sony-pal/" },
-        "6":  { name: "Colors Bollywood",   type: "web",  url: "https://tulnit.com/live/bollywood-colors/" },
-        "7":  { name: "Sony TV HD",         type: "web",  url: "https://tulnit.com/live/sony-tv-hd/" },
-        "8":  { name: "Runn Action",        type: "web",  url: "https://tulnit.com/live/runn-action/" },
-        "9":  { name: "Sony SAB HD",        type: "web",  url: "https://tulnit.com/live/sony-sab-hd/" },
-        "10": { name: "Anupama Ep.1993",    type: "web",  url: "https://anupamadesiserial.su/anupama-25th-april-2026-full-episode-1993/" },
-        "11": { name: "Sample MP4",         type: "mp4",  url: "https://avtshare01.rz.tu-ilmenau.de/avt-vqdb-uhd-1/test_1/segments/bigbuck_bunny_8bit_15000kbps_2160p_60.0fps_h264.mp4" },
-        "12": { name: "Mhone Dil Se HLS",   type: "m3u8", url: "https://mumt01.tangotv.in/MHONEDILSE/index.m3u8" }
+        "1":  { name: "Sony Ten 1",       type: "web",  url: "https://tv-shihab.xyz/live/sony-ten-1/" },
+        "2":  { name: "Vision Punjab HD",  type: "web",  url: "https://tulnit.com/live/vision-punjab-tv-hd/" },
+        "3":  { name: "Sony Pix HD",       type: "web",  url: "https://tulnit.com/live/sony-pix-hd/" },
+        "4":  { name: "Sony Max HD",       type: "web",  url: "https://tulnit.com/live/sony-max-hd-ind/" },
+        "5":  { name: "Sony Pal",          type: "web",  url: "https://tulnit.com/live/sony-pal/" },
+        "6":  { name: "Colors Bollywood",  type: "web",  url: "https://tulnit.com/live/bollywood-colors/" },
+        "7":  { name: "Sony TV HD",        type: "web",  url: "https://tulnit.com/live/sony-tv-hd/" },
+        "8":  { name: "Runn Action",       type: "web",  url: "https://tulnit.com/live/runn-action/" },
+        "9":  { name: "Sony SAB HD",       type: "web",  url: "https://tulnit.com/live/sony-sab-hd/" },
+        "10": { name: "Anupama Ep.1993",   type: "web",  url: "https://anupamadesiserial.su/anupama-25th-april-2026-full-episode-1993/" },
+        "11": { name: "Sample MP4",        type: "mp4",  url: "https://sto.vkcdn5.com/olaxkuzhx3uiolyobgk2hxzrng4uknkkvp2kweer4odxkcq46c6lythqvutq/v.mp4" },
+        "12": { name: "Mhone Dil Se",      type: "m3u8", url: "https://mumt01.tangotv.in/MHONEDILSE/index.m3u8" }
     };
 
-    // ── Storage helpers ───────────────────────────────────────────
+    // ── Storage ───────────────────────────────────────────────────
     const STORE_KEY = 'stream_alignments_v1';
-    function loadAll()           { try { return JSON.parse(localStorage.getItem(STORE_KEY)) || {}; } catch(e) { return {}; } }
-    function getAlign(id)        { return loadAll()[id] || null; }
-    function saveAlign(id,t,l,z) { const a=loadAll(); a[id]={t,l,z,ts:Date.now()}; localStorage.setItem(STORE_KEY,JSON.stringify(a)); }
-    function delAlign(id)        { const a=loadAll(); delete a[id]; localStorage.setItem(STORE_KEY,JSON.stringify(a)); }
+    function loadAll()            { try{return JSON.parse(localStorage.getItem(STORE_KEY))||{};}catch(e){return{};} }
+    function getAlign(id)         { return loadAll()[id]||null; }
+    function saveAlign(id,t,l,z)  { const a=loadAll();a[id]={t,l,z,ts:Date.now()};localStorage.setItem(STORE_KEY,JSON.stringify(a)); }
+    function delAlign(id)         { const a=loadAll();delete a[id];localStorage.setItem(STORE_KEY,JSON.stringify(a)); }
 
     // ── DOM ───────────────────────────────────────────────────────
     const params       = new URLSearchParams(window.location.search);
-    const isPublic     = params.get('mode') === 'public' || params.get('lock') === 'true';
+    const isPublic     = params.get('mode')==='public' || params.get('lock')==='true';
     let   ch           = params.get('ch') || "1";
 
     const mover        = document.getElementById('frameMover');
@@ -288,22 +268,18 @@
     let refWallTime      = null;
     let refVideoTime     = null;
     let programmaticSeek = false;
-    let isVOD            = false; // true = mp4, false = m3u8 live
+    let currentType      = 'web';
 
-    // ── Notice helper ─────────────────────────────────────────────
+    // ── Notice ────────────────────────────────────────────────────
     let noticeTimer = null;
-    function showNotice(msg, type, durationMs) {
-        notice.textContent  = msg;
-        notice.className    = type;
-        notice.style.display = 'block';
+    function showNotice(msg, type, ms) {
+        notice.textContent = msg; notice.className = type; notice.style.display = 'block';
         if (noticeTimer) clearTimeout(noticeTimer);
-        if (durationMs) noticeTimer = setTimeout(() => { notice.style.display = 'none'; }, durationMs);
+        if (ms) noticeTimer = setTimeout(() => { notice.style.display='none'; }, ms);
     }
-
-    // ── Spinner ───────────────────────────────────────────────────
     function setSpinner(on) { spinner.classList.toggle('show', on); }
 
-    // ── Player mode switch ────────────────────────────────────────
+    // ── Layout mode ───────────────────────────────────────────────
     function showNative(on) {
         nativePlayer.style.display = on ? 'block' : 'none';
         videoShield.style.display  = on ? 'block' : 'none';
@@ -312,174 +288,209 @@
     }
 
     // ══════════════════════════════════════════════════════════════
-    //  SYNC GUARD  (VOD only — for live streams just snap to live edge)
+    //  MP4 via blob-URL iframe
+    //  Wraps the video in an inline HTML page loaded as a blob so
+    //  the browser treats it as same-origin and sends no Referer,
+    //  bypassing hotlink protection that blocks <video src> requests.
     // ══════════════════════════════════════════════════════════════
-    function anchorTime() {
-        refWallTime  = Date.now();
-        refVideoTime = nativeVideo.currentTime;
+    function loadMp4ViaIframe(url) {
+        // Tear down HLS if previously active
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (syncWatchdog) { clearInterval(syncWatchdog); syncWatchdog = null; }
+
+        showNative(false);           // use the iframe layer
+        setSpinner(true);
+
+        // Build a tiny self-contained HTML page that plays the video
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  video{width:100%;height:100%;object-fit:contain;display:block}
+</style>
+</head>
+<body>
+<video
+  src="${url}"
+  autoplay
+  playsinline
+  webkit-playsinline
+  preload="auto"
+  oncontextmenu="return false"
+></video>
+<script>
+  var v = document.querySelector('video');
+  // Block all seek UI: no controls attribute = no seek bar
+  // Block keyboard seeks inside this frame
+  document.addEventListener('keydown', function(e){
+    if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) e.preventDefault();
+  }, true);
+  // Seek guard — snap back to wall-clock position
+  var refWall = null, refTime = null, prog = false;
+  function anchor(){ refWall = Date.now(); refTime = v.currentTime; }
+  v.addEventListener('playing', anchor);
+  v.addEventListener('playing', function(){
+    setInterval(function(){
+      if(v.paused||v.ended||prog) return;
+      if(refWall===null) return;
+      var exp = refTime + (Date.now()-refWall)/1000;
+      if(Math.abs(v.currentTime - exp) > 3){
+        prog=true; v.currentTime=Math.min(exp,v.duration||1e9);
+        setTimeout(function(){ prog=false; anchor(); },300);
+      }
+    },800);
+  },{once:true});
+  v.addEventListener('seeking', function(){
+    if(prog) return;
+    if(refWall===null) return;
+    prog=true;
+    v.currentTime = refTime + (Date.now()-refWall)/1000;
+    setTimeout(function(){ prog=false; anchor(); },300);
+  });
+  v.play().catch(function(){});
+<\/script>
+</body>
+</html>`;
+
+        const blob   = new Blob([html], { type: 'text/html' });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Reset iframe
+        iframeEl.removeAttribute('is');  // plain iframe, no x-frame-bypass needed
+        iframeEl.src = blobUrl;
+
+        // Reset frameMover to no offset/zoom for mp4 (full fit)
+        mover.style.top       = '0px';
+        mover.style.left      = '0px';
+        mover.style.height    = '100%';
+        mover.style.transform = 'scale(1)';
+
+        iframeEl.onload = () => setSpinner(false);
     }
 
-    function snapBack(reason) {
-        if (programmaticSeek) return;
-        programmaticSeek = true;
-
-        let target;
-        if (isVOD) {
-            // VOD: return to where they should be based on wall-clock
-            const elapsed = (Date.now() - refWallTime) / 1000;
-            target = Math.min(refVideoTime + elapsed, nativeVideo.duration || Infinity);
-        } else {
-            // Live: snap to live edge
-            if (hlsInstance && hlsInstance.liveSyncPosition) {
-                target = hlsInstance.liveSyncPosition;
-            } else {
-                // Fallback: end of seekable range
-                const sr = nativeVideo.seekable;
-                target = sr.length ? sr.end(sr.length - 1) : nativeVideo.currentTime;
-            }
-        }
-
-        nativeVideo.currentTime = target;
-        showNotice('⟳ Syncing back…', 'sync', 1800);
-        setTimeout(() => {
-            programmaticSeek = false;
-            if (isVOD) anchorTime();
-        }, 300);
-    }
-
-    function startWatchdog() {
-        if (syncWatchdog) clearInterval(syncWatchdog);
-        if (!isVOD) return; // live streams rely on seeking event only
-
-        syncWatchdog = setInterval(() => {
-            if (nativeVideo.paused || nativeVideo.ended || programmaticSeek) return;
-            if (refWallTime === null) return;
-            const elapsed  = (Date.now() - refWallTime) / 1000;
-            const expected = refVideoTime + elapsed;
-            const drift    = Math.abs(nativeVideo.currentTime - expected);
-            if (drift > 3) {
-                console.warn('[SyncGuard] drift', drift.toFixed(1) + 's');
-                snapBack('watchdog');
-            }
-        }, 800);
-    }
-
     // ══════════════════════════════════════════════════════════════
-    //  LOAD NATIVE (mp4 / m3u8)
+    //  M3U8 via HLS.js
     // ══════════════════════════════════════════════════════════════
-    function loadNative(url, type) {
-        // Tear down previous
-        if (hlsInstance)   { hlsInstance.destroy();        hlsInstance = null; }
-        if (syncWatchdog)  { clearInterval(syncWatchdog);  syncWatchdog = null; }
+    function loadM3u8(url) {
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        if (syncWatchdog) { clearInterval(syncWatchdog); syncWatchdog = null; }
         refWallTime = null; refVideoTime = null; programmaticSeek = false;
 
-        isVOD = (type === 'mp4');
+        showNative(true);
+        setSpinner(true);
+        notice.style.display = 'none';
 
-        // Hard remove controls so browser renders NO seek bar, timeline, volume
         nativeVideo.removeAttribute('controls');
         nativeVideo.oncontextmenu = e => e.preventDefault();
-
-        // Block keyboard seek events at capture phase
         nativeVideo.addEventListener('keydown', e => {
             if (['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) e.preventDefault();
         }, true);
 
-        setSpinner(true);
-        notice.style.display = 'none';
-
-        // ── seeking event — fires immediately when user attempts to seek ──
-        // We replace the listener each load to avoid stacking
+        // Snap to live edge on any seek attempt
         nativeVideo.onseeking = () => {
             if (programmaticSeek) return;
-            snapBack('seeking');
+            programmaticSeek = true;
+            const sr = nativeVideo.seekable;
+            const target = (hlsInstance && hlsInstance.liveSyncPosition)
+                ? hlsInstance.liveSyncPosition
+                : (sr.length ? sr.end(sr.length-1) : nativeVideo.currentTime);
+            nativeVideo.currentTime = target;
+            showNotice('⟳ Syncing to live…', 'sync', 1800);
+            setTimeout(() => { programmaticSeek = false; }, 400);
         };
 
-        nativeVideo.onplaying = () => {
-            setSpinner(false);
-            anchorTime();
-            startWatchdog();
-        };
-
+        nativeVideo.onplaying = () => { setSpinner(false); };
         nativeVideo.onwaiting = () => setSpinner(true);
         nativeVideo.oncanplay = () => setSpinner(false);
-
-        nativeVideo.onerror = () => {
+        nativeVideo.onerror   = () => {
             setSpinner(false);
-            const err = nativeVideo.error;
-            const msg = err ? `Error ${err.code}: ${err.message}` : 'Playback error';
-            showNotice('⚠ ' + msg, 'error');
-            console.error('[Player]', msg, url);
+            showNotice('⚠ Stream error — check URL', 'error');
         };
 
-        if (type === 'm3u8') {
-            if (Hls.isSupported()) {
-                hlsInstance = new Hls({
-                    enableWorker:      true,
-                    lowLatencyMode:    true,
-                    backBufferLength:  30,
-                    // Allow cross-origin — HLS.js fetches segments via XHR
-                    xhrSetup: (xhr) => {
-                        xhr.withCredentials = false;
-                    }
-                });
+        if (Hls.isSupported()) {
+            hlsInstance = new Hls({
+                enableWorker:   true,
+                lowLatencyMode: true,
+                backBufferLength: 30,
+                xhrSetup: xhr => { xhr.withCredentials = false; }
+            });
 
-                hlsInstance.on(Hls.Events.ERROR, (_, data) => {
-                    if (data.fatal) {
-                        setSpinner(false);
-                        switch (data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR:
-                                showNotice('⚠ Network error — retrying…', 'error');
-                                hlsInstance.startLoad();
-                                break;
-                            case Hls.ErrorTypes.MEDIA_ERROR:
-                                showNotice('⚠ Media error — recovering…', 'error');
-                                hlsInstance.recoverMediaError();
-                                break;
-                            default:
-                                showNotice('⚠ Fatal stream error', 'error');
-                                break;
-                        }
-                    }
-                });
+            hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+                if (!data.fatal) return;
+                setSpinner(false);
+                if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    showNotice('⚠ Network error — retrying…', 'error');
+                    setTimeout(() => hlsInstance.startLoad(), 2000);
+                } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    showNotice('⚠ Media error — recovering…', 'error');
+                    hlsInstance.recoverMediaError();
+                } else {
+                    showNotice('⚠ Fatal stream error', 'error');
+                }
+            });
 
-                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                    nativeVideo.play().catch(e => {
-                        // Autoplay blocked — show a tap-to-play overlay
-                        showNotice('▶ Tap to play', 'info');
-                        videoShield.onclick = () => {
-                            nativeVideo.play().catch(() => {});
-                            notice.style.display = 'none';
-                            videoShield.onclick  = null;
-                        };
-                    });
-                });
-
-                hlsInstance.loadSource(url);
-                hlsInstance.attachMedia(nativeVideo);
-
-            } else if (nativeVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                // Safari native HLS
-                nativeVideo.src = url;
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
                 nativeVideo.play().catch(() => {
                     showNotice('▶ Tap to play', 'info');
+                    videoShield.style.cursor = 'pointer';
+                    videoShield.onclick = () => {
+                        nativeVideo.play().catch(()=>{});
+                        notice.style.display = 'none';
+                        videoShield.style.cursor = 'default';
+                        videoShield.onclick = null;
+                    };
                 });
-            } else {
-                showNotice('⚠ HLS not supported in this browser', 'error');
-            }
+            });
+
+            hlsInstance.loadSource(url);
+            hlsInstance.attachMedia(nativeVideo);
+
+        } else if (nativeVideo.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari native HLS
+            nativeVideo.src = url;
+            nativeVideo.play().catch(() => showNotice('▶ Tap to play', 'info'));
+        } else {
+            setSpinner(false);
+            showNotice('⚠ HLS not supported in this browser', 'error');
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  LOAD CHANNEL
+    // ══════════════════════════════════════════════════════════════
+    function loadChannel(chId, t, l, z) {
+        ch = chId;
+        const c = channelList[chId] || channelList["1"];
+        currentType = c.type;
+
+        if (c.type === 'm3u8') {
+            loadM3u8(c.url);
+            statusEl.textContent = '▶ HLS stream — no alignment needed';
+
+        } else if (c.type === 'mp4') {
+            loadMp4ViaIframe(c.url);
+            statusEl.textContent = '▶ MP4 player — no alignment needed';
 
         } else {
-            // mp4 — set crossOrigin to allow CORS where server permits
-            nativeVideo.crossOrigin = 'anonymous';
-            nativeVideo.src         = url;
-            nativeVideo.load();
-            nativeVideo.play().catch(() => {
-                showNotice('▶ Tap to play', 'info');
-                videoShield.onclick = () => {
-                    nativeVideo.play().catch(() => {});
-                    notice.style.display = 'none';
-                    videoShield.onclick  = null;
-                };
-            });
+            // web / iframe
+            if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+            showNative(false);
+            // Restore iframe to x-frame-bypass mode
+            iframeEl.setAttribute('is', 'x-frame-bypass');
+            iframeEl.src = c.url;
+            mover.style.height = '600%';   // restore extended height for alignment
+
+            const saved = getAlign(chId);
+            const at = t || (saved ? saved.t : "-179");
+            const al = l || (saved ? saved.l : "0");
+            const az = z || (saved ? saved.z : "100");
+            applyAlign(at, al, az);
+            statusEl.textContent = saved
+                ? `✔ Alignment loaded (${new Date(saved.ts).toLocaleString()})`
+                : '';
         }
     }
 
@@ -487,158 +498,116 @@
     //  PUBLIC MODE
     // ══════════════════════════════════════════════════════════════
     if (isPublic) {
-        const t   = params.get('t') || "-179";
-        const l   = params.get('l') || "0";
-        const z   = params.get('z') || "100";
-        const c   = channelList[ch] || channelList["1"];
+        const t = params.get('t') || "-179";
+        const l = params.get('l') || "0";
+        const z = params.get('z') || "100";
 
         tuner.style.display = 'none';
         document.getElementById('lockLayer').style.display = 'none';
         document.body.classList.add('public-mode');
-        badge.textContent = '● PUBLIC';
-        badge.className   = 'public';
+        badge.textContent = '● PUBLIC'; badge.className = 'public';
 
-        if (c.type === 'mp4' || c.type === 'm3u8') {
-            showNative(true);
-            loadNative(c.url, c.type);
-        } else {
-            showNative(false);
-            iframeEl.src          = c.url;
-            mover.style.top       = t + "px";
-            mover.style.left      = l + "px";
-            mover.style.transform = `scale(${z / 100})`;
-        }
+        loadChannel(ch, t, l, z);
         return;
     }
 
     // ══════════════════════════════════════════════════════════════
     //  PRIVATE MODE
     // ══════════════════════════════════════════════════════════════
-    badge.textContent = '● PRIVATE';
-    badge.className   = 'private';
+    badge.textContent = '● PRIVATE'; badge.className = 'private';
 
     // ── Draggable tuner ──────────────────────────────────────────
     (function makeDraggable() {
         const handle = document.getElementById('tunerHeader');
-        let dragging = false, ox = 0, oy = 0;
+        let dragging=false, ox=0, oy=0;
         const rect = tuner.getBoundingClientRect();
-        tuner.style.transform = 'none';
-        tuner.style.left = rect.left + 'px';
-        tuner.style.top  = rect.top  + 'px';
-        function start(cx, cy) { dragging=true; const r=tuner.getBoundingClientRect(); ox=cx-r.left; oy=cy-r.top; tuner.style.transition='none'; }
-        function move(cx, cy)  { if(!dragging) return; tuner.style.left=Math.max(0,Math.min(cx-ox,innerWidth-tuner.offsetWidth))+'px'; tuner.style.top=Math.max(0,Math.min(cy-oy,innerHeight-tuner.offsetHeight))+'px'; }
-        handle.addEventListener('mousedown',  e => { if(e.target.id!=='collapseBtn'){start(e.clientX,e.clientY);e.preventDefault();} });
-        handle.addEventListener('touchstart', e => { if(e.target.id!=='collapseBtn'){start(e.touches[0].clientX,e.touches[0].clientY);e.preventDefault();} },{passive:false});
-        document.addEventListener('mousemove', e => move(e.clientX,e.clientY));
-        document.addEventListener('touchmove', e => { move(e.touches[0].clientX,e.touches[0].clientY);e.preventDefault(); },{passive:false});
-        document.addEventListener('mouseup',  ()=>{ dragging=false; });
-        document.addEventListener('touchend', ()=>{ dragging=false; });
+        tuner.style.transform='none';
+        tuner.style.left=rect.left+'px'; tuner.style.top=rect.top+'px';
+        function start(cx,cy){ dragging=true; const r=tuner.getBoundingClientRect(); ox=cx-r.left; oy=cy-r.top; tuner.style.transition='none'; }
+        function move(cx,cy){ if(!dragging)return; tuner.style.left=Math.max(0,Math.min(cx-ox,innerWidth-tuner.offsetWidth))+'px'; tuner.style.top=Math.max(0,Math.min(cy-oy,innerHeight-tuner.offsetHeight))+'px'; }
+        handle.addEventListener('mousedown',  e=>{if(e.target.id!=='collapseBtn'){start(e.clientX,e.clientY);e.preventDefault();}});
+        handle.addEventListener('touchstart', e=>{if(e.target.id!=='collapseBtn'){start(e.touches[0].clientX,e.touches[0].clientY);e.preventDefault();}},{passive:false});
+        document.addEventListener('mousemove', e=>move(e.clientX,e.clientY));
+        document.addEventListener('touchmove', e=>{move(e.touches[0].clientX,e.touches[0].clientY);e.preventDefault();},{passive:false});
+        document.addEventListener('mouseup',  ()=>{dragging=false;});
+        document.addEventListener('touchend', ()=>{dragging=false;});
     })();
 
     // ── Collapse ─────────────────────────────────────────────────
-    let collapsed = false;
-    window.toggleCollapse = function() {
-        collapsed = !collapsed;
-        document.getElementById('tunerBody').classList.toggle('collapsed', collapsed);
-        document.getElementById('collapseBtn').textContent = collapsed ? '+' : '−';
+    let collapsed=false;
+    window.toggleCollapse=function(){
+        collapsed=!collapsed;
+        document.getElementById('tunerBody').classList.toggle('collapsed',collapsed);
+        document.getElementById('collapseBtn').textContent=collapsed?'+':'−';
     };
 
     // ── Channel dropdown ─────────────────────────────────────────
-    const chSelect = document.getElementById('chSelect');
-    Object.entries(channelList).forEach(([id, c]) => {
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = `Ch ${id}: ${c.name} [${c.type.toUpperCase()}]`;
+    const chSelect=document.getElementById('chSelect');
+    Object.entries(channelList).forEach(([id,c])=>{
+        const opt=document.createElement('option');
+        opt.value=id; opt.textContent=`Ch ${id}: ${c.name} [${c.type.toUpperCase()}]`;
         chSelect.appendChild(opt);
     });
-    chSelect.value = ch;
+    chSelect.value=ch;
 
-    function applyAlign(t, l, z) {
-        topS.value = t; leftS.value = l; zoomS.value = z;
-        mover.style.top       = t + "px";
-        mover.style.left      = l + "px";
-        mover.style.transform = `scale(${z / 100})`;
-        document.getElementById('lblTop').innerText  = `Top: ${t}px`;
-        document.getElementById('lblLeft').innerText = `Left: ${l}px`;
-        document.getElementById('lblZoom').innerText = `Zoom: ${z}%`;
-    }
-
-    function loadChannel(chId) {
-        ch = chId;
-        const c = channelList[chId] || channelList["1"];
-        if (c.type === 'mp4' || c.type === 'm3u8') {
-            showNative(true);
-            loadNative(c.url, c.type);
-            statusEl.textContent = `▶ ${c.type.toUpperCase()} player — no alignment needed`;
-        } else {
-            showNative(false);
-            iframeEl.src = c.url;
-            const saved = getAlign(chId);
-            if (saved) {
-                applyAlign(saved.t, saved.l, saved.z);
-                statusEl.textContent = `✔ Alignment loaded (${new Date(saved.ts).toLocaleString()})`;
-            } else {
-                applyAlign("-179","0","100");
-                statusEl.textContent = '';
-            }
-        }
+    function applyAlign(t,l,z){
+        topS.value=t; leftS.value=l; zoomS.value=z;
+        mover.style.top=t+"px"; mover.style.left=l+"px"; mover.style.transform=`scale(${z/100})`;
+        document.getElementById('lblTop').innerText=`Top: ${t}px`;
+        document.getElementById('lblLeft').innerText=`Left: ${l}px`;
+        document.getElementById('lblZoom').innerText=`Zoom: ${z}%`;
     }
 
     loadChannel(ch);
-    chSelect.addEventListener('change', () => loadChannel(chSelect.value));
+    chSelect.addEventListener('change',()=>loadChannel(chSelect.value));
 
-    function update() {
-        mover.style.top       = topS.value + "px";
-        mover.style.left      = leftS.value + "px";
-        mover.style.transform = `scale(${zoomS.value / 100})`;
-        document.getElementById('lblTop').innerText  = `Top: ${topS.value}px`;
-        document.getElementById('lblLeft').innerText = `Left: ${leftS.value}px`;
-        document.getElementById('lblZoom').innerText = `Zoom: ${zoomS.value}%`;
+    function update(){
+        mover.style.top=topS.value+"px"; mover.style.left=leftS.value+"px"; mover.style.transform=`scale(${zoomS.value/100})`;
+        document.getElementById('lblTop').innerText=`Top: ${topS.value}px`;
+        document.getElementById('lblLeft').innerText=`Left: ${leftS.value}px`;
+        document.getElementById('lblZoom').innerText=`Zoom: ${zoomS.value}%`;
     }
-    [topS, leftS, zoomS].forEach(s => s.addEventListener('input', update));
+    [topS,leftS,zoomS].forEach(s=>s.addEventListener('input',update));
 
-    window.generateUrl = function() {
-        const c = channelList[ch] || channelList["1"];
-        const t = topS.value, l = leftS.value, z = zoomS.value;
-        if (c.type === 'web') saveAlign(ch, t, l, z);
-        const publicUrl = `${location.origin}${location.pathname}?ch=${ch}&t=${t}&l=${l}&z=${z}&mode=public`;
-        statusEl.textContent = `✔ Locked Ch ${ch} — ${c.name}`;
+    window.generateUrl=function(){
+        const c=channelList[ch]||channelList["1"];
+        const t=topS.value,l=leftS.value,z=zoomS.value;
+        if(c.type==='web') saveAlign(ch,t,l,z);
+        const publicUrl=`${location.origin}${location.pathname}?ch=${ch}&t=${t}&l=${l}&z=${z}&mode=public`;
+        statusEl.textContent=`✔ Locked Ch ${ch} — ${c.name}`;
         renderSavedPanel();
-        prompt(`PUBLIC LINK — Ch ${ch} (${c.name}) [${c.type.toUpperCase()}]:`, publicUrl);
+        prompt(`PUBLIC LINK — Ch ${ch} (${c.name}) [${c.type.toUpperCase()}]:`,publicUrl);
     };
 
-    function renderSavedPanel() {
-        const panel = document.getElementById('savedPanel');
-        const all   = loadAll(); const ids = Object.keys(all);
-        panel.innerHTML = '';
-        if (!ids.length) { panel.innerHTML = '<span style="font-size:10px;color:#555">No alignments saved yet.</span>'; return; }
-        ids.forEach(id => {
-            const a = all[id], name = channelList[id]?.name||`Ch ${id}`, date = new Date(a.ts).toLocaleString();
-            const link = `${location.origin}${location.pathname}?ch=${id}&t=${a.t}&l=${a.l}&z=${a.z}&mode=public`;
-            const row = document.createElement('div'); row.className = 'saved-item';
-            row.innerHTML = `<div style="flex:1;min-width:0"><strong>Ch ${id}</strong> <span>${name}</span><br><span style="font-size:9px;color:#444">${date}</span></div><div class="item-btns"><button class="copy-btn" onclick="copyLink('${link}')">📋</button><button class="del-btn" onclick="removeSaved('${id}')">✕</button></div>`;
+    function renderSavedPanel(){
+        const panel=document.getElementById('savedPanel');
+        const all=loadAll(); const ids=Object.keys(all);
+        panel.innerHTML='';
+        if(!ids.length){panel.innerHTML='<span style="font-size:10px;color:#555">No alignments saved yet.</span>';return;}
+        ids.forEach(id=>{
+            const a=all[id],name=channelList[id]?.name||`Ch ${id}`,date=new Date(a.ts).toLocaleString();
+            const link=`${location.origin}${location.pathname}?ch=${id}&t=${a.t}&l=${a.l}&z=${a.z}&mode=public`;
+            const row=document.createElement('div');row.className='saved-item';
+            row.innerHTML=`<div style="flex:1;min-width:0"><strong>Ch ${id}</strong> <span>${name}</span><br><span style="font-size:9px;color:#444">${date}</span></div><div class="item-btns"><button class="copy-btn" onclick="copyLink('${link}')">📋</button><button class="del-btn" onclick="removeSaved('${id}')">✕</button></div>`;
             panel.appendChild(row);
         });
     }
 
-    window.toggleSavedPanel = function() {
-        const panel = document.getElementById('savedPanel');
-        const open  = panel.style.display === 'flex';
-        panel.style.display = open ? 'none' : 'flex';
-        panel.style.flexDirection = 'column';
-        if (!open) renderSavedPanel();
+    window.toggleSavedPanel=function(){
+        const panel=document.getElementById('savedPanel');
+        const open=panel.style.display==='flex';
+        panel.style.display=open?'none':'flex'; panel.style.flexDirection='column';
+        if(!open) renderSavedPanel();
     };
-
-    window.copyLink = function(url) {
-        navigator.clipboard.writeText(url).then(() => {
-            statusEl.textContent = '✔ Copied!';
-            setTimeout(() => { statusEl.textContent = ''; }, 2000);
+    window.copyLink=function(url){
+        navigator.clipboard.writeText(url).then(()=>{
+            statusEl.textContent='✔ Copied!';
+            setTimeout(()=>{statusEl.textContent='';},2000);
         });
     };
-
-    window.removeSaved = function(chId) {
-        delAlign(chId); renderSavedPanel();
-        if (chId === ch) statusEl.textContent = '';
+    window.removeSaved=function(chId){
+        delAlign(chId);renderSavedPanel();
+        if(chId===ch) statusEl.textContent='';
     };
 
 })();

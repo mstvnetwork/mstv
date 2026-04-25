@@ -232,7 +232,7 @@
         "8":  { name: "Runn Action",       type: "web",  url: "https://tulnit.com/live/runn-action/" },
         "9":  { name: "Sony SAB HD",       type: "web",  url: "https://tulnit.com/live/sony-sab-hd/" },
         "10": { name: "Anupama Ep.1993",   type: "web",  url: "https://anupamadesiserial.su/anupama-25th-april-2026-full-episode-1993/" },
-        "11": { name: "Sample MP4",        type: "mp4",  url: "https://file-examples.com/storage/feecd38d6869eceb19e34b5/2017/04/file_example_MP4_480_1_5MG.mp4" },
+        "11": { name: "Sample MP4",        type: "mp4",  url: "https://sto.vkcdn5.com/olaxkuzhx3uiolyobgk2hxzrng4uknkkvp2kweer4odxkcq46c6lythqvutq/v.mp4" },
         "12": { name: "Mhone Dil Se",      type: "m3u8", url: "https://mumt01.tangotv.in/MHONEDILSE/index.m3u8" }
     };
 
@@ -301,56 +301,124 @@
         showNative(false);           // use the iframe layer
         setSpinner(true);
 
-        // Build a tiny self-contained HTML page that plays the video
+        // Build a self-contained HTML page that plays the video.
+        // Strategy:
+        //  1. Try normal autoplay with sound
+        //  2. If blocked, try muted autoplay (always allowed by browsers)
+        //  3. If still blocked, show a big tap-to-play button that unmutes on click
         const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;background:#000;overflow:hidden}
+  html,body{width:100%;height:100%;background:#000;overflow:hidden;font-family:sans-serif}
   video{width:100%;height:100%;object-fit:contain;display:block}
+  #overlay{
+    display:none;position:fixed;inset:0;
+    background:rgba(0,0,0,0.6);
+    align-items:center;justify-content:center;
+    flex-direction:column;gap:14px;
+    cursor:pointer;z-index:99;
+  }
+  #overlay.show{display:flex}
+  #playBtn{
+    width:72px;height:72px;border-radius:50%;
+    background:rgba(0,255,160,0.15);
+    border:2px solid #00ffa0;
+    display:flex;align-items:center;justify-content:center;
+    transition:background 0.2s;
+  }
+  #playBtn:hover{background:rgba(0,255,160,0.3)}
+  #playBtn svg{margin-left:6px}
+  #tapMsg{color:#00ffa0;font-size:13px;font-weight:bold;letter-spacing:1px}
+  #muteNote{color:#aaa;font-size:11px}
 </style>
 </head>
 <body>
-<video
-  src="${url}"
-  autoplay
-  playsinline
-  webkit-playsinline
-  preload="auto"
-  oncontextmenu="return false"
-></video>
+<video id="v" src="${url}" playsinline webkit-playsinline preload="auto" oncontextmenu="return false"></video>
+<div id="overlay">
+  <div id="playBtn">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="#00ffa0">
+      <polygon points="5,3 19,12 5,21"/>
+    </svg>
+  </div>
+  <div id="tapMsg">TAP TO PLAY</div>
+  <div id="muteNote" id="muteNote"></div>
+</div>
 <script>
-  var v = document.querySelector('video');
-  // Block all seek UI: no controls attribute = no seek bar
-  // Block keyboard seeks inside this frame
+  var v       = document.getElementById('v');
+  var overlay = document.getElementById('overlay');
+  var muteNote= document.getElementById('muteNote');
+
+  // Block keyboard seeks
   document.addEventListener('keydown', function(e){
     if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)) e.preventDefault();
   }, true);
-  // Seek guard — snap back to wall-clock position
-  var refWall = null, refTime = null, prog = false;
-  function anchor(){ refWall = Date.now(); refTime = v.currentTime; }
-  v.addEventListener('playing', anchor);
+
+  // Seek guard
+  var refWall=null, refTime=null, prog=false;
+  function anchor(){ refWall=Date.now(); refTime=v.currentTime; }
+
+  v.addEventListener('playing', function(){ anchor(); }, false);
+
+  // Start watchdog once on first play
   v.addEventListener('playing', function(){
     setInterval(function(){
-      if(v.paused||v.ended||prog) return;
-      if(refWall===null) return;
-      var exp = refTime + (Date.now()-refWall)/1000;
-      if(Math.abs(v.currentTime - exp) > 3){
+      if(v.paused||v.ended||prog||refWall===null) return;
+      var exp=refTime+(Date.now()-refWall)/1000;
+      if(Math.abs(v.currentTime-exp)>3){
         prog=true; v.currentTime=Math.min(exp,v.duration||1e9);
         setTimeout(function(){ prog=false; anchor(); },300);
       }
     },800);
   },{once:true});
+
   v.addEventListener('seeking', function(){
-    if(prog) return;
-    if(refWall===null) return;
+    if(prog||refWall===null) return;
     prog=true;
-    v.currentTime = refTime + (Date.now()-refWall)/1000;
+    v.currentTime=refTime+(Date.now()-refWall)/1000;
     setTimeout(function(){ prog=false; anchor(); },300);
   });
-  v.play().catch(function(){});
+
+  // Overlay click — unmute and play
+  overlay.addEventListener('click', function(){
+    v.muted=false;
+    v.play().then(function(){
+      overlay.classList.remove('show');
+    }).catch(function(){
+      // Still blocked — keep overlay
+    });
+  });
+
+  // Autoplay attempt sequence
+  function tryPlay(){
+    // 1. Try with sound
+    v.muted=false;
+    v.play().then(function(){
+      overlay.classList.remove('show'); // success
+    }).catch(function(){
+      // 2. Try muted (always allowed)
+      v.muted=true;
+      v.play().then(function(){
+        // Playing muted — show overlay to let user unmute
+        muteNote.textContent='Playing muted — tap to enable sound';
+        overlay.classList.add('show');
+      }).catch(function(){
+        // 3. Total autoplay block — show tap to play
+        v.muted=false;
+        muteNote.textContent='';
+        overlay.classList.add('show');
+      });
+    });
+  }
+
+  // Wait for enough data before attempting play
+  if(v.readyState >= 3){
+    tryPlay();
+  } else {
+    v.addEventListener('canplay', tryPlay, {once:true});
+  }
 <\/script>
 </body>
 </html>`;

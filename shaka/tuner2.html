@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream Embed</title>
+    
+    <script src="https://unpkg.com"></script>
+    <script type="module" src="https://unpkg.com"></script>
+
+    <style>
+        :root { --primary: #00ffA0; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background: #000; display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+
+        .viewport {
+            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
+            overflow: hidden; position: relative;
+            border: 4px solid var(--primary); border-radius: 12px;
+            background: #000;
+        }
+
+        /* Public mode: clean, no border */
+        body.public-mode .viewport {
+            border: none;
+            border-radius: 0;
+            max-width: 100vw;
+        }
+
+        #frameMover {
+            position: absolute; width: 100%; height: 600%; 
+            transform-origin: top left;
+        }
+
+        #captureFrame { width: 100%; height: 100%; border: none; }
+
+        /* ── Tuner Box ── */
+        #tunerBox {
+            position: fixed; bottom: 60px; left: 12px;
+            background: rgba(0, 0, 0, 0.9); border: 1px solid var(--primary);
+            padding: 15px; border-radius: 12px; z-index: 10005;
+            font-family: sans-serif; color: white; display: flex; flex-direction: column; gap: 10px;
+        }
+        #tunerBox input { width: 180px; accent-color: var(--primary); }
+        #tunerBox button { padding: 8px; background: var(--primary); border: none; font-weight: bold; cursor: pointer; border-radius: 5px; }
+
+        /* Mode badge */
+        #modeBadge {
+            position: fixed; top: 12px; right: 12px;
+            padding: 5px 12px; border-radius: 20px;
+            font-family: sans-serif; font-size: 12px; font-weight: bold;
+            letter-spacing: 1px; z-index: 10010;
+            border: 1px solid;
+        }
+        #modeBadge.private {
+            background: rgba(255,200,0,0.15);
+            color: #ffcc00;
+            border-color: rgba(255,200,0,0.5);
+        }
+        #modeBadge.public {
+            background: rgba(0,255,160,0.1);
+            color: #00ffa0;
+            border-color: rgba(0,255,160,0.3);
+        }
+
+        #lockLayer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; pointer-events: none; }
+        #lockLayer.active { pointer-events: all !important; }
+
+        #resetBtn {
+            position: fixed; bottom: 12px; right: 12px;
+            padding: 8px 15px; background: rgba(0, 255, 160, 0.15);
+            color: #00ffa0; border: 1px solid rgba(0, 255, 160, 0.6);
+            border-radius: 30px; font-size: 14px; z-index: 10002; cursor: pointer;
+        }
+
+        /* Hide refresh in public mode */
+        body.public-mode #resetBtn { display: none; }
+        body.public-mode #ticker { display: none; }
+        body.public-mode #modeBadge { display: none; }
+
+        #ticker {
+            position: absolute; top: 0px; left: 0; width: 100%; z-index: 10000; padding: 11px 0;
+            overflow: hidden; white-space: nowrap;
+        }
+        #ticker span { display: inline-block; padding-left: 100%; animation: scroll 15s linear infinite; color: #ff3b3b; font-family: sans-serif; font-size: 14px; }
+        @keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-100%); } }
+    </style>
+</head>
+<body>
+
+    <div id="ticker"><span>Settings locked via URL parameters. Click Refresh to reload.</span></div>
+
+    <span id="modeBadge"></span>
+
+    <div id="tunerBox">
+        <label id="lblTop">Top: -179px</label>
+        <input type="range" id="topSlider" min="-600" max="0" value="-179">
+        <label id="lblLeft">Left: 0px</label>
+        <input type="range" id="leftSlider" min="-300" max="300" value="0">
+        <label id="lblZoom">Zoom: 100%</label>
+        <input type="range" id="zoomSlider" min="50" max="250" value="100">
+        <button onclick="generateUrl()">GENERATE PUBLIC LINK</button>
+    </div>
+
+    <div class="viewport" id="playerWrapper">
+        <div id="lockLayer"></div>
+        <button id="resetBtn" onclick="location.reload()">Refresh</button>
+        <div id="frameMover">
+            <iframe id="captureFrame" is="x-frame-bypass" scrolling="no"></iframe>
+        </div>
+    </div>
+
+<script>
+(function() {
+    const channelList = {
+        "1": "https://tv-shihab.xyz/live/sony-ten-1/",
+        "2": "https://tulnit.com/live/vision-punjab-tv-hd/",
+        "3": "https://tulnit.com/live/sony-pix-hd/",
+        "4": "https://tulnit.com/live/sony-max-hd-ind/",
+        "5": "https://tulnit.com/live/sony-pal/",
+        "6": "https://tulnit.com/live/bollywood-colors/",
+        "7": "https://tulnit.com/live/sony-tv-hd/",
+        "8": "https://tulnit.com/live/runn-action/",
+        "9": "https://tulnit.com/live/sony-sab-hd/",
+       "10": "https://anupamadesiserial.su/anupama-25th-april-2026-full-episode-1993/"
+    };
+
+    const params = new URLSearchParams(window.location.search);
+
+    // ── Determine Mode ──────────────────────────────────────────────
+    // mode=public  → public mode  (player only, no tuner)
+    // mode=private → private mode (player + tuner box)
+    // lock=true    → legacy support → treated as public
+    // Default (no param) → private mode
+    const modeParam = params.get('mode');
+    const legacyLock = params.get('lock') === 'true';
+
+    const isPublic = modeParam === 'public' || legacyLock;
+    const isPrivate = !isPublic;
+
+    // ── URL params ──────────────────────────────────────────────────
+    const ch = params.get('ch') || "1";
+    const t  = params.get('t')  || "-179";
+    const l  = params.get('l')  || "0";
+    const z  = params.get('z')  || "100";
+
+    const mover  = document.getElementById('frameMover');
+    const iframe = document.getElementById('captureFrame');
+    const tuner  = document.getElementById('tunerBox');
+    const shield = document.getElementById('lockLayer');
+    const badge  = document.getElementById('modeBadge');
+
+    // ── Apply stream values ─────────────────────────────────────────
+    iframe.src = channelList[ch] || channelList["1"];
+    mover.style.top       = t + "px";
+    mover.style.left      = l + "px";
+    mover.style.transform = `scale(${z / 100})`;
+
+    // ── Apply mode ──────────────────────────────────────────────────
+    if (isPublic) {
+        // PUBLIC: hide tuner, block interaction overlay, clean UI
+        tuner.style.display = 'none';
+        shield.classList.add('active');
+        document.body.classList.add('public-mode');
+        badge.textContent = '● PUBLIC';
+        badge.className = 'public';
+    } else {
+        // PRIVATE: show tuner, allow full interaction
+        badge.textContent = '● PRIVATE';
+        badge.className = 'private';
+    }
+
+    // ── Slider Listeners ────────────────────────────────────────────
+    const topS  = document.getElementById('topSlider');
+    const leftS = document.getElementById('leftSlider');
+    const zoomS = document.getElementById('zoomSlider');
+
+    // Pre-fill sliders with URL values
+    topS.value  = t;
+    leftS.value = l;
+    zoomS.value = z;
+    document.getElementById('lblTop').innerText  = `Top: ${t}px`;
+    document.getElementById('lblLeft').innerText = `Left: ${l}px`;
+    document.getElementById('lblZoom').innerText = `Zoom: ${z}%`;
+
+    function update() {
+        mover.style.top       = topS.value + "px";
+        mover.style.left      = leftS.value + "px";
+        mover.style.transform = `scale(${zoomS.value / 100})`;
+        document.getElementById('lblTop').innerText  = `Top: ${topS.value}px`;
+        document.getElementById('lblLeft').innerText = `Left: ${leftS.value}px`;
+        document.getElementById('lblZoom').innerText = `Zoom: ${zoomS.value}%`;
+    }
+    [topS, leftS, zoomS].forEach(s => s.addEventListener('input', update));
+
+    // ── Generate Public URL ─────────────────────────────────────────
+    window.generateUrl = function() {
+        const publicUrl = `${window.location.origin}${window.location.pathname}?ch=${ch}&t=${topS.value}&l=${leftS.value}&z=${zoomS.value}&mode=public`;
+        prompt("Copy this PUBLIC URL (player only, no tuner):", publicUrl);
+    };
+
+})();
+</script>
+</body>
+</html>

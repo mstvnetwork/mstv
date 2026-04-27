@@ -1,141 +1,131 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Pro HLS Player - Proxy Integrated</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js"></script>
-<style>
-    body { background: #0a0a0f; color: #e8e8f0; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; padding: 20px; }
-    .player-card { width: 100%; max-width: 800px; background: #12121a; border-radius: 12px; border: 1px solid #2a2a3d; overflow: hidden; }
-    .url-input-area { padding: 15px; display: flex; gap: 10px; border-bottom: 1px solid #2a2a3d; }
-    input { flex: 1; background: #1a1a26; border: 1px solid #2a2a3d; color: #fff; padding: 10px; border-radius: 6px; outline: none; }
-    button { background: #00e5ff; color: #000; border: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    video { width: 100%; aspect-ratio: 16/9; display: block; background: #000; }
-    #status { padding: 10px; font-size: 12px; color: #6b6b88; font-family: monospace; }
-</style>
+    <meta charset="UTF-8">
+    <title>M3U8 Pro Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js"></script>
+    <style>
+        body { background: #0a0a0f; color: #fff; font-family: sans-serif; display: flex; justify-content: center; padding: 20px; }
+        .player-container { width: 100%; max-width: 850px; background: #12121a; border-radius: 12px; border: 1px solid #2a2a3d; padding: 20px; }
+        .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
+        input { flex: 1; background: #1a1a26; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 8px; }
+        button { background: #00e5ff; color: #000; border: none; padding: 10px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; }
+        #log { margin-top: 15px; font-size: 11px; color: #888; font-family: monospace; max-height: 100px; overflow-y: auto; background: #000; padding: 10px; }
+    </style>
 </head>
 <body>
 
-<div class="player-card">
-    <div class="url-input-area">
-        <input type="text" id="urlInput" placeholder="Enter M3U8 URL..." value="https://si.videoapne.to/hls/,bdohxe7v7bboxuzvta2p4bax3sgu3s5mjbudft4e7xljpesm6bm4d2l2lk3a,.urlset/master.m3u8">
-        <button onclick="loadStream()">PLAY</button>
+<div class="player-container">
+    <div class="input-group">
+        <input type="text" id="urlInput" value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">
+        <button onclick="initPlayer()">PLAY</button>
     </div>
-    <video id="video" controls playsinline></video>
-    <div id="status">Ready</div>
+    <video id="video" controls playsinline crossorigin="anonymous"></video>
+    <div id="log">Status: Waiting for input...</div>
 </div>
 
 <script>
-// Configuration: List your working proxies here
+const logEl = document.getElementById('log');
+function logger(msg) { logEl.innerHTML += `<div>> ${msg}</div>`; logEl.scrollTop = logEl.scrollHeight; }
+
+// --- Proxy List ---
 const PROXIES = [
+    "", // Try Direct First
+    
     "https://corsproxy.io/?",
-    "https://api.allorigins.win/raw?url=",
-    "" // Direct
+    "https://api.allorigins.win/raw?url="
 ];
 
-class CustomLoader {
+class ProxyLoader {
     constructor(config) {
         this.config = config;
         this.retryCount = 0;
-        this.stats = { trequest: 0, tfirst: 0, tload: 0, loaded: 0, total: 0 };
     }
 
     load(context, config, callbacks) {
         this.context = context;
         this.config = config;
         this.callbacks = callbacks;
-        this.execute();
+        this.tryRequest();
     }
 
-    execute() {
+    tryRequest() {
         const proxy = PROXIES[this.retryCount];
-        const requestUrl = (proxy && this.context.url.startsWith('http')) 
-            ? proxy + encodeURIComponent(this.context.url) 
-            : this.context.url;
+        const finalUrl = (proxy && this.context.url.startsWith('http')) 
+                         ? proxy + encodeURIComponent(this.context.url) 
+                         : this.context.url;
+
+        logger(`Attempt ${this.retryCount}: ${proxy ? 'Using Proxy' : 'Direct'}`);
 
         const xhr = new XMLHttpRequest();
-        this.xhr = xhr;
-        xhr.open('GET', requestUrl, true);
+        this.loader = xhr; // CRITICAL: HLS.js checks this for the 'loading' state
         
-        // Match HLS.js expectations for response type
+        xhr.open('GET', finalUrl, true);
         if (this.context.responseType) xhr.responseType = this.context.responseType;
-        
+
         xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-                this.stats.tload = performance.now();
-                this.stats.loaded = xhr.response.byteLength || xhr.responseText.length;
-                
-                const response = {
+                logger(`Success via ${proxy || 'Direct'}`);
+                this.callbacks.onSuccess({
                     url: xhr.responseURL,
                     data: xhr.response,
                     code: xhr.status
-                };
-                this.callbacks.onSuccess(response, this.stats, this.context);
+                }, { trequest: performance.now(), tfirst: performance.now(), tload: performance.now(), loaded: xhr.response.length || 0 }, this.context);
             } else {
-                this.handleRetry();
+                this.handleFail();
             }
         };
 
-        xhr.onerror = () => this.handleRetry();
-        xhr.ontimeout = () => this.handleRetry();
-
-        this.stats.trequest = performance.now();
+        xhr.onerror = () => this.handleFail();
+        xhr.ontimeout = () => this.handleFail();
         xhr.send();
     }
 
-    handleRetry() {
+    handleFail() {
         if (this.retryCount < PROXIES.length - 1) {
             this.retryCount++;
-            console.log(`Switching to proxy index ${this.retryCount}`);
-            this.execute();
+            this.tryRequest();
         } else {
-            this.callbacks.onError({ code: this.xhr.status, text: this.xhr.statusText }, this.context);
+            this.callbacks.onError({ code: 0, text: 'All proxies failed' }, this.context);
         }
     }
 
-    abort() { if (this.xhr) this.xhr.abort(); }
+    abort() { if (this.loader) this.loader.abort(); }
     destroy() { this.abort(); }
 }
 
-const video = document.getElementById('video');
 let hls = null;
+const video = document.getElementById('video');
 
-function loadStream() {
+function initPlayer() {
     const url = document.getElementById('urlInput').value.trim();
-    const status = document.getElementById('status');
-    
     if (hls) hls.destroy();
-    status.textContent = "Status: Connecting...";
 
-    if (Hls.isSupported()) {
-        hls = new Hls({
-            // Force the loader for EVERYTHING (Manifests + Segments)
-            pLoader: CustomLoader,
-            fLoader: CustomLoader,
-            // Optimization for third-party latency
-            fragLoadingTimeOut: 30000,
-            manifestLoadingTimeOut: 30000,
-            enableWorker: false // Disabled worker to prevent the 'undefined' controller crash
-        });
+    logger("Initializing HLS.js...");
+    
+    hls = new Hls({
+        pLoader: ProxyLoader,
+        fLoader: ProxyLoader,
+        enableWorker: false, // Prevents threading issues with custom loaders
+        fragLoadingMaxRetry: 3,
+        manifestLoadingMaxRetry: 3
+    });
 
-        hls.loadSource(url);
-        hls.attachMedia(video);
+    hls.loadSource(url);
+    hls.attachMedia(video);
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            status.textContent = "Status: Playing";
-            video.play().catch(e => {
-                status.textContent = "Status: Click Play to start (Autoplay blocked)";
-            });
-        });
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        logger("Manifest Parsed. Playing...");
+        video.play().catch(() => logger("User interaction required for play."));
+    });
 
-        hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-                console.error("Fatal Error:", data);
-                status.textContent = `Fatal Error: ${data.details}`;
-            }
-        });
-    }
+    hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) {
+            logger(`FATAL ERROR: ${data.details}`);
+            hls.destroy();
+        }
+    });
 }
 </script>
 </body>

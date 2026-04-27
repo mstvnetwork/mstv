@@ -1,77 +1,67 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pseudo-Live Test</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
-    <style>body { background: #000; display: flex; justify-content: center; }</style>
+    <title>Pseudo-Live Iframe Sync</title>
+    <style>
+        body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        iframe { width: 100%; height: 100%; border: none; }
+    </style>
 </head>
 <body>
-    <video id="video" controls autoplay muted style="width: 80%;"></video>
+    <iframe id="live-player" allow="autoplay; fullscreen"></iframe>
 
     <script>
-        // MANUALLY SET DURATIONS HERE (in seconds)
+        // MANUALLY SET DURATIONS (in seconds)
         const playlist = [
             { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohxq7v7bboxuzvta2p4rau3gowgt2oesygic2oh336feuudw533j2myloa%252C.urlset%252Fmaster.m3u8', duration: 15 },
             { url: 'https://m3u8-player.lzw.me/?url=https://s2.videoapne.to/hls/,bdohxegk7bboxuzvta2p4fids6ofv3evxlw2n7timwdcteyh6pzossoe24xa,.urlset/master.m3u8', duration: 15 },
             { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohwgpv7bboxuzvta2p4gylqqw47p4w2hyxsp23qizshyyplvq4b47gmeha%252C.urlset%252Fmaster.m3u8', duration: 15 }
         ];
 
-        const video = document.getElementById('video');
-        const totalLoopTime = playlist.reduce((acc, v) => acc + v.duration, 0);
-        let hls = null;
 
-        function syncAndPlay() {
+        const playerBase = "https://lzw.me";
+        const iframe = document.getElementById('live-player');
+        const totalLoopTime = playlist.reduce((acc, v) => acc + v.duration, 0);
+        let currentActiveIndex = -1;
+
+        function syncIframe() {
             const nowSeconds = Math.floor(Date.now() / 1000);
-            let timeInLoop = nowSeconds % totalLoopTime;
+            const timeInLoop = nowSeconds % totalLoopTime;
+            
+            let cumulative = 0;
             let targetIndex = 0;
             let seekTo = 0;
 
-            // Determine which video and what offset to start at
             for (let i = 0; i < playlist.length; i++) {
-                if (timeInLoop < playlist[i].duration) {
+                if (timeInLoop < cumulative + playlist[i].duration) {
                     targetIndex = i;
-                    seekTo = timeInLoop;
+                    seekTo = timeInLoop - cumulative;
                     break;
                 }
-                timeInLoop -= playlist[i].duration;
+                cumulative += playlist[i].duration;
             }
 
-            loadHLS(playlist[targetIndex].url, seekTo);
+            // Only update iframe if we switch videos or it's the first load
+            if (targetIndex !== currentActiveIndex) {
+                currentActiveIndex = targetIndex;
+                // Encode the URL and add the time fragment
+                const videoUrl = encodeURIComponent(playlist[targetIndex].url);
+                iframe.src = `${playerBase}${videoUrl}#t=${seekTo}`; 
+            }
         }
 
-        function loadHLS(url, startTime) {
-            if (hls) hls.destroy();
-            hls = new Hls();
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.currentTime = startTime; // Sync to current pseudo-live point
-                video.play();
-            });
-        }
-
-        // Auto-rotate when the "manual duration" ends
-        video.addEventListener('timeupdate', () => {
-            const nowSeconds = Math.floor(Date.now() / 1000);
-            const expectedTimeInLoop = nowSeconds % totalLoopTime;
-            
-            // If the current video index is wrong for the current time, re-sync
-            // This handles natural transitions and users joining mid-video
-            let cumulative = 0;
-            const currentVidUrl = hls ? hls.url : "";
-            
-            playlist.forEach((v, i) => {
-                if (expectedTimeInLoop >= cumulative && expectedTimeInLoop < (cumulative + v.duration)) {
-                    if (currentVidUrl !== v.url) syncAndPlay();
-                }
-                cumulative += v.duration;
-            });
-        });
-
-        syncAndPlay();
+        // Check for rotation every 2 seconds
+        setInterval(syncIframe, 2000);
+        syncIframe();
     </script>
 </body>
 </html>
+
+
+
+
+
+
 
 
 

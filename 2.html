@@ -2,37 +2,45 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>M3U8 Pro Player</title>
+    <title>M3U8 Pro Player - Final Fix</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.7/hls.min.js"></script>
     <style>
         body { background: #0a0a0f; color: #fff; font-family: sans-serif; display: flex; justify-content: center; padding: 20px; }
-        .player-container { width: 100%; max-width: 850px; background: #12121a; border-radius: 12px; border: 1px solid #2a2a3d; padding: 20px; }
+        .player-container { width: 100%; max-width: 850px; background: #12121a; border-radius: 12px; border: 1px solid #2a2a3d; padding: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
         .input-group { display: flex; gap: 10px; margin-bottom: 15px; }
-        input { flex: 1; background: #1a1a26; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 8px; }
-        button { background: #00e5ff; color: #000; border: none; padding: 10px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; }
-        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; }
-        #log { margin-top: 15px; font-size: 11px; color: #888; font-family: monospace; max-height: 100px; overflow-y: auto; background: #000; padding: 10px; }
+        input { flex: 1; background: #1a1a26; border: 1px solid #333; color: #fff; padding: 12px; border-radius: 8px; outline: none; border-color: #00e5ff; }
+        button { background: #00e5ff; color: #000; border: none; padding: 10px 25px; border-radius: 8px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+        button:hover { opacity: 0.8; }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; display: block; }
+        #log { margin-top: 15px; font-size: 11px; color: #00ffcc; font-family: monospace; max-height: 120px; overflow-y: auto; background: #000; padding: 10px; border-radius: 4px; border: 1px solid #1a1a26; }
     </style>
 </head>
 <body>
 
 <div class="player-container">
     <div class="input-group">
-        <input type="text" id="urlInput" value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">
-        <button onclick="initPlayer()">PLAY</button>
+        <input type="text" id="urlInput" placeholder="Paste M3U8 URL..." value="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8">
+        <button onclick="initPlayer()">LOAD & PLAY</button>
     </div>
     <video id="video" controls playsinline crossorigin="anonymous"></video>
-    <div id="log">Status: Waiting for input...</div>
+    <div id="log">Status: Ready. Enter URL and click Load.</div>
 </div>
 
 <script>
 const logEl = document.getElementById('log');
-function logger(msg) { logEl.innerHTML += `<div>> ${msg}</div>`; logEl.scrollTop = logEl.scrollHeight; }
+const video = document.getElementById('video');
+let hls = null;
+
+function logger(msg) { 
+    const now = new Date().toLocaleTimeString().split(' ');
+    logEl.innerHTML += `<div>[${now}] > ${msg}</div>`; 
+    logEl.scrollTop = logEl.scrollHeight; 
+}
 
 // --- Proxy List ---
 const PROXIES = [
     "", // Try Direct First
-    
+    "https://m3u8-player.lzw.me/get?url=", 
     "https://corsproxy.io/?",
     "https://api.allorigins.win/raw?url="
 ];
@@ -56,22 +64,31 @@ class ProxyLoader {
                          ? proxy + encodeURIComponent(this.context.url) 
                          : this.context.url;
 
-        logger(`Attempt ${this.retryCount}: ${proxy ? 'Using Proxy' : 'Direct'}`);
-
         const xhr = new XMLHttpRequest();
-        this.loader = xhr; // CRITICAL: HLS.js checks this for the 'loading' state
+        this.loader = xhr; 
         
         xhr.open('GET', finalUrl, true);
         if (this.context.responseType) xhr.responseType = this.context.responseType;
 
+        const start = performance.now();
+
         xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
-                logger(`Success via ${proxy || 'Direct'}`);
+                const end = performance.now();
+                // We must provide these stats for HLS.js to calculate bandwidth correctly
+                const stats = {
+                    trequest: start,
+                    tfirst: start + 10,
+                    tload: end,
+                    loaded: xhr.response ? (xhr.response.byteLength || xhr.response.length) : 0,
+                    total: xhr.response ? (xhr.response.byteLength || xhr.response.length) : 0
+                };
+
                 this.callbacks.onSuccess({
                     url: xhr.responseURL,
                     data: xhr.response,
                     code: xhr.status
-                }, { trequest: performance.now(), tfirst: performance.now(), tload: performance.now(), loaded: xhr.response.length || 0 }, this.context);
+                }, stats, this.context);
             } else {
                 this.handleFail();
             }
@@ -85,6 +102,7 @@ class ProxyLoader {
     handleFail() {
         if (this.retryCount < PROXIES.length - 1) {
             this.retryCount++;
+            logger(`Attempt ${this.retryCount-1} failed. Trying next proxy...`);
             this.tryRequest();
         } else {
             this.callbacks.onError({ code: 0, text: 'All proxies failed' }, this.context);
@@ -95,37 +113,60 @@ class ProxyLoader {
     destroy() { this.abort(); }
 }
 
-let hls = null;
-const video = document.getElementById('video');
-
 function initPlayer() {
     const url = document.getElementById('urlInput').value.trim();
-    if (hls) hls.destroy();
+    if (!url) return;
 
-    logger("Initializing HLS.js...");
+    if (hls) {
+        hls.destroy();
+        logger("Cleaned up previous session.");
+    }
+
+    logger("Initializing HLS engine...");
     
     hls = new Hls({
         pLoader: ProxyLoader,
         fLoader: ProxyLoader,
-        enableWorker: false, // Prevents threading issues with custom loaders
-        fragLoadingMaxRetry: 3,
-        manifestLoadingMaxRetry: 3
+        enableWorker: false, 
+        autoStartLoad: true,
+        startLevel: -1
     });
 
-    hls.loadSource(url);
-    hls.attachMedia(video);
+    hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+        logger("Media element attached.");
+        hls.loadSource(url);
+    });
 
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        logger("Manifest Parsed. Playing...");
-        video.play().catch(() => logger("User interaction required for play."));
+    hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+        logger(`Success: Found ${data.levels.length} quality levels.`);
+        video.muted = true; // Mute to bypass autoplay restrictions
+        video.play().then(() => {
+            logger("Playback started (Muted).");
+        }).catch(err => {
+            logger("Autoplay blocked. Please click the video play button.");
+        });
     });
 
     hls.on(Hls.Events.ERROR, (event, data) => {
         if (data.fatal) {
-            logger(`FATAL ERROR: ${data.details}`);
-            hls.destroy();
+            switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                    logger("Fatal Network Error. Retrying...");
+                    hls.startLoad();
+                    break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                    logger("Fatal Media Error. Recovering...");
+                    hls.recoverMediaError();
+                    break;
+                default:
+                    logger(`Fatal Unrecoverable Error: ${data.details}`);
+                    hls.destroy();
+                    break;
+            }
         }
     });
+
+    hls.attachMedia(video);
 }
 </script>
 </body>

@@ -1,70 +1,89 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Pseudo-Live Channel Test</title>
+    <meta charset="UTF-8">
+    <title>24/7 Pseudo-Live Channel</title>
+    <!-- Use HLS.js to play .m3u8 files in all browsers -->
+    <script src="https://jsdelivr.net"></script>
     <style>
-        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
-        iframe { width: 100%; height: 100%; border: none; }
+        body { margin: 0; background: #000; color: #fff; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; height: 100vh; justify-content: center; }
+        video { width: 90%; max-width: 900px; border: 2px solid #333; background: #000; }
+        #status { margin-top: 10px; font-size: 14px; color: #888; }
     </style>
 </head>
 <body>
-    <iframe id="pseudo-live" allow="autoplay; fullscreen"></iframe>
+
+    <video id="video" controls autoplay muted playsinline></video>
+    <div id="status">Syncing to live edge...</div>
 
     <script>
-        // Manually set your rotation durations here (in seconds)
-        
-const playlist = [
-            { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohxq7v7bboxuzvta2p4rau3gowgt2oesygic2oh336feuudw533j2myloa%252C.urlset%252Fmaster.m3u8', duration: 15 },
-            { url: 'https://m3u8-player.lzw.me/?url=https://s2.videoapne.to/hls/,bdohxegk7bboxuzvta2p4fids6ofv3evxlw2n7timwdcteyh6pzossoe24xa,.urlset/master.m3u8', duration: 15 },
-            { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohwgpv7bboxuzvta2p4gylqqw47p4w2hyxsp23qizshyyplvq4b47gmeha%252C.urlset%252Fmaster.m3u8', duration: 15 }
+        // 1. YOUR CLOUDFLARE WORKER PROXY URL
+        const proxy = "https://zee5.mchoudhry482.workers.dev/";
+
+        // 2. PLAYLIST WITH MANUAL DURATIONS (in seconds)
+        const playlist = [
+            { url: 'https://s2.videoapne.to/hls/,bdohxegk7bboxuzvta2p4fids6ofv3evxlw2n7timwdcteyh6pzossoe24xa,.urlset/master.m3u8', duration: 15 },
+            { url: 'https://videoapne.to', duration: 15 },
+            { url: 'https://videoapne.to', duration: 15 }
         ];
 
-        // Alternative player that often handles seeking via URL better
-        const playerBase = "https://hlsplayer.net";
-        const iframe = document.getElementById('pseudo-live');
-        const totalDuration = playlist.reduce((acc, vid) => acc + vid.duration, 0);
-        let activeIdx = -1;
+        const video = document.getElementById('video');
+        const status = document.getElementById('status');
+        const totalLoopDuration = playlist.reduce((acc, vid) => acc + vid.duration, 0);
+        let hls = null;
+        let currentVideoIndex = -1;
 
-        function updateChannel() {
-            const now = Math.floor(Date.now() / 1000);
-            const loopTime = now % totalDuration;
+        function syncAndPlay() {
+            const now = Math.floor(Date.now() / 1000); // Current Unix Time
+            let timeInLoop = now % totalLoopDuration;
             
             let cumulative = 0;
-            let targetIdx = 0;
-            let offset = 0;
+            let targetIndex = 0;
+            let seekTo = 0;
 
+            // Determine which video should be playing right now
             for (let i = 0; i < playlist.length; i++) {
-                if (loopTime < (cumulative + playlist[i].duration)) {
-                    targetIdx = i;
-                    offset = loopTime - cumulative;
+                if (timeInLoop < cumulative + playlist[i].duration) {
+                    targetIndex = i;
+                    seekTo = timeInLoop - cumulative;
                     break;
                 }
                 cumulative += playlist[i].duration;
             }
 
-            // Only refresh the iframe if the video changes
-            if (targetIdx !== activeIdx) {
-                activeIdx = targetIdx;
-                // Encode and set. Try adding &t= for time seeking if supported
-                const finalUrl = `${playerBase}${encodeURIComponent(playlist[targetIdx].url)}&t=${offset}`;
-                iframe.src = finalUrl;
+            // Only reload HLS if the video has changed in the rotation
+            if (targetIndex !== currentVideoIndex) {
+                currentVideoIndex = targetIndex;
+                const proxiedUrl = proxy + encodeURIComponent(playlist[targetIndex].url);
+                loadHlsSource(proxiedUrl, seekTo);
             }
         }
 
-        setInterval(updateChannel, 2000); // Check for rotation every 2 seconds
-        updateChannel();
+        function loadHlsSource(url, startTime) {
+            if (hls) hls.destroy();
+
+            if (Hls.isSupported()) {
+                hls = new Hls();
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.currentTime = startTime; // The "Magic" Sync Step
+                    video.play();
+                    status.innerText = "Playing Video " + (currentVideoIndex + 1) + " (Synced)";
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native support (Safari/iOS)
+                video.src = url;
+                video.addEventListener('loadedmetadata', () => {
+                    video.currentTime = startTime;
+                    video.play();
+                });
+            }
+        }
+
+        // Check for video rotation every 2 seconds
+        setInterval(syncAndPlay, 2000);
+        syncAndPlay();
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-

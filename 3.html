@@ -1,62 +1,61 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Pseudo-Live Iframe Sync</title>
+    <title>Pseudo-Live Channel Test</title>
     <style>
-        body { background: #000; margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
         iframe { width: 100%; height: 100%; border: none; }
     </style>
 </head>
 <body>
-    <iframe id="live-player" allow="autoplay; fullscreen"></iframe>
+    <iframe id="pseudo-live" allow="autoplay; fullscreen"></iframe>
 
     <script>
-        // MANUALLY SET DURATIONS (in seconds)
-        const playlist = [
+        // Manually set your rotation durations here (in seconds)
+        
+const playlist = [
             { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohxq7v7bboxuzvta2p4rau3gowgt2oesygic2oh336feuudw533j2myloa%252C.urlset%252Fmaster.m3u8', duration: 15 },
             { url: 'https://m3u8-player.lzw.me/?url=https://s2.videoapne.to/hls/,bdohxegk7bboxuzvta2p4fids6ofv3evxlw2n7timwdcteyh6pzossoe24xa,.urlset/master.m3u8', duration: 15 },
             { url: 'https://m3u8-player.lzw.me/?url=https%253A%252F%252Fs2.videoapne.to%252Fhls%252F%252Cbdohwgpv7bboxuzvta2p4gylqqw47p4w2hyxsp23qizshyyplvq4b47gmeha%252C.urlset%252Fmaster.m3u8', duration: 15 }
         ];
 
+        // Alternative player that often handles seeking via URL better
+        const playerBase = "https://hlsplayer.net";
+        const iframe = document.getElementById('pseudo-live');
+        const totalDuration = playlist.reduce((acc, vid) => acc + vid.duration, 0);
+        let activeIdx = -1;
 
-        const playerBase = "https://lzw.me";
-        const iframe = document.getElementById('live-player');
-        const totalLoopTime = playlist.reduce((acc, v) => acc + v.duration, 0);
-        let currentActiveIndex = -1;
-
-        function syncIframe() {
-            const nowSeconds = Math.floor(Date.now() / 1000);
-            const timeInLoop = nowSeconds % totalLoopTime;
+        function updateChannel() {
+            const now = Math.floor(Date.now() / 1000);
+            const loopTime = now % totalDuration;
             
             let cumulative = 0;
-            let targetIndex = 0;
-            let seekTo = 0;
+            let targetIdx = 0;
+            let offset = 0;
 
             for (let i = 0; i < playlist.length; i++) {
-                if (timeInLoop < cumulative + playlist[i].duration) {
-                    targetIndex = i;
-                    seekTo = timeInLoop - cumulative;
+                if (loopTime < (cumulative + playlist[i].duration)) {
+                    targetIdx = i;
+                    offset = loopTime - cumulative;
                     break;
                 }
                 cumulative += playlist[i].duration;
             }
 
-            // Only update iframe if we switch videos or it's the first load
-            if (targetIndex !== currentActiveIndex) {
-                currentActiveIndex = targetIndex;
-                // Encode the URL and add the time fragment
-                const videoUrl = encodeURIComponent(playlist[targetIndex].url);
-                iframe.src = `${playerBase}${videoUrl}#t=${seekTo}`; 
+            // Only refresh the iframe if the video changes
+            if (targetIdx !== activeIdx) {
+                activeIdx = targetIdx;
+                // Encode and set. Try adding &t= for time seeking if supported
+                const finalUrl = `${playerBase}${encodeURIComponent(playlist[targetIdx].url)}&t=${offset}`;
+                iframe.src = finalUrl;
             }
         }
 
-        // Check for rotation every 2 seconds
-        setInterval(syncIframe, 2000);
-        syncIframe();
+        setInterval(updateChannel, 2000); // Check for rotation every 2 seconds
+        updateChannel();
     </script>
 </body>
 </html>
-
 
 
 

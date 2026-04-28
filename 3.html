@@ -447,67 +447,46 @@ function initPlayer() {
     }
 
     function buildTickerText(data, current, next) {
-        const parts = [];
+    const parts = [];
 
-        // 1. Optional global ticker message from the JSON root
-        if (data.tickerMessage && data.tickerMessage.trim()) {
-            parts.push(data.tickerMessage.trim());
-        }
+    if (data.tickerMessage && data.tickerMessage.trim()) {
+        parts.push(data.tickerMessage.trim());
+    }
 
-        // 2. Current programme info
-        if (current) {
-            const label = current.tickerLabel || current.title || "Live Programme";
-            const end   = formatTimeSimple(current.end);
-            parts.push(`🔴 Now Live: ${label}  (until ${end})`);
-        }
+    if (current) {
+        const label = current.tickerLabel || current.title || "Live Programme";
+        const end   = formatTimeSimple(current.end);
+        parts.push(`🔴 Now Live: ${label}  (until ${end})`);
+    }
 
-        // 3. Next programme info
-        if (next && next !== current) {
-            const label = next.tickerLabel || next.title || "Next Show";
-            const start = formatTimeSimple(next.start);
-            parts.push(`⏭ Coming Up: ${label}  (starts ${start})`);
-        }
+    if (next && next !== current) {
+        const label = next.tickerLabel || next.title || "Next Show";
+        const start = formatTimeSimple(next.start);
+        parts.push(`⏭ Coming Up: ${label}  (starts ${start})`);
+    }
 
-      // 4. Rest of today's schedule (up to 5 more items after next)
-if (data.schedule && Array.isArray(data.schedule)) {
-    const nowMs = Date.now();
+    // 4. Upcoming — pure time-only comparison, no dates involved
+    if (data.schedule && Array.isArray(data.schedule)) {
+        const nowSec = getCurrentISTSeconds();
 
-    // Get current date in IST as "YYYY-MM-DD"
-    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        const upcoming = data.schedule.filter(item => {
+            if (item === current || item === next) return false;
+            const itemSec = getSecondsFromTimeString(item.start);
+            return itemSec > nowSec;  // only shows whose start time is still ahead today
+        }).slice(0, 5);
 
-    const upcoming = data.schedule.filter(item => {
-        if (item === current || item === next) return false;
+        upcoming.forEach(item => {
+            const label = item.tickerLabel || item.title || "Show";
+            const start = formatTimeSimple(item.start);
+            parts.push(`📅 ${start} — ${label}`);
+        });
+    }
 
-        // Build a comparable timestamp from the item
-        // Handles: full ISO "2026-04-28T10:00:00", date+time "2026-04-28 10:00", or plain "10:00"
-        let itemMs;
-        const raw = String(item.start || "").trim();
+    if (parts.length === 0) {
+        return "Click play button 3-4 times.  अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।";
+    }
 
-        if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw)) {
-            // Full datetime — parse directly, treat as IST
-            itemMs = new Date(raw.includes("T") ? raw : raw.replace(" ", "T")).getTime();
-        } else {
-            // Plain time only — attach today's IST date
-            itemMs = new Date(`${todayIST}T${raw.substring(0, 5)}:00+05:30`).getTime();
-        }
-
-        return itemMs > nowMs;
-    }).slice(0, 5);
-
-    upcoming.forEach(item => {
-        const label = item.tickerLabel || item.title || "Show";
-        const start = formatTimeSimple(item.start);
-        parts.push(`📅 ${start} — ${label}`);
-    });
-}
-
-        // Fallback
-        if (parts.length === 0) {
-            return "Click play button 3-4 times.  अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।";
-        }
-
-        // Join with a spacer bullet
-        return parts.join("   ·   ") + "   ·   ";
+    return parts.join("   ·   ") + "   ·   ";
     }
 
     /* ── Lock timer ── */

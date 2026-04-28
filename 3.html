@@ -129,29 +129,29 @@ iframe {
 }
 
 #ticker {
-    position: absolute; bottom: 25px; left: 0;
-    width: 100%; 
+    position: absolute; bottom: 0px; left: 0;
+    width: 100%; background: transparent;
     overflow: hidden; white-space: nowrap;
-    z-index: 10000; 
-    padding: 1px 0; /* Slightly slimmer padding */
-
-    /* The "Sleek" Magic */
-    background: rgba(0, 0, 0, 0.4); /* Dark semitransparent */
-    backdrop-filter: blur(10px);    /* Blurs the background behind the bar */
-    -webkit-backdrop-filter: blur(10px); /* Safari support */
-    border-top: 1px solid rgba(255, 255, 255, 0.1); /* Subtle top highlight */
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    z-index: 10000; padding: 11px 0;
 }
 
-#ticker span {
-    display: inline-block; padding-left: 100%;
-    animation: scroll 15s linear infinite;
-    color: #ff3b3b; font-family: sans-serif; font-size: 14px;
+#ticker .ticker-track {
+    display: inline-block;
+    white-space: nowrap;
+    animation: ticker-loop 30s linear infinite;
 }
 
-@keyframes scroll {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-100%); }
+#ticker .ticker-track span {
+    display: inline-block;
+    color: #ff3b3b;
+    font-family: sans-serif;
+    font-size: 14px;
+    padding-right: 80px; /* gap between the two copies */
+}
+
+@keyframes ticker-loop {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
 }
 
 #lock-screen {
@@ -439,11 +439,22 @@ function initPlayer() {
 
     /* ── Ticker updater ── */
     function setTickerText(text) {
-        // Clone-swap trick: remove old span, insert fresh one to restart animation
-        const newSpan = document.createElement("span");
-        newSpan.textContent = text;
-        ticker.innerHTML = "";
-        ticker.appendChild(newSpan);
+    // Duplicate the content so the loop is seamless — when first copy exits left,
+    // the identical second copy is already entering from the right
+    const track = document.createElement("div");
+    track.className = "ticker-track";
+
+    const span1 = document.createElement("span");
+    span1.textContent = text;
+
+    const span2 = document.createElement("span");
+    span2.textContent = text;  // identical copy for seamless loop
+
+    track.appendChild(span1);
+    track.appendChild(span2);
+
+    ticker.innerHTML = "";
+    ticker.appendChild(track);
     }
 
     function buildTickerText(data, current, next) {

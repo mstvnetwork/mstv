@@ -499,7 +499,7 @@ function initPlayer() {
         }
     }
 
-    async function updatePlayerAndEPG() {
+     async function updatePlayerAndEPG() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
             if (!res.ok) throw new Error("epg.json not found");
@@ -535,11 +535,13 @@ function initPlayer() {
             }
 
             if (current) {
+                // Update Player URL
                 if (current.url && !videoPlayer.src.includes(current.url)) {
                     videoPlayer.src = current.url;
                     resetLockTimer();
                 }
 
+                // Update EPG UI Cards
                 titleNow.textContent = current.title || "Programme";
                 timeNow.textContent  = formatTimeSimple(current.end);
                 setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
@@ -549,6 +551,21 @@ function initPlayer() {
                     timeNext.textContent  = formatTimeSimple(next.start);
                     setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
                 }
+
+                // ─── TICKER LOGIC ───
+                const tickerSpan = document.querySelector("#ticker span");
+                if (tickerSpan) {
+                    const nowTitle = current.title || "Unknown";
+                    const nextTitle = next ? next.title : "TBA";
+                    const nextTime = next ? formatTimeSimple(next.start) : "--:--";
+                    
+                    const newScrollText = `Playing now - ${nowTitle} coming next - ${nextTitle} - Starting Time - ${nextTime}`;
+                    
+                    // Only update if text changed to avoid resetting the scroll animation
+                    if (tickerSpan.innerText !== newScrollText) {
+                        tickerSpan.innerText = newScrollText;
+                    }
+                }
             }
         } catch (err) {
             console.error("Sync Error:", err);
@@ -557,9 +574,6 @@ function initPlayer() {
         }
     }
 
-    updatePlayerAndEPG();
-    setInterval(updatePlayerAndEPG, 10000);
-}
 </script>
 </body>
 </html>

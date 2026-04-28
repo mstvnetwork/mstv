@@ -520,21 +520,27 @@ function initPlayer() {
     }
 
     function formatTimeSimple(timeStr) {
-        if (!timeStr) return "00:00";
-        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-        if (parts.length >= 2) {
-            return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
-        }
-        return "00:00";
+    if (!timeStr) return "00:00";
+
+    // Convert to a number
+    let timestamp = Number(timeStr);
+
+    // If it's in seconds (10 digits), convert to milliseconds (13 digits)
+    if (timestamp < 10000000000) {
+        timestamp *= 1000;
     }
 
-    function setLogo(el, logoSrc, fallbackText) {
-        if (logoSrc) {
-            el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
-        } else {
-            el.textContent = fallbackText || "TV";
-        }
-    }
+    const date = new Date(timestamp);
+
+    // If the date is invalid, fallback to 00:00
+    if (isNaN(date.getTime())) return "00:00";
+
+    // Returns time in 24-hour format (e.g., 14:30)
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    return `${hours}:${minutes}`;
+}
 
     /* ── Main sync function ── */
     async function updatePlayerAndEPG() {

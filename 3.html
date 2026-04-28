@@ -10,14 +10,27 @@
 
 <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { margin: 0; background: #000; font-family: 'Segoe UI', sans-serif; color: #fff; }
+    body { margin: 0; background: #000; font-family: 'Segoe UI', sans-serif; }
 
+    /* --- Fallback Screen --- */
+    #not-chrome {
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        min-height: 100vh; background: radial-gradient(circle at top, #111, #000);
+        color: #fff; text-align: center; padding: 40px 20px;
+    }
+    #not-chrome h1 { color: #ff3b3b; margin-bottom: 12px; }
+    .download-btn {
+        margin-top: 22px; display: inline-block; padding: 12px 30px;
+        background: linear-gradient(90deg, #4285f4, #34a853); color: #fff;
+        border-radius: 40px; text-decoration: none; font-weight: 600;
+    }
+
+    /* --- Main Content --- */
     #main-content {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+        display: none; /* Hidden by default, shown via JS if Chrome */
+        flex-direction: column; align-items: center;
         background: radial-gradient(circle at top, #111, #000);
-        min-height: 100vh;
+        min-height: 100vh; color: #fff;
     }
 
     header { text-align:center; margin: 20px 10px 10px; }
@@ -25,9 +38,7 @@
         font-size: 2.4rem; font-weight: 800;
         background: linear-gradient(90deg, #ff2d55, #ff8c00);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        text-shadow: 0 0 20px rgba(255,45,85,0.4);
     }
-    header h2 { font-size: 1rem; color: #ccc; margin-top: 5px; }
 
     .player-wrapper {
         width: 100%; max-width: 1200px; aspect-ratio: 16 / 9;
@@ -37,52 +48,57 @@
 
     iframe { width: 100%; height: 100%; border: none; display: block; }
 
-    /* Ticker Styling */
+    /* --- Seamless Ticker --- */
     #ticker {
         position: absolute; bottom: 0; left: 0;
-        width: 100%; background: rgba(0, 0, 0, 0.6); 
+        width: 100%; background: rgba(0, 0, 0, 0.7); 
         backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-        overflow: hidden; white-space: nowrap; z-index: 10000; padding: 10px 0;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        overflow: hidden; white-space: nowrap; z-index: 10000; padding: 12px 0;
     }
     #ticker span {
-        display: inline-block; padding-left: 100%;
-        animation: scroll 20s linear infinite;
+        display: inline-block;
+        padding-left: 100%;
+        animation: scroll 25s linear infinite; /* Higher seconds = Slower speed */
         color: #ff3b3b; font-weight: 600; font-size: 15px;
     }
     @keyframes scroll {
         0% { transform: translateX(0); }
-        100% { transform: translateX(-200%); }
+        100% { transform: translateX(-100%); } /* Fixed: Moves exactly to end of text */
     }
 
     .epg-section { width: 100%; max-width: 1200px; padding: 0 15px 10px; display: flex; gap: 14px; flex-wrap: wrap; }
     .epg-card { flex: 1; min-width: 240px; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; gap: 14px; }
-    .epg-card.live { border-color: #ff2d55; box-shadow: 0 0 14px rgba(255,45,85,0.2); }
-    .epg-logo { width: 54px; height: 54px; border-radius: 10px; background: #111; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .epg-card.live { border-color: #ff2d55; }
+    .epg-logo { width: 54px; height: 54px; border-radius: 10px; background: #111; display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .epg-logo img { width: 100%; height: 100%; object-fit: cover; }
     .epg-info { flex: 1; min-width: 0; }
-    .epg-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; margin-bottom: 6px; text-transform: uppercase; }
+    .epg-badge { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; margin-bottom: 6px; text-transform: uppercase; display: inline-flex; align-items: center; gap: 5px;}
     .epg-badge.live { background: rgba(255,45,85,0.15); color: #ff2d55; border: 1px solid rgba(255,45,85,0.3); }
-    .epg-badge.next { background: rgba(255,255,255,0.08); color: #aaa; border: 1px solid rgba(255,255,255,0.12); }
+    .epg-badge.next { background: rgba(255,255,255,0.08); color: #aaa; }
     .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff2d55; animation: blink 1.2s infinite; }
     @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     .epg-title { font-size: 0.95rem; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .epg-time { font-size: 0.8rem; color: #888; }
-
-    .instructions { text-align:center; font-size: 0.85rem; color:#aaa; margin: 10px; }
-    footer { width:100%; text-align:center; padding:20px; font-size:0.8rem; color:#555; border-top:1px solid #222; }
+    footer { width:100%; text-align:center; padding:20px; font-size:0.8rem; color:#555; }
 </style>
 </head>
 <body>
 
+<!-- FALLBACK -->
+<div id="not-chrome">
+    <h1>Google Chrome Required</h1>
+    <p>Apna TV is optimised exclusively for Google Chrome.</p>
+    <a class="download-btn" href="https://google.com" target="_blank">Download Chrome</a>
+</div>
+
+<!-- MAIN CONTENT -->
 <div id="main-content">
     <header>
         <h1>Apna TV 24/7</h1>
-        <h2>Premium Live Streaming Experience</h2>
     </header>
 
     <div class="player-wrapper">
-        <div id="ticker"><span id="ticker-text">Loading EPG Schedule...</span></div>
+        <div id="ticker"><span id="ticker-text">Loading Schedule...</span></div>
         <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" allowfullscreen></iframe>
     </div>
 
@@ -104,29 +120,35 @@
             </div>
         </div>
     </div>
-
-    <div class="instructions">
-        <p>If video doesn't load, please <strong>Refresh</strong> the page.</p>
-    </div>
     <footer>© 2026 Apna TV. All Rights Reserved.</footer>
 </div>
 
 <script>
+/* 1. CHROME DETECTION LOGIC */
+function isGoogleChrome() {
+    const ua = navigator.userAgent;
+    const isChrome = /Chrome\//.test(ua);
+    const isEdge = /Edg\//.test(ua);
+    const isOpera = /OPR\//.test(ua);
+    const isBrave = (navigator.brave !== undefined);
+    // Returns true only if it's Chrome and not Edge, Opera, or Brave
+    return isChrome && !isEdge && !isOpera && !isBrave;
+}
+
+if (isGoogleChrome()) {
+    document.getElementById("not-chrome").style.display = "none";
+    document.getElementById("main-content").style.display = "flex";
+    initPlayer();
+}
+
+/* 2. EPG & TICKER LOGIC */
+function initPlayer() {
     const EPG_URL = "epg.json";
     const videoPlayer = document.getElementById("videoPlayer");
     const tickerText = document.getElementById("ticker-text");
     
-    const titleNow = document.getElementById("titleNow");
-    const timeNow  = document.getElementById("timeNow");
-    const logoNow  = document.getElementById("logoNow");
-    const titleNext = document.getElementById("titleNext");
-    const timeNext  = document.getElementById("timeNext");
-    const logoNext  = document.getElementById("logoNext");
-
-    // FIXED: Correctly parses HH:MM:SS
-    function getSeconds(timeStr) {
-        if (!timeStr) return 0;
-        const p = timeStr.split(':');
+    function getSeconds(t) {
+        const p = t.split(':');
         return (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2] || 0);
     }
 
@@ -135,75 +157,49 @@
         return getSeconds(now);
     }
 
-    function formatTime(timeStr) {
-        return timeStr ? timeStr.substring(0, 5) : "--:--"; 
-    }
-
-    function updateLogo(el, src) {
-        el.innerHTML = src ? `<img src="${src}" onerror="this.parentElement.innerHTML='TV'">` : 'TV';
-    }
-
     async function syncEPG() {
         try {
-            const response = await fetch(EPG_URL + "?t=" + Date.now());
-            const data = await response.json();
+            const res = await fetch(EPG_URL + "?v=" + Date.now());
+            const data = await res.json();
             const schedule = data.schedule;
             const now = getCurrentISTSeconds();
 
-            let currentShow = null;
-            let nextShow = null;
+            let current = null, next = null;
 
             for (let i = 0; i < schedule.length; i++) {
                 let start = getSeconds(schedule[i].start);
                 let end = getSeconds(schedule[i].end);
-                
-                let isLive = false;
-                if (end < start) { // Over midnight
-                    isLive = (now >= start || now < end);
-                } else {
-                    isLive = (now >= start && now < end);
-                }
+                let isLive = (end < start) ? (now >= start || now < end) : (now >= start && now < end);
 
                 if (isLive) {
-                    currentShow = schedule[i];
-                    nextShow = schedule[i + 1] || schedule[0]; // Loop back to first show if at end
+                    current = schedule[i];
+                    next = schedule[i + 1] || schedule[0];
                     break;
                 }
             }
 
-            // Fallback if no time matches
-            if (!currentShow && schedule.length > 0) {
-                currentShow = schedule[0];
-                nextShow = schedule[1] || schedule[0];
-            }
+            if (current) {
+                if (videoPlayer.src !== current.url) videoPlayer.src = current.url;
 
-            if (currentShow) {
-                if (!videoPlayer.src || !videoPlayer.src.includes(currentShow.url)) {
-                    videoPlayer.src = currentShow.url;
-                }
+                document.getElementById("titleNow").innerText = current.title;
+                document.getElementById("timeNow").innerText = current.end.substring(0,5);
+                document.getElementById("logoNow").innerHTML = `<img src="${current.logo}">`;
 
-                titleNow.innerText = currentShow.title;
-                timeNow.innerText = formatTime(currentShow.end);
-                updateLogo(logoNow, currentShow.logo);
+                document.getElementById("titleNext").innerText = next.title;
+                document.getElementById("timeNext").innerText = next.start.substring(0,5);
+                document.getElementById("logoNext").innerHTML = `<img src="${next.logo}">`;
 
-                titleNext.innerText = nextShow.title;
-                timeNext.innerText = formatTime(nextShow.start);
-                updateLogo(logoNext, nextShow.logo);
-
-                const tickerContent = `Playing now - ${currentShow.title} | Coming next - ${nextShow.title} - Starting Time - ${formatTime(nextShow.start)}`;
-                if (tickerText.innerText !== tickerContent) {
-                    tickerText.innerText = tickerContent;
+                const newTicker = `Playing now - ${current.title} | Coming next - ${next.title} - Starting Time - ${next.start.substring(0,5)}`;
+                if (tickerText.innerText !== newTicker) {
+                    tickerText.innerText = newTicker;
                 }
             }
-        } catch (e) {
-            console.error("Sync Error:", e);
-            tickerText.innerText = "Error loading schedule. Please check JSON.";
-        }
+        } catch (e) { console.error(e); }
     }
 
     syncEPG();
     setInterval(syncEPG, 30000);
+}
 </script>
-
 </body>
 </html>

@@ -468,22 +468,38 @@ function initPlayer() {
             parts.push(`⏭ Coming Up: ${label}  (starts ${start})`);
         }
 
-        // 4. Rest of today's schedule (up to 5 more items after next)
-        if (data.schedule && Array.isArray(data.schedule)) {
-            const nowSec   = getCurrentISTSeconds();
-            const upcoming = data.schedule.filter(item => {
-                const s = getSecondsFromTimeString(item.start);
-                // only items whose start is ahead of now (simple linear check)
-                return s > nowSec;
-            }).slice(0, 5);
+      // 4. Rest of today's schedule (up to 5 more items after next)
+if (data.schedule && Array.isArray(data.schedule)) {
+    const nowMs = Date.now();
 
-            upcoming.forEach(item => {
-                if (item === current || item === next) return;
-                const label = item.tickerLabel || item.title || "Show";
-                const start = formatTimeSimple(item.start);
-                parts.push(`📅 ${start} — ${label}`);
-            });
+    // Get current date in IST as "YYYY-MM-DD"
+    const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    const upcoming = data.schedule.filter(item => {
+        if (item === current || item === next) return false;
+
+        // Build a comparable timestamp from the item
+        // Handles: full ISO "2026-04-28T10:00:00", date+time "2026-04-28 10:00", or plain "10:00"
+        let itemMs;
+        const raw = String(item.start || "").trim();
+
+        if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(raw)) {
+            // Full datetime — parse directly, treat as IST
+            itemMs = new Date(raw.includes("T") ? raw : raw.replace(" ", "T")).getTime();
+        } else {
+            // Plain time only — attach today's IST date
+            itemMs = new Date(`${todayIST}T${raw.substring(0, 5)}:00+05:30`).getTime();
         }
+
+        return itemMs > nowMs;
+    }).slice(0, 5);
+
+    upcoming.forEach(item => {
+        const label = item.tickerLabel || item.title || "Show";
+        const start = formatTimeSimple(item.start);
+        parts.push(`📅 ${start} — ${label}`);
+    });
+}
 
         // Fallback
         if (parts.length === 0) {

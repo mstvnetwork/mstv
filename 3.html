@@ -116,7 +116,6 @@
     const videoPlayer = document.getElementById("videoPlayer");
     const tickerText = document.getElementById("ticker-text");
     
-    // Card Elements
     const titleNow = document.getElementById("titleNow");
     const timeNow  = document.getElementById("timeNow");
     const logoNow  = document.getElementById("logoNow");
@@ -124,9 +123,11 @@
     const timeNext  = document.getElementById("timeNext");
     const logoNext  = document.getElementById("logoNext");
 
+    // FIXED: Correctly parses HH:MM:SS
     function getSeconds(timeStr) {
+        if (!timeStr) return 0;
         const p = timeStr.split(':');
-        return parseInt(p[0]) * 3600 + parseInt(p[1]) * 60 + parseInt(p[2] || 0);
+        return (+p[0]) * 3600 + (+p[1]) * 60 + (+p[2] || 0);
     }
 
     function getCurrentISTSeconds() {
@@ -135,11 +136,11 @@
     }
 
     function formatTime(timeStr) {
-        return timeStr.substring(0, 5); 
+        return timeStr ? timeStr.substring(0, 5) : "--:--"; 
     }
 
     function updateLogo(el, src) {
-        el.innerHTML = src ? `<img src="${src}">` : 'TV';
+        el.innerHTML = src ? `<img src="${src}" onerror="this.parentElement.innerHTML='TV'">` : 'TV';
     }
 
     async function syncEPG() {
@@ -156,23 +157,31 @@
                 let start = getSeconds(schedule[i].start);
                 let end = getSeconds(schedule[i].end);
                 
-                // Handle midnight crossover
-                let isLive = (end < start) ? (now >= start || now < end) : (now >= start && now < end);
+                let isLive = false;
+                if (end < start) { // Over midnight
+                    isLive = (now >= start || now < end);
+                } else {
+                    isLive = (now >= start && now < end);
+                }
 
                 if (isLive) {
                     currentShow = schedule[i];
-                    nextShow = schedule[i + 1] || schedule[0];
+                    nextShow = schedule[i + 1] || schedule[0]; // Loop back to first show if at end
                     break;
                 }
             }
 
+            // Fallback if no time matches
+            if (!currentShow && schedule.length > 0) {
+                currentShow = schedule[0];
+                nextShow = schedule[1] || schedule[0];
+            }
+
             if (currentShow) {
-                // Update Player URL
-                if (videoPlayer.src !== currentShow.url) {
+                if (!videoPlayer.src || !videoPlayer.src.includes(currentShow.url)) {
                     videoPlayer.src = currentShow.url;
                 }
 
-                // Update UI Cards
                 titleNow.innerText = currentShow.title;
                 timeNow.innerText = formatTime(currentShow.end);
                 updateLogo(logoNow, currentShow.logo);
@@ -181,7 +190,6 @@
                 timeNext.innerText = formatTime(nextShow.start);
                 updateLogo(logoNext, nextShow.logo);
 
-                // Update Ticker
                 const tickerContent = `Playing now - ${currentShow.title} | Coming next - ${nextShow.title} - Starting Time - ${formatTime(nextShow.start)}`;
                 if (tickerText.innerText !== tickerContent) {
                     tickerText.innerText = tickerContent;
@@ -189,12 +197,13 @@
             }
         } catch (e) {
             console.error("Sync Error:", e);
+            tickerText.innerText = "Error loading schedule. Please check JSON.";
         }
     }
 
-    // Run immediately and every 20 seconds
     syncEPG();
-    setInterval(syncEPG, 20000);
+    setInterval(syncEPG, 30000);
 </script>
+
 </body>
 </html>

@@ -520,36 +520,21 @@ function initPlayer() {
     }
 
     function formatTimeSimple(timeStr) {
-    if (!timeStr) return "00:00";
-
-    // 1. Check if it's a Unix Timestamp (a 10 or 13 digit number)
-    const isTimestamp = /^\d{10,13}$/.test(String(timeStr));
-    
-    if (isTimestamp) {
-        let timestamp = Number(timeStr);
-        if (timestamp < 10000000000) timestamp *= 1000; // Fix seconds to milliseconds
-        const date = new Date(timestamp);
-        return String(date.getHours()).padStart(2, '0') + ":" + 
-               String(date.getMinutes()).padStart(2, '0');
+        if (!timeStr) return "00:00";
+        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+        if (parts.length >= 2) {
+            return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
+        }
+        return "00:00";
     }
 
-    // 2. Fallback to your original logic for EPG strings (e.g. 202405101430)
-    // This extracts the first two sets of numbers it finds.
-    const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-    
-    // If it's a long EPG string, the time is usually after the date (index 3 and 4)
-    if (parts.length >= 5) {
-        return String(parts[3]).padStart(2,'0') + ":" + String(parts[4]).padStart(2,'0');
+    function setLogo(el, logoSrc, fallbackText) {
+        if (logoSrc) {
+            el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
+        } else {
+            el.textContent = fallbackText || "TV";
+        }
     }
-    
-    // Standard fallback for simple HH:MM strings
-    if (parts.length >= 2) {
-        return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
-    }
-
-    return "00:00";
-}
-
 
     /* ── Main sync function ── */
     async function updatePlayerAndEPG() {

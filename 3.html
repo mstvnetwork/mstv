@@ -128,18 +128,66 @@ iframe {
     display: block;
 }
 
+/* ── Channel Logo Overlay ── */
+#channel-logo {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none;
+    user-select: none;
+}
+
+#channel-logo .logo-name {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #ff2d55, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+    line-height: 1.15;
+    /* Legible shadow via filter trick */
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,0.9));
+}
+
+#channel-logo .logo-sub {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    margin-top: 1px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+}
+
+/* thin accent line under subtitle */
+#channel-logo::after {
+    content: '';
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 4px;
+    background: linear-gradient(90deg, transparent, #ff2d55, #ff8c00);
+    border-radius: 2px;
+    opacity: 0.7;
+}
+
 #ticker {
     position: absolute; bottom: 25px; left: 0;
     width: 100%; 
     overflow: hidden; white-space: nowrap;
     z-index: 10000; 
-    padding: 1px 0; /* Slightly slimmer padding */
-
-    /* The "Sleek" Magic */
-    background: rgba(0, 0, 0, 0.4); /* Dark semitransparent */
-    backdrop-filter: blur(10px);    /* Blurs the background behind the bar */
-    -webkit-backdrop-filter: blur(10px); /* Safari support */
-    border-top: 1px solid rgba(255, 255, 255, 0.1); /* Subtle top highlight */
+    padding: 1px 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -152,31 +200,6 @@ iframe {
 @keyframes scroll {
     0% { transform: translateX(0); }
     100% { transform: translateX(-100%); }
-}
-
-
-
-#lock-screen {
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    background: transparent;
-    z-index: 10;
-    display: none;
-}
-
-#lock-status {
-    position: absolute;
-    top: 10px; right: 10px;
-    background: rgba(0,0,0,0.7);
-    color: #00ff00;
-    padding: 5px 12px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    z-index: 11;
-    display: none;
-    border: 1px solid #00ff00;
-    pointer-events: none;
 }
 
 .epg-section {
@@ -306,6 +329,8 @@ footer {
     header h1 { font-size:1.8rem; }
     .epg-section { gap: 10px; }
     .epg-card { min-width: 100%; }
+    #channel-logo .logo-name { font-size: 0.95rem; }
+    #channel-logo .logo-sub  { font-size: 0.52rem; }
 }
 </style>
 </head>
@@ -356,10 +381,16 @@ footer {
 </header>
 
 <div class="player-wrapper" id="mainWrapper">
-    <div id="lock-screen"></div>
-    <div id="lock-status">Screen lock</div>
+
+    <!-- Channel Logo Overlay -->
+    <div id="channel-logo">
+        <div class="logo-name">Apna Tv</div>
+        <div class="logo-sub">Ghar Jaisa</div>
+    </div>
+
     <!-- Ticker -->
-    <div id="ticker"><span>Loading schedule…</span></div>
+    <div id="ticker"><span>Loading EPG.....</span></div>
+
     <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
 </div>
 
@@ -426,8 +457,6 @@ function initPlayer() {
     const EPG_URL = "epg.json";
 
     const videoPlayer = document.getElementById("videoPlayer");
-    const lockScreen  = document.getElementById("lock-screen");
-    const lockStatus  = document.getElementById("lock-status");
     const ticker      = document.getElementById("ticker");
 
     const titleNow  = document.getElementById("titleNow");
@@ -437,82 +466,64 @@ function initPlayer() {
     const timeNext  = document.getElementById("timeNext");
     const logoNext  = document.getElementById("logoNext");
 
-    let lockTimer = null;
-
     /* ── Ticker updater ── */
     function setTickerText(text) {
-    // Duplicate the content so the loop is seamless — when first copy exits left,
-    // the identical second copy is already entering from the right
-    const track = document.createElement("div");
-    track.className = "ticker-track";
+        const track = document.createElement("div");
+        track.className = "ticker-track";
 
-    const span1 = document.createElement("span");
-    span1.textContent = text;
+        const span1 = document.createElement("span");
+        span1.textContent = text;
 
-    const span2 = document.createElement("span");
-    span2.textContent = text;  // identical copy for seamless loop
+        const span2 = document.createElement("span");
+        span2.textContent = text;
 
-    track.appendChild(span1);
-    track.appendChild(span2);
+        track.appendChild(span1);
+        track.appendChild(span2);
 
-    ticker.innerHTML = "";
-    ticker.appendChild(track);
+        ticker.innerHTML = "";
+        ticker.appendChild(track);
     }
 
     function buildTickerText(data, current, next) {
-    const parts = [];
+        const parts = [];
 
-    if (data.tickerMessage && data.tickerMessage.trim()) {
-        parts.push(data.tickerMessage.trim());
-    }
+        if (data.tickerMessage && data.tickerMessage.trim()) {
+            parts.push(data.tickerMessage.trim());
+        }
 
-    if (current) {
-        const label = current.tickerLabel || current.title || "Live Programme";
-        const end   = formatTimeSimple(current.end);
-        parts.push(`🔴 Now Streaming: ${label}  (until ${end})`);
-    }
+        if (current) {
+            const label = current.tickerLabel || current.title || "Live Programme";
+            const end   = formatTimeSimple(current.end);
+            parts.push(`🔴 Now Streaming: ${label}  (until ${end})`);
+        }
 
-    if (next && next !== current) {
-        const label = next.tickerLabel || next.title || "Next Show";
-        const start = formatTimeSimple(next.start);
-        parts.push(`🕒⏭ Coming Up: ${label}  (starts ${start})`);
-    }
+        if (next && next !== current) {
+            const label = next.tickerLabel || next.title || "Next Show";
+            const start = formatTimeSimple(next.start);
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${start})`);
+        }
 
-    // 4. Upcoming — pure time-only comparison, no dates involved
-    if (data.schedule && Array.isArray(data.schedule)) {
-        const nowSec = getCurrentISTSeconds();
+        if (data.schedule && Array.isArray(data.schedule)) {
+            const nowSec = getCurrentISTSeconds();
 
-        const upcoming = data.schedule.filter(item => {
-            if (item === current || item === next) return false;
-            const itemSec = getSecondsFromTimeString(item.start);
-            return itemSec > nowSec;  // only shows whose start time is still ahead today
-        }).slice(0, 5);
+            const upcoming = data.schedule.filter(item => {
+                if (item === current || item === next) return false;
+                const itemSec = getSecondsFromTimeString(item.start);
+                return itemSec > nowSec;
+            }).slice(0, 5);
 
-        upcoming.forEach(item => {
-            const label = item.tickerLabel || item.title || "Show";
-            const start = formatTimeSimple(item.start);
-            parts.push(`🕒 ${start} — ${label}`);
-        });
-    }
+            upcoming.forEach(item => {
+                const label = item.tickerLabel || item.title || "Show";
+                const start = formatTimeSimple(item.start);
+                parts.push(`🕒 ${start} — ${label}`);
+            });
+        }
 
-    if (parts.length === 0) {
-        return "Loading EPG";
-    }
+        if (parts.length === 0) {
+            return "Loading EPG.....";
+        }
 
-    return parts.join("   ·   ") + "   ·   ";
-    }
-
-    /* ── Lock timer ── */
-    function resetLockTimer() {
-        if (lockTimer) clearTimeout(lockTimer);
-        lockScreen.style.display = "none";
-        lockStatus.innerText = "Apna Tv";
-        lockStatus.style.display = "block";
-        lockTimer = setTimeout(() => {
-            lockScreen.style.display = "block";
-            lockStatus.innerText = "Screen lock";
-            setTimeout(() => { lockStatus.style.display = "none"; }, 3000);
-        }, 100000);
+        return parts.join("   ·   ") + "   ·   ";
     }
 
     /* ── Time helpers ── */
@@ -584,7 +595,6 @@ function initPlayer() {
             if (current) {
                 if (current.url && !videoPlayer.src.includes(current.url)) {
                     videoPlayer.src = current.url;
-                    resetLockTimer();
                 }
                 titleNow.textContent = current.title || "Programme";
                 timeNow.textContent  = formatTimeSimple(current.end);
@@ -604,11 +614,10 @@ function initPlayer() {
             console.error("Sync Error:", err);
             titleNow.textContent  = "Connecting…";
             titleNext.textContent = "Connecting…";
-            setTickerText("Click play button 3-4 times.  अगर क्लिक न हो तो रिफ्रेश बटन दबाएं।");
+            setTickerText("Loading EPG.....");
         }
     }
 
-    // Run immediately, then every 10 s for EPG + 30 s ticker refresh
     updatePlayerAndEPG();
     setInterval(updatePlayerAndEPG, 10000);
 }

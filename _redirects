@@ -4,7 +4,8 @@
 # 2. Allow Google to see your SEO pages (CRITICAL FIX)
 /channels_pages/*  /channels_pages/:splat  200
 
-# 3. Clean URLs
+# 3. Clean URLs: If user goes to /9x-jalwa, show them index.html with the player
+# This matches the ?ch= slug logic we added to your index.html
 /channel/:slug  /index.html?ch=:slug  200
 
 # 4. Media and Data files
@@ -12,5 +13,47 @@
 /*.m3u8         /:splat         200
 /*.mp4          /:splat         200
 
-# 5. Redirect ALL remaining traffic to new site (permanent)
-/* https://ipllink.netlify.app/ :splat  301!
+# 5. Catch-all (Moved to the bottom so it doesn't block the others)
+/*              /index.html     200
+
+Netlify. toml👇
+# netlify.toml — Cache headers to fix Lighthouse "Use efficient cache lifetimes"
+
+[[headers]]
+  for = "/channels2.json"
+  [headers.values]
+    Cache-Control = "public, max-age=300, stale-while-revalidate=60"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=3600"
+
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=86400, stale-while-revalidate=3600"
+
+[[headers]]
+  for = "/*.ico"
+  [headers.values]
+    Cache-Control = "public, max-age=86400"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Security headers — also pushes Best Practices score to 100
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

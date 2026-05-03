@@ -1,1 +1,777 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Apna TV 24/7 - Cinema Mode</title>
+
+
+
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+#not-chrome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    background: radial-gradient(circle at top, #111, #000);
+    color: #fff;
+    font-family: 'Segoe UI', sans-serif;
+    text-align: center;
+    padding: 40px 20px;
+}
+
+#not-chrome .nc-icon {
+    font-size: 72px;
+    margin-bottom: 24px;
+    filter: grayscale(0.3);
+}
+
+#not-chrome h1 {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #ff3b3b;
+    margin-bottom: 12px;
+}
+
+#not-chrome p {
+    font-size: 1rem;
+    color: #bbb;
+    max-width: 480px;
+    line-height: 1.65;
+    margin-bottom: 10px;
+}
+
+#not-chrome .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 28px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 40px;
+    padding: 10px 22px;
+    font-size: 0.9rem;
+    color: #ddd;
+}
+
+#not-chrome .badge svg {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+#not-chrome .download-btn {
+    margin-top: 22px;
+    display: inline-block;
+    padding: 12px 30px;
+    background: linear-gradient(90deg, #4285f4, #34a853);
+    color: #fff;
+    font-size: 0.95rem;
+    font-weight: 600;
+    border-radius: 40px;
+    text-decoration: none;
+    transition: opacity 0.2s;
+}
+
+#not-chrome .download-btn:hover { opacity: 0.85; }
+
+#main-content {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', sans-serif;
+    background: radial-gradient(circle at top, #111, #000);
+    color: #fff;
+    min-height: 100vh;
+}
+
+body { margin: 0; background: #000; }
+
+header {
+    text-align: center;
+    margin: 24px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+header .brand-name {
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 1px;
+    background: linear-gradient(90deg, #ff2d55, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 18px rgba(255,45,85,0.45));
+    line-height: 1.1;
+}
+
+header .brand-sub {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    margin-top: 3px;
+}
+
+header .brand-divider {
+    margin-top: 10px;
+    width: 120px;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #ff2d55, #ff8c00, transparent);
+    opacity: 0.75;
+}
+
+.player-wrapper {
+    width: 100%;
+    max-width: 1200px;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(255,0,0,0.25);
+    margin: 15px;
+    position: relative;
+}
+
+iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+/* ── Channel Logo Overlay ── */
+#channel-logo {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none;
+    user-select: none;
+}
+
+#channel-logo .logo-name {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #ff2d55, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+    line-height: 1.15;
+    /* Legible shadow via filter trick */
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,0.9));
+}
+
+#channel-logo .logo-sub {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    margin-top: 1px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+}
+
+/* thin accent line under subtitle */
+#channel-logo::after {
+    content: '';
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 4px;
+    background: linear-gradient(90deg, transparent, #ff2d55, #ff8c00);
+    border-radius: 2px;
+    opacity: 0.7;
+}
+
+#ticker {
+    position: absolute; bottom: 25px; left: 0;
+    width: 100%; 
+    overflow: hidden; white-space: nowrap;
+    z-index: 10000; 
+    padding: 1px 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#ticker span {
+    display: inline-block; padding-left: 100%;
+    animation: scroll 15s linear infinite;
+    color: #ff3b3b; font-family: sans-serif; font-size: 14px;
+}
+
+@keyframes scroll {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-100%); }
+}
+
+.epg-section {
+    width: 100%;
+    max-width: 1200px;
+    padding: 0 15px 10px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.epg-card {
+    flex: 1;
+    min-width: 240px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.3s;
+}
+
+.epg-card.live {
+    border-color: #ff2d55;
+    box-shadow: 0 0 14px rgba(255,45,85,0.2);
+}
+
+.epg-logo {
+    width: 54px;
+    height: 54px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #111;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 13px;
+    color: #ff2d55;
+    letter-spacing: 0.5px;
+    overflow: hidden;
+}
+
+.epg-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.epg-info { flex: 1; min-width: 0; }
+
+.epg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.epg-badge.live {
+    background: rgba(255,45,85,0.15);
+    color: #ff2d55;
+    border: 1px solid rgba(255,45,85,0.3);
+}
+
+.epg-badge.next {
+    background: rgba(255,255,255,0.08);
+    color: #aaa;
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ff2d55;
+    animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.epg-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+}
+
+.epg-time { font-size: 0.8rem; color: #888; }
+.epg-time strong { color: #ddd; font-weight: 600; }
+
+.instructions {
+    max-width: 900px;
+    text-align:center;
+    font-size: 0.9rem;
+    color:#aaa;
+    margin: 6px 15px 20px;
+    line-height:1.5;
+}
+.instructions span { color:#ff3b3b; font-weight:600; }
+
+footer {
+    width: 100%;
+    padding: 40px 20px;
+    background: #0a0a0a; /* Deep dark background */
+    border-top: 1px solid #222;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.footer-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.disclaimer-box {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.03); /* Subtle lift */
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 30px;
+}
+
+.disclaimer-box p {
+    font-size: 0.85rem;
+    color: #888; /* Softer white for readability */
+    line-height: 1.6;
+    margin: 0;
+}
+
+.disclaimer-box strong {
+    color: #bbb;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.75rem;
+}
+
+.disclaimer-box span {
+    color: #ddd; /* Highlighted text */
+}
+
+.footer-divider {
+    border: 0;
+    border-top: 1px solid #222;
+    margin-bottom: 25px;
+    width: 50%;
+}
+
+.footer-bottom p {
+    font-size: 0.8rem;
+    color: #555;
+    letter-spacing: 0.3px;
+}
+
+.footer-bottom span {
+    color: #999;
+    font-weight: 600;
+}
+.social-links {
+    margin-bottom: 25px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.social-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+    color: #888;
+    text-decoration: none;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Hover Effect: Glow and Change Color */
+.social-icon:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(255, 255, 255, 0.1);
+}
+
+/* Specific Hover Colors (Optional) */
+.social-icon:hover .fa-facebook-f { color: #1877F2; }
+.social-icon:hover .fa-instagram { color: #E4405F; }
+.social-icon:hover .fa-youtube { color: #FF0000; }
+.social-icon:hover .fa-telegram-plane { color: #0088cc; }
+
+
+@media(max-width:600px){
+    header .brand-name { font-size: 2rem; }
+    header .brand-sub  { font-size: 0.62rem; letter-spacing: 3px; }
+    .epg-section { gap: 10px; }
+    .epg-card { min-width: 100%; }
+    #channel-logo .logo-name { font-size: 0.95rem; }
+    #channel-logo .logo-sub  { font-size: 0.52rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ FALLBACK — non-Chrome browsers see this ══════════════ -->
+<div id="not-chrome">
+    <div class="nc-icon">
+        <svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="40" cy="40" r="40" fill="#fff"/>
+            <circle cx="40" cy="40" r="26" fill="#4285f4"/>
+            <path d="M40 14 A26 26 0 0 1 62.52 27 L40 27 Z" fill="#ea4335"/>
+            <path d="M62.52 27 A26 26 0 0 1 62.52 53 L43 40 Z" fill="#34a853"/>
+            <path d="M62.52 53 A26 26 0 0 1 17.48 53 L40 40 Z" fill="#fbbc05"/>
+            <path d="M17.48 53 A26 26 0 0 1 17.48 27 L40 27 L43 40 Z" fill="#4285f4"/>
+            <path d="M40 14 L62.52 27 L40 27 Z" fill="#ea4335" opacity="0.9"/>
+            <circle cx="40" cy="40" r="12" fill="#fff"/>
+            <circle cx="40" cy="40" r="10" fill="#4285f4"/>
+        </svg>
+    </div>
+    <h1>Google Chrome Required</h1>
+    <p><strong>Apna TV 24/7</strong> is optimised exclusively for Google Chrome. Your current browser is not supported.</p>
+    <p>Please open this page in <strong>Google Chrome</strong> to enjoy the full streaming experience.</p>
+    <div class="badge">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="12" cy="12" r="10" fill="#4285f4"/>
+            <circle cx="12" cy="12" r="6.5" fill="#fff"/>
+            <path d="M12 5.5 A6.5 6.5 0 0 1 17.93 9H12Z" fill="#ea4335"/>
+            <path d="M17.93 9 A6.5 6.5 0 0 1 17.93 15L12 12Z" fill="#34a853"/>
+            <path d="M17.93 15 A6.5 6.5 0 0 1 6.07 15L12 12Z" fill="#fbbc05"/>
+            <path d="M6.07 15 A6.5 6.5 0 0 1 6.07 9L12 9L12 12Z" fill="#4285f4"/>
+            <circle cx="12" cy="12" r="3.5" fill="#fff"/>
+            <circle cx="12" cy="12" r="3" fill="#4285f4"/>
+        </svg>
+        Works best on Google Chrome — desktop or Android
+    </div>
+    <a class="download-btn" href="https://www.google.com/chrome/" target="_blank" rel="noopener">
+        Download Google Chrome →
+    </a>
+</div>
+
+<!-- ══════════════ MAIN CONTENT — Chrome only ══════════════ -->
+<div id="main-content">
+
+<header>
+    <div class="brand-name">Apna Tv</div>
+    <div class="brand-sub">Ghar Jaisa</div>
+    <div class="brand-divider"></div>
+</header>
+
+<div class="player-wrapper" id="mainWrapper">
+
+    <!-- Channel Logo Overlay -->
+    <div id="channel-logo">
+        <div class="logo-name">Apna Tv</div>
+        <div class="logo-sub">Ghar Jaisa</div>
+    </div>
+
+    <!-- Ticker -->
+    <div id="ticker"><span>Loading EPG.....</span></div>
+
+    <iframe id="videoPlayer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" playsinline></iframe>
+</div>
+
+<div class="epg-section" id="epgSection">
+    <div class="epg-card live" id="cardNow">
+        <div class="epg-logo" id="logoNow">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge live"><div class="live-dot"></div> Live now</div>
+            <div class="epg-title" id="titleNow">Loading…</div>
+            <div class="epg-time">Finishing At <strong id="timeNow">--:--</strong></div>
+        </div>
+    </div>
+    <div class="epg-card" id="cardNext">
+        <div class="epg-logo" id="logoNext">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge next">Coming Up Next</div>
+            <div class="epg-title" id="titleNext">Loading…</div>
+            <div class="epg-time">Starts At <strong id="timeNext">--:--</strong></div>
+        </div>
+    </div>
+</div>
+
+<div class="instructions">
+    <p><span>Note:</span> Do not refresh the webpage unless video does not play.</p>
+    <p>If refreshed accidentally, the video may restart from beginning until next program starts.</p>
+</div>
+
+<footer id="footer">
+    
+
+        <div class="disclaimer-box">
+            <p>
+                <strong>Disclaimer & Copyright:</strong> Apna Tv Network does not host, provide, or store any media content on its own servers. 
+                We provide a curated directory of <span>publicly available streams</span> found on the internet. 
+            </p>
+        </div>
+        <div class="footer-container">
+        <!-- Social Icons -->
+        <div class="social-links">
+            <a href="#" class="social-icon" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+            <a href="#" class="social-icon" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
+            <a href="#" class="social-icon" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+            <a href="#" class="social-icon" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
+            <a href="#" class="social-icon" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
+        </div>
+
+
+        <hr class="footer-divider">
+
+        <div class="footer-bottom">
+            <p>© 2026 <span>Apna Tv Network</span>. All Rights Reserved.</p>
+        </div>
+    </div>
+</footer>
+
+<!-- Include Font Awesome in your <head> -->
+<link rel="stylesheet" href="https://cloudflare.com">
+
+
+</div><!-- /main-content -->
+
+<script>
+/* ─────────────────────────────────────────────
+   CHROME DETECTION
+───────────────────────────────────────────── */
+function isGoogleChrome() {
+    const ua = navigator.userAgent;
+    if (navigator.userAgentData && navigator.userAgentData.brands) {
+        const brands = navigator.userAgentData.brands.map(b => b.brand);
+        const hasChrome = brands.some(b => b === "Google Chrome");
+        const hasEdge   = brands.some(b => b === "Microsoft Edge");
+        const hasOpera  = brands.some(b => b === "Opera");
+        if (hasEdge || hasOpera) return false;
+        if (hasChrome) return true;
+    }
+    const isChrome    = /Chrome\//.test(ua);
+    const isEdge      = /Edg\//.test(ua);
+    const isOpera     = /OPR\//.test(ua) || /Opera/.test(ua);
+    const isBrave     = (navigator.brave !== undefined);
+    const isSamsung   = /SamsungBrowser/.test(ua);
+    const isYaBrowser = /YaBrowser/.test(ua);
+    return isChrome && !isEdge && !isOpera && !isBrave && !isSamsung && !isYaBrowser;
+}
+
+if (isGoogleChrome()) {
+    document.getElementById("not-chrome").style.display = "none";
+    document.getElementById("main-content").style.display = "flex";
+    initPlayer();
+}
+
+/* ─────────────────────────────────────────────
+   PLAYER + EPG + TICKER LOGIC
+───────────────────────────────────────────── */
+function initPlayer() {
+    const EPG_URL = "epg.json";
+
+    const videoPlayer = document.getElementById("videoPlayer");
+    const ticker      = document.getElementById("ticker");
+
+    const titleNow  = document.getElementById("titleNow");
+    const timeNow   = document.getElementById("timeNow");
+    const logoNow   = document.getElementById("logoNow");
+    const titleNext = document.getElementById("titleNext");
+    const timeNext  = document.getElementById("timeNext");
+    const logoNext  = document.getElementById("logoNext");
+
+    /* ── Ticker updater ── */
+    function setTickerText(text) {
+        const track = document.createElement("div");
+        track.className = "ticker-track";
+
+        const span1 = document.createElement("span");
+        span1.textContent = text;
+
+        const span2 = document.createElement("span");
+        span2.textContent = text;
+
+        track.appendChild(span1);
+        track.appendChild(span2);
+
+        ticker.innerHTML = "";
+        ticker.appendChild(track);
+    }
+
+    function buildTickerText(data, current, next) {
+        const parts = [];
+
+        if (data.tickerMessage && data.tickerMessage.trim()) {
+            parts.push(data.tickerMessage.trim());
+        }
+
+        if (current) {
+            const label = current.tickerLabel || current.title || "Live Programme";
+            const end   = formatTimeSimple(current.end);
+            parts.push(`🔴 Now Streaming: ${label}  (until ${end})`);
+        }
+
+        if (next && next !== current) {
+            const label = next.tickerLabel || next.title || "Next Show";
+            const start = formatTimeSimple(next.start);
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${start})`);
+        }
+
+        if (data.schedule && Array.isArray(data.schedule)) {
+            const nowSec = getCurrentISTSeconds();
+
+            const upcoming = data.schedule.filter(item => {
+                if (item === current || item === next) return false;
+                const itemSec = getSecondsFromTimeString(item.start);
+                return itemSec > nowSec;
+            }).slice(0, 5);
+
+            upcoming.forEach(item => {
+                const label = item.tickerLabel || item.title || "Show";
+                const start = formatTimeSimple(item.start);
+                parts.push(`🕒 ${start} — ${label}`);
+            });
+        }
+
+        if (parts.length === 0) {
+            return "Loading EPG.....";
+        }
+
+        return parts.join("   ·   ") + "   ·   ";
+    }
+
+    /* ── Time helpers ── */
+    function getSecondsFromTimeString(timeStr) {
+        if (!timeStr) return 0;
+        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+        return (parseInt(parts[0]||0,10)*3600) + (parseInt(parts[1]||0,10)*60) + (parseInt(parts[2]||0,10));
+    }
+
+    function getCurrentISTSeconds() {
+        const istStr = new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
+        return getSecondsFromTimeString(istStr);
+    }
+
+    function formatTimeSimple(timeStr) {
+        if (!timeStr) return "00:00";
+        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+        if (parts.length >= 2) {
+            return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
+        }
+        return "00:00";
+    }
+
+    function setLogo(el, logoSrc, fallbackText) {
+        if (logoSrc) {
+            el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
+        } else {
+            el.textContent = fallbackText || "TV";
+        }
+    }
+
+    /* ── Main sync function ── */
+    async function updatePlayerAndEPG() {
+        try {
+            const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
+            if (!res.ok) throw new Error("epg.json not found");
+
+            const data = await res.json();
+            const schedule = data.schedule;
+            if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
+
+            const nowSec = getCurrentISTSeconds();
+            let current = null, next = null;
+
+            for (let i = 0; i < schedule.length; i++) {
+                const startSec = getSecondsFromTimeString(schedule[i].start);
+                const endSec   = getSecondsFromTimeString(schedule[i].end);
+                let isCurrent  = false;
+
+                if (endSec < startSec) {
+                    if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
+                } else {
+                    if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
+                }
+
+                if (isCurrent) {
+                    current = schedule[i];
+                    next = schedule[i + 1] || schedule[0];
+                    break;
+                }
+            }
+
+            if (!current) {
+                current = schedule[0];
+                next = schedule[1] || schedule[0];
+            }
+
+            /* ── Update EPG cards ── */
+            if (current) {
+                if (current.url && !videoPlayer.src.includes(current.url)) {
+                    videoPlayer.src = current.url;
+                }
+                titleNow.textContent = current.title || "Programme";
+                timeNow.textContent  = formatTimeSimple(current.end);
+                setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+            }
+
+            if (next) {
+                titleNext.textContent = next.title || "Next Show";
+                timeNext.textContent  = formatTimeSimple(next.start);
+                setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+            }
+
+            /* ── Update ticker ── */
+            setTickerText(buildTickerText(data, current, next));
+
+        } catch (err) {
+            console.error("Sync Error:", err);
+            titleNow.textContent  = "Connecting…";
+            titleNext.textContent = "Connecting…";
+            setTickerText("Loading EPG.....");
+        }
+    }
+
+    updatePlayerAndEPG();
+    setInterval(updatePlayerAndEPG, 10000);
+}
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
 

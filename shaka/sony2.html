@@ -135,66 +135,138 @@
             display: none; text-align: center; color: #fff; font-family: sans-serif;
         }
 
-        /* Stream type badge */
-        #typeBadge {
-            position: absolute; top: 40px; left: 10px;
+        /* Slot transition overlay */
+        #slotOverlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: #000;
+            z-index: 8000;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        #slotOverlay.show {
+            display: flex;
+        }
+
+        #slotLabel {
             color: var(--primary);
-            font-family: monospace;
-            font-size: 11px;
-            z-index: 10001;
-            opacity: 0.6;
+            font-family: sans-serif;
+            font-size: 15px;
             letter-spacing: 1px;
-            pointer-events: none;
+            opacity: 0.85;
+        }
+
+        #slotCountdown {
+            color: #fff;
+            font-family: monospace;
+            font-size: 12px;
+            opacity: 0.5;
         }
     </style>
 </head>
 <body>
 
-    <!-- Mobile Viewer -->
-    <div class="viewport" id="playerWrapper">
-        <div id="lockLayer"></div>
+<!-- Mobile Viewer -->
+<div class="viewport" id="playerWrapper">
+    <div id="lockLayer"></div>
 
-        <!-- Ticker -->
-        <div id="ticker"><span> Click play button 3-4 times.  अगर क्लिक न हो तो रिफ्रेश बटन दबाएं। </span></div>
+    <!-- Ticker -->
+    <div id="ticker"><span> Click play button 3-4 times.  अगर क्लिक न हो तो रिफ्रेश बटन दबाएं। </span></div>
 
-        <div id="status" class="click-hint"></div>
-        <div id="typeBadge"></div>
-        <button id="resetBtn" onclick="location.reload()">Refresh</button>
+    <div id="status" class="click-hint"></div>
+    <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
-        <!-- Error display -->
-        <div id="errorMsg"></div>
+    <!-- Error display -->
+    <div id="errorMsg"></div>
 
-        <!-- Native Video Player (mp4 / m3u8) -->
-        <div id="nativePlayer">
-            <video id="videoEl" controls autoplay playsinline></video>
-        </div>
-
-        <!-- Iframe Player -->
-        <div id="frameMover">
-            <iframe id="captureFrame"
-                    is="x-frame-bypass"
-                    src=""
-                    scrolling="no">
-            </iframe>
-        </div>
+    <!-- Slot transition overlay -->
+    <div id="slotOverlay">
+        <div id="slotLabel">Loading next stream…</div>
+        <div id="slotCountdown"></div>
     </div>
 
-    <!-- Non-Mobile Fallback -->
-    <div id="fallback">
-        <h2>Mobile Device Required</h2>
-        <p>Please open this page on Android or iOS to view the stream.</p>
+    <!-- Native Video Player (mp4 / m3u8) -->
+    <div id="nativePlayer">
+        <video id="videoEl" controls autoplay playsinline></video>
     </div>
+
+    <!-- Iframe Player -->
+    <div id="frameMover">
+        <iframe id="captureFrame"
+                is="x-frame-bypass"
+                src=""
+                scrolling="no">
+        </iframe>
+    </div>
+</div>
+
+<!-- Non-Mobile Fallback -->
+<div id="fallback">
+    <h2>Mobile Device Required</h2>
+    <p>Please open this page on Android or iOS to view the stream.</p>
+</div>
 
 <script>
-// ─────────────────────────────────────────────
-//  ★  SET YOUR STREAM URL HERE  ★
-// ─────────────────────────────────────────────
-const STREAM_URL = "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI9peZygUm0w0wR1QKqB2ftJn58_27x2AzW8RzFZKu-qASep5HGrwYxV6u_jzPsjOft9FleSZhlis-P9P4LX86DDYNdD4Cbid6jyoDAvvEiEH1eFvev1k6sJZGF0ytehlajorg2TuBDX20o7iaAX5Q52I8loVjQyvZdPwzGzXm2c8zNkMdlzxlTbBnGfDhX7tnBBS6hRxw713ytZGUQEwjPfjzOVbtG2oEAREvTqPV4g2zqEDfkdcxKNS5XB1zNGKbLcdO3uFVBqsSnGEc1Kx3BNLxiEgZoQrhOOE_zewhQj4PH04CUu93R5XNHZk9PBGWPTiNTn_Y6BD4FaSt8OKSQ/650fd6df17a90/87fbf8aea7b478c5b43fd48d149aecc3584a783a71353407a1dc4b9374dadeaa/master-playlist.m3u8";
-// Examples:
-//   m3u8 : "https://example.com/live/stream.m3u8"
-//   mp4  : "https://example.com/video/clip.mp4"
-//   page : "https://example.com/embed/player"
-// ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+//  ★  PLAYLIST  —  Add / edit your scheduled streams here  ★
+//
+//  Each entry:
+//    label  : Name shown briefly when switching (optional but helpful)
+//    url    : Stream URL — supports .m3u8 (HLS), .mp4/.webm, or any
+//             embed/iframe page URL. Mix types freely.
+//    start  : "HH:MM"  24-hour local time this slot begins
+//    end    : "HH:MM"  24-hour local time this slot ends
+//
+//  Rules:
+//   • Times are the viewer's LOCAL device time.
+//   • Slots must NOT overlap.
+//   • If the current time matches no slot, the LAST entry is used
+//     as a fallback — make it a wide catch-all (e.g. 00:00–23:59).
+//   • You can have as many slots as you like.
+// ═══════════════════════════════════════════════════════════════════════
+
+const PLAYLIST = [
+    {
+        label : "WWE Raw",
+        url   : "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI9peZygUm0w0wR1QKqB2ftJn58_27x2AzW8RzFZKu-qASep5HGrwYxV6u_jzPsjOft9FleSZhlis-P9P4LX86DDYNdD4Cbid6jyoDAvvEiEH1eFvev1k6sJZGF0ytehlajorg2TuBDX20o7iaAX5Q52I8loVjQyvZdPwzGzXm2c8zNkMdlzxlTbBnGfDhX7tnBBS6hRxw713ytZGUQEwjPfjzOVbtG2oEAREvTqPV4g2zqEDfkdcxKNS5XB1zNGKbLcdO3uFVBqsSnGEc1Kx3BNLxiEgZoQrhOOE_zewhQj4PH04CUu93R5XNHZk9PBGWPTiNTn_Y6BD4FaSt8OKSQ/650fd6df17a90/87fbf8aea7b478c5b43fd48d149aecc3584a783a71353407a1dc4b9374dadeaa/master-playlist.m3u8",
+        start : "23:00",
+        end   : "04:00"
+    },
+    {
+        label : "Midday Block",
+        url   : "https://example.com/midday/clip.mp4",
+        start : "10:00",
+        end   : "14:00"
+    },
+    {
+        label : "Afternoon Live",
+        url   : "https://example.com/embed/afternoon-player",
+        start : "14:00",
+        end   : "20:00"
+    },
+    {
+        label : "Night Stream",
+        url   : "https://example.com/night/stream.m3u8",
+        start : "20:00",
+        end   : "23:59"
+    },
+    // ── Catch-all fallback (covers any time not matched above) ──
+    {
+        label : "Default Stream",
+        url   : "https://example.com/default/stream.m3u8",
+        start : "00:00",
+        end   : "06:00"
+    }
+];
+
+// How often to check if the slot should change (milliseconds)
+const CHECK_INTERVAL = 30_000; // 30 seconds
+
+// ═══════════════════════════════════════════════════════════════════════
 
 (function () {
 
@@ -214,7 +286,7 @@ const STREAM_URL = "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI
         return;
     }
 
-    /* ── URL type detection ── */
+    /* ── Utilities ── */
     function detectType(url) {
         if (!url || url.trim() === "") return "none";
         const clean = url.split("?")[0].toLowerCase();
@@ -223,20 +295,47 @@ const STREAM_URL = "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI
         return "iframe";
     }
 
-    /* ── HLS loader ── */
+    function toMinutes(hhmm) {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+    }
+
+    function nowMinutes() {
+        const d = new Date();
+        return d.getHours() * 60 + d.getMinutes();
+    }
+
+    function currentSlot() {
+        const now = nowMinutes();
+        for (const slot of PLAYLIST) {
+            const s = toMinutes(slot.start);
+            const e = toMinutes(slot.end);
+            // Normal same-day range
+            if (s <= e) {
+                if (now >= s && now < e) return slot;
+            } else {
+                // Overnight wrap e.g. 22:00–02:00
+                if (now >= s || now < e) return slot;
+            }
+        }
+        // Fallback: last entry
+        return PLAYLIST[PLAYLIST.length - 1];
+    }
+
+    /* ── HLS ── */
+    let hlsInstance = null;
+
     function loadHLS(url, videoEl, errorEl) {
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         if (Hls.isSupported()) {
-            const hls = new Hls({ enableWorker: true });
-            hls.loadSource(url);
-            hls.attachMedia(videoEl);
-            hls.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    showError(errorEl, "HLS stream error: " + data.details);
-                }
+            hlsInstance = new Hls({ enableWorker: true });
+            hlsInstance.loadSource(url);
+            hlsInstance.attachMedia(videoEl);
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => videoEl.play().catch(() => {}));
+            hlsInstance.on(Hls.Events.ERROR, (_, data) => {
+                if (data.fatal) showError(errorEl, "HLS error: " + data.details);
             });
         } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS (Safari / iOS)
             videoEl.src = url;
             videoEl.play().catch(() => {});
         } else {
@@ -244,51 +343,97 @@ const STREAM_URL = "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI
         }
     }
 
-    /* ── MP4 loader ── */
-    function loadMP4(url, videoEl) {
+    function loadMP4(url, videoEl, errorEl) {
         videoEl.src = url;
         videoEl.play().catch(() => {});
+        videoEl.onerror = () => showError(errorEl, "Video failed to load. Check the URL.");
     }
 
-    /* ── Error helper ── */
-    function showError(el, msg) {
-        el.textContent = msg;
-        el.style.display = "block";
-    }
+    function showError(el, msg) { el.textContent = msg; el.style.display = "block"; }
+    function clearError(el)     { el.textContent = "";  el.style.display = "none"; }
 
-    /* ── Main init ── */
+    /* ── Main ── */
     document.addEventListener("DOMContentLoaded", function () {
-        const wrapper    = document.getElementById('playerWrapper');
-        const shield     = document.getElementById('lockLayer');
-        const status     = document.getElementById('status');
-        const badge      = document.getElementById('typeBadge');
-        const errorEl    = document.getElementById('errorMsg');
-        const nativeWrap = document.getElementById('nativePlayer');
-        const videoEl    = document.getElementById('videoEl');
-        const frameMover = document.getElementById('frameMover');
-        const iframe     = document.getElementById('captureFrame');
+        const wrapper      = document.getElementById('playerWrapper');
+        const shield       = document.getElementById('lockLayer');
+        const status       = document.getElementById('status');
+        const errorEl      = document.getElementById('errorMsg');
+        const nativeWrap   = document.getElementById('nativePlayer');
+        const videoEl      = document.getElementById('videoEl');
+        const frameMover   = document.getElementById('frameMover');
+        const iframe       = document.getElementById('captureFrame');
+        const overlay      = document.getElementById('slotOverlay');
+        const slotLabelEl  = document.getElementById('slotLabel');
+        const slotCdEl     = document.getElementById('slotCountdown');
 
-        const type = detectType(STREAM_URL);
-        badge.textContent = type.toUpperCase();
+        let activeUrl = null;
 
-        if (type === "hls") {
-            nativeWrap.style.display = "block";
-            loadHLS(STREAM_URL, videoEl, errorEl);
+        /* ── Activate a slot immediately ── */
+        function activateSlot(slot) {
+            const type = detectType(slot.url);
+            clearError(errorEl);
 
-        } else if (type === "mp4") {
-            nativeWrap.style.display = "block";
-            loadMP4(STREAM_URL, videoEl);
-            videoEl.addEventListener('error', () => showError(errorEl, "Video failed to load. Check the URL."));
+            // Tear down previous players
+            nativeWrap.style.display = "none";
+            frameMover.style.display = "none";
+            if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+            videoEl.pause();
+            videoEl.removeAttribute('src');
+            iframe.src = "";
 
-        } else if (type === "iframe") {
-            frameMover.style.display = "block";
-            iframe.src = STREAM_URL;
-
-        } else {
-            showError(errorEl, "No stream URL configured. Set STREAM_URL in the script.");
+            if (type === "hls") {
+                nativeWrap.style.display = "block";
+                loadHLS(slot.url, videoEl, errorEl);
+            } else if (type === "mp4") {
+                nativeWrap.style.display = "block";
+                loadMP4(slot.url, videoEl, errorEl);
+            } else if (type === "iframe") {
+                frameMover.style.display = "block";
+                iframe.src = slot.url;
+            } else {
+                showError(errorEl, "No valid URL configured for this time slot.");
+            }
         }
 
-        /* ── Click-to-lock logic ── */
+        /* ── Load slot, with optional 3-second countdown overlay ── */
+        function loadSlot(slot, animate) {
+            if (slot.url === activeUrl) return;
+            activeUrl = slot.url;
+
+            if (!animate) {
+                activateSlot(slot);
+                return;
+            }
+
+            // Show transition overlay with countdown
+            overlay.classList.add('show');
+            slotLabelEl.textContent = slot.label ? "▶  " + slot.label : "Switching stream…";
+
+            let secs = 3;
+            slotCdEl.textContent = "Starting in " + secs + "s";
+
+            const cd = setInterval(() => {
+                secs--;
+                if (secs > 0) {
+                    slotCdEl.textContent = "Starting in " + secs + "s";
+                } else {
+                    clearInterval(cd);
+                    activateSlot(slot);
+                    setTimeout(() => overlay.classList.remove('show'), 600);
+                }
+            }, 1000);
+        }
+
+        // Boot: load current slot immediately (no animation)
+        loadSlot(currentSlot(), false);
+
+        // Poll for slot changes
+        setInterval(() => {
+            const slot = currentSlot();
+            if (slot.url !== activeUrl) loadSlot(slot, true);
+        }, CHECK_INTERVAL);
+
+        /* ── Click-to-lock (iframe mode only) ── */
         let clickCount = 0;
         const maxClicks = 4;
         let locked = false;
@@ -300,20 +445,18 @@ const STREAM_URL = "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI
             setTimeout(() => { status.style.opacity = "0"; }, 3000);
         }
 
-        // For native video: clicks shouldn't count toward the lock
-        // Only apply click counting for iframe mode
-        if (type === "iframe") {
-            wrapper.addEventListener('click', function () {
-                if (locked) return;
-                clickCount++;
-                let remaining = maxClicks - clickCount;
-                if (remaining > 0) {
-                    status.innerText = `Setup Mode: ${remaining} clicks left`;
-                }
-                if (clickCount >= maxClicks) lockPlayer();
-            });
-            setTimeout(lockPlayer, 500000);
-        }
+        wrapper.addEventListener('click', function () {
+            if (locked) return;
+            if (detectType(activeUrl) !== "iframe") return;
+            clickCount++;
+            const remaining = maxClicks - clickCount;
+            if (remaining > 0) status.innerText = `Setup Mode: ${remaining} clicks left`;
+            if (clickCount >= maxClicks) lockPlayer();
+        });
+
+        setTimeout(() => {
+            if (!locked && detectType(activeUrl) === "iframe") lockPlayer();
+        }, 500000);
     });
 
 })();

@@ -28,13 +28,11 @@
             overflow: hidden;
         }
 
-        /* ── Iframe player ── */
         #frameMover {
             display: none;
             position: absolute;
             width: 100%; height: 270%;
             top: -97px; left: 0;
-            pointer-events: none; /* block interaction — live TV, no controls */
         }
 
         #captureFrame {
@@ -43,7 +41,6 @@
             pointer-events: none;
         }
 
-        /* ── Native video — no controls, full coverage ── */
         #videoEl {
             display: none;
             position: absolute;
@@ -52,15 +49,13 @@
             object-fit: contain;
             background: #000;
             z-index: 5;
-            /* Hide every browser's native control bar */
-            -webkit-media-controls: none;
         }
 
-        /* Extra rule to nuke controls on WebKit/Blink */
-        #videoEl::-webkit-media-controls { display: none !important; }
-        #videoEl::-webkit-media-controls-enclosure { display: none !important; }
+        #videoEl::-webkit-media-controls,
+        #videoEl::-webkit-media-controls-enclosure,
+        #videoEl::-webkit-media-controls-panel { display: none !important; }
 
-        /* ── Slot transition overlay ── */
+        /* Slot transition */
         #slotOverlay {
             display: none;
             position: absolute;
@@ -72,79 +67,61 @@
             flex-direction: column;
             gap: 8px;
         }
-
         #slotOverlay.show { display: flex; }
-
         #slotLabel {
-            color: #fff;
-            font-family: sans-serif;
-            font-size: 14px;
-            opacity: 0.65;
-            letter-spacing: 0.5px;
+            color: #fff; font-family: sans-serif;
+            font-size: 14px; opacity: 0.65; letter-spacing: 0.5px;
         }
-
         #slotCountdown {
-            color: #fff;
-            font-family: monospace;
-            font-size: 11px;
-            opacity: 0.3;
+            color: #fff; font-family: monospace;
+            font-size: 11px; opacity: 0.3;
         }
 
-        /* ── Buffering spinner ── */
+        /* Spinner */
         #spinner {
             display: none;
             position: absolute;
-            inset: 0;
-            z-index: 100;
+            inset: 0; z-index: 100;
             align-items: center;
             justify-content: center;
             background: #000;
         }
-
         #spinner.show { display: flex; }
-
         #spinner::after {
             content: "";
             width: 36px; height: 36px;
             border: 3px solid rgba(255,255,255,0.1);
-            border-top-color: rgba(255,255,255,0.55);
+            border-top-color: rgba(255,255,255,0.5);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
-
         @keyframes spin { to { transform: rotate(360deg); } }
 
-        /* ── Error ── */
+        /* Error */
         #errorMsg {
             display: none;
             position: absolute;
             top: 50%; left: 50%;
             transform: translate(-50%, -50%);
-            color: rgba(255,80,80,0.85);
-            font-family: sans-serif;
-            font-size: 13px;
-            text-align: center;
-            z-index: 200;
+            color: rgba(255,80,80,0.9);
+            font-family: sans-serif; font-size: 13px;
+            text-align: center; z-index: 200;
             padding: 10px 18px;
             background: rgba(0,0,0,0.75);
             border-radius: 6px;
         }
 
-        /* ── Invisible interaction shield (prevents pause on tap) ── */
+        /* Full-cover shield — blocks all taps reaching the video */
         #shield {
             position: absolute;
-            inset: 0;
-            z-index: 9999;
+            inset: 0; z-index: 9999;
             background: transparent;
         }
 
-        /* ── Fallback (non-mobile) ── */
         #fallback {
-            display: none;
-            color: #fff;
+            display: none; color: #fff;
             font-family: sans-serif;
-            text-align: center;
-            padding: 20px;
+            text-align: center; padding: 20px;
         }
     </style>
 </head>
@@ -160,10 +137,9 @@
         <div id="slotCountdown"></div>
     </div>
 
-    <!-- Native video (HLS / MP4) — no controls attribute -->
+    <!-- No `controls` attribute — seek bar completely absent -->
     <video id="videoEl" autoplay playsinline muted></video>
 
-    <!-- Iframe embed -->
     <div id="frameMover">
         <iframe id="captureFrame" is="x-frame-bypass" src="" scrolling="no"></iframe>
     </div>
@@ -175,68 +151,73 @@
 
 <script>
 // ═══════════════════════════════════════════════════════════════════════
-//  ★  PLAYLIST  —  Scheduled broadcast schedule  ★
+//  ★  PLAYLIST  ★
 //
-//  label    : shown briefly on slot switch (optional)
-//  url      : .m3u8  /  .mp4 / .webm  /  embed iframe page URL
-//  start    : "HH:MM"  UTC time this slot begins  ← uses UTC so ALL
-//  end      : "HH:MM"  UTC time this slot ends       viewers are in sync
+//  url      : .m3u8 / .mp4 / .webm / iframe embed page
+//  start    : "HH:MM"  UTC — when this slot starts in the day
+//  end      : "HH:MM"  UTC — when this slot ends
+//  duration : REQUIRED for mp4/webm — total length of the file in
+//             seconds. The player uses this to loop correctly and to
+//             calculate the exact frame every viewer should see.
+//             (Leave out or set 0 for HLS / iframe slots.)
+//  label    : optional — shown during slot switch animation
 //
-//  For MP4 slots the player calculates exactly how many seconds into
-//  the file the current UTC time is, and seeks there — so late-joiners
-//  see the same frame as everyone else, just like a TV broadcast.
-//
-//  • Slots must not overlap.
-//  • The LAST entry is used as fallback if no slot matches.
+//  HOW MP4 SYNC WORKS
+//  ──────────────────
+//  UTC seconds elapsed since slot start  →  seek position
+//  e.g. slot starts 05:00 UTC, file is 3600s long.
+//       A viewer joins at 06:23 UTC  →  offset = 83 min = 4980s
+//       4980 mod 3600 = 1380s  →  video seeks to 23:00 into the file.
+//  Everyone on earth sees the same frame.
 // ═══════════════════════════════════════════════════════════════════════
 
 const PLAYLIST = [
     {
         label    : "Morning Show",
         url      : "https://streaming.disk.yandex.net/hls/U2FsdGVkX1_pHguN95e-sI9peZygUm0w0wR1QKqB2ftJn58_27x2AzW8RzFZKu-qASep5HGrwYxV6u_jzPsjOft9FleSZhlis-P9P4LX86DDYNdD4Cbid6jyoDAvvEiEH1eFvev1k6sJZGF0ytehlajorg2TuBDX20o7iaAX5Q52I8loVjQyvZdPwzGzXm2c8zNkMdlzxlTbBnGfDhX7tnBBS6hRxw713ytZGUQEwjPfjzOVbtG2oEAREvTqPV4g2zqEDfkdcxKNS5XB1zNGKbLcdO3uFVBqsSnGEc1Kx3BNLxiEgZoQrhOOE_zewhQj4PH04CUu93R5XNHZk9PBGWPTiNTn_Y6BD4FaSt8OKSQ/650fd6df17a90/87fbf8aea7b478c5b43fd48d149aecc3584a783a71353407a1dc4b9374dadeaa/master-playlist.m3u8",
-        start    : "15:00",   // UTC
-        end      : "17:00"
+        start    : "15:00",
+        end      : "19:00",
+        duration : 6600        // 4 hours = 14400s  ← set your actual file length
     },
     {
         label    : "Midday Block",
         url      : "https://example.com/midday/clip.mp4",
         start    : "05:00",
-        end      : "09:00"
+        end      : "09:00",
+        duration : 7200         // 2 hours
     },
     {
         label    : "Afternoon Live",
-        url      : "https://example.com/embed/afternoon-player",
+        url      : "https://example.com/embed/afternoon",
         start    : "09:00",
-        end      : "15:00"
+        end      : "15:00",
+        duration : 0            // iframe — no duration needed
     },
     {
         label    : "Night Stream",
         url      : "https://example.com/night/stream.m3u8",
         start    : "15:00",
-        end      : "20:00"
+        end      : "20:00",
+        duration : 0            // HLS — always live edge
     },
     // Catch-all fallback
     {
-        label    : "Default Stream",
+        label    : "Default",
         url      : "https://example.com/default/stream.m3u8",
         start    : "20:00",
-        end      : "01:00"
+        end      : "01:00",
+        duration : 0
     }
 ];
 
-// How often to check for slot change (ms)
-const CHECK_INTERVAL = 20_000;
-
-// Drift-correction: how often to re-sync MP4 position (ms)
-// If viewer's currentTime drifts >DRIFT_TOLERANCE seconds, hard-seek back.
-const SYNC_INTERVAL   = 5_000;
-const DRIFT_TOLERANCE = 3; // seconds
+const CHECK_INTERVAL  = 15_000;   // slot-change poll (ms)
+const DRIFT_TOLERANCE = 1.5;      // seconds before hard re-seek (mp4)
+const SYNC_INTERVAL   = 2_000;    // drift check frequency (ms)
 
 // ═══════════════════════════════════════════════════════════════════════
 
 (function () {
 
-    /* ── Device guard ── */
     function isMobile() {
         return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || navigator.vendor || window.opera);
     }
@@ -249,7 +230,52 @@ const DRIFT_TOLERANCE = 3; // seconds
         return;
     }
 
-    /* ── Helpers ── */
+    /* ─── Time helpers (all UTC) ─────────────────────────────────── */
+
+    function utcNowSecs() {
+        const d = new Date();
+        return d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds()
+             + d.getUTCMilliseconds() / 1000;
+    }
+
+    function utcNowMins() {
+        const d = new Date();
+        return d.getUTCHours() * 60 + d.getUTCMinutes();
+    }
+
+    function toSecs(hhmm) {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 3600 + m * 60;
+    }
+
+    function toMins(hhmm) {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+    }
+
+    // Seconds elapsed since slot start (handles overnight wrap, loops via duration)
+    function slotOffset(slot) {
+        const nowS   = utcNowSecs();
+        const startS = toSecs(slot.start);
+        let elapsed  = nowS - startS;
+        if (elapsed < 0) elapsed += 86400;           // overnight wrap
+
+        if (slot.duration && slot.duration > 0) {
+            elapsed = elapsed % slot.duration;        // loop the file
+        }
+        return elapsed;
+    }
+
+    function currentSlot() {
+        const now = utcNowMins();
+        for (const slot of PLAYLIST) {
+            const s = toMins(slot.start), e = toMins(slot.end);
+            const match = s <= e ? (now >= s && now < e) : (now >= s || now < e);
+            if (match) return slot;
+        }
+        return PLAYLIST[PLAYLIST.length - 1];
+    }
+
     function detectType(url) {
         if (!url) return "none";
         const c = url.split("?")[0].toLowerCase();
@@ -258,198 +284,202 @@ const DRIFT_TOLERANCE = 3; // seconds
         return "iframe";
     }
 
-    // UTC minutes since midnight
-    function utcMins() {
-        const d = new Date();
-        return d.getUTCHours() * 60 + d.getUTCMinutes();
-    }
+    /* ─── State ──────────────────────────────────────────────────── */
 
-    // UTC seconds since midnight
-    function utcSecs() {
-        const d = new Date();
-        return d.getUTCHours() * 3600 + d.getUTCMinutes() * 60 + d.getUTCSeconds();
-    }
+    let hlsInstance = null;
+    let syncTimer   = null;
+    let activeUrl   = null;
+    let activeSlot  = null;
 
-    function toMins(hhmm) {
-        const [h, m] = hhmm.split(":").map(Number);
-        return h * 60 + m;
-    }
+    /* ─── DOM refs (set after DOMContentLoaded) ───────────────────── */
 
-    function toSecs(hhmm) {
-        return toMins(hhmm) * 60;
-    }
+    let vid, frameMover, iframe, overlay, slotLabelEl, slotCdEl,
+        errEl, spinner, shield;
 
-    function currentSlot() {
-        const now = utcMins();
-        for (const slot of PLAYLIST) {
-            const s = toMins(slot.start), e = toMins(slot.end);
-            if (s <= e ? (now >= s && now < e) : (now >= s || now < e)) return slot;
-        }
-        return PLAYLIST[PLAYLIST.length - 1];
-    }
+    /* ─── Helpers ─────────────────────────────────────────────────── */
 
-    // How many seconds into the current MP4 slot should we be right now?
-    function slotOffsetSecs(slot) {
-        const nowS  = utcSecs();
-        const startS = toSecs(slot.start);
-        let diff = nowS - startS;
-        if (diff < 0) diff += 86400; // overnight wrap
-        return diff;
-    }
+    function showErr(msg) { errEl.textContent = msg; errEl.style.display = "block"; }
+    function clearErr()   { errEl.textContent = "";  errEl.style.display = "none"; }
+    function showSpin()   { spinner.classList.add('show'); }
+    function hideSpin()   { spinner.classList.remove('show'); }
 
-    function showErr(el, msg) { el.textContent = msg; el.style.display = "block"; }
-    function clearErr(el)     { el.textContent = "";  el.style.display = "none"; }
-
-    function showSpinner(el)  { el.classList.add('show'); }
-    function hideSpinner(el)  { el.classList.remove('show'); }
-
-    /* ── HLS loader ── */
-    let hlsInstance  = null;
-    let syncTimer    = null;
-
-    function clearSyncTimer() {
+    function clearSync() {
         if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
     }
 
-    function loadHLS(url, vid, spinner, errEl) {
-        showSpinner(spinner);
+    function tearDown() {
+        clearSync();
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+        vid.pause();
+        vid.removeAttribute('src');
+        vid.load();                        // abort any pending fetch
+        vid.style.display  = "none";
+        frameMover.style.display = "none";
+        iframe.src = "about:blank";
+        clearErr();
+    }
 
-        const startLive = () => {
-            // For HLS: jump to live edge
-            if (vid.duration && isFinite(vid.duration)) {
-                vid.currentTime = vid.duration;
+    /* ─── Seek & play helper — waits for seekable then starts ─────── */
+
+    function seekAndPlay(targetSecs) {
+        // Clamp to duration if known
+        const dur = isFinite(vid.duration) ? vid.duration : Infinity;
+        const t   = Math.min(targetSecs, dur - 0.5);
+
+        return new Promise(resolve => {
+            const doSeek = () => {
+                vid.currentTime = t;
+                // Some browsers fire 'seeked', others just update immediately
+                const onSeeked = () => {
+                    vid.removeEventListener('seeked', onSeeked);
+                    resolve();
+                };
+                vid.addEventListener('seeked', onSeeked);
+                // Fallback — resolve after 300ms even if seeked never fires
+                setTimeout(() => { vid.removeEventListener('seeked', onSeeked); resolve(); }, 300);
+            };
+
+            if (vid.readyState >= 1) {          // HAVE_METADATA or better
+                doSeek();
+            } else {
+                vid.addEventListener('loadedmetadata', doSeek, { once: true });
             }
+        });
+    }
+
+    /* ─── MP4 pseudo-live loader ──────────────────────────────────── */
+
+    async function loadMP4(slot) {
+        showSpin();
+        vid.style.display = "block";
+        vid.src  = slot.url;
+        vid.load();
+
+        // Wait for metadata so we know duration
+        await new Promise(resolve => {
+            if (vid.readyState >= 1) { resolve(); return; }
+            vid.addEventListener('loadedmetadata', resolve, { once: true });
+            vid.addEventListener('error', resolve, { once: true });  // don't hang
+        });
+
+        if (vid.error) { showErr("Video failed to load."); hideSpin(); return; }
+
+        // Calculate exact position right now
+        const target = slotOffset(slot);
+        await seekAndPlay(target);
+
+        vid.muted = false;
+        vid.volume = 1;
+        vid.play().catch(() => {});
+        hideSpin();
+
+        // Continuous drift correction — re-sync every SYNC_INTERVAL ms
+        syncTimer = setInterval(() => {
+            if (!activeSlot || detectType(activeSlot.url) !== "mp4") return;
+            const expected = slotOffset(activeSlot);
+            const drift    = Math.abs(vid.currentTime - expected);
+            if (drift > DRIFT_TOLERANCE) {
+                vid.currentTime = expected;
+            }
+        }, SYNC_INTERVAL);
+    }
+
+    /* ─── HLS loader (always live edge) ──────────────────────────── */
+
+    function loadHLS(url) {
+        showSpin();
+        vid.style.display = "block";
+
+        const onReady = () => {
+            // Snap to live edge
+            try {
+                if (isFinite(vid.duration)) vid.currentTime = vid.duration;
+            } catch (_) {}
+            vid.muted  = false;
+            vid.volume = 1;
             vid.play().catch(() => {});
-            hideSpinner(spinner);
+            hideSpin();
         };
 
         if (Hls.isSupported()) {
             hlsInstance = new Hls({
-                enableWorker  : true,
-                liveSyncDurationCount: 1,   // stay at live edge
-                liveMaxLatencyDurationCount: 3
+                enableWorker             : true,
+                liveSyncDurationCount    : 1,
+                liveMaxLatencyDurationCount: 2,
+                maxBufferLength          : 10
             });
             hlsInstance.loadSource(url);
             hlsInstance.attachMedia(vid);
-            hlsInstance.on(Hls.Events.MANIFEST_PARSED, startLive);
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, onReady);
             hlsInstance.on(Hls.Events.ERROR, (_, d) => {
-                if (d.fatal) showErr(errEl, "Stream error: " + d.details);
+                if (d.fatal) showErr("Stream error: " + d.type);
             });
         } else if (vid.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS (Safari / iOS)
             vid.src = url;
-            vid.addEventListener('loadedmetadata', startLive, { once: true });
+            vid.addEventListener('loadedmetadata', onReady, { once: true });
         } else {
-            showErr(errEl, "HLS not supported on this browser.");
+            showErr("HLS not supported on this browser.");
         }
     }
 
-    // Load MP4 and seek to the correct broadcast position based on UTC clock
-    function loadMP4(slot, vid, spinner, errEl) {
-        showSpinner(spinner);
-        clearSyncTimer();
+    /* ─── Activate slot ───────────────────────────────────────────── */
 
-        vid.src = slot.url;
-        vid.load();
+    function activateSlot(slot) {
+        tearDown();
+        activeSlot = slot;
+        const type = detectType(slot.url);
 
-        vid.addEventListener('loadedmetadata', () => {
-            const offset = slotOffsetSecs(slot);
-            // Clamp to video duration
-            const target = Math.min(offset, vid.duration - 1);
-            vid.currentTime = target;
-            vid.play().catch(() => {});
-            hideSpinner(spinner);
-
-            // Periodic drift correction
-            syncTimer = setInterval(() => {
-                const expected = slotOffsetSecs(slot);
-                const actual   = vid.currentTime;
-                const drift    = Math.abs(expected - actual);
-                if (drift > DRIFT_TOLERANCE) {
-                    vid.currentTime = Math.min(expected, vid.duration - 1);
-                }
-            }, SYNC_INTERVAL);
-
-        }, { once: true });
-
-        vid.onerror = () => showErr(errEl, "Video failed to load.");
+        if (type === "hls") {
+            loadHLS(slot.url);
+        } else if (type === "mp4") {
+            loadMP4(slot);
+        } else if (type === "iframe") {
+            frameMover.style.display = "block";
+            iframe.src = slot.url;
+        } else {
+            showErr("No valid URL for this time slot.");
+        }
     }
 
-    /* ── Main ── */
-    document.addEventListener("DOMContentLoaded", () => {
-        const vid         = document.getElementById('videoEl');
-        const frameMover  = document.getElementById('frameMover');
-        const iframe      = document.getElementById('captureFrame');
-        const overlay     = document.getElementById('slotOverlay');
-        const slotLabelEl = document.getElementById('slotLabel');
-        const slotCdEl    = document.getElementById('slotCountdown');
-        const errEl       = document.getElementById('errorMsg');
-        const spinner     = document.getElementById('spinner');
+    /* ─── Load slot with optional 3-s countdown overlay ──────────── */
 
-        let activeUrl = null;
-        let activeSlot = null;
+    function loadSlot(slot, animate) {
+        if (slot.url === activeUrl) return;
+        activeUrl = slot.url;
 
-        /* ── Tear down current players ── */
-        function tearDown() {
-            clearSyncTimer();
-            if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-            vid.pause();
-            vid.removeAttribute('src');
-            vid.style.display = "none";
-            iframe.src = "";
-            frameMover.style.display = "none";
-            clearErr(errEl);
-        }
+        if (!animate) { activateSlot(slot); return; }
 
-        /* ── Activate a slot ── */
-        function activateSlot(slot) {
-            tearDown();
-            activeSlot = slot;
-            const type = detectType(slot.url);
+        overlay.classList.add('show');
+        slotLabelEl.textContent = slot.label || "Switching…";
+        let secs = 3;
+        slotCdEl.textContent = secs + "s";
 
-            if (type === "hls") {
-                vid.style.display = "block";
-                loadHLS(slot.url, vid, spinner, errEl);
-
-            } else if (type === "mp4") {
-                vid.style.display = "block";
-                loadMP4(slot, vid, spinner, errEl);
-
-            } else if (type === "iframe") {
-                frameMover.style.display = "block";
-                iframe.src = slot.url;
-
+        const cd = setInterval(() => {
+            secs--;
+            if (secs > 0) {
+                slotCdEl.textContent = secs + "s";
             } else {
-                showErr(errEl, "No valid URL for this time slot.");
+                clearInterval(cd);
+                activateSlot(slot);
+                setTimeout(() => overlay.classList.remove('show'), 400);
             }
-        }
+        }, 1000);
+    }
 
-        /* ── Load slot with optional animated transition ── */
-        function loadSlot(slot, animate) {
-            if (slot.url === activeUrl) return;
-            activeUrl = slot.url;
+    /* ─── Boot ────────────────────────────────────────────────────── */
 
-            if (!animate) { activateSlot(slot); return; }
+    document.addEventListener("DOMContentLoaded", () => {
+        vid         = document.getElementById('videoEl');
+        frameMover  = document.getElementById('frameMover');
+        iframe      = document.getElementById('captureFrame');
+        overlay     = document.getElementById('slotOverlay');
+        slotLabelEl = document.getElementById('slotLabel');
+        slotCdEl    = document.getElementById('slotCountdown');
+        errEl       = document.getElementById('errorMsg');
+        spinner     = document.getElementById('spinner');
+        shield      = document.getElementById('shield');
 
-            overlay.classList.add('show');
-            slotLabelEl.textContent = slot.label || "Switching…";
-            let secs = 3;
-            slotCdEl.textContent = secs + "s";
-
-            const cd = setInterval(() => {
-                secs--;
-                if (secs > 0) {
-                    slotCdEl.textContent = secs + "s";
-                } else {
-                    clearInterval(cd);
-                    activateSlot(slot);
-                    setTimeout(() => overlay.classList.remove('show'), 400);
-                }
-            }, 1000);
-        }
-
-        // Boot — load current slot immediately
+        // Load current slot immediately — no animation on first load
         loadSlot(currentSlot(), false);
 
         // Poll for slot changes
@@ -458,20 +488,35 @@ const DRIFT_TOLERANCE = 3; // seconds
             if (s.url !== activeUrl) loadSlot(s, true);
         }, CHECK_INTERVAL);
 
-        // Prevent any tap from pausing the video
-        document.getElementById('shield').addEventListener('click', e => e.preventDefault());
+        // Shield absorbs all taps — video never receives pointer events
+        shield.addEventListener('pointerdown', e => e.preventDefault());
+        shield.addEventListener('click', e => e.preventDefault());
 
-        // Auto-unmute on first user interaction (browser autoplay policy)
-        document.getElementById('shield').addEventListener('click', () => {
-            if (vid.muted) {
-                vid.muted = false;
-                vid.volume = 1;
-            }
+        // First tap → unmute (browser autoplay policy workaround)
+        shield.addEventListener('click', () => {
+            if (vid.muted) { vid.muted = false; vid.volume = 1; }
         }, { once: true });
 
-        // Prevent video from pausing if user somehow interacts
+        // If browser pauses the video for any reason, restart it
         vid.addEventListener('pause', () => {
-            if (!vid.ended) vid.play().catch(() => {});
+            if (!vid.ended && activeSlot && detectType(activeSlot.url) !== "iframe") {
+                vid.play().catch(() => {});
+            }
+        });
+
+        // Re-sync after coming back from background / tab switch
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && activeSlot) {
+                const type = detectType(activeSlot.url);
+                if (type === "mp4") {
+                    const target = slotOffset(activeSlot);
+                    vid.currentTime = target;
+                    vid.play().catch(() => {});
+                } else if (type === "hls") {
+                    try { if (isFinite(vid.duration)) vid.currentTime = vid.duration; } catch (_) {}
+                    vid.play().catch(() => {});
+                }
+            }
         });
     });
 

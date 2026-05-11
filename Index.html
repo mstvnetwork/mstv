@@ -12,18 +12,8 @@
     <link rel="icon" href="/favicon.ico" sizes="any">
     <meta name="theme-color" content="#0C0E14">
 
-    <!-- ── PERFORMANCE FIX 1: Preconnect (faster than dns-prefetch) ── -->
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-
-    <!--
-        ── PERFORMANCE FIX 2: DO NOT preload/defer player scripts eagerly ──
-        hls.js (~280 KiB) and shaka (~560 KiB) are the #1 source of unused JS.
-        They are never needed on initial page load — only after the user taps
-        a channel. Load them lazily inside play() instead (see JS below).
-        Removing these preloads alone saves ~197 KiB of main-thread parse time
-        and eliminates the long task Lighthouse flagged.
-    -->
 
     <!-- OG / Twitter -->
     <meta property="og:type" content="website">
@@ -55,7 +45,6 @@
     </script>
 
     <style>
-        /* ── PERFORMANCE FIX 3: Critical CSS only — nothing render-blocking ── */
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
@@ -72,8 +61,8 @@
             --text: #F0EEE8;
             --text2: #ADABBF;
             --text3: #8E8DA5;
-            --header-h: 68px;
-            --ticker-h: 32px;
+            --header-h: 56px;   /* ← reduced from 68px */
+            --ticker-h: 30px;   /* ← reduced from 32px */
             --radius: 12px;
             --radius-sm: 8px;
         }
@@ -101,29 +90,32 @@
             top: 0;
             z-index: 1000;
             border-bottom: 1px solid rgba(201,168,76,0.15);
+            /* Shrink brand on small screens using flex */
+            gap: 12px;
         }
 
-        .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+        .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; flex-shrink: 0; }
 
         .brand-logo {
-            width: 36px; height: 36px;
+            width: 32px; height: 32px;
             background: var(--gold);
             border-radius: 8px;
             display: flex; align-items: center; justify-content: center;
-            font-weight: 800; font-size: 13px;
+            font-weight: 800; font-size: 12px;
             color: #0C0E14; letter-spacing: -0.5px; flex-shrink: 0;
         }
 
-        .brand-name { font-weight: 800; font-size: 1.15rem; color: var(--text); letter-spacing: 0.04em; }
+        .brand-name { font-weight: 800; font-size: 1.05rem; color: var(--text); letter-spacing: 0.04em; white-space: nowrap; }
         .brand-name span { color: var(--gold); }
 
         .live-badge {
             display: inline-flex; align-items: center; gap: 5px;
             background: rgba(230,57,70,0.18);
             border: 1px solid rgba(230,57,70,0.5);
-            color: #FF8C94; font-size: 12px; font-weight: 600;
-            letter-spacing: 0.06em; padding: 3px 8px;
+            color: #FF8C94; font-size: 11px; font-weight: 600;
+            letter-spacing: 0.06em; padding: 3px 7px;
             border-radius: 20px; text-transform: uppercase;
+            flex-shrink: 0;
         }
 
         .live-dot {
@@ -137,18 +129,19 @@
             50% { opacity: 0.4; transform: scale(0.8); }
         }
 
-        .search-wrap { flex: 0 1 260px; position: relative; }
+        /* Search grows to fill available space */
+        .search-wrap { flex: 1 1 180px; max-width: 280px; position: relative; margin-left: auto; }
 
         .search-wrap svg {
-            position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
-            width: 16px; height: 16px; color: var(--text3); pointer-events: none;
+            position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+            width: 15px; height: 15px; color: var(--text3); pointer-events: none;
         }
 
         #searchInput {
-            width: 100%; padding: 10px 15px 10px 36px;
+            width: 100%; padding: 8px 12px 8px 32px;
             border-radius: 24px; border: 1px solid rgba(255,255,255,0.08);
             background: var(--surface); color: var(--text);
-            font-family: inherit; font-size: 14px;
+            font-family: inherit; font-size: 13px;
             transition: border-color 0.2s, background 0.2s;
         }
 
@@ -160,22 +153,38 @@
             outline-offset: 2px;
         }
 
-        /* ── STICKY PLAYER ── */
+        /* ── STICKY PLAYER ──
+           KEY FIX: limit max-height so player never takes over the screen.
+           On short/laptop screens (≤800px tall) cap at 35vh so grid is visible.
+           On desktop/tall screens allow up to 360px.
+        */
         .sticky-player-wrapper {
-            position: sticky; top: var(--header-h); z-index: 900;
-            background: #000; width: 100%;
+            position: sticky;
+            top: var(--header-h);
+            z-index: 900;
+            background: #000;
+            width: 100%;
         }
 
         .player-container {
-            width: 100%; aspect-ratio: 16 / 9;
-            background: #000; position: relative;
+            width: 100%;
+            /* Default: 16:9 aspect ratio via padding trick */
+            aspect-ratio: 16 / 9;
+            background: #000;
+            position: relative;
             overflow: hidden;
-            /* PERFORMANCE FIX 4: contain layout+style prevents layout thrash */
             contain: layout style;
+            /* Hard cap so it never swallows the screen */
+            max-height: clamp(180px, 35vh, 360px);
         }
 
-        @media (min-width: 800px) {
-            .player-container { aspect-ratio: unset; height: 450px; }
+        /* On true desktop (wide + tall screens) allow more height */
+        @media (min-width: 1024px) and (min-height: 700px) {
+            .player-container {
+                aspect-ratio: unset;
+                height: min(360px, 40vh);
+                max-height: none;
+            }
         }
 
         #video, #iframePlayer {
@@ -189,11 +198,11 @@
             width: 100%; height: 100%;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            z-index: 10; background: var(--bg2); gap: 16px;
+            z-index: 10; background: var(--bg2); gap: 12px;
         }
 
         .placeholder-icon {
-            width: 72px; height: 72px;
+            width: 60px; height: 60px;
             border: 2px solid rgba(201,168,76,0.25);
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
@@ -205,10 +214,10 @@
             border: 1px solid rgba(201,168,76,0.1); border-radius: 50%;
         }
 
-        .placeholder-icon svg { width: 30px; height: 30px; fill: var(--gold); opacity: 0.7; margin-left: 4px; }
+        .placeholder-icon svg { width: 26px; height: 26px; fill: var(--gold); opacity: 0.7; margin-left: 4px; }
 
         .placeholder-text {
-            font-weight: 700; font-size: 13px;
+            font-weight: 700; font-size: 12px;
             letter-spacing: 0.12em; color: var(--text2); text-transform: uppercase;
         }
 
@@ -222,7 +231,7 @@
         }
 
         .spinner {
-            width: 42px; height: 42px;
+            width: 38px; height: 38px;
             border: 3px solid rgba(201,168,76,0.1);
             border-top: 3px solid var(--gold);
             border-radius: 50%;
@@ -232,7 +241,7 @@
         @keyframes spin { to { transform: rotate(360deg); } }
 
         .loading-text {
-            font-size: 12px; letter-spacing: 0.18em;
+            font-size: 11px; letter-spacing: 0.18em;
             color: var(--gold); font-weight: 600; text-transform: uppercase;
         }
 
@@ -240,12 +249,12 @@
         .now-playing-bar {
             background: var(--bg2);
             border-top: 1px solid rgba(255,255,255,0.04);
-            padding: 0 16px; height: var(--ticker-h);
-            display: flex; align-items: center; gap: 12px;
+            padding: 0 14px; height: var(--ticker-h);
+            display: flex; align-items: center; gap: 10px;
         }
 
         .np-label {
-            font-size: 12px; font-weight: 700;
+            font-size: 11px; font-weight: 700;
             letter-spacing: 0.12em; color: var(--gold);
             text-transform: uppercase; white-space: nowrap; flex-shrink: 0;
         }
@@ -254,67 +263,70 @@
 
         .ticker { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; }
 
-        /*
-            PERFORMANCE FIX 5: Use will-change + translateZ to promote ticker
-            to its own compositor layer — eliminates repaints during animation.
-        */
         .ticker-track {
             display: flex; white-space: nowrap;
             animation: ticker-loop 20s linear infinite;
             will-change: transform;
         }
 
-        .ticker-track span { font-size: 13px; color: var(--text2); padding-right: 60px; }
+        .ticker-track span { font-size: 12px; color: var(--text2); padding-right: 60px; }
 
         @keyframes ticker-loop {
             0% { transform: translate3d(0, 0, 0); }
             100% { transform: translate3d(-50%, 0, 0); }
         }
 
-        /* ── MAIN ── */
-        .main-content { width: 100%; max-width: 1280px; margin: 0 auto; padding: 0 20px; }
+        /* ── MAIN ──
+           KEY FIX: main-content must NOT have overflow:hidden or fixed height.
+           It should always be naturally scrollable.
+        */
+        .main-content { width: 100%; max-width: 1280px; margin: 0 auto; padding: 0 16px; }
 
         .now-playing-title {
-            padding: 28px 0 20px;
+            padding: 20px 0 16px;
             display: flex; align-items: center; justify-content: space-between;
-            border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 28px;
+            border-bottom: 1px solid rgba(255,255,255,0.05); margin-bottom: 20px;
+            flex-wrap: wrap; gap: 8px;
         }
 
-        .np-channel-info { display: flex; align-items: center; gap: 12px; }
+        .np-channel-info { display: flex; align-items: center; gap: 10px; }
 
         .np-indicator {
             width: 8px; height: 8px; background: var(--gold);
             border-radius: 50%; animation: pulse-dot 2s ease-in-out infinite;
+            flex-shrink: 0;
         }
 
-        #current-title { font-size: 1.1rem; font-weight: 700; color: var(--text); letter-spacing: 0.01em; }
+        #current-title { font-size: 1rem; font-weight: 700; color: var(--text); letter-spacing: 0.01em; }
         #current-title.has-channel { color: var(--gold); }
 
         .channel-count { font-size: 12px; color: var(--text3); }
 
         /* ── CHANNEL GRID ── */
-        .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+        .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 
         .section-label {
-            font-size: 12px; font-weight: 700;
+            font-size: 11px; font-weight: 700;
             letter-spacing: 0.12em; color: var(--gold); text-transform: uppercase;
+            white-space: nowrap;
         }
 
         .section-line { flex: 1; height: 1px; background: rgba(255,255,255,0.06); }
 
         .channel-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 10px; padding-bottom: 60px;
-            min-height: 400px;
-            /*
-                PERFORMANCE FIX 6: content-visibility:auto skips rendering
-                off-screen grid items entirely — massive LCP + TBT win on
-                large channel lists. contain-intrinsic-size prevents layout
-                shift when items scroll into view.
-            */
-            content-visibility: auto;
-            contain-intrinsic-size: 0 600px;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 8px;
+            padding-bottom: 60px;
+            min-height: 200px;
+        }
+
+        /* Wider columns on large screens */
+        @media (min-width: 768px) {
+            .channel-grid {
+                grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+                gap: 10px;
+            }
         }
 
         .channel-card {
@@ -323,11 +335,11 @@
             border-radius: var(--radius);
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            padding: 16px 12px;
+            padding: 14px 10px;
             cursor: pointer;
             transition: border-color 0.18s, background 0.18s, transform 0.15s;
             position: relative; overflow: hidden;
-            min-height: 100px;
+            min-height: 90px;
             user-select: none;
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
@@ -353,24 +365,20 @@
         .channel-card:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
 
         .ch-icon {
-            width: 52px; height: 52px; border-radius: 10px;
+            width: 48px; height: 48px; border-radius: 10px;
             background: var(--surface2);
             display: flex; align-items: center; justify-content: center;
-            margin-bottom: 9px; font-size: 14px; font-weight: 800;
+            margin-bottom: 8px; font-size: 13px; font-weight: 800;
             color: var(--gold); letter-spacing: -0.5px; flex-shrink: 0; overflow: hidden;
         }
 
-        /*
-            PERFORMANCE FIX 7: Explicit width/height + object-fit on logo images
-            prevents layout shift (CLS). Always set these on <img> elements.
-        */
         .ch-logo {
-            width: 52px; height: 52px;
+            width: 48px; height: 48px;
             object-fit: contain; padding: 5px; display: block;
         }
 
         .channel-name {
-            font-size: 12px; font-weight: 500; color: var(--text2);
+            font-size: 11px; font-weight: 500; color: var(--text2);
             text-align: center; line-height: 1.3; transition: color 0.18s;
         }
 
@@ -426,14 +434,14 @@
         .site-footer {
             background: var(--bg2);
             border-top: 1px solid rgba(255,255,255,0.05);
-            padding: 48px 20px 36px; margin-top: 20px;
+            padding: 40px 20px 32px; margin-top: 20px;
         }
 
         .footer-inner { max-width: 1280px; margin: 0 auto; }
 
         .footer-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
-        .footer-brand .brand-logo { width: 30px; height: 30px; font-size: 11px; }
-        .footer-brand .brand-name { font-size: 1rem; }
+        .footer-brand .brand-logo { width: 28px; height: 28px; font-size: 10px; }
+        .footer-brand .brand-name { font-size: 0.95rem; }
 
         .footer-desc { font-size: 13px; color: var(--text3); max-width: 500px; line-height: 1.6; margin-bottom: 24px; }
 
@@ -457,24 +465,43 @@
         .footer-copy { font-size: 12px; color: var(--text3); }
         .footer-copy span { color: var(--gold); }
 
-        /* ── RESPONSIVE ── */
-        @media (max-width: 900px) and (orientation: landscape) {
-            header, .sticky-player-wrapper { position: relative; top: 0; }
+        /* ── RESPONSIVE OVERRIDES ── */
+
+        /* Very small phones (≤380px) */
+        @media (max-width: 380px) {
+            header { padding: 0 10px; gap: 8px; }
+            .brand-name { display: none; }  /* hide text, keep logo + badge */
+            .live-badge { font-size: 10px; padding: 2px 6px; }
+            .search-wrap { flex: 1 1 120px; }
+            .channel-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            .channel-card { padding: 10px 6px; min-height: 78px; }
+            .ch-icon { width: 38px; height: 38px; }
+            .ch-logo { width: 38px; height: 38px; }
         }
 
-        @media (max-width: 480px) {
-            header { padding: 0 14px; }
-            .brand-name { font-size: 1rem; }
-            .search-wrap { flex: 0 1 170px; }
-            .channel-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 8px; }
+        /* Standard mobile (381–600px) */
+        @media (min-width: 381px) and (max-width: 600px) {
+            header { padding: 0 12px; }
+            .brand-name { font-size: 0.9rem; }
+            .search-wrap { flex: 1 1 140px; max-width: 200px; }
+            .channel-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 7px; }
         }
 
-        /*
-            PERFORMANCE FIX 8: Stagger card animations only on first paint.
-            Removed the blanket .channel-card { animation } rule which
-            re-triggered on every search keystroke and caused TBT spikes.
-            Animation is now applied via a JS class only during initial load.
-        */
+        /* Tablet portrait (601–900px) */
+        @media (min-width: 601px) and (max-width: 900px) {
+            .channel-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+        }
+
+        /* Landscape orientation: never sticky the player — would crush layout */
+        @media (max-height: 500px) and (orientation: landscape) {
+            .sticky-player-wrapper { position: relative; top: 0; }
+            header { position: relative; top: 0; }
+            .player-container {
+                max-height: 220px;
+                aspect-ratio: 16 / 9;
+            }
+        }
+
         .channel-card.animate-in {
             animation: card-in 0.35s ease both;
         }
@@ -517,11 +544,6 @@
 </header>
 
 <div class="sticky-player-wrapper">
-    <!--
-        PERFORMANCE FIX 9: Explicit width/height on the player section so
-        the browser can reserve the space during the initial paint — prevents
-        CLS (Cumulative Layout Shift). The aspect-ratio CSS handles the rest.
-    -->
     <section class="player-container" aria-label="TV Streaming Player">
         <div id="loader" role="status" aria-live="polite" aria-label="Loading stream">
             <div class="spinner" aria-hidden="true"></div>
@@ -592,17 +614,10 @@
     </div>
 </footer>
 
-<!--
-    PERFORMANCE FIX 10: Single inline <script> at bottom of body.
-    No render-blocking scripts in <head>. Player libraries (hls.js, shaka)
-    are loaded ON DEMAND inside play() — only when a user actually taps a
-    channel — keeping initial JS parse/execute to near zero.
--->
 <script>
 (function () {
     'use strict';
 
-    /* ── STATE ── */
     let allCh = [], hlsE = null, shakaP = null, activeCard = null;
     let shakaReady = false, hlsReady = false;
     let isPlaying = false;
@@ -610,12 +625,6 @@
     let pollTimer = null;
     const POLL_INTERVAL = 30_000;
 
-    /* ── PLAYER SCRIPT LOADER ──────────────────────────────────────────────
-       PERFORMANCE FIX 11: Scripts are fetched lazily on first play() call
-       and only once. This removes ~840 KiB of JS from the critical path,
-       eliminating the "Reduce unused JavaScript" Lighthouse warning and the
-       "Avoid long main-thread tasks" finding.
-    */
     let hlsPromise = null, shakaPromise = null;
 
     function loadHls() {
@@ -626,7 +635,7 @@
             s.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js';
             s.crossOrigin = 'anonymous';
             s.onload = () => { hlsReady = true; resolve(); };
-            s.onerror = resolve; // degrade gracefully
+            s.onerror = resolve;
             document.head.appendChild(s);
         });
         return hlsPromise;
@@ -649,8 +658,6 @@
         });
         return shakaPromise;
     }
-
-    /* ── UTILITIES ── */
 
     function hashString(str) {
         let h = 5381;
@@ -680,8 +687,6 @@
         return name.substring(0, 2).toUpperCase();
     }
 
-    /* ── POLLING ── */
-
     async function pollJson() {
         try {
             const res = await fetch('channels2.json?_=' + Date.now(), { cache: 'no-store' });
@@ -701,10 +706,10 @@
             const filtered = q ? allCh.filter(c => c.name.toLowerCase().includes(q)) : allCh;
 
             cc.textContent = filtered.length + ' channels';
-            render(filtered, /* animate */ isFirst, /* highlight */ !isFirst);
+            render(filtered, isFirst, !isFirst);
 
             if (!isFirst) showToast('Channels updated · ' + data.length + ' total');
-        } catch (_) { /* silently ignore */ }
+        } catch (_) {}
     }
 
     function startPolling() {
@@ -717,8 +722,6 @@
         if (document.hidden) { clearInterval(pollTimer); pollTimer = null; }
         else startPolling();
     });
-
-    /* ── PLAY ── */
 
     const v   = document.getElementById('video');
     const f   = document.getElementById('iframePlayer');
@@ -813,11 +816,6 @@
     v.addEventListener('waiting', () => { ld.style.display = 'flex'; });
     v.addEventListener('canplay',  () => { ld.style.display = 'none'; });
 
-    /* ── RENDER ──────────────────────────────────────────────────────────────
-       PERFORMANCE FIX 12: Use DocumentFragment + requestAnimationFrame for
-       batch DOM writes. This keeps individual render calls off the main thread
-       long-task list (fixes "Avoid long main-thread tasks").
-    */
     const l  = document.getElementById('channelList');
     const cc = document.getElementById('channel-count');
 
@@ -853,20 +851,13 @@
                 activeCard = b;
             }
 
-            /* ── Channel icon ── */
             const icon = document.createElement('div');
             icon.className = 'ch-icon';
 
             if (ch.logo) {
                 const img = document.createElement('img');
                 img.className = 'ch-logo';
-                /*
-                    PERFORMANCE FIX 13: Explicit width/height prevents CLS.
-                    loading=lazy defers off-screen images (massive FCP/LCP win).
-                    decoding=async keeps main thread free.
-                    Use fetchpriority=high only for first few visible cards.
-                */
-                img.width = 52; img.height = 52;
+                img.width = 48; img.height = 48;
                 img.loading = i < 12 ? 'eager' : 'lazy';
                 img.decoding = 'async';
                 if (i < 4) img.fetchPriority = 'high';
@@ -906,7 +897,6 @@
         requestAnimationFrame(() => { l.innerHTML = ''; l.appendChild(fr); });
     }
 
-    /* ── SEARCH (debounced to avoid TBT on rapid keystrokes) ── */
     let searchTimer = null;
     document.getElementById('searchInput').addEventListener('input', (e) => {
         clearTimeout(searchTimer);
@@ -918,16 +908,11 @@
         }, 120);
     });
 
-    /* ── INIT ── */
     const cl = document.getElementById('canonical-link');
     if (cl) cl.setAttribute('href', location.protocol + '//' + location.host + location.pathname);
 
     startPolling();
 
-    /*
-        PERFORMANCE FIX 14: Analytics injected after 15 s via requestIdleCallback
-        so it never competes with page load. Unchanged from original.
-    */
     window.addEventListener('load', () => {
         setTimeout(() => {
             const inject = () => {
@@ -944,4 +929,4 @@
 }());
 </script>
 </body>
-  </html>
+      </html>

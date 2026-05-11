@@ -252,34 +252,64 @@
         return shakaPromise;
     }
 
-    async function play(ch, card) {
-        if (!ch || isPlaying) return; isPlaying = true;
-        if (activeCard) activeCard.classList.remove('active');
-        card.classList.add('active'); activeCard = card;
+    async function play(ch, cardEl) {
+    if (!ch || !ch.url || isPlaying) return;
+    isPlaying = true;
 
-        if (hlsE) hlsE.destroy();
-        if (shakaP) await shakaP.detach();
+    // 1. UI Reset
+    if (activeCard) activeCard.classList.remove('active');
+    if (cardEl) { cardEl.classList.add('active'); activeCard = cardEl; }
+    
+    // 2. Critical Cleanup (Your original logic)
+    if (hlsE) { hlsE.destroy(); hlsE = null; }
+    if (shakaP) { try { await shakaP.detach(); } catch (_) {} shakaP = null; }
 
-        v.style.display = 'none'; f.style.display = 'none'; ph.style.display = 'none'; ld.style.display = 'flex';
-        t.textContent = ch.name.split('|')[0]; t.classList.add('has-channel');
+    v.pause();
+    v.removeAttribute('src');
+    v.load();
+    v.style.display = 'none';
+    v.controls = false;
+    f.style.display = 'none';
+    f.src = '';
+    ph.style.display = 'none';
+    ld.style.display = 'flex';
 
-        if (ch.type === 'external') {
-            window.open(ch.url, '_blank'); isPlaying = false; ld.style.display = 'none'; ph.style.display = 'flex'; return;
+    t.textContent = ch.name.split('|')[0].trim();
+    t.classList.add('has-channel');
+
+    // 3. Iframe Logic (Restored Sandbox/Timeout)
+    const isIframe = ch.type === 'iframe' || (!ch.url.includes('.m3u8') && !ch.url.includes('.mpd'));
+    if (isIframe) {
+        const iframeTimeout = setTimeout(() => { ld.style.display = 'none'; }, 5000);
+        f.onload = () => { clearTimeout(iframeTimeout); ld.style.display = 'none'; };
+        f.style.display = 'block';
+        f.src = ch.url;
+    } 
+    // 4. DASH Logic (Restored Config)
+    else if (ch.url.includes('.mpd')) {
+        await loadShaka();
+        if (shakaReady && window.shaka) {
+            v.controls = true; v.style.display = 'block';
+            shakaP = new shaka.Player(v);
+            shakaP.configure({ streaming: { bufferingGoal: 1, rebufferingGoal: 0.5 } });
+            try { await shakaP.load(ch.url); } catch (_) { ld.style.display = 'none'; }
         }
-
-        if (ch.url.includes('.mpd')) {
-            await loadShaka(); v.style.display = 'block'; shakaP = new shaka.Player(v); await shakaP.load(ch.url); v.play();
-        } else if (ch.url.includes('.m3u8')) {
-            await loadHls();
-            if (Hls.isSupported()) {
-                hlsE = new Hls(); hlsE.loadSource(ch.url); hlsE.attachMedia(v);
-                hlsE.on(Hls.Events.MANIFEST_PARSED, () => { v.style.display = 'block'; v.play(); });
-            }
-        } else {
-            f.style.display = 'block'; f.src = ch.url; ld.style.display = 'none';
+    } 
+    // 5. HLS Logic (Restored Event Listeners)
+    else {
+        await loadHls();
+        if (window.Hls && Hls.isSupported()) {
+            hlsE = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hlsE.loadSource(ch.url);
+            hlsE.attachMedia(v);
+            hlsE.on(Hls.Events.MANIFEST_PARSED, () => {
+                v.controls = true; v.style.display = 'block';
+                v.play().catch(() => { ld.style.display = 'none'; });
+            });
         }
-        isPlaying = false;
     }
+    isPlaying = false;
+}
 
     function render(data) {
         const fr = document.createDocumentFragment();

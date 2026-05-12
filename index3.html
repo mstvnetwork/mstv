@@ -319,7 +319,40 @@
     border: none; display: none;
     position: absolute; inset: 0; z-index: 1;
     background: #000;
+    /* prevent iframe from navigating the top-level window */
+    pointer-events: none;
   }
+  #iframeEl.interactive {
+    pointer-events: auto;
+  }
+
+  /* Transparent shield that sits over the iframe — intercepts all clicks/touches
+     so the embedded page cannot redirect the parent window.
+     We toggle it away only when the user explicitly wants to interact. */
+  #iframeShield {
+    display: none;
+    position: absolute; inset: 0; z-index: 3;
+    /* fully transparent — invisible to the viewer */
+    background: transparent;
+    cursor: default;
+  }
+  #iframeShield.active { display: block; }
+
+  /* Small "interact" hint badge shown on iframe channels */
+  #iframeHint {
+    display: none;
+    position: absolute; bottom: 10px; right: 10px; z-index: 4;
+    background: rgba(0,0,0,0.72);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: 1px; color: var(--muted);
+    backdrop-filter: blur(6px);
+    pointer-events: none;
+    animation: fadeSlide .3s ease both;
+  }
+  #iframeHint.visible { display: flex; align-items: center; gap: 6px; }
 
   /* NOW PLAYING bar */
   #nowPlayingBar {
@@ -583,7 +616,15 @@
         <p id="playerErrorMsg">Stream could not be loaded.</p>
       </div>
       <video id="videoEl" controls playsinline></video>
-      <iframe id="iframeEl" allowfullscreen allow="autoplay; fullscreen; encrypted-media"></iframe>
+      <!-- sandbox: no allow-top-navigation means iframe cannot redirect parent window -->
+      <iframe id="iframeEl"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+        allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+        allowfullscreen></iframe>
+      <!-- Transparent shield over iframe — blocks all click-through to prevent redirects -->
+      <div id="iframeShield"></div>
+      <!-- Protected badge shown on iframe channels -->
+      <div id="iframeHint">🔒 Protected Stream</div>
     </div>
 
     <!-- NOW PLAYING -->
@@ -655,6 +696,8 @@ const $gridCount      = document.getElementById('gridCount');
 const $footerCount    = document.getElementById('footerCount');
 const $videoEl        = document.getElementById('videoEl');
 const $iframeEl       = document.getElementById('iframeEl');
+const $iframeShield   = document.getElementById('iframeShield');
+const $iframeHint     = document.getElementById('iframeHint');
 const $playerPlaceholder = document.getElementById('playerPlaceholder');
 const $playerLoader   = document.getElementById('playerLoader');
 const $playerError    = document.getElementById('playerError');
@@ -861,6 +904,9 @@ async function playChannel(ch) {
   $playerError.classList.remove('show');
   showLoader(true);
 
+  // Always hide shield & hint until we know the type
+  deactivateShield();
+
   // Tear down previous streams
   await teardown();
 
@@ -870,7 +916,7 @@ async function playChannel(ch) {
     $videoEl.style.display    = 'none';
     $iframeEl.style.display   = 'block';
     $iframeEl.src             = ch.url;
-    $iframeEl.onload          = () => showLoader(false);
+    $iframeEl.onload          = () => { showLoader(false); activateShield(); };
     $iframeEl.onerror         = () => showError('iFrame could not be loaded.');
   } else if (type === 'hls') {
     $iframeEl.style.display   = 'none';
@@ -889,6 +935,21 @@ async function playChannel(ch) {
   }
 
   updateNowPlaying(ch);
+}
+
+// ─────────────────────────────────────────────
+//  IFRAME SHIELD — blocks redirects from iframe clicks
+// ─────────────────────────────────────────────
+function activateShield() {
+  $iframeShield.classList.add('active');
+  $iframeHint.classList.add('visible');
+  // Auto-hide hint after 4s
+  setTimeout(() => $iframeHint.classList.remove('visible'), 4000);
+}
+
+function deactivateShield() {
+  $iframeShield.classList.remove('active');
+  $iframeHint.classList.remove('visible');
 }
 
 async function playHLS(url) {
@@ -939,9 +1000,44 @@ async function teardown() {
   $videoEl.pause();
   $videoEl.removeAttribute('src');
   $videoEl.load();
-  // iFrame — set blank first to stop old stream
+  // iFrame — set blank to stop old stream, also hide shield
   $iframeEl.src = 'about:blank';
+  deactivateShield();
 }
+
+// ─────────────────────────────────────────────
+//  TOP-NAVIGATION BLOCKER
+//  Belt-and-suspenders: intercept any attempt by
+//  an iframe page to navigate the parent window.
+// ─────────────────────────────────────────────
+(function() {
+  // Block window.open calls triggered from within iframes
+  const _open = window.open.bind(window);
+  window.open = function(url, target, features) {
+    // Only allow opens we initiate ourselves (no target = _blank redirect tricks)
+    if (target === '_blank' || target === '_top' || target === '_parent') return null;
+    return _open(url, target, features);
+  };
+
+  // Intercept beforeunload / navigation attempts caused by iframe JS
+  window.addEventListener('beforeunload', (e) => {
+    // If an iframe channel is active, cancel the navigation
+    if (currentChannel && (currentChannel.type || '').toLowerCase() === 'iframe') {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    }
+  });
+
+  // Catch message events in case iframe tries postMessage-based navigation
+  window.addEventListener('message', (e) => {
+    // Drop any messages asking to navigate top
+    if (e.data && typeof e.data === 'object' &&
+        (e.data.type === 'navigate' || e.data.href || e.data.redirect)) {
+      e.stopImmediatePropagation();
+    }
+  }, true);
+})();
 
 // ─────────────────────────────────────────────
 //  NOW PLAYING

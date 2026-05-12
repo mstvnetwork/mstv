@@ -319,26 +319,12 @@
     border: none; display: none;
     position: absolute; inset: 0; z-index: 1;
     background: #000;
-    /* prevent iframe from navigating the top-level window */
-    pointer-events: none;
-  }
-  #iframeEl.interactive {
+    /* Full pointer-events: viewers can click play/controls inside the iframe.
+       External redirect protection is handled solely by the sandbox attribute. */
     pointer-events: auto;
   }
 
-  /* Transparent shield that sits over the iframe — intercepts all clicks/touches
-     so the embedded page cannot redirect the parent window.
-     We toggle it away only when the user explicitly wants to interact. */
-  #iframeShield {
-    display: none;
-    position: absolute; inset: 0; z-index: 3;
-    /* fully transparent — invisible to the viewer */
-    background: transparent;
-    cursor: default;
-  }
-  #iframeShield.active { display: block; }
-
-  /* Small "interact" hint badge shown on iframe channels */
+  /* Sandboxed badge — purely informational, no click-blocking */
   #iframeHint {
     display: none;
     position: absolute; bottom: 10px; right: 10px; z-index: 4;
@@ -621,8 +607,6 @@
         sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowfullscreen></iframe>
-      <!-- Transparent shield over iframe — blocks all click-through to prevent redirects -->
-      <div id="iframeShield"></div>
       <!-- Protected badge shown on iframe channels -->
       <div id="iframeHint">🔒 Protected Stream</div>
     </div>
@@ -696,7 +680,6 @@ const $gridCount      = document.getElementById('gridCount');
 const $footerCount    = document.getElementById('footerCount');
 const $videoEl        = document.getElementById('videoEl');
 const $iframeEl       = document.getElementById('iframeEl');
-const $iframeShield   = document.getElementById('iframeShield');
 const $iframeHint     = document.getElementById('iframeHint');
 const $playerPlaceholder = document.getElementById('playerPlaceholder');
 const $playerLoader   = document.getElementById('playerLoader');
@@ -904,9 +887,6 @@ async function playChannel(ch) {
   $playerError.classList.remove('show');
   showLoader(true);
 
-  // Always hide shield & hint until we know the type
-  deactivateShield();
-
   // Tear down previous streams
   await teardown();
 
@@ -916,7 +896,7 @@ async function playChannel(ch) {
     $videoEl.style.display    = 'none';
     $iframeEl.style.display   = 'block';
     $iframeEl.src             = ch.url;
-    $iframeEl.onload          = () => { showLoader(false); activateShield(); };
+    $iframeEl.onload          = () => { showLoader(false); showIframeHint(); };
     $iframeEl.onerror         = () => showError('iFrame could not be loaded.');
   } else if (type === 'hls') {
     $iframeEl.style.display   = 'none';
@@ -938,18 +918,11 @@ async function playChannel(ch) {
 }
 
 // ─────────────────────────────────────────────
-//  IFRAME SHIELD — blocks redirects from iframe clicks
+//  IFRAME HINT — show sandboxed badge briefly on load
 // ─────────────────────────────────────────────
-function activateShield() {
-  $iframeShield.classList.add('active');
+function showIframeHint() {
   $iframeHint.classList.add('visible');
-  // Auto-hide hint after 4s
-  setTimeout(() => $iframeHint.classList.remove('visible'), 4000);
-}
-
-function deactivateShield() {
-  $iframeShield.classList.remove('active');
-  $iframeHint.classList.remove('visible');
+  setTimeout(() => $iframeHint.classList.remove('visible'), 3500);
 }
 
 async function playHLS(url) {
@@ -1000,9 +973,8 @@ async function teardown() {
   $videoEl.pause();
   $videoEl.removeAttribute('src');
   $videoEl.load();
-  // iFrame — set blank to stop old stream, also hide shield
+  // iFrame — set blank to stop old stream
   $iframeEl.src = 'about:blank';
-  deactivateShield();
 }
 
 // ─────────────────────────────────────────────

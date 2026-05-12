@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer-when-downgrade">
+
+    <title>Mobile Only Stream</title>
+  <script src="https://unpkg.com"></script>
+<script type="module" src="https://unpkg.com"></script>
+<style>
+  /* Existing styles... */
+:root { --primary: #00ffA0; }
+body, html { margin: 0; padding: 0; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: sans-serif; }
+
+.viewport {
+    width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
+    overflow: hidden; position: relative;
+    border: 4px solid var(--primary); border-radius: 12px;
+}
+
+#captureFrame {
+    position: absolute;
+    width: 100%; height: 170%; /* Base height */
+    top: -57px; left: 0%; 
+    transition: all 0.1s ease; /* Smooth movement */
+}
+
+/* Control Panel Styles */
+.controls-container {
+    margin-top: 20px;
+    background: rgba(30, 30, 30, 0.9);
+    padding: 15px;
+    border-radius: 15px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    border: 1px solid var(--primary);
+    z-index: 10005;
+}
+
+.btn-group { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.row { display: flex; gap: 5px; }
+
+.ctrl-btn {
+    background: #222;
+    color: var(--primary);
+    border: 1px solid var(--primary);
+    padding: 8px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    min-width: 45px;
+}
+
+.ctrl-btn:active { background: var(--primary); color: #000; }
+
+#lockConfig {
+    background: #cc0000;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+#lockConfig.locked { background: #0088ff; }
+
+/* Visual feedback when locked */
+.controls-container.disabled { opacity: 0.3; pointer-events: none; }
+</style>
+</head>
+<body>
+
+   <div class="viewport" id="playerWrapper">
+    <!-- This div will be what the buttons actually move -->
+    <div id="frameMover" style="position: absolute; width: 100%; height: 170%; top: -57px; left: 0;">
+       <iframe src="https://anc.crichd.com.ua/stream.php?id=starsp1&v=m" 
+        referrerpolicy="no-referrer-when-downgrade"
+        width="100%" height="500px" frameborder="0" allowfullscreen>
+</iframe>
+
+    </div>
+    <div id="lockLayer"></div>
+</div>
+<button id="copyBtn" onclick="copyConfig()" style="background:#444; color:#fff; border:none; padding:10px; border-radius:5px; margin-top:5px; cursor:pointer;">
+    📋 COPY CONFIG
+</button>
+
+
+<!-- Control Dashboard -->
+<div class="controls-container" id="dash">
+    <div class="btn-group">
+        <span>Position</span>
+        <button class="ctrl-btn" onclick="move('up')">▲</button>
+        <div class="row">
+            <button class="ctrl-btn" onclick="move('left')">◀</button>
+            <button class="ctrl-btn" onclick="move('right')">▶</button>
+        </div>
+        <button class="ctrl-btn" onclick="move('down')">▼</button>
+    </div>
+
+    <div class="btn-group">
+        <span>Zoom / Scale</span>
+        <button class="ctrl-btn" onclick="zoom('in')">Zoom +</button>
+        <button class="ctrl-btn" onclick="zoom('out')">Zoom -</button>
+        <button class="ctrl-btn" onclick="zoom('height+')">Tall +</button>
+        <button class="ctrl-btn" onclick="zoom('height-')">Tall -</button>
+    </div>
+
+    <div class="btn-group">
+        <span>Save</span>
+        <button id="lockConfig" onclick="toggleLock()">🔒 LOCK CONFIG</button>
+        <small id="coords" style="color:#888; font-size:10px; margin-top:5px;">T: -57 | L: 0 | H: 170</small>
+    </div>
+</div>
+<script>
+
+
+let currentTop = -57;
+let currentLeft = 0;
+let currentHeight = 170;
+let isConfigLocked = false;
+
+// We target the MOVER div, not the iframe itself
+const mover = document.getElementById('frameMover');
+const coords = document.getElementById('coords');
+
+function updateFrame() {
+    if (!mover) return;
+    
+    mover.style.top = currentTop + "px";
+    mover.style.left = currentLeft + "%";
+    mover.style.height = currentHeight + "%";
+    
+    coords.innerText = `T: ${currentTop} | L: ${currentLeft} | H: ${currentHeight}`;
+}
+
+function move(dir) {
+    if (isConfigLocked) return;
+    // Mobile values are larger for easier adjusting
+    if (dir === 'up') currentTop -= 10;
+    if (dir === 'down') currentTop += 10;
+    if (dir === 'left') currentLeft -= 2;
+    if (dir === 'right') currentLeft += 2;
+    updateFrame();
+}
+
+function zoom(type) {
+    if (isConfigLocked) return;
+    if (type === 'in') { currentHeight += 20; currentTop -= 10; }
+    if (type === 'out') { currentHeight -= 20; currentTop += 10; }
+    if (type === 'height+') currentHeight += 20;
+    if (type === 'height-') currentHeight -= 20;
+    updateFrame();
+}
+
+function toggleLock() {
+    isConfigLocked = !isConfigLocked;
+    const btn = document.getElementById('lockConfig');
+    if (isConfigLocked) {
+        btn.innerText = "🔓 UNLOCK";
+        btn.style.background = "#0088ff";
+        localStorage.setItem('streamConfig', JSON.stringify({t: currentTop, l: currentLeft, h: currentHeight}));
+    } else {
+        btn.innerText = "🔒 LOCK";
+        btn.style.background = "#cc0000";
+    }
+}
+
+// Load saved settings immediately
+window.onload = () => {
+    const saved = JSON.parse(localStorage.getItem('streamConfig'));
+    if (saved) {
+        currentTop = saved.t; 
+        currentLeft = saved.l; 
+        currentHeight = saved.h;
+    }
+    updateFrame();
+};
+function copyConfig() {
+    // This creates the exact CSS line you need for your #frameMover
+    const configStr = `style="position: absolute; width: 100%; height: ${currentHeight}%; top: ${currentTop}px; left: ${currentLeft}%;"`;
+    
+    // Copy to clipboard
+    navigator.clipboard.writeText(configStr).then(() => {
+        const btn = document.getElementById('copyBtn');
+        const oldText = btn.innerText;
+        btn.innerText = "✅ COPIED!";
+        btn.style.background = "#00ffA0";
+        btn.style.color = "#000";
+        
+        setTimeout(() => {
+            btn.innerText = oldText;
+            btn.style.background = "#444";
+            btn.style.color = "#fff";
+        }, 2000);
+    }).catch(err => {
+        // Fallback for some mobile editors
+        alert("Your Config:\n" + configStr);
+    });
+}
+
+</script>
+</body>
+</html>

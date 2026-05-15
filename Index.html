@@ -493,35 +493,7 @@ body {
 }
 .cat-pill .cat-icon { font-size: 12px; line-height: 1; }
 
-/* ── IFRAME INTERACTION OVERLAY ── */
-#iframeGuard {
-  display: none; position: absolute; inset: 0; z-index: 4;
-  background: transparent; cursor: default;
-}
-#iframeGuard.active { display: block; }
 
-/* countdown + refresh badge */
-#iframeControls {
-  display: none; position: absolute; top: 10px; right: 10px; z-index: 5;
-  align-items: center; gap: 8px;
-}
-#iframeControls.visible { display: flex; }
-#iframeCountdown {
-  background: rgba(0,0,0,.78); border: 1px solid var(--border);
-  border-radius: 20px; padding: 5px 12px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
-  letter-spacing: 1px; color: var(--gold); backdrop-filter: blur(6px);
-  pointer-events: none;
-}
-#iframeRefresh {
-  display: flex; align-items: center; gap: 5px;
-  background: rgba(230,62,109,.18); border: 1px solid rgba(230,62,109,.35);
-  border-radius: 20px; padding: 5px 12px; cursor: pointer;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
-  letter-spacing: 1px; color: var(--accent); backdrop-filter: blur(6px);
-  transition: background .15s;
-}
-#iframeRefresh:hover { background: rgba(230,62,109,.3); }
 
 @keyframes fadeSlide { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
 .channel-item, .grid-card { animation: fadeSlide .22s ease both; }
@@ -606,17 +578,9 @@ body {
       <video id="videoEl" controls playsinline></video>
 
       <iframe id="iframeEl"
-        referrerpolicy="strict-origin"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-presentation allow-popups"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowfullscreen></iframe>
-
-      <!-- Timed interaction guard: open for 42s then locks to block redirects -->
-      <div id="iframeGuard"></div>
-      <!-- Countdown + refresh controls shown during iframe playback -->
-      <div id="iframeControls">
-        <div id="iframeCountdown">⏱ 42s</div>
-        <button id="iframeRefresh">↺ Refresh</button>
-      </div>
     </div>
 
     <!-- NOW PLAYING -->
@@ -689,10 +653,6 @@ const $gridCount         = document.getElementById('gridCount');
 const $footerCount       = document.getElementById('footerCount');
 const $videoEl           = document.getElementById('videoEl');
 const $iframeEl          = document.getElementById('iframeEl');
-const $iframeGuard       = document.getElementById('iframeGuard');
-const $iframeControls    = document.getElementById('iframeControls');
-const $iframeCountdown   = document.getElementById('iframeCountdown');
-const $iframeRefresh     = document.getElementById('iframeRefresh');
 const $playerPlaceholder = document.getElementById('playerPlaceholder');
 const $playerLoader      = document.getElementById('playerLoader');
 const $playerError       = document.getElementById('playerError');
@@ -893,7 +853,7 @@ async function playChannel(ch) {
     $videoEl.style.display  = 'none';
     $iframeEl.style.display = 'block';
     $iframeEl.src           = ch.url;
-    $iframeEl.onload        = () => { showLoader(false); startIframeGuard(); };
+    $iframeEl.onload        = () => showLoader(false);
     $iframeEl.onerror       = () => showError('iFrame could not be loaded.');
   } else if (type === 'dash') {
     $iframeEl.style.display = 'none';
@@ -950,58 +910,9 @@ async function teardown() {
   $videoEl.removeAttribute('src');
   $videoEl.load();
   $iframeEl.src = 'about:blank';
-  stopIframeGuard();
 }
 
-// ── IFRAME TIMED GUARD ──
-// Viewer gets INTERACT_WINDOW ms to click play/unmute inside the iframe.
-// After that a transparent shield blocks further clicks to prevent redirect navigation.
-// Refresh button resets another interaction window.
-const INTERACT_WINDOW = 42000; // 42 seconds
-let iframeGuardTimer   = null;
-let iframeCountTimer   = null;
-let iframeCountLeft    = 0;
 
-function startIframeGuard() {
-  clearIframeTimers();
-  $iframeGuard.classList.remove('active'); // open — viewer can interact
-  $iframeControls.classList.add('visible');
-  iframeCountLeft = Math.round(INTERACT_WINDOW / 1000);
-  updateCountdown();
-  iframeCountTimer = setInterval(() => {
-    iframeCountLeft = Math.max(0, iframeCountLeft - 1);
-    updateCountdown();
-  }, 1000);
-  iframeGuardTimer = setTimeout(() => {
-    $iframeGuard.classList.add('active'); // lock — shield blocks clicks
-    clearInterval(iframeCountTimer);
-    $iframeCountdown.textContent = '🔒 Locked';
-  }, INTERACT_WINDOW);
-}
-
-function updateCountdown() {
-  $iframeCountdown.textContent = iframeCountLeft > 0
-    ? '⏱ ' + iframeCountLeft + 's'
-    : '⏱ 0s';
-}
-
-function clearIframeTimers() {
-  clearTimeout(iframeGuardTimer);
-  clearInterval(iframeCountTimer);
-  iframeGuardTimer = null;
-  iframeCountTimer = null;
-}
-
-function resetIframeGuard() {
-  $iframeGuard.classList.remove('active'); // unlock again
-  startIframeGuard();
-}
-
-function stopIframeGuard() {
-  clearIframeTimers();
-  $iframeGuard.classList.remove('active');
-  $iframeControls.classList.remove('visible');
-}
 
 function updateNowPlaying(ch) {
   $nowPlayingBar.classList.add('visible');
@@ -1023,7 +934,6 @@ function showError(msg) {
 // ── EVENTS ──
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; render(); });
-  $iframeRefresh.addEventListener('click', resetIframeGuard);
   $menuToggle.addEventListener('click', () => {
     $sidebar.classList.toggle('open');
     $sidebarOverlay.classList.toggle('show', $sidebar.classList.contains('open'));

@@ -367,14 +367,7 @@ body {
   display: none; position: absolute; inset: 0; z-index: 1; background: #000;
   pointer-events: auto;
 }
-#iframeHint {
-  display: none; position: absolute; bottom: 10px; right: 10px; z-index: 4;
-  background: rgba(0,0,0,.72); border: 1px solid var(--border);
-  border-radius: 20px; padding: 5px 12px;
-  font-family: 'JetBrains Mono', monospace; font-size: 10px;
-  letter-spacing: 1px; color: var(--muted); backdrop-filter: blur(6px); pointer-events: none;
-}
-#iframeHint.visible { display: flex; align-items: center; gap: 6px; }
+
 
 /* ── NOW PLAYING ── */
 #nowPlayingBar {
@@ -414,7 +407,7 @@ body {
 .grid-logo { width: 54px; height: 54px; object-fit: contain; border-radius: 8px; margin: 0 auto 8px; background: var(--bg3); display: block; }
 .grid-logo-fallback { width: 54px; height: 54px; border-radius: 8px; margin: 0 auto 8px; background: var(--bg3); display: grid; place-items: center; font-size: 20px; }
 .grid-name { font-size: 11px; font-weight: 500; color: var(--text); line-height: 1.3; word-break: break-word; }
-.grid-type { font-family: 'JetBrains Mono', monospace; font-size: 8px; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-top: 4px; }
+
 
 /* ── FOOTER ── */
 #footer {
@@ -477,6 +470,59 @@ body {
   .footer-right { display: none; }
 }
 
+
+/* ── CATEGORY PILLS ── */
+#categoryWrap {
+  padding: 8px 8px 4px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  overflow-x: auto; white-space: nowrap;
+  scrollbar-width: none;
+}
+#categoryWrap::-webkit-scrollbar { display: none; }
+.cat-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 500;
+  padding: 5px 11px; border-radius: 20px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--muted);
+  transition: all .17s; white-space: nowrap; margin-right: 5px; margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.cat-pill:hover { color: var(--text); border-color: rgba(255,255,255,.18); }
+.cat-pill.active {
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-color: transparent; color: #fff;
+}
+.cat-pill .cat-icon { font-size: 12px; line-height: 1; }
+
+/* ── IFRAME INTERACTION OVERLAY ── */
+#iframeGuard {
+  display: none; position: absolute; inset: 0; z-index: 4;
+  background: transparent; cursor: default;
+}
+#iframeGuard.active { display: block; }
+
+/* countdown + refresh badge */
+#iframeControls {
+  display: none; position: absolute; top: 10px; right: 10px; z-index: 5;
+  align-items: center; gap: 8px;
+}
+#iframeControls.visible { display: flex; }
+#iframeCountdown {
+  background: rgba(0,0,0,.78); border: 1px solid var(--border);
+  border-radius: 20px; padding: 5px 12px;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 1px; color: var(--gold); backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+#iframeRefresh {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(230,62,109,.18); border: 1px solid rgba(230,62,109,.35);
+  border-radius: 20px; padding: 5px 12px; cursor: pointer;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  letter-spacing: 1px; color: var(--accent); backdrop-filter: blur(6px);
+  transition: background .15s;
+}
+#iframeRefresh:hover { background: rgba(230,62,109,.3); }
+
 @keyframes fadeSlide { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
 .channel-item, .grid-card { animation: fadeSlide .22s ease both; }
 </style>
@@ -519,10 +565,13 @@ body {
 <!-- PAGE BODY -->
 <div id="pageBody">
 
-  <!-- SIDEBAR — text-only channels list, no filter chips -->
+  <!-- SIDEBAR -->
   <aside id="sidebar">
     <div class="sidebar-top">
       <div class="section-label">Channels List</div>
+    </div>
+    <div id="categoryWrap">
+      <!-- Category pills injected by JS -->
     </div>
     <div id="channelList"></div>
   </aside>
@@ -557,11 +606,17 @@ body {
       <video id="videoEl" controls playsinline></video>
 
       <iframe id="iframeEl"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+        referrerpolicy="strict-origin"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowfullscreen></iframe>
 
-      <div id="iframeHint">🔒 Protected Stream</div>
+      <!-- Timed interaction guard: open for 42s then locks to block redirects -->
+      <div id="iframeGuard"></div>
+      <!-- Countdown + refresh controls shown during iframe playback -->
+      <div id="iframeControls">
+        <div id="iframeCountdown">⏱ 42s</div>
+        <button id="iframeRefresh">↺ Refresh</button>
+      </div>
     </div>
 
     <!-- NOW PLAYING -->
@@ -619,6 +674,7 @@ let channels         = [];
 let filteredChannels = [];
 let currentChannel   = null;
 let searchQuery      = '';
+let activeCategory   = 'All';
 let hlsInstance      = null;
 let shakaPlayer      = null;
 let pollTimer        = null;
@@ -633,7 +689,10 @@ const $gridCount         = document.getElementById('gridCount');
 const $footerCount       = document.getElementById('footerCount');
 const $videoEl           = document.getElementById('videoEl');
 const $iframeEl          = document.getElementById('iframeEl');
-const $iframeHint        = document.getElementById('iframeHint');
+const $iframeGuard       = document.getElementById('iframeGuard');
+const $iframeControls    = document.getElementById('iframeControls');
+const $iframeCountdown   = document.getElementById('iframeCountdown');
+const $iframeRefresh     = document.getElementById('iframeRefresh');
 const $playerPlaceholder = document.getElementById('playerPlaceholder');
 const $playerLoader      = document.getElementById('playerLoader');
 const $playerError       = document.getElementById('playerError');
@@ -707,12 +766,51 @@ function simpleHash(str) {
 // ── FILTER ──
 function applyFilters() {
   const q = searchQuery.toLowerCase().trim();
-  filteredChannels = channels.filter(c => !q || c.name.toLowerCase().includes(q));
+  filteredChannels = channels.filter(ch => {
+    const nameOk = !q || ch.name.toLowerCase().includes(q);
+    const catOk  = activeCategory === 'All' || (ch.category || '').toLowerCase() === activeCategory.toLowerCase();
+    return nameOk && catOk;
+  });
+}
+
+// ── CATEGORIES ──
+function getCategories() {
+  const cats = ['All'];
+  channels.forEach(ch => {
+    if (ch.category && !cats.includes(ch.category)) cats.push(ch.category);
+  });
+  return cats;
+}
+
+const CAT_ICONS = {
+  'All':'🌐','Entertainment':'🎬','News':'📰','Sports':'⚽','Cricket':'🏏',
+  'Punjabi':'🎵','Religious':'🕌','Kids':'🧸','Movies':'🎥','Music':'🎶',
+  'Devotional':'🪔','Infotainment':'💡','Regional':'📡','Comedy':'😄'
+};
+
+function renderCategories() {
+  const cats = getCategories();
+  const wrap = document.getElementById('categoryWrap');
+  wrap.innerHTML = cats.map(cat => `
+    <button class="cat-pill${activeCategory === cat ? ' active' : ''}" data-cat="${esc(cat)}">
+      <span class="cat-icon">${CAT_ICONS[cat] || '📺'}</span>${esc(cat)}
+    </button>`).join('');
+  wrap.querySelectorAll('.cat-pill').forEach(btn =>
+    btn.addEventListener('click', () => {
+      activeCategory = btn.dataset.cat;
+      renderCategories();
+      renderSidebar();
+      renderGrid();
+      updateCounts();
+    })
+  );
+  // Hide wrap if only "All" exists (no categories in json yet)
+  wrap.style.display = cats.length > 1 ? 'block' : 'none';
 }
 
 // ── RENDER ──
-function render()       { applyFilters(); renderSidebar(); renderGrid(); updateCounts(); }
-function renderSilent() { applyFilters(); renderSidebar(); renderGrid(); updateCounts(); }
+function render()       { applyFilters(); renderCategories(); renderSidebar(); renderGrid(); updateCounts(); }
+function renderSilent() { applyFilters(); renderCategories(); renderSidebar(); renderGrid(); updateCounts(); }
 
 function renderSidebar() {
   if (!filteredChannels.length) {
@@ -745,7 +843,6 @@ function renderGrid() {
          data-idx="${i}" style="animation-delay:${Math.min(i*10,400)}ms">
       ${logo(ch, 54, 'grid-logo', 'grid-logo-fallback')}
       <div class="grid-name">${esc(ch.name)}</div>
-      <div class="grid-type">${esc((ch.type||'STREAM').toUpperCase())}</div>
     </div>`).join('');
 
   $channelGrid.querySelectorAll('.grid-card').forEach(el =>
@@ -796,7 +893,7 @@ async function playChannel(ch) {
     $videoEl.style.display  = 'none';
     $iframeEl.style.display = 'block';
     $iframeEl.src           = ch.url;
-    $iframeEl.onload        = () => { showLoader(false); showIframeHint(); };
+    $iframeEl.onload        = () => { showLoader(false); startIframeGuard(); };
     $iframeEl.onerror       = () => showError('iFrame could not be loaded.');
   } else if (type === 'dash') {
     $iframeEl.style.display = 'none';
@@ -853,12 +950,57 @@ async function teardown() {
   $videoEl.removeAttribute('src');
   $videoEl.load();
   $iframeEl.src = 'about:blank';
-  $iframeHint.classList.remove('visible');
+  stopIframeGuard();
 }
 
-function showIframeHint() {
-  $iframeHint.classList.add('visible');
-  setTimeout(() => $iframeHint.classList.remove('visible'), 3500);
+// ── IFRAME TIMED GUARD ──
+// Viewer gets INTERACT_WINDOW ms to click play/unmute inside the iframe.
+// After that a transparent shield blocks further clicks to prevent redirect navigation.
+// Refresh button resets another interaction window.
+const INTERACT_WINDOW = 42000; // 42 seconds
+let iframeGuardTimer   = null;
+let iframeCountTimer   = null;
+let iframeCountLeft    = 0;
+
+function startIframeGuard() {
+  clearIframeTimers();
+  $iframeGuard.classList.remove('active'); // open — viewer can interact
+  $iframeControls.classList.add('visible');
+  iframeCountLeft = Math.round(INTERACT_WINDOW / 1000);
+  updateCountdown();
+  iframeCountTimer = setInterval(() => {
+    iframeCountLeft = Math.max(0, iframeCountLeft - 1);
+    updateCountdown();
+  }, 1000);
+  iframeGuardTimer = setTimeout(() => {
+    $iframeGuard.classList.add('active'); // lock — shield blocks clicks
+    clearInterval(iframeCountTimer);
+    $iframeCountdown.textContent = '🔒 Locked';
+  }, INTERACT_WINDOW);
+}
+
+function updateCountdown() {
+  $iframeCountdown.textContent = iframeCountLeft > 0
+    ? '⏱ ' + iframeCountLeft + 's'
+    : '⏱ 0s';
+}
+
+function clearIframeTimers() {
+  clearTimeout(iframeGuardTimer);
+  clearInterval(iframeCountTimer);
+  iframeGuardTimer = null;
+  iframeCountTimer = null;
+}
+
+function resetIframeGuard() {
+  $iframeGuard.classList.remove('active'); // unlock again
+  startIframeGuard();
+}
+
+function stopIframeGuard() {
+  clearIframeTimers();
+  $iframeGuard.classList.remove('active');
+  $iframeControls.classList.remove('visible');
 }
 
 function updateNowPlaying(ch) {
@@ -881,6 +1023,7 @@ function showError(msg) {
 // ── EVENTS ──
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; render(); });
+  $iframeRefresh.addEventListener('click', resetIframeGuard);
   $menuToggle.addEventListener('click', () => {
     $sidebar.classList.toggle('open');
     $sidebarOverlay.classList.toggle('show', $sidebar.classList.contains('open'));

@@ -20,13 +20,18 @@
         }
 
         /* ── PRIVATE mode: bordered viewport ── */
+        /*
+         * Use explicit height via vw-based calc so child % heights resolve correctly.
+         * padding-top trick (height:0) breaks iframe children that use height:600%
+         * because 600% of 0 = 0 → black screen with audio only.
+         */
         .viewport {
             position: relative;
             width: 100vw;
             max-width: 1000px;
-            /* Use padding-top trick for universal 16:9 aspect ratio */
-            height: 0;
-            padding-top: min(56.25vw, 562.5px); /* 9/16 of max-width=1000 → 562.5px */
+            /* Real pixel height: 9/16 of width, capped at 562.5px (= 9/16 × 1000) */
+            height: 56.25vw;           /* fallback: browsers without CSS min() */
+            height: min(56.25vw, 562.5px);
             overflow: hidden;
             border: 4px solid var(--primary);
             border-radius: 12px;
@@ -42,30 +47,21 @@
             inset: 0;
             width: 100%;
             height: 100%;
-            padding-top: 0;          /* no aspect-ratio padding in fullscreen */
             max-width: none;
             border: none;
             border-radius: 0;
         }
 
         /* ── iframe layer ── */
-        /*
-         * FIX: frameMover is absolute inside the viewport.
-         * We position it at (top, left) offsets using CSS custom properties
-         * set by JS, so percentages are relative to the viewport size —
-         * not to arbitrary pixel values that differ per screen.
-         * transform-origin: top center keeps scale symmetric horizontally.
-         */
         #frameMover {
             display: none;
             position: absolute;
-            /* Width and height are set explicitly so scaling math is consistent */
             width: 100%;
-            height: 600%;           /* tall enough to pan vertically */
-            top: var(--fm-top, -27.8%);   /* default ≈ -179/645 for a 645px tall box */
+            height: 600%;           /* tall: % of real viewport height now resolves correctly */
+            top: var(--fm-top, -27.8%);
             left: var(--fm-left, 0%);
             transform: scale(var(--fm-zoom, 1));
-            transform-origin: top center;  /* ← key fix: symmetric across all widths */
+            transform-origin: top center;
             will-change: transform;
         }
         #captureFrame {
@@ -680,4 +676,4 @@
 })();
 </script>
 </body>
-  </html>
+</html>

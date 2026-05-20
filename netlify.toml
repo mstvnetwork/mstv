@@ -1,40 +1,37 @@
-# netlify.toml — Cache headers to fix Lighthouse "Use efficient cache lifetimes"
+# ════════════════════════════════════════════════════════
+# netlify.toml  (repo ROOT)
+# Netlify-specific config. Cloudflare Pages ignores this.
+# ════════════════════════════════════════════════════════
 
-[[headers]]
-  for = "/channels2.json"
-  [headers.values]
-    Cache-Control = "public, max-age=300, stale-while-revalidate=60"
+[build]
+  publish = "."
+  # If you run generate-sitemap.js before deploy:
+  # command = "node generate-sitemap.js"
 
-[[headers]]
-  for = "/*.webp"
-  [headers.values]
-    Cache-Control = "public, max-age=86400, stale-while-revalidate=3600"
+[build.environment]
+  NODE_VERSION = "18"
 
-[[headers]]
-  for = "/*.png"
-  [headers.values]
-    Cache-Control = "public, max-age=86400, stale-while-revalidate=3600"
+# ── Redirect ALL Netlify traffic → Cloudflare ─────────
+# ⚠️  Replace mstvnet.pages.dev with your CF domain
+[[redirects]]
+  from   = "/*"
+  to     = "https://crickethd.pages.dev/:splat"
+  status = 301
+  force  = true
 
-[[headers]]
-  for = "/*.ico"
-  [headers.values]
-    Cache-Control = "public, max-age=86400"
-
-[[headers]]
-  for = "/*.js"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
-[[headers]]
-  for = "/*.css"
-  [headers.values]
-    Cache-Control = "public, max-age=31536000, immutable"
-
+# ── Security Headers ──────────────────────────────────
 [[headers]]
   for = "/*"
   [headers.values]
-    # Security headers — also pushes Best Practices score to 100
+    X-Frame-Options        = "SAMEORIGIN"
     X-Content-Type-Options = "nosniff"
-    X-Frame-Options = "SAMEORIGIN"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+    Referrer-Policy        = "strict-origin-when-cross-origin"
+    X-XSS-Protection       = "1; mode=block"
+
+# channels2.json must never be cached
+[[headers]]
+  for = "/channels2.json"
+  [headers.values]
+    Cache-Control               = "no-store, no-cache, must-revalidate, max-age=0"
+    Pragma                      = "no-cache"
+    Access-Control-Allow-Origin = "*"

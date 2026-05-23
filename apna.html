@@ -560,7 +560,6 @@ footer {
 
 
 </div><!-- /main-content -->
-
 <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
@@ -594,76 +593,55 @@ if (isGoogleChrome()) {
    PLAYER + EPG + TICKER LOGIC
 ───────────────────────────────────────────── */
 function initPlayer() {
-    const EPG_URL = "epg.json";
+    const EPG_URL   = "epg.json";
+    const SSE_URL   = "epg-stream";          // your SSE endpoint (optional)
+    const POLL_MS   = 3000;                  // fallback polling interval
 
     const videoPlayer = document.getElementById("videoPlayer");
     const ticker      = document.getElementById("ticker");
+    const titleNow    = document.getElementById("titleNow");
+    const timeNow     = document.getElementById("timeNow");
+    const logoNow     = document.getElementById("logoNow");
+    const titleNext   = document.getElementById("titleNext");
+    const timeNext    = document.getElementById("timeNext");
+    const logoNext    = document.getElementById("logoNext");
 
-    const titleNow  = document.getElementById("titleNow");
-    const timeNow   = document.getElementById("timeNow");
-    const logoNow   = document.getElementById("logoNow");
-    const titleNext = document.getElementById("titleNext");
-    const timeNext  = document.getElementById("timeNext");
-    const logoNext  = document.getElementById("logoNext");
+    /* ── Track last known state to avoid unnecessary video reloads ── */
+    let lastUrl     = null;
+    let lastEpgHash = null;
 
-    /* ── Ticker updater ── */
+    /* ── Ticker ── */
     function setTickerText(text) {
-        const track = document.createElement("div");
-        track.className = "ticker-track";
-
-        const span1 = document.createElement("span");
-        span1.textContent = text;
-
-        const span2 = document.createElement("span");
-        span2.textContent = text;
-
-        track.appendChild(span1);
-        track.appendChild(span2);
-
+        const span = document.createElement("span");
+        span.textContent = text;
         ticker.innerHTML = "";
-        ticker.appendChild(track);
+        ticker.appendChild(span);
     }
 
     function buildTickerText(data, current, next) {
         const parts = [];
-
-        if (data.tickerMessage && data.tickerMessage.trim()) {
+        if (data.tickerMessage && data.tickerMessage.trim())
             parts.push(data.tickerMessage.trim());
-        }
-
         if (current) {
             const label = current.tickerLabel || current.title || "Live Programme";
-            const end   = formatTimeSimple(current.end);
-            parts.push(`🔴 Now Streaming: ${label}  (until ${end})`);
+            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
         }
-
         if (next && next !== current) {
             const label = next.tickerLabel || next.title || "Next Show";
-            const start = formatTimeSimple(next.start);
-            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${start})`);
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
         }
-
         if (data.schedule && Array.isArray(data.schedule)) {
             const nowSec = getCurrentISTSeconds();
-
             const upcoming = data.schedule.filter(item => {
                 if (item === current || item === next) return false;
-                const itemSec = getSecondsFromTimeString(item.start);
-                return itemSec > nowSec;
+                return getSecondsFromTimeString(item.start) > nowSec;
             }).slice(0, 5);
-
             upcoming.forEach(item => {
                 const label = item.tickerLabel || item.title || "Show";
-                const start = formatTimeSimple(item.start);
-                parts.push(`🕒 ${start} — ${label}`);
+                parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
             });
         }
-
-        if (parts.length === 0) {
-            return "Loading EPG.....";
-        }
-
-        return parts.join("   ·   ") + "   ·   ";
+        return parts.length ? parts.join("   ·   ") + "   ·   " : "Loading EPG.....";
     }
 
     /* ── Time helpers ── */
@@ -672,21 +650,17 @@ function initPlayer() {
         const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
         return (parseInt(parts[0]||0,10)*3600) + (parseInt(parts[1]||0,10)*60) + (parseInt(parts[2]||0,10));
     }
-
     function getCurrentISTSeconds() {
         const istStr = new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
         return getSecondsFromTimeString(istStr);
     }
-
     function formatTimeSimple(timeStr) {
         if (!timeStr) return "00:00";
         const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-        if (parts.length >= 2) {
+        if (parts.length >= 2)
             return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
-        }
         return "00:00";
     }
-
     function setLogo(el, logoSrc, fallbackText) {
         if (logoSrc) {
             el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
@@ -695,72 +669,122 @@ function initPlayer() {
         }
     }
 
-    /* ── Main sync function ── */
-    async function updatePlayerAndEPG() {
+    /* ── Simple hash to detect EPG data changes ── */
+    function hashData(data) {
+        try { return JSON.stringify(data); } catch(e) { return ""; }
+    }
+
+    /* ── Core render — called with parsed JSON ── */
+    function renderEPG(data) {
+        const newHash = hashData(data);
+        if (newHash === lastEpgHash) return;   // nothing changed, skip DOM work
+        lastEpgHash = newHash;
+
+        const schedule = data.schedule;
+        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
+
+        const nowSec = getCurrentISTSeconds();
+        let current = null, next = null;
+
+        for (let i = 0; i < schedule.length; i++) {
+            const startSec = getSecondsFromTimeString(schedule[i].start);
+            const endSec   = getSecondsFromTimeString(schedule[i].end);
+            let isCurrent  = false;
+            if (endSec < startSec) {
+                if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
+            } else {
+                if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
+            }
+            if (isCurrent) {
+                current = schedule[i];
+                next    = schedule[i + 1] || schedule[0];
+                break;
+            }
+        }
+        if (!current) { current = schedule[0]; next = schedule[1] || schedule[0]; }
+
+        /* Only swap iframe src when the stream URL actually changes */
+        if (current && current.url && current.url !== lastUrl) {
+            videoPlayer.src = current.url;
+            lastUrl = current.url;
+        }
+
+        if (current) {
+            titleNow.textContent = current.title || "Programme";
+            timeNow.textContent  = formatTimeSimple(current.end);
+            setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+        }
+        if (next) {
+            titleNext.textContent = next.title || "Next Show";
+            timeNext.textContent  = formatTimeSimple(next.start);
+            setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+        }
+
+        setTickerText(buildTickerText(data, current, next));
+    }
+
+    /* ── Fetch EPG from JSON (used by polling fallback) ── */
+    async function fetchAndRender() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
             if (!res.ok) throw new Error("epg.json not found");
-
-            const data = await res.json();
-            const schedule = data.schedule;
-            if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
-
-            const nowSec = getCurrentISTSeconds();
-            let current = null, next = null;
-
-            for (let i = 0; i < schedule.length; i++) {
-                const startSec = getSecondsFromTimeString(schedule[i].start);
-                const endSec   = getSecondsFromTimeString(schedule[i].end);
-                let isCurrent  = false;
-
-                if (endSec < startSec) {
-                    if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
-                } else {
-                    if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
-                }
-
-                if (isCurrent) {
-                    current = schedule[i];
-                    next = schedule[i + 1] || schedule[0];
-                    break;
-                }
-            }
-
-            if (!current) {
-                current = schedule[0];
-                next = schedule[1] || schedule[0];
-            }
-
-            /* ── Update EPG cards ── */
-            if (current) {
-                if (current.url && !videoPlayer.src.includes(current.url)) {
-                    videoPlayer.src = current.url;
-                }
-                titleNow.textContent = current.title || "Programme";
-                timeNow.textContent  = formatTimeSimple(current.end);
-                setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
-            }
-
-            if (next) {
-                titleNext.textContent = next.title || "Next Show";
-                timeNext.textContent  = formatTimeSimple(next.start);
-                setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
-            }
-
-            /* ── Update ticker ── */
-            setTickerText(buildTickerText(data, current, next));
-
+            renderEPG(await res.json());
         } catch (err) {
-            console.error("Sync Error:", err);
+            console.error("EPG fetch error:", err);
             titleNow.textContent  = "Connecting…";
             titleNext.textContent = "Connecting…";
             setTickerText("Loading EPG.....");
         }
     }
 
-    updatePlayerAndEPG();
-    setInterval(updatePlayerAndEPG, 10000);
+    /* ── Strategy 1: Server-Sent Events (instant push) ── */
+    function startSSE() {
+        if (!window.EventSource) return false;
+
+        const es = new EventSource(SSE_URL);
+        let connected = false;
+
+        es.onopen = () => { connected = true; console.log("SSE connected"); };
+
+        /* "epg" named event: server sends: event: epg\ndata: {...json...}\n\n */
+        es.addEventListener("epg", e => {
+            try { renderEPG(JSON.parse(e.data)); }
+            catch(err) { console.warn("SSE parse error:", err); }
+        });
+
+        /* fallback: unnamed message event */
+        es.onmessage = e => {
+            try { renderEPG(JSON.parse(e.data)); }
+            catch(err) { console.warn("SSE message parse error:", err); }
+        };
+
+        es.onerror = () => {
+            if (!connected) {
+                /* SSE endpoint doesn't exist — fall back to polling */
+                es.close();
+                startPolling();
+            }
+            /* if it WAS connected and drops, EventSource auto-reconnects */
+        };
+
+        /* Treat a prolonged lack of connection as SSE unavailable */
+        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
+        return true;
+    }
+
+    /* ── Strategy 2: Polling fallback (every 3 seconds) ── */
+    function startPolling() {
+        console.log("SSE not available — using polling fallback");
+        fetchAndRender();
+        setInterval(fetchAndRender, POLL_MS);
+    }
+
+    /* ── Boot: try SSE first, poll if not available ── */
+    fetchAndRender();          // immediate first load regardless
+    startSSE();                // attempt SSE; auto-falls back to polling
 }
+
+                        
 </script>
 </body>
 </html>

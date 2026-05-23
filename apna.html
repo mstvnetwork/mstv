@@ -218,7 +218,7 @@ iframe {
 #ticker .ticker-track {
     display: inline-block;
     white-space: nowrap;
-    animation: infiniteScrollMarquee 20s linear infinite;
+    will-change: transform;
     color: #ff3b3b; 
     font-family: sans-serif; 
     font-size: 14px;
@@ -226,12 +226,12 @@ iframe {
 
 #ticker .ticker-track span {
     display: inline-block;
-    padding-right: 100px; /* Generates a clean separation gap between repetitions */
+    padding-right: 100px;
 }
 
 @keyframes infiniteScrollMarquee {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-50%); } /* Resets at the exact middle text duplication */
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
 }
 
 
@@ -626,23 +626,38 @@ function initPlayer() {
     let lastUrl       = null;
 
     /* ── Ticker ── */
-    function setTickerText(text) {
-    const track = document.createElement("div");
-    track.className = "ticker-track";
+    let currentTickerText = null;
 
-    // Text Instance 1
-    const span1 = document.createElement("span");
-    span1.textContent = text;
+function setTickerText(text) {
+    if (text === currentTickerText) return; // No DOM thrash if text unchanged
+    currentTickerText = text;
 
-    // Text Instance 2 (Creates the duplicate for looping)
-    const span2 = document.createElement("span");
-    span2.textContent = text;
+    let track = ticker.querySelector(".ticker-track");
 
-    track.appendChild(span1);
-    track.appendChild(span2);
+    if (!track) {
+        track = document.createElement("div");
+        track.className = "ticker-track";
+        const span1 = document.createElement("span");
+        const span2 = document.createElement("span");
+        track.appendChild(span1);
+        track.appendChild(span2);
+        ticker.innerHTML = "";
+        ticker.appendChild(track);
+    }
 
-    ticker.innerHTML = "";
-    ticker.appendChild(track);
+    const spans = track.querySelectorAll("span");
+    spans[0].textContent = text;
+    spans[1].textContent = text;
+
+    // Dynamic speed: ~80px per second regardless of text length
+    const charWidth = 8.4; // approx px per char at 14px sans-serif
+    const totalWidth = text.length * charWidth + 100; // +100 for padding-right
+    const duration = Math.max(10, totalWidth / 80);
+
+    // Reset animation cleanly
+    track.style.animation = "none";
+    track.offsetWidth; // force reflow to restart
+    track.style.animation = `infiniteScrollMarquee ${duration}s linear infinite`;
 }
 
     function buildTickerText(data, current, next) {

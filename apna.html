@@ -564,32 +564,22 @@ footer {
 </div><!-- /main-content -->
 <script>
 /* ─────────────────────────────────────────────
-   CHROME DETECTION
+   CHROME DETECTION (BYPASSED / SAFE FALLBACK)
 ───────────────────────────────────────────── */
-function isGoogleChrome() {
-    const ua = navigator.userAgent;
-    if (navigator.userAgentData && navigator.userAgentData.brands) {
-        const brands = navigator.userAgentData.brands.map(b => b.brand);
-        const hasChrome = brands.some(b => b === "Google Chrome");
-        const hasEdge   = brands.some(b => b === "Microsoft Edge");
-        const hasOpera  = brands.some(b => b === "Opera");
-        if (hasEdge || hasOpera) return false;
-        if (hasChrome) return true;
-    }
-    const isChrome    = /Chrome\//.test(ua);
-    const isEdge      = /Edg\//.test(ua);
-    const isOpera     = /OPR\//.test(ua) || /Opera/.test(ua);
-    const isBrave     = (navigator.brave !== undefined);
-    const isSamsung   = /SamsungBrowser/.test(ua);
-    const isYaBrowser = /YaBrowser/.test(ua);
-    return isChrome && !isEdge && !isOpera && !isBrave && !isSamsung && !isYaBrowser;
-}
-
-if (isGoogleChrome()) {
-    document.getElementById("not-chrome").style.display = "none";
-    document.getElementById("main-content").style.display = "flex";
+function initBrowserAccess() {
+    const notChromeEl = document.getElementById("not-chrome");
+    const mainContentEl = document.getElementById("main-content");
+    
+    // Force player to open immediately by default
+    if (notChromeEl) notChromeEl.style.display = "none";
+    if (mainContentEl) mainContentEl.style.display = "flex";
+    
+    // Fire up the media rendering systems
     initPlayer();
 }
+
+// Fire the setup immediately when script executes
+initBrowserAccess();
 
 /* ─────────────────────────────────────────────
    PLAYER + EPG + TICKER LOGIC
@@ -670,7 +660,7 @@ function initPlayer() {
             const label = current.tickerLabel || current.title || "Live Programme";
             parts.push(`🔴 Now Streaming: ${label} (until ${formatTimeSimple(current.end)})`);
         } else {
-            parts.push("⚪ Station Off-Air");
+            parts.push(`⚪ Station Off-Air`);
         }
         if (next && next !== current) {
             const label = next.tickerLabel || next.title || "Next Show";
@@ -690,7 +680,7 @@ function initPlayer() {
         return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
     }
 
-    /* ── Time helpers (FIXED ARRAY INDICES) ── */
+    /* ── Time helpers ── */
     function getSecondsFromTimeString(timeStr) {
         if (!timeStr) return 0;
         const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
@@ -781,7 +771,7 @@ function initPlayer() {
         setTickerText(buildTickerText(globalEpgData, current, next));
     }
 
-    /* ── Fetch EPG from JSON ── */
+    /* ── Fetch EPG from JSON (used by polling fallback) ── */
     async function fetchAndRender() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
@@ -806,7 +796,28 @@ function initPlayer() {
         es.onopen = () => { connected = true; console.log("SSE connected"); };
 
         es.addEventListener("epg", e => {
+            try { 
+                globalEpgData = JSON.parse(e.data); 
+                processActiveSchedule();
+            }
+            catch(err) { console.warn("SSE parse error:", err); }
+        });
 
+        es.onmessage = e => {
+            try { 
+                globalEpgData = JSON.parse(e.data); 
+                processActiveSchedule();
+            }
+            catch(err) { console.warn("SSE message parse error:", err); }
+        };
+
+        es.onerror = () => {
+            if (!connected) {
+                es.close();
+                startPolling();
+            }
+
+        
 </script>
 </body>
 </html>

@@ -560,7 +560,7 @@ footer {
 
 
 </div><!-- /main-content -->
-    <script>
+<script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -636,6 +636,8 @@ function initPlayer() {
         if (current) {
             const label = current.tickerLabel || current.title || "Live Programme";
             parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
+        } else {
+            parts.push(`⚪ Station Off-Air`);
         }
         if (next && next !== current) {
             const label = next.tickerLabel || next.title || "Next Show";
@@ -652,7 +654,7 @@ function initPlayer() {
                 parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
             });
         }
-        return parts.length ? parts.join("   ·   ") + "   ·   " : "Loading EPG.....";
+        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
     }
 
     /* ── Time helpers ── */
@@ -701,27 +703,44 @@ function initPlayer() {
             }
             if (isCurrent) {
                 current = schedule[i];
-                next    = schedule[i + 1] || schedule[0];
+                next    = schedule[i + 1] || null; // Don't loop back to 0 automatically
                 break;
             }
         }
-        if (!current) { current = schedule[0]; next = schedule[1] || schedule[0]; }
 
-        /* Only swap videoPlayer src when the stream URL actually changes */
-        if (current && current.url && current.url !== lastUrl) {
-            videoPlayer.src = current.url;
-            lastUrl = current.url;
+        /* ── Action: Handle Player State ── */
+        if (current && current.url) {
+            if (current.url !== lastUrl) {
+                videoPlayer.src = current.url;
+                lastUrl = current.url;
+            }
+        } else {
+            // No matching schedule found: Stop player completely
+            if (lastUrl !== "") {
+                videoPlayer.src = "";
+                lastUrl = "";
+            }
         }
 
+        /* ── Action: Update UI Text panels ── */
         if (current) {
             titleNow.textContent = current.title || "Programme";
             timeNow.textContent  = formatTimeSimple(current.end);
             setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+        } else {
+            titleNow.textContent = "Off Air";
+            timeNow.textContent  = "--:--";
+            setLogo(logoNow, "", "OFF");
         }
+
         if (next) {
             titleNext.textContent = next.title || "Next Show";
             timeNext.textContent  = formatTimeSimple(next.start);
             setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+        } else {
+            titleNext.textContent = "End of Schedule";
+            timeNext.textContent  = "--:--";
+            setLogo(logoNext, "", "END");
         }
 
         setTickerText(buildTickerText(globalEpgData, current, next));
@@ -789,13 +808,9 @@ function initPlayer() {
     fetchAndRender();          
     startSSE();                
 
-    /* Continuous local check loop (every 1 second) to handle exact time-based track transitions */
+    /* Continuous local check loop (every 1 second) */
     setInterval(processActiveSchedule, 1000);
 }
-</script>
-</body>
-</html>
-
 </script>
 </body>
 </html>

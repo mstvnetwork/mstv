@@ -560,7 +560,7 @@ footer {
 
 
 </div><!-- /main-content -->
-<script>
+    <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -606,22 +606,33 @@ function initPlayer() {
     const timeNext    = document.getElementById("timeNext");
     const logoNext    = document.getElementById("logoNext");
 
-    /* ── Track last known state to avoid unnecessary video reloads ── */
-    let lastUrl     = null;
-    let lastEpgHash = null;
+    /* ── Track data and state globally inside player scope ── */
+    let globalEpgData = null;
+    let lastUrl       = null;
 
     /* ── Ticker ── */
     function setTickerText(text) {
-        const span = document.createElement("span");
-        span.textContent = text;
+        const track = document.createElement("div");
+        track.className = "ticker-track";
+
+        const span1 = document.createElement("span");
+        span1.textContent = text;
+
+        const span2 = document.createElement("span");
+        span2.textContent = text;
+
+        track.appendChild(span1);
+        track.appendChild(span2);
+
         ticker.innerHTML = "";
-        ticker.appendChild(span);
+        ticker.appendChild(track);
     }
 
     function buildTickerText(data, current, next) {
         const parts = [];
-        if (data.tickerMessage && data.tickerMessage.trim())
+        if (data.tickerMessage && data.tickerMessage.trim()) {
             parts.push(data.tickerMessage.trim());
+        }
         if (current) {
             const label = current.tickerLabel || current.title || "Live Programme";
             parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
@@ -669,18 +680,11 @@ function initPlayer() {
         }
     }
 
-    /* ── Simple hash to detect EPG data changes ── */
-    function hashData(data) {
-        try { return JSON.stringify(data); } catch(e) { return ""; }
-    }
-
-    /* ── Core render — called with parsed JSON ── */
-    function renderEPG(data) {
-        const newHash = hashData(data);
-        if (newHash === lastEpgHash) return;   // nothing changed, skip DOM work
-        lastEpgHash = newHash;
-
-        const schedule = data.schedule;
+    /* ── Core Schedule Calculation & UI Update ── */
+    function processActiveSchedule() {
+        if (!globalEpgData) return;
+        
+        const schedule = globalEpgData.schedule;
         if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
 
         const nowSec = getCurrentISTSeconds();
@@ -703,7 +707,7 @@ function initPlayer() {
         }
         if (!current) { current = schedule[0]; next = schedule[1] || schedule[0]; }
 
-        /* Only swap iframe src when the stream URL actually changes */
+        /* Only swap videoPlayer src when the stream URL actually changes */
         if (current && current.url && current.url !== lastUrl) {
             videoPlayer.src = current.url;
             lastUrl = current.url;
@@ -720,7 +724,7 @@ function initPlayer() {
             setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
         }
 
-        setTickerText(buildTickerText(data, current, next));
+        setTickerText(buildTickerText(globalEpgData, current, next));
     }
 
     /* ── Fetch EPG from JSON (used by polling fallback) ── */
@@ -728,7 +732,8 @@ function initPlayer() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
             if (!res.ok) throw new Error("epg.json not found");
-            renderEPG(await res.json());
+            globalEpgData = await res.json();
+            processActiveSchedule();
         } catch (err) {
             console.error("EPG fetch error:", err);
             titleNow.textContent  = "Connecting…";
@@ -746,28 +751,29 @@ function initPlayer() {
 
         es.onopen = () => { connected = true; console.log("SSE connected"); };
 
-        /* "epg" named event: server sends: event: epg\ndata: {...json...}\n\n */
         es.addEventListener("epg", e => {
-            try { renderEPG(JSON.parse(e.data)); }
+            try { 
+                globalEpgData = JSON.parse(e.data); 
+                processActiveSchedule();
+            }
             catch(err) { console.warn("SSE parse error:", err); }
         });
 
-        /* fallback: unnamed message event */
         es.onmessage = e => {
-            try { renderEPG(JSON.parse(e.data)); }
+            try { 
+                globalEpgData = JSON.parse(e.data); 
+                processActiveSchedule();
+            }
             catch(err) { console.warn("SSE message parse error:", err); }
         };
 
         es.onerror = () => {
             if (!connected) {
-                /* SSE endpoint doesn't exist — fall back to polling */
                 es.close();
                 startPolling();
             }
-            /* if it WAS connected and drops, EventSource auto-reconnects */
         };
 
-        /* Treat a prolonged lack of connection as SSE unavailable */
         setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
         return true;
     }
@@ -780,9 +786,16 @@ function initPlayer() {
     }
 
     /* ── Boot: try SSE first, poll if not available ── */
-    fetchAndRender();          // immediate first load regardless
-    startSSE();                // attempt SSE; auto-falls back to polling
+    fetchAndRender();          
+    startSSE();                
+
+    /* Continuous local check loop (every 1 second) to handle exact time-based track transitions */
+    setInterval(processActiveSchedule, 1000);
 }
+</script>
+</body>
+</html>
+
 </script>
 </body>
 </html>

@@ -381,7 +381,7 @@ footer {
 
 </div><!-- /main-content -->
 
-<script>
+        <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -430,9 +430,12 @@ function initPlayer() {
     const offlineNext = document.getElementById("offline-next-label");
     const offlineClock= document.getElementById("offline-clock");
 
+    // Persisted state variables tracked across intervals
     let lastUrl      = null;
     let lastEpgHash  = null;
     let offlineShown = false;
+    let current      = null; 
+    let next         = null; 
 
     /* Live IST clock shown on offline screen */
     setInterval(() => {
@@ -511,7 +514,7 @@ function initPlayer() {
         return parts.length ? parts.join("   ·   ") + "   ·   " : "Loading EPG.....";
     }
 
-    /* ── Time helpers ── */
+    /* ── Time helpers (FIXED ARRAY INDICES) ── */
     function getSecondsFromTimeString(timeStr) {
         if (!timeStr) return 0;
         const parts = String(timeStr).replace(/[^\d]/g,":").split(":").filter(p => p !== "");
@@ -551,34 +554,37 @@ function initPlayer() {
     /* ── Core render ── */
     function renderEPG(data) {
         const newHash = hashData(data);
+        const nowSec = getCurrentISTSeconds();
+
+        // Check if the current playing slot has expired
+        const currentSlotExpired = current && (nowSec < getSecondsFromTimeString(current.start) || nowSec >= getSecondsFromTimeString(current.end));
 
         /*
-         * Skip only when BOTH conditions are true:
+         * Skip only when ALL conditions are true:
          *   1. Data hasn't changed
          *   2. We're currently live (not offline)
-         * When offline we must always re-evaluate so the clock
-         * moving into a slot is detected without a page refresh.
+         *   3. The current slot is still valid and active
          */
-        if (newHash === lastEpgHash && !offlineShown) return;
+        if (newHash === lastEpgHash && !offlineShown && !currentSlotExpired) return;
         lastEpgHash = newHash;
 
         const schedule = data.schedule;
         if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
+            current = null;
             showOffline(null);
             return;
         }
 
-        const nowSec = getCurrentISTSeconds();
-
-        /* If current time is past the last slot's end — all done, no looping */
+        /* If current time is past the last slot's end — all done */
         const lastEndSec = Math.max(...schedule.map(s => getSecondsFromTimeString(s.end)));
         if (nowSec >= lastEndSec) {
+            current = null;
             showOffline(null);
             return;
         }
 
-        let current = null;
-        let next    = null;
+        let foundCurrent = null;
+        let foundNext    = null;
 
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsFromTimeString(schedule[i].start);
@@ -586,14 +592,16 @@ function initPlayer() {
 
             /* Strict match — nowSec must be within [start, end) */
             if (nowSec >= startSec && nowSec < endSec) {
-                current = schedule[i];
-                /* Next = first item that starts at or after current ends — no wraparound */
-                next = schedule.slice(i + 1).find(
+                foundCurrent = schedule[i];
+                foundNext = schedule.slice(i + 1).find(
                     s => getSecondsFromTimeString(s.start) >= endSec
                 ) || null;
                 break;
             }
         }
+
+        current = foundCurrent;
+        next = foundNext;
 
         /* Gap between slots or before first slot */
         if (!current) {
@@ -605,7 +613,7 @@ function initPlayer() {
         /* We have a live slot */
         hideOffline();
 
-        /* Only swap iframe src when the URL actually changes — avoids interrupting playback */
+        /* Only swap src when the URL actually changes */
         if (current.url && current.url !== lastUrl) {
             videoPlayer.src = current.url;
             lastUrl = current.url;
@@ -632,45 +640,7 @@ function initPlayer() {
     async function fetchAndRender() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
-            if (!res.ok) throw new Error("epg.json not found");
-            renderEPG(await res.json());
-        } catch (err) {
-            console.error("EPG fetch error:", err);
-            titleNow.textContent  = "Connecting…";
-            titleNext.textContent = "Connecting…";
-            setTickerText("Loading EPG.....");
-        }
-    }
 
-    /* ── SSE — instant push (optional, needs server support) ── */
-    function startSSE() {
-        if (!window.EventSource) return startPolling();
-        const es = new EventSource(SSE_URL);
-        let connected = false;
-        es.onopen = () => { connected = true; };
-        es.addEventListener("epg", e => {
-            try { renderEPG(JSON.parse(e.data)); } catch(err) {}
-        });
-        es.onmessage = e => {
-            try { renderEPG(JSON.parse(e.data)); } catch(err) {}
-        };
-        es.onerror = () => {
-            if (!connected) { es.close(); startPolling(); }
-            /* If it was connected and drops, EventSource auto-reconnects */
-        };
-        /* If no connection within 4 s, assume SSE not available → fall back */
-        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
-    }
-
-    /* ── Polling fallback ── */
-    function startPolling() {
-        setInterval(fetchAndRender, POLL_MS);
-    }
-
-    /* ── Boot ── */
-    fetchAndRender();   /* immediate first load */
-    startSSE();         /* try SSE; auto-falls back to 3-second polling */
-}
 </script>
 </body>
 </html>

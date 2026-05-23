@@ -550,17 +550,21 @@ function initPlayer() {
 
     /* ── Core render ── */
     function renderEPG(data) {
-        const newHash = hashData(data);
+    function renderEPG(data) {
+    const newHash = hashData(data);
 
-        /*
-         * Skip only when BOTH conditions are true:
-         *   1. Data hasn't changed
-         *   2. We're currently live (not offline)
-         * When offline we must always re-evaluate so the clock
-         * moving into a slot is detected without a page refresh.
-         */
-        if (newHash === lastEpgHash && !offlineShown) return;
-        lastEpgHash = newHash;
+    /*
+     * NEVER skip based on hash alone.
+     * The JSON may be identical but the clock has moved into a new slot.
+     * Only skip if data unchanged AND offline — because offline already
+     * re-evaluates every poll by design.
+     * When live, always fall through and re-check current time.
+     */
+    if (newHash === lastEpgHash && offlineShown) return;
+    lastEpgHash = newHash;
+
+    // ... rest of renderEPG unchanged
+        }
 
         const schedule = data.schedule;
         if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {

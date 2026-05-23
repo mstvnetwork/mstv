@@ -380,7 +380,6 @@ footer {
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 
 </div><!-- /main-content -->
-
         <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
@@ -404,9 +403,12 @@ function isGoogleChrome() {
     return isChrome && !isEdge && !isOpera && !isBrave && !isSamsung && !isYaBrowser;
 }
 
+// Fixed element check to stop script execution from crashing if HTML IDs don't match
 if (isGoogleChrome()) {
-    document.getElementById("not-chrome").style.display = "none";
-    document.getElementById("main-content").style.display = "flex";
+    const notChromeEl = document.getElementById("not-chrome");
+    const mainContentEl = document.getElementById("main-content");
+    if (notChromeEl) notChromeEl.style.display = "none";
+    if (mainContentEl) mainContentEl.style.display = "flex";
     initPlayer();
 }
 
@@ -439,7 +441,7 @@ function initPlayer() {
 
     /* Live IST clock shown on offline screen */
     setInterval(() => {
-        if (offlineShown) {
+        if (offlineShown && offlineClock) {
             offlineClock.textContent =
                 new Date().toLocaleTimeString("en-GB", { timeZone:"Asia/Kolkata", hour12:false });
         }
@@ -448,27 +450,28 @@ function initPlayer() {
     /* ── Offline / Online toggles ── */
     function showOffline(nextSlot) {
         offlineShown = true;
-        offlineEl.classList.add("visible");
-        videoPlayer.src = "";
+        if (offlineEl) offlineEl.classList.add("visible");
+        if (videoPlayer) videoPlayer.src = "";
         lastUrl = null;
 
-        if (nextSlot) {
+        if (nextSlot && offlineNext) {
             offlineNext.style.display = "block";
             offlineNext.innerHTML =
                 `Next: <strong>${nextSlot.title}</strong> at <strong>${formatTimeSimple(nextSlot.start)}</strong>`;
-        } else {
+        } else if (offlineNext) {
             offlineNext.style.display = "block";
             offlineNext.innerHTML = "<strong>No more shows scheduled for today</strong>";
         }
 
-        titleNow.textContent  = "Off Air";
-        timeNow.textContent   = "--:--";
-        logoNow.textContent   = "TV";
-        titleNext.textContent = nextSlot ? nextSlot.title : "No more shows today";
-        timeNext.textContent  = nextSlot ? formatTimeSimple(nextSlot.start) : "--:--";
-        if (nextSlot) {
+        if (titleNow) titleNow.textContent  = "Off Air";
+        if (timeNow) timeNow.textContent   = "--:--";
+        if (logoNow) logoNow.textContent   = "TV";
+        if (titleNext) titleNext.textContent = nextSlot ? nextSlot.title : "No more shows today";
+        if (timeNext) timeNext.textContent  = nextSlot ? formatTimeSimple(nextSlot.start) : "--:--";
+        
+        if (nextSlot && logoNext) {
             setLogo(logoNext, nextSlot.logo, (nextSlot.title||"TV").substring(0,4).toUpperCase());
-        } else {
+        } else if (logoNext) {
             logoNext.textContent = "TV";
         }
 
@@ -477,11 +480,12 @@ function initPlayer() {
 
     function hideOffline() {
         offlineShown = false;
-        offlineEl.classList.remove("visible");
+        if (offlineEl) offlineEl.classList.remove("visible");
     }
 
     /* ── Ticker ── */
     function setTickerText(text) {
+        if (!ticker) return;
         const span = document.createElement("span");
         span.textContent = text;
         ticker.innerHTML = "";
@@ -514,7 +518,7 @@ function initPlayer() {
         return parts.length ? parts.join("   ·   ") + "   ·   " : "Loading EPG.....";
     }
 
-    /* ── Time helpers (FIXED ARRAY INDICES) ── */
+    /* ── Time helpers (FIXED ARRAY INDEX REFERENCE ERRORS) ── */
     function getSecondsFromTimeString(timeStr) {
         if (!timeStr) return 0;
         const parts = String(timeStr).replace(/[^\d]/g,":").split(":").filter(p => p !== "");
@@ -539,6 +543,7 @@ function initPlayer() {
     }
 
     function setLogo(el, logoSrc, fallbackText) {
+        if (!el) return;
         if (logoSrc) {
             el.innerHTML = `<img src="${logoSrc}" alt="logo"
                 onerror="this.parentElement.textContent='${fallbackText}'">`;
@@ -614,32 +619,17 @@ function initPlayer() {
         hideOffline();
 
         /* Only swap src when the URL actually changes */
-        if (current.url && current.url !== lastUrl) {
+        if (current.url && current.url !== lastUrl && videoPlayer) {
             videoPlayer.src = current.url;
             lastUrl = current.url;
         }
 
-        titleNow.textContent = current.title || "Programme";
-        timeNow.textContent  = formatTimeSimple(current.end);
-        setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+        if (titleNow) titleNow.textContent = current.title || "Programme";
+        if (timeNow) timeNow.textContent  = formatTimeSimple(current.end);
+        if (logoNow) setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
 
         if (next) {
-            titleNext.textContent = next.title || "Next Show";
-            timeNext.textContent  = formatTimeSimple(next.start);
-            setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
-        } else {
-            titleNext.textContent = "No more shows today";
-            timeNext.textContent  = "--:--";
-            logoNext.textContent  = "TV";
-        }
-
-        setTickerText(buildTickerText(data, current, next));
-    }
-
-    /* ── Fetch EPG JSON ── */
-    async function fetchAndRender() {
-        try {
-            const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
+            if (titleNext) titleNext.textContent = next.title || "Next Show";
 
 </script>
 </body>

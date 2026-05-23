@@ -594,8 +594,8 @@ if (isGoogleChrome()) {
 ───────────────────────────────────────────── */
 function initPlayer() {
     const EPG_URL   = "epg.json";
-    const SSE_URL   = "epg-stream";          // your SSE endpoint (optional)
-    const POLL_MS   = 3000;                  // fallback polling interval
+    const SSE_URL   = "epg-stream";          
+    const POLL_MS   = 3000;                  
 
     const videoPlayer = document.getElementById("videoPlayer");
     const ticker      = document.getElementById("ticker");
@@ -609,6 +609,9 @@ function initPlayer() {
     /* ── Track data and state globally inside player scope ── */
     let globalEpgData = null;
     let lastUrl       = null;
+
+    /* Base64 SVG Generator for TV Color Bars Placeholder */
+    const colorBarsDataUrl = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' viewBox='0 0 700 480'><rect width='100' height='360' fill='white'/><rect x='100' width='100' height='360' fill='yellow'/><rect x='200' width='100' height='360' fill='cyan'/><rect x='300' width='100' height='360' fill='green'/><rect x='400' width='100' height='360' fill='magenta'/><rect x='500' width='100' height='360' fill='red'/><rect x='600' width='100' height='360' fill='blue'/><rect y='360' width='100' height='120' fill='blue'/><rect x='100' y='360' width='100' height='120' fill='%23131313'/><rect x='200' y='360' width='100' height='120' fill='magenta'/><rect x='300' y='360' width='100' height='120' fill='%23131313'/><rect x='400' y='360' width='100' height='120' fill='cyan'/><rect x='500' y='360' width='100' height='120' fill='%23131313'/><rect x='600' y='360' width='100' height='120' fill='white'/></svg>";
 
     /* ── Ticker ── */
     function setTickerText(text) {
@@ -635,13 +638,13 @@ function initPlayer() {
         }
         if (current) {
             const label = current.tickerLabel || current.title || "Live Programme";
-            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
+            parts.push(`🔴 Now Streaming: ${label} (until ${formatTimeSimple(current.end)})`);
         } else {
             parts.push(`⚪ Station Off-Air`);
         }
         if (next && next !== current) {
             const label = next.tickerLabel || next.title || "Next Show";
-            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
+            parts.push(`🕒⏭ Coming Up: ${label} (starts ${formatTimeSimple(next.start)})`);
         }
         if (data.schedule && Array.isArray(data.schedule)) {
             const nowSec = getCurrentISTSeconds();
@@ -654,7 +657,7 @@ function initPlayer() {
                 parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
             });
         }
-        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
+        return parts.length ? parts.join(" · ") + " · " : "Off Air.....";
     }
 
     /* ── Time helpers ── */
@@ -703,21 +706,26 @@ function initPlayer() {
             }
             if (isCurrent) {
                 current = schedule[i];
-                next    = schedule[i + 1] || null; // Don't loop back to 0 automatically
+                next    = schedule[i + 1] || null; 
                 break;
             }
         }
 
-        /* ── Action: Handle Player State ── */
+        /* ── Action: Handle Player & Color Bars Toggle ── */
         if (current && current.url) {
+            // Remove style overlay if it was rendering color bars
+            videoPlayer.style.backgroundImage = "none";
             if (current.url !== lastUrl) {
                 videoPlayer.src = current.url;
                 lastUrl = current.url;
             }
         } else {
-            // No matching schedule found: Stop player completely
+            // No matching schedule found: Inject TV Color Bars & clear source
             if (lastUrl !== "") {
                 videoPlayer.src = "";
+                videoPlayer.style.backgroundImage = `url("${colorBarsDataUrl}")`;
+                videoPlayer.style.backgroundSize = "cover";
+                videoPlayer.style.backgroundPosition = "center";
                 lastUrl = "";
             }
         }
@@ -781,36 +789,7 @@ function initPlayer() {
         es.onmessage = e => {
             try { 
                 globalEpgData = JSON.parse(e.data); 
-                processActiveSchedule();
-            }
-            catch(err) { console.warn("SSE message parse error:", err); }
-        };
 
-        es.onerror = () => {
-            if (!connected) {
-                es.close();
-                startPolling();
-            }
-        };
-
-        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
-        return true;
-    }
-
-    /* ── Strategy 2: Polling fallback (every 3 seconds) ── */
-    function startPolling() {
-        console.log("SSE not available — using polling fallback");
-        fetchAndRender();
-        setInterval(fetchAndRender, POLL_MS);
-    }
-
-    /* ── Boot: try SSE first, poll if not available ── */
-    fetchAndRender();          
-    startSSE();                
-
-    /* Continuous local check loop (every 1 second) */
-    setInterval(processActiveSchedule, 1000);
-}
 </script>
 </body>
 </html>

@@ -560,7 +560,7 @@ footer {
 
 
 </div><!-- /main-content -->
-<script>
+                        <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -593,9 +593,8 @@ if (isGoogleChrome()) {
    PLAYER + EPG + TICKER LOGIC
 ───────────────────────────────────────────── */
 function initPlayer() {
-    const EPG_URL   = "epg.json";
-    const SSE_URL   = "epg-stream";          // your SSE endpoint (optional)
-    const POLL_MS   = 3000;                  // fallback polling interval
+    const EPG_URL  = "epg.json";
+    const POLL_MS  = 3000;
 
     const videoPlayer = document.getElementById("videoPlayer");
     const ticker      = document.getElementById("ticker");
@@ -606,9 +605,119 @@ function initPlayer() {
     const timeNext    = document.getElementById("timeNext");
     const logoNext    = document.getElementById("logoNext");
 
-    /* ── Track last known state to avoid unnecessary video reloads ── */
-    let lastUrl     = null;
-    let lastEpgHash = null;
+    let lastUrl      = null;
+    let lastEpgHash  = null;
+    let offlineShown = false;
+
+    /* ── Inject offline overlay styles once ── */
+    const offlineStyle = document.createElement("style");
+    offlineStyle.textContent = `
+        #offline-screen {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 30;
+            gap: 16px;
+        }
+        #offline-screen.visible { display: flex; }
+        #offline-screen .off-icon {
+            width: 64px; height: 64px;
+            border-radius: 50%;
+            background: rgba(255,45,85,0.12);
+            border: 2px solid rgba(255,45,85,0.35);
+            display: flex; align-items: center; justify-content: center;
+        }
+        #offline-screen .off-icon svg { width: 30px; height: 30px; }
+        #offline-screen .off-title {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 1.2rem; font-weight: 700;
+            color: #fff; letter-spacing: 0.5px;
+        }
+        #offline-screen .off-sub {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.82rem; color: #777;
+        }
+        #offline-screen .off-next {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 0.88rem; color: #aaa;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 8px;
+            padding: 8px 18px;
+            margin-top: 4px;
+        }
+        #offline-screen .off-next strong { color: #fff; }
+        #offline-screen .off-clock {
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 2rem; font-weight: 700;
+            color: rgba(255,255,255,0.15);
+            letter-spacing: 3px;
+            margin-top: 8px;
+        }
+    `;
+    document.head.appendChild(offlineStyle);
+
+    /* ── Create offline overlay inside player wrapper ── */
+    const offlineEl = document.createElement("div");
+    offlineEl.id = "offline-screen";
+    offlineEl.innerHTML = `
+        <div class="off-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#ff2d55" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                <path d="m22 22-5-5"/>
+                <path d="M8 21h8m-4-4v4"/>
+                <circle cx="19" cy="7" r="3"/>
+                <line x1="2" y1="2" x2="22" y2="22" stroke="#ff2d55"/>
+            </svg>
+        </div>
+        <div class="off-title">Off Air</div>
+        <div class="off-sub">No programme scheduled right now</div>
+        <div class="off-next" id="offline-next-label" style="display:none"></div>
+        <div class="off-clock" id="offline-clock">--:--:--</div>
+    `;
+    document.getElementById("mainWrapper").appendChild(offlineEl);
+
+    /* Live IST clock on offline screen */
+    setInterval(() => {
+        if (offlineShown) {
+            document.getElementById("offline-clock").textContent =
+                new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
+        }
+    }, 1000);
+
+    /* ── Show / Hide offline screen ── */
+    function showOffline(nextSlot) {
+        offlineShown = true;
+        offlineEl.classList.add("visible");
+        videoPlayer.src = "";           // stop any playing stream
+        lastUrl = null;
+
+        const nextLabel = document.getElementById("offline-next-label");
+        if (nextSlot) {
+            nextLabel.style.display = "block";
+            nextLabel.innerHTML = `Next: <strong>${nextSlot.title}</strong> at <strong>${formatTimeSimple(nextSlot.start)}</strong>`;
+        } else {
+            nextLabel.style.display = "none";
+        }
+
+        titleNow.textContent  = "Off Air";
+        timeNow.textContent   = "--:--";
+        logoNow.textContent   = "TV";
+        titleNext.textContent = nextSlot ? nextSlot.title : "No upcoming show";
+        timeNext.textContent  = nextSlot ? formatTimeSimple(nextSlot.start) : "--:--";
+        if (nextSlot) setLogo(logoNext, nextSlot.logo, (nextSlot.title||"TV").substring(0,4).toUpperCase());
+
+        setTickerText("📴 Off Air — No programme scheduled right now");
+    }
+
+    function hideOffline() {
+        offlineShown = false;
+        offlineEl.classList.remove("visible");
+    }
 
     /* ── Ticker ── */
     function setTickerText(text) {
@@ -669,61 +778,70 @@ function initPlayer() {
         }
     }
 
-    /* ── Simple hash to detect EPG data changes ── */
     function hashData(data) {
         try { return JSON.stringify(data); } catch(e) { return ""; }
     }
 
-    /* ── Core render — called with parsed JSON ── */
+    /* ── Core render ── */
     function renderEPG(data) {
         const newHash = hashData(data);
-        if (newHash === lastEpgHash) return;   // nothing changed, skip DOM work
+        if (newHash === lastEpgHash) return;
         lastEpgHash = newHash;
 
         const schedule = data.schedule;
         if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
 
         const nowSec = getCurrentISTSeconds();
-        let current = null, next = null;
+        let current = null;
+        let next    = null;
 
+        /* Strict match: nowSec must be >= start AND < end */
         for (let i = 0; i < schedule.length; i++) {
             const startSec = getSecondsFromTimeString(schedule[i].start);
             const endSec   = getSecondsFromTimeString(schedule[i].end);
-            let isCurrent  = false;
-            if (endSec < startSec) {
-                if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
-            } else {
-                if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
-            }
-            if (isCurrent) {
+
+            if (nowSec >= startSec && nowSec < endSec) {
                 current = schedule[i];
-                next    = schedule[i + 1] || schedule[0];
+                /* next = next scheduled item after current (not necessarily i+1 by time) */
+                next = schedule.slice(i + 1).find(s => getSecondsFromTimeString(s.start) >= endSec) || null;
                 break;
             }
         }
-        if (!current) { current = schedule[0]; next = schedule[1] || schedule[0]; }
 
-        /* Only swap iframe src when the stream URL actually changes */
-        if (current && current.url && current.url !== lastUrl) {
+        /* If no current slot matched — find the next upcoming slot for the "next" card */
+        if (!current) {
+            next = schedule.find(s => getSecondsFromTimeString(s.start) > nowSec) || null;
+            showOffline(next);
+            return;
+        }
+
+        /* We have a live slot — ensure offline overlay is hidden */
+        hideOffline();
+
+        /* Only swap iframe src when URL actually changes */
+        if (current.url && current.url !== lastUrl) {
             videoPlayer.src = current.url;
             lastUrl = current.url;
         }
 
-        if (current) {
-            titleNow.textContent = current.title || "Programme";
-            timeNow.textContent  = formatTimeSimple(current.end);
-            setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
-        }
+        titleNow.textContent = current.title || "Programme";
+        timeNow.textContent  = formatTimeSimple(current.end);
+        setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+
         if (next) {
             titleNext.textContent = next.title || "Next Show";
             timeNext.textContent  = formatTimeSimple(next.start);
             setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+        } else {
+            titleNext.textContent = "No upcoming show";
+            timeNext.textContent  = "--:--";
+            logoNext.textContent  = "TV";
         }
 
         setTickerText(buildTickerText(data, current, next));
     }
 
-    /* ── Fetch EPG from JSON (used by polling fallback) ── */
+    /* ── Fetch EPG ── */
     async function fetchAndRender() {
         try {
             const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
@@ -737,54 +855,27 @@ function initPlayer() {
         }
     }
 
-    /* ── Strategy 1: Server-Sent Events (instant push) ── */
+    /* ── SSE (instant push) with polling fallback ── */
     function startSSE() {
-        if (!window.EventSource) return false;
-
+        if (!window.EventSource) return startPolling();
+        const SSE_URL = "epg-stream";
         const es = new EventSource(SSE_URL);
         let connected = false;
-
-        es.onopen = () => { connected = true; console.log("SSE connected"); };
-
-        /* "epg" named event: server sends: event: epg\ndata: {...json...}\n\n */
-        es.addEventListener("epg", e => {
-            try { renderEPG(JSON.parse(e.data)); }
-            catch(err) { console.warn("SSE parse error:", err); }
-        });
-
-        /* fallback: unnamed message event */
-        es.onmessage = e => {
-            try { renderEPG(JSON.parse(e.data)); }
-            catch(err) { console.warn("SSE message parse error:", err); }
-        };
-
-        es.onerror = () => {
-            if (!connected) {
-                /* SSE endpoint doesn't exist — fall back to polling */
-                es.close();
-                startPolling();
-            }
-            /* if it WAS connected and drops, EventSource auto-reconnects */
-        };
-
-        /* Treat a prolonged lack of connection as SSE unavailable */
+        es.onopen = () => { connected = true; };
+        es.addEventListener("epg", e => { try { renderEPG(JSON.parse(e.data)); } catch(err) {} });
+        es.onmessage  = e => { try { renderEPG(JSON.parse(e.data)); } catch(err) {} };
+        es.onerror    = () => { if (!connected) { es.close(); startPolling(); } };
         setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
-        return true;
     }
 
-    /* ── Strategy 2: Polling fallback (every 3 seconds) ── */
     function startPolling() {
-        console.log("SSE not available — using polling fallback");
-        fetchAndRender();
         setInterval(fetchAndRender, POLL_MS);
     }
 
-    /* ── Boot: try SSE first, poll if not available ── */
-    fetchAndRender();          // immediate first load regardless
-    startSSE();                // attempt SSE; auto-falls back to polling
+    fetchAndRender();
+    startSSE();
 }
-
-                        
+                              
 </script>
 </body>
 </html>

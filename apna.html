@@ -706,27 +706,29 @@ function initPlayer() {
 
     /* ── Show / Hide offline screen ── */
     function showOffline(nextSlot) {
-        offlineShown = true;
-        offlineEl.classList.add("visible");
-        videoPlayer.src = "";           // stop any playing stream
-        lastUrl = null;
+    offlineShown = true;
+    offlineEl.classList.add("visible");
+    videoPlayer.src = "";
+    lastUrl = null;
 
-        const nextLabel = document.getElementById("offline-next-label");
-        if (nextSlot) {
-            nextLabel.style.display = "block";
-            nextLabel.innerHTML = `Next: <strong>${nextSlot.title}</strong> at <strong>${formatTimeSimple(nextSlot.start)}</strong>`;
-        } else {
-            nextLabel.style.display = "none";
-        }
+    const nextLabel = document.getElementById("offline-next-label");
+    if (nextSlot) {
+        nextLabel.style.display = "block";
+        nextLabel.innerHTML = `Next: <strong>${nextSlot.title}</strong> at <strong>${formatTimeSimple(nextSlot.start)}</strong>`;
+    } else {
+        nextLabel.style.display = "block";
+        nextLabel.innerHTML = `<strong>No more shows scheduled for today</strong>`;
+    }
 
-        titleNow.textContent  = "Off Air";
-        timeNow.textContent   = "--:--";
-        logoNow.textContent   = "TV";
-        titleNext.textContent = nextSlot ? nextSlot.title : "No upcoming show";
-        timeNext.textContent  = nextSlot ? formatTimeSimple(nextSlot.start) : "--:--";
-        if (nextSlot) setLogo(logoNext, nextSlot.logo, (nextSlot.title||"TV").substring(0,4).toUpperCase());
+    titleNow.textContent  = "Off Air";
+    timeNow.textContent   = "--:--";
+    logoNow.textContent   = "TV";
+    titleNext.textContent = nextSlot ? nextSlot.title : "No more shows today";
+    timeNext.textContent  = nextSlot ? formatTimeSimple(nextSlot.start) : "--:--";
+    if (nextSlot) setLogo(logoNext, nextSlot.logo, (nextSlot.title||"TV").substring(0,4).toUpperCase());
+    else logoNext.textContent = "TV";
 
-        setTickerText("📴 Off Air — No programme scheduled right now");
+    setTickerText("📴 Off Air — No programme scheduled right now");
     }
 
     function hideOffline() {
@@ -799,63 +801,75 @@ function initPlayer() {
 
     /* ── Core render ── */
     function renderEPG(data) {
-        const newHash = hashData(data);
-        if (newHash === lastEpgHash) return;
-        lastEpgHash = newHash;
+    const newHash = hashData(data);
+    if (newHash === lastEpgHash) return;
+    lastEpgHash = newHash;
 
-        const schedule = data.schedule;
-        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
-
-        const nowSec = getCurrentISTSeconds();
-        let current = null;
-        let next    = null;
-
-        /* Strict match: nowSec must be >= start AND < end */
-        for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsFromTimeString(schedule[i].start);
-            const endSec   = getSecondsFromTimeString(schedule[i].end);
-
-            if (nowSec >= startSec && nowSec < endSec) {
-                current = schedule[i];
-                /* next = next scheduled item after current (not necessarily i+1 by time) */
-                next = schedule.slice(i + 1).find(s => getSecondsFromTimeString(s.start) >= endSec) || null;
-                break;
-            }
-        }
-
-        /* If no current slot matched — find the next upcoming slot for the "next" card */
-        if (!current) {
-            next = schedule.find(s => getSecondsFromTimeString(s.start) > nowSec) || null;
-            showOffline(next);
-            return;
-        }
-
-        /* We have a live slot — ensure offline overlay is hidden */
-        hideOffline();
-
-        /* Only swap iframe src when URL actually changes */
-        if (current.url && current.url !== lastUrl) {
-            videoPlayer.src = current.url;
-            lastUrl = current.url;
-        }
-
-        titleNow.textContent = current.title || "Programme";
-        timeNow.textContent  = formatTimeSimple(current.end);
-        setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
-
-        if (next) {
-            titleNext.textContent = next.title || "Next Show";
-            timeNext.textContent  = formatTimeSimple(next.start);
-            setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
-        } else {
-            titleNext.textContent = "No upcoming show";
-            timeNext.textContent  = "--:--";
-            logoNext.textContent  = "TV";
-        }
-
-        setTickerText(buildTickerText(data, current, next));
+    const schedule = data.schedule;
+    if (!schedule || !Array.isArray(schedule) || schedule.length === 0) {
+        showOffline(null);
+        return;
     }
 
+    const nowSec = getCurrentISTSeconds();
+
+    /* Find the last slot's end — if we're past it, everything is done */
+    const lastEndSec = Math.max(...schedule.map(s => getSecondsFromTimeString(s.end)));
+    if (nowSec >= lastEndSec) {
+        showOffline(null);   // all slots finished, no loop
+        return;
+    }
+
+    let current = null;
+    let next    = null;
+
+    for (let i = 0; i < schedule.length; i++) {
+        const startSec = getSecondsFromTimeString(schedule[i].start);
+        const endSec   = getSecondsFromTimeString(schedule[i].end);
+
+        if (nowSec >= startSec && nowSec < endSec) {
+            current = schedule[i];
+
+            /* Next = strictly the next item that starts at or after current ends — NO wraparound */
+            next = schedule.slice(i + 1).find(
+                s => getSecondsFromTimeString(s.start) >= endSec
+            ) || null;
+            break;
+        }
+    }
+
+    /* Gap between slots or before first slot — go offline, show next upcoming */
+    if (!current) {
+        next = schedule.find(s => getSecondsFromTimeString(s.start) > nowSec) || null;
+        showOffline(next);
+        return;
+    }
+
+    /* Live slot active */
+    hideOffline();
+
+    if (current.url && current.url !== lastUrl) {
+        videoPlayer.src = current.url;
+        lastUrl = current.url;
+    }
+
+    titleNow.textContent = current.title || "Programme";
+    timeNow.textContent  = formatTimeSimple(current.end);
+    setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+
+    if (next) {
+        titleNext.textContent = next.title || "Next Show";
+        timeNext.textContent  = formatTimeSimple(next.start);
+        setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+    } else {
+        /* Current slot is the last one — nothing coming after */
+        titleNext.textContent = "No more shows today";
+        timeNext.textContent  = "--:--";
+        logoNext.textContent  = "TV";
+    }
+
+    setTickerText(buildTickerText(data, current, next));
+    }
     /* ── Fetch EPG ── */
     async function fetchAndRender() {
         try {

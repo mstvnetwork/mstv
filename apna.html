@@ -564,30 +564,40 @@ footer {
 </div><!-- /main-content -->
 <script>
 /* ─────────────────────────────────────────────
-   CHROME DETECTION (BYPASSED / SAFE FALLBACK)
+   CHROME DETECTION
 ───────────────────────────────────────────── */
-function initBrowserAccess() {
-    const notChromeEl = document.getElementById("not-chrome");
-    const mainContentEl = document.getElementById("main-content");
-    
-    // Force player to open immediately by default
-    if (notChromeEl) notChromeEl.style.display = "none";
-    if (mainContentEl) mainContentEl.style.display = "flex";
-    
-    // Fire up the media rendering systems
-    initPlayer();
+function isGoogleChrome() {
+    const ua = navigator.userAgent;
+    if (navigator.userAgentData && navigator.userAgentData.brands) {
+        const brands = navigator.userAgentData.brands.map(b => b.brand);
+        const hasChrome = brands.some(b => b === "Google Chrome");
+        const hasEdge   = brands.some(b => b === "Microsoft Edge");
+        const hasOpera  = brands.some(b => b === "Opera");
+        if (hasEdge || hasOpera) return false;
+        if (hasChrome) return true;
+    }
+    const isChrome    = /Chrome\//.test(ua);
+    const isEdge      = /Edg\//.test(ua);
+    const isOpera     = /OPR\//.test(ua) || /Opera/.test(ua);
+    const isBrave     = (navigator.brave !== undefined);
+    const isSamsung   = /SamsungBrowser/.test(ua);
+    const isYaBrowser = /YaBrowser/.test(ua);
+    return isChrome && !isEdge && !isOpera && !isBrave && !isSamsung && !isYaBrowser;
 }
 
-// Fire the setup immediately when script executes
-initBrowserAccess();
+if (isGoogleChrome()) {
+    document.getElementById("not-chrome").style.display = "none";
+    document.getElementById("main-content").style.display = "flex";
+    initPlayer();
+}
 
 /* ─────────────────────────────────────────────
    PLAYER + EPG + TICKER LOGIC
 ───────────────────────────────────────────── */
 function initPlayer() {
     const EPG_URL   = "epg.json";
-    const SSE_URL   = "epg-stream";          
-    const POLL_MS   = 3000;                  
+    const SSE_URL   = "epg-stream";          // your SSE endpoint (optional)
+    const POLL_MS   = 3000;                  // fallback polling interval
 
     const videoPlayer = document.getElementById("videoPlayer");
     const ticker      = document.getElementById("ticker");
@@ -601,37 +611,6 @@ function initPlayer() {
     /* ── Track data and state globally inside player scope ── */
     let globalEpgData = null;
     let lastUrl       = null;
-
-    /* Raw HTML to inject inside the iframe when off-air */
-    const colorBarsHTML = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
-                svg { width: 100%; height: 100%; object-fit: cover; }
-            </style>
-        </head>
-        <body>
-            <svg xmlns='http://w3.org' viewBox='0 0 700 480'>
-                <rect width='100' height='360' fill='white'/>
-                <rect x='100' width='100' height='360' fill='yellow'/>
-                <rect x='200' width='100' height='360' fill='cyan'/>
-                <rect x='300' width='100' height='360' fill='green'/>
-                <rect x='400' width='100' height='360' fill='magenta'/>
-                <rect x='500' width='100' height='360' fill='red'/>
-                <rect x='600' width='100' height='360' fill='blue'/>
-                <rect y='360' width='100' height='120' fill='blue'/>
-                <rect x='100' y='360' width='100' height='120' fill='#131313'/>
-                <rect x='200' y='360' width='100' height='120' fill='magenta'/>
-                <rect x='300' y='360' width='100' height='120' fill='#131313'/>
-                <rect x='400' y='360' width='100' height='120' fill='cyan'/>
-                <rect x='500' y='360' width='100' height='120' fill='#131313'/>
-                <rect x='600' y='360' width='100' height='120' fill='white'/>
-            </svg>
-        </body>
-        </html>
-    `;
 
     /* ── Ticker ── */
     function setTickerText(text) {
@@ -658,13 +637,13 @@ function initPlayer() {
         }
         if (current) {
             const label = current.tickerLabel || current.title || "Live Programme";
-            parts.push(`🔴 Now Streaming: ${label} (until ${formatTimeSimple(current.end)})`);
+            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
         } else {
             parts.push(`⚪ Station Off-Air`);
         }
         if (next && next !== current) {
             const label = next.tickerLabel || next.title || "Next Show";
-            parts.push(`🕒⏭ Coming Up: ${label} (starts ${formatTimeSimple(next.start)})`);
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
         }
         if (data.schedule && Array.isArray(data.schedule)) {
             const nowSec = getCurrentISTSeconds();
@@ -693,9 +672,8 @@ function initPlayer() {
     function formatTimeSimple(timeStr) {
         if (!timeStr) return "00:00";
         const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-        if (parts.length >= 2) {
+        if (parts.length >= 2)
             return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
-        }
         return "00:00";
     }
     function setLogo(el, logoSrc, fallbackText) {
@@ -727,22 +705,21 @@ function initPlayer() {
             }
             if (isCurrent) {
                 current = schedule[i];
-                next    = schedule[i + 1] || null; 
+                next    = schedule[i + 1] || null; // Don't loop back to 0 automatically
                 break;
             }
         }
 
-        /* ── Action: Handle Player & Color Bars Toggle ── */
+        /* ── Action: Handle Player State ── */
         if (current && current.url) {
             if (current.url !== lastUrl) {
-                videoPlayer.removeAttribute("srcdoc"); 
                 videoPlayer.src = current.url;
                 lastUrl = current.url;
             }
         } else {
+            // No matching schedule found: Stop player completely
             if (lastUrl !== "") {
-                videoPlayer.removeAttribute("src");
-                videoPlayer.srcdoc = colorBarsHTML;
+                videoPlayer.src = "";
                 lastUrl = "";
             }
         }
@@ -816,8 +793,26 @@ function initPlayer() {
                 es.close();
                 startPolling();
             }
+        };
 
-        
+        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
+        return true;
+    }
+
+    /* ── Strategy 2: Polling fallback (every 3 seconds) ── */
+    function startPolling() {
+        console.log("SSE not available — using polling fallback");
+        fetchAndRender();
+        setInterval(fetchAndRender, POLL_MS);
+    }
+
+    /* ── Boot: try SSE first, poll if not available ── */
+    fetchAndRender();          
+    startSSE();                
+
+    /* Continuous local check loop (every 1 second) */
+    setInterval(processActiveSchedule, 1000);
+}
 </script>
 </body>
 </html>

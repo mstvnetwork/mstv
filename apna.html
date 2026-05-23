@@ -199,7 +199,6 @@ iframe {
     border-radius: 2px;
     opacity: 0.7;
 }
-
 #ticker {
     position: absolute; bottom: 25px; left: 0;
     width: 100%; 
@@ -213,16 +212,19 @@ iframe {
     border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-#ticker span {
-    display: inline-block; padding-left: 100%;
+/* Changed selector target from "span" to ".ticker-track" */
+#ticker .ticker-track {
+    display: inline-block;
+    white-space: nowrap;
     animation: scroll 15s linear infinite;
     color: #ff3b3b; font-family: sans-serif; font-size: 14px;
 }
 
 @keyframes scroll {
-    0% { transform: translateX(0); }
-    100% { transform: translateX(-100%); }
+    0% { transform: translate3d(0, 0, 0); }
+    100% { transform: translate3d(-50%, 0, 0); } /* Uses -50% because JS duplicates the text string for a seamless loop */
 }
+
 
 .epg-section {
     width: 100%;
@@ -560,7 +562,7 @@ footer {
 
 
 </div><!-- /main-content -->
-<script>
+ <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -610,8 +612,36 @@ function initPlayer() {
     let globalEpgData = null;
     let lastUrl       = null;
 
-    /* Base64 SVG Generator for TV Color Bars Placeholder */
-    const colorBarsDataUrl = "data:image/svg+xml;utf8,<svg xmlns='http://w3.org' viewBox='0 0 700 480'><rect width='100' height='360' fill='white'/><rect x='100' width='100' height='360' fill='yellow'/><rect x='200' width='100' height='360' fill='cyan'/><rect x='300' width='100' height='360' fill='green'/><rect x='400' width='100' height='360' fill='magenta'/><rect x='500' width='100' height='360' fill='red'/><rect x='600' width='100' height='360' fill='blue'/><rect y='360' width='100' height='120' fill='blue'/><rect x='100' y='360' width='100' height='120' fill='%23131313'/><rect x='200' y='360' width='100' height='120' fill='magenta'/><rect x='300' y='360' width='100' height='120' fill='%23131313'/><rect x='400' y='360' width='100' height='120' fill='cyan'/><rect x='500' y='360' width='100' height='120' fill='%23131313'/><rect x='600' y='360' width='100' height='120' fill='white'/></svg>";
+    /* Raw HTML to inject inside the iframe when off-air */
+    const colorBarsHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+                svg { width: 100%; height: 100%; object-fit: cover; }
+            </style>
+        </head>
+        <body>
+            <svg xmlns='http://w3.org' viewBox='0 0 700 480'>
+                <rect width='100' height='360' fill='white'/>
+                <rect x='100' width='100' height='360' fill='yellow'/>
+                <rect x='200' width='100' height='360' fill='cyan'/>
+                <rect x='300' width='100' height='360' fill='green'/>
+                <rect x='400' width='100' height='360' fill='magenta'/>
+                <rect x='500' width='100' height='360' fill='red'/>
+                <rect x='600' width='100' height='360' fill='blue'/>
+                <rect y='360' width='100' height='120' fill='blue'/>
+                <rect x='100' y='360' width='100' height='120' fill='#131313'/>
+                <rect x='200' y='360' width='100' height='120' fill='magenta'/>
+                <rect x='300' y='360' width='100' height='120' fill='#131313'/>
+                <rect x='400' y='360' width='100' height='120' fill='cyan'/>
+                <rect x='500' y='360' width='100' height='120' fill='#131313'/>
+                <rect x='600' y='360' width='100' height='120' fill='white'/>
+            </svg>
+        </body>
+        </html>
+    `;
 
     /* ── Ticker ── */
     function setTickerText(text) {
@@ -657,7 +687,7 @@ function initPlayer() {
                 parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
             });
         }
-        return parts.length ? parts.join(" · ") + " · " : "Off Air.....";
+        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
     }
 
     /* ── Time helpers ── */
@@ -713,19 +743,16 @@ function initPlayer() {
 
         /* ── Action: Handle Player & Color Bars Toggle ── */
         if (current && current.url) {
-            // Remove style overlay if it was rendering color bars
-            videoPlayer.style.backgroundImage = "none";
             if (current.url !== lastUrl) {
+                videoPlayer.removeAttribute("srcdoc"); // Remove color bars document payload
                 videoPlayer.src = current.url;
                 lastUrl = current.url;
             }
         } else {
-            // No matching schedule found: Inject TV Color Bars & clear source
+            // No matching schedule found: Render color bars via direct document payload inject
             if (lastUrl !== "") {
-                videoPlayer.src = "";
-                videoPlayer.style.backgroundImage = `url("${colorBarsDataUrl}")`;
-                videoPlayer.style.backgroundSize = "cover";
-                videoPlayer.style.backgroundPosition = "center";
+                videoPlayer.removeAttribute("src");
+                videoPlayer.srcdoc = colorBarsHTML;
                 lastUrl = "";
             }
         }
@@ -776,20 +803,8 @@ function initPlayer() {
         const es = new EventSource(SSE_URL);
         let connected = false;
 
-        es.onopen = () => { connected = true; console.log("SSE connected"); };
-
-        es.addEventListener("epg", e => {
-            try { 
-                globalEpgData = JSON.parse(e.data); 
-                processActiveSchedule();
-            }
-            catch(err) { console.warn("SSE parse error:", err); }
-        });
-
-        es.onmessage = e => {
-            try { 
-                globalEpgData = JSON.parse(e.data); 
-
+           
+        
 </script>
 </body>
 </html>

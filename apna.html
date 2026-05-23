@@ -561,7 +561,7 @@ footer {
 
 
 </div><!-- /main-content -->
-<script>
+ <script>
 /* ─────────────────────────────────────────────
    CHROME DETECTION
 ───────────────────────────────────────────── */
@@ -593,27 +593,70 @@ if (isGoogleChrome()) {
 /* ─────────────────────────────────────────────
    PLAYER + EPG + TICKER LOGIC
 ───────────────────────────────────────────── */
-/* ── Time helpers (FIXED) ── */
-function getSecondsFromTimeString(timeStr) {
-    if (!timeStr) return 0;
-    const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-    // Read individual array indexes explicitly
-    const hrs = parseInt(parts[0] || 0, 10);
-    const mins = parseInt(parts[1] || 0, 10);
-    const secs = parseInt(parts[2] || 0, 10);
-    return (hrs * 3600) + (mins * 60) + secs;
-}
+function initPlayer() {
+    const EPG_URL   = "epg.json";
+    const SSE_URL   = "epg-stream";          // your SSE endpoint (optional)
+    const POLL_MS   = 3000;                  // fallback polling interval
 
-function formatTimeSimple(timeStr) {
-    if (!timeStr) return "00:00";
-    const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-    if (parts.length >= 2) {
-        // Read individual array indexes explicitly
-        return String(parts[0]).padStart(2, '0') + ":" + String(parts[1]).padStart(2, '0');
+    const videoPlayer = document.getElementById("videoPlayer");
+    const ticker      = document.getElementById("ticker");
+    const titleNow    = document.getElementById("titleNow");
+    const timeNow     = document.getElementById("timeNow");
+    const logoNow     = document.getElementById("logoNow");
+    const titleNext   = document.getElementById("titleNext");
+    const timeNext    = document.getElementById("timeNext");
+    const logoNext    = document.getElementById("logoNext");
+
+    /* ── Track data and state globally inside player scope ── */
+    let globalEpgData = null;
+    let lastUrl       = null;
+
+    /* ── Ticker ── */
+    function setTickerText(text) {
+        const track = document.createElement("div");
+        track.className = "ticker-track";
+
+        const span1 = document.createElement("span");
+        span1.textContent = text;
+
+        const span2 = document.createElement("span");
+        span2.textContent = text;
+
+        track.appendChild(span1);
+        track.appendChild(span2);
+
+        ticker.innerHTML = "";
+        ticker.appendChild(track);
     }
-    return "00:00";
-}
 
+    function buildTickerText(data, current, next) {
+        const parts = [];
+        if (data.tickerMessage && data.tickerMessage.trim()) {
+            parts.push(data.tickerMessage.trim());
+        }
+        if (current) {
+            const label = current.tickerLabel || current.title || "Live Programme";
+            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
+        } else {
+            parts.push(`⚪ Station Off-Air`);
+        }
+        if (next && next !== current) {
+            const label = next.tickerLabel || next.title || "Next Show";
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
+        }
+        if (data.schedule && Array.isArray(data.schedule)) {
+            const nowSec = getCurrentISTSeconds();
+            const upcoming = data.schedule.filter(item => {
+                if (item === current || item === next) return false;
+                return getSecondsFromTimeString(item.start) > nowSec;
+            }).slice(0, 5);
+            upcoming.forEach(item => {
+                const label = item.tickerLabel || item.title || "Show";
+                parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
+            });
+        }
+        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
+    }
 
     /* ── Time helpers ── */
     function getSecondsFromTimeString(timeStr) {

@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Auto-Detect Stream Player</title>
+  
+  <style>
+    body, html { 
+      margin: 0; 
+      padding: 0; 
+      width: 100%; 
+      height: 100%; 
+      overflow: hidden; 
+      background: #000; 
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    
+    #player-layout {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    /* 📣 RUNNING TICKER STYLING */
+    #ticker-container {
+      width: 100%;
+      background: #FFEB3B;
+      color: #000;
+      overflow: hidden;
+      white-space: nowrap;
+      box-sizing: border-box;
+      padding: 6px 0;
+      font-size: 13px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      display: none; /* Controlled dynamically by JS */
+      z-index: 100;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+    .ticker-text {
+      display: inline-block;
+      padding-left: 100%;
+      animation: marquee 15s linear infinite;
+    }
+    @keyframes marquee {
+      0% { transform: translate3d(0, 0, 0); }
+      100% { transform: translate3d(-100%, 0, 0); }
+    }
+
+    /* 📺 MAIN PLAYER CONTAINER WITH ALIGNMENT VIEWPORT MASK */
+    #player-container { 
+      flex-grow: 1;
+      width: 100%; 
+      position: relative;
+      overflow: hidden; /* Clips out the excess iframe viewports */
+    }
+    
+    video { 
+      width: 100%; 
+      height: 100%; 
+      background: #000;
+    }
+
+    /* Targetable CSS Aligner Mask Object */
+    .aligner-viewport {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+
+    iframe { 
+      width: 100%; 
+      height: 100%; 
+      border: none; 
+      background: #000;
+      position: absolute;
+      transform-origin: top left; /* Vital for scale math calculations */
+      transition: transform 0.1s ease-out;
+    }
+
+    /* 🧰 COMPACT CONFIGURATION CONTROL PANEL */
+    #aligner-toolbox {
+      position: absolute;
+      bottom: 15px;
+      right: 15px;
+      background: rgba(20, 20, 20, 0.95);
+      border: 1px solid #FFEB3B;
+      border-radius: 8px;
+      padding: 12px;
+      color: #fff;
+      font-size: 11px;
+      z-index: 2000;
+      display: none; /* Switched on for iframe types exclusively */
+      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+      width: 180px;
+    }
+    #aligner-toolbox h4 { margin: 0 0 8px 0; color: #FFEB3B; text-transform: uppercase; letter-spacing: 0.5px;}
+    .control-group { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .control-group label { width: 50px; }
+    .control-group input { width: 100px; background: #333; border: 1px solid #55; color: #fff; border-radius: 3px; padding: 2px 4px; font-size: 11px;}
+
+    /* 🌟 SLEEK BRIGHT YELLOW LOADING OVERLAY */
+    #loading-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 999;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .spinner {
+      width: 45px;
+      height: 45px;
+      border: 3px solid rgba(255, 235, 59, 0.1);
+      border-radius: 50%;
+      border-top-color: #FFEB3B;
+      animation: spin 0.8s linear infinite;
+    }
+    .loading-text {
+      color: #FFEB3B;
+      margin-top: 16px;
+      font-size: 13px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+    }
+    .hide-loader { opacity: 0; visibility: hidden; pointer-events: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error-msg { color: #fff; text-align: center; padding: 20px; }
+  </style>
+  
+  <!-- Core Players & Core Required Integrations -->
+  <script src="https://cloudflare.com"></script>
+
+  <!-- 📦 Required Libraries for Iframe Capture & DOM Utilities -->
+  <script src="https://unpkg.com"></script>
+  <script type="module" src="https://unpkg.com"></script>
+</head>
+<body>
+
+  <div id="player-layout">
+    
+    <!-- 📣 Top Announcement Ticker Layout -->
+    <div id="ticker-container">
+      <div class="ticker-text" id="ticker-target"></div>
+    </div>
+
+    <!-- 📺 Video Player Window -->
+    <div id="player-container">
+      <!-- Loading screen overlay -->
+      <div id="loading-overlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Please Wait.....</div>
+      </div>
+    </div>
+
+    <!-- 🧰 Iframe Matrix Correction Panel Tools -->
+    <div id="aligner-toolbox">
+      <h4>Iframe Aligner</h4>
+      <div class="control-group">
+        <label>Zoom %</label>
+        <input type="number" id="tool-zoom" value="100" step="5">
+      </div>
+      <div class="control-group">
+        <label>Shift X</label>
+        <input type="number" id="tool-x" value="0" step="10">
+      </div>
+      <div class="control-group">
+        <label>Shift Y</label>
+        <input type="number" id="tool-y" value="0" step="10">
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    // Expanded Database Layout supporting custom configuration parameters
+    const channels = {
+      "1": {
+        "url": "https://nettv.fun",
+        "ticker": "⚠️ Notice: Scheduled maintenance will happen on Channel 1 tonight at 12:00 AM.",
+        "align": { zoom: 120, x: -20, y: -45 } // Auto shifts target iframe window coordinates on start
+      },
+      "2": {
+        "url": "https://phantemlis.top",
+        "ticker": "🔥 Welcome to Stream 2! Enjoy smooth live M3U8 playback engine rendering directly in Chrome."
+      },
+      "3": {
+        "url": "https://tulnit.com/live/mtv-india/",
+        "align": { zoom: 100, x: 0, y: 0 } // No ticker defined, completely hidden on load
+      }
+    };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const channelId = urlParams.get('ch');
+    const container = document.getElementById('player-container');
+    const loader = document.getElementById('loading-overlay');
+    const tickerBar = document.getElementById('ticker-container');
+    const tickerTarget = document.getElementById('ticker-target');
+    const toolBox = document.getElementById('aligner-toolbox');
+
+    function hideLoader() { loader.classList.add('hide-loader'); }
+
+    if (channelId && channels[channelId]) {
+      const channel = channels[channelId];
+      const streamUrl = typeof channel === 'object' ? channel.url : channel;
+      
+      // 1. Process Channel Ticker System Logic
+      if (channel.ticker) {
+        tickerTarget.textContent = channel.ticker;
+        tickerBar.style.display = 'block';
+      }
+
+      // Check stream type format string properties
+      const isM3U8 = streamUrl.split('?')[0].toLowerCase().endsWith('.m3u8') || streamUrl.toLowerCase().includes('.m3u8');
+
+      if (isM3U8) {
+        // Launch M3U8 Player
+        const video = document.createElement('video');
+        video.controls = true; video.autoplay = true; video.muted = true;
+        video.setAttribute('playsinline', '');
+        container.appendChild(video);
+
+        if (Hls.isSupported()) {
+          const hls = new Hls({ lowLatencyMode: true });
+          hls.loadSource(streamUrl);
+          hls.attachMedia(video);
+          video.addEventListener('playing', hideLoader);
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = streamUrl;
+          video.addEventListener('playing', hideLoader);
+        }
+
+      } else {
+        // Launch Custom Managed Iframe Aligner Tool Box Viewport Layout
+        toolBox.style.display = 'block';
+        
+        const alignWrapper = document.createElement('div');
+        alignWrapper.className = 'aligner-viewport';
+        
+        const iframe = document.createElement('iframe');
+        iframe.src = streamUrl;
+        iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+        iframe.setAttribute('allowfullscreen', '');
+        
+        alignWrapper.appendChild(iframe);
+        container.appendChild(alignWrapper);
+        iframe.addEventListener('load', hideLoader);
+
+        // Core Alignment Control Panel Calculation Mechanics
+        const inputZoom = document.getElementById('tool-zoom');
+        const inputX = document.getElementById('tool-x');
+        const inputY = document.getElementById('tool-y');
+
+        // Preload database coordinates if configured explicitly
+        if (channel.align) {
+          inputZoom.value = channel.align.zoom;
+          inputX.value = channel.align.x;
+          inputY.value = channel.align.y;
+        }
+
+        function updateIframeAlignment() {
+          const z = inputZoom.value;
+          const x = inputX.value;
+          const y = inputY.value;
+          
+          // Math calculation updates the iframe size and shifts coordinates dynamically
+          iframe.style.width = `${10000 / z}%`;
+          iframe.style.height = `${10000 / z}%`;
+          iframe.style.transform = `scale(${z / 100}) translate(${x}px, ${y}px)`;
+        }
+
+        // Hook matrix calculation listener events to your adjustments interface
+        inputZoom.addEventListener('input', updateIframeAlignment);
+        inputX.addEventListener('input', updateIframeAlignment);
+        inputY.addEventListener('input', updateIframeAlignment);
+        
+        // Boot first alignment calculations
+        updateIframeAlignment();
+      }
+
+    } else {
+      hideLoader();
+      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2></div>`;
+    }
+  </script>
+</body>
+</html>

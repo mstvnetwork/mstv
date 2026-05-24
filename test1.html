@@ -14,6 +14,7 @@
       overflow: hidden; 
       background: #000; 
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
     }
     
     #player-layout {
@@ -37,7 +38,7 @@
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 1px;
-      display: none; /* Controlled dynamically by JS */
+      display: none;
       z-index: 100;
       box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
@@ -56,7 +57,7 @@
       flex-grow: 1;
       width: 100%; 
       position: relative;
-      overflow: hidden; /* Clips out the excess iframe viewports */
+      overflow: hidden;
     }
     
     video { 
@@ -65,7 +66,6 @@
       background: #000;
     }
 
-    /* Targetable CSS Aligner Mask Object */
     .aligner-viewport {
       width: 100%;
       height: 100%;
@@ -80,30 +80,85 @@
       border: none; 
       background: #000;
       position: absolute;
-      transform-origin: top left; /* Vital for scale math calculations */
-      transition: transform 0.1s ease-out;
+      transform-origin: top left;
+      transition: transform 0.05s ease-out;
     }
 
-    /* 🧰 COMPACT CONFIGURATION CONTROL PANEL */
+    /* 🧰 DRAGGABLE CONFIGURATION CONTROL PANEL WITH SLIDERS */
     #aligner-toolbox {
       position: absolute;
-      bottom: 15px;
-      right: 15px;
-      background: rgba(20, 20, 20, 0.95);
-      border: 1px solid #FFEB3B;
-      border-radius: 8px;
-      padding: 12px;
+      bottom: 20px;
+      right: 20px;
+      background: rgba(15, 15, 15, 0.96);
+      border: 2px solid #FFEB3B;
+      border-radius: 12px;
+      padding: 0 14px 14px 14px;
       color: #fff;
-      font-size: 11px;
+      font-size: 12px;
       z-index: 2000;
-      display: none; /* Switched on for iframe types exclusively */
-      box-shadow: 0 4px 20px rgba(0,0,0,0.8);
-      width: 180px;
+      display: none;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+      width: 220px;
+      touch-action: none; /* Prevents mobile scrolling while dragging */
     }
-    #aligner-toolbox h4 { margin: 0 0 8px 0; color: #FFEB3B; text-transform: uppercase; letter-spacing: 0.5px;}
-    .control-group { margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-    .control-group label { width: 50px; }
-    .control-group input { width: 100px; background: #333; border: 1px solid #55; color: #fff; border-radius: 3px; padding: 2px 4px; font-size: 11px;}
+    
+    /* Drag Handle Top Bar */
+    .toolbox-header {
+      padding: 10px 0;
+      cursor: move;
+      border-bottom: 1px solid rgba(255, 235, 59, 0.2);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .toolbox-header h4 { 
+      margin: 0; 
+      color: #FFEB3B; 
+      text-transform: uppercase; 
+      letter-spacing: 1px;
+      font-size: 11px;
+    }
+    .drag-icon {
+      color: #FFEB3B;
+      font-size: 10px;
+      opacity: 0.7;
+    }
+
+    .control-group { 
+      margin-bottom: 10px; 
+      display: flex; 
+      flex-direction: column;
+      gap: 4px;
+    }
+    .control-label-row {
+      display: flex;
+      justify-content: space-between;
+      color: #aaa;
+      font-size: 11px;
+    }
+    .control-label-row span:last-child {
+      color: #FFEB3B;
+    }
+    
+    /* Yellow Range Slider Styling */
+    .control-group input[type="range"] { 
+      width: 100%; 
+      -webkit-appearance: none;
+      background: #333; 
+      height: 6px;
+      border-radius: 3px;
+      outline: none;
+    }
+    .control-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #FFEB3B;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(255, 235, 59, 0.5);
+    }
 
     /* 🌟 SLEEK BRIGHT YELLOW LOADING OVERLAY */
     #loading-overlay {
@@ -128,22 +183,13 @@
       border-top-color: #FFEB3B;
       animation: spin 0.8s linear infinite;
     }
-    .loading-text {
-      color: #FFEB3B;
-      margin-top: 16px;
-      font-size: 13px;
-      font-weight: 500;
-      letter-spacing: 1.5px;
-    }
+    .loading-text { color: #FFEB3B; margin-top: 16px; font-size: 13px; font-weight: 500; letter-spacing: 1.5px; }
     .hide-loader { opacity: 0; visibility: hidden; pointer-events: none; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .error-msg { color: #fff; text-align: center; padding: 20px; }
   </style>
   
-  <!-- Core Players & Core Required Integrations -->
   <script src="https://cloudflare.com"></script>
-
-  <!-- 📦 Required Libraries for Iframe Capture & DOM Utilities -->
   <script src="https://unpkg.com"></script>
   <script type="module" src="https://unpkg.com"></script>
 </head>
@@ -158,47 +204,47 @@
 
     <!-- 📺 Video Player Window -->
     <div id="player-container">
-      <!-- Loading screen overlay -->
       <div id="loading-overlay">
         <div class="spinner"></div>
         <div class="loading-text">Please Wait.....</div>
       </div>
     </div>
 
-    <!-- 🧰 Iframe Matrix Correction Panel Tools -->
+    <!-- 🧰 DRAGGABLE BOX WITH VISUAL SLIDERS -->
     <div id="aligner-toolbox">
-      <h4>Iframe Aligner</h4>
-      <div class="control-group">
-        <label>Zoom %</label>
-        <input type="number" id="tool-zoom" value="100" step="5">
+      <div class="toolbox-header" id="toolbox-dragzone">
+        <h4>Iframe Realignment</h4>
+        <span class="drag-icon">⋮⋮ DRAG</span>
       </div>
+      
       <div class="control-group">
-        <label>Shift X</label>
-        <input type="number" id="tool-x" value="0" step="10">
+        <div class="control-label-row"><span>Zoom Ratio</span><span id="val-zoom">100%</span></div>
+        <input type="range" id="tool-zoom" min="50" max="300" value="100">
       </div>
+      
       <div class="control-group">
-        <label>Shift Y</label>
-        <input type="number" id="tool-y" value="0" step="10">
+        <div class="control-label-row"><span>Shift X (Horizontal)</span><span id="val-x">0px</span></div>
+        <input type="range" id="tool-x" min="-1500" max="1500" value="0">
+      </div>
+      
+      <div class="control-group">
+        <div class="control-label-row"><span>Shift Y (Vertical)</span><span id="val-y">0px</span></div>
+        <input type="range" id="tool-y" min="-1500" max="1500" value="0">
       </div>
     </div>
 
   </div>
 
   <script>
-    // Expanded Database Layout supporting custom configuration parameters
     const channels = {
       "1": {
-        "url": "https://nettv.fun",
+        "url": "https://tulnit.com/live/mtv-india/",
         "ticker": "⚠️ Notice: Scheduled maintenance will happen on Channel 1 tonight at 12:00 AM.",
-        "align": { zoom: 120, x: -20, y: -45 } // Auto shifts target iframe window coordinates on start
+        "align": { zoom: 120, x: -50, y: -80 } 
       },
       "2": {
         "url": "https://phantemlis.top",
         "ticker": "🔥 Welcome to Stream 2! Enjoy smooth live M3U8 playback engine rendering directly in Chrome."
-      },
-      "3": {
-        "url": "https://tulnit.com/live/mtv-india/",
-        "align": { zoom: 100, x: 0, y: 0 } // No ticker defined, completely hidden on load
       }
     };
 
@@ -216,17 +262,14 @@
       const channel = channels[channelId];
       const streamUrl = typeof channel === 'object' ? channel.url : channel;
       
-      // 1. Process Channel Ticker System Logic
       if (channel.ticker) {
         tickerTarget.textContent = channel.ticker;
         tickerBar.style.display = 'block';
       }
 
-      // Check stream type format string properties
       const isM3U8 = streamUrl.split('?')[0].toLowerCase().endsWith('.m3u8') || streamUrl.toLowerCase().includes('.m3u8');
 
       if (isM3U8) {
-        // Launch M3U8 Player
         const video = document.createElement('video');
         video.controls = true; video.autoplay = true; video.muted = true;
         video.setAttribute('playsinline', '');
@@ -243,7 +286,6 @@
         }
 
       } else {
-        // Launch Custom Managed Iframe Aligner Tool Box Viewport Layout
         toolBox.style.display = 'block';
         
         const alignWrapper = document.createElement('div');
@@ -258,12 +300,15 @@
         container.appendChild(alignWrapper);
         iframe.addEventListener('load', hideLoader);
 
-        // Core Alignment Control Panel Calculation Mechanics
+        // Sliders Elements & Realtime Value Indicators
         const inputZoom = document.getElementById('tool-zoom');
         const inputX = document.getElementById('tool-x');
         const inputY = document.getElementById('tool-y');
+        
+        const txtZoom = document.getElementById('val-zoom');
+        const txtX = document.getElementById('val-x');
+        const txtY = document.getElementById('val-y');
 
-        // Preload database coordinates if configured explicitly
         if (channel.align) {
           inputZoom.value = channel.align.zoom;
           inputX.value = channel.align.x;
@@ -275,25 +320,8 @@
           const x = inputX.value;
           const y = inputY.value;
           
-          // Math calculation updates the iframe size and shifts coordinates dynamically
+          txtZoom.textContent = `${z}%`;
+          txtX.textContent = `${x}px`;
+          txtY.textContent = `${y}px`;
+          
           iframe.style.width = `${10000 / z}%`;
-          iframe.style.height = `${10000 / z}%`;
-          iframe.style.transform = `scale(${z / 100}) translate(${x}px, ${y}px)`;
-        }
-
-        // Hook matrix calculation listener events to your adjustments interface
-        inputZoom.addEventListener('input', updateIframeAlignment);
-        inputX.addEventListener('input', updateIframeAlignment);
-        inputY.addEventListener('input', updateIframeAlignment);
-        
-        // Boot first alignment calculations
-        updateIframeAlignment();
-      }
-
-    } else {
-      hideLoader();
-      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2></div>`;
-    }
-  </script>
-</body>
-</html>

@@ -1,462 +1,413 @@
-import requests
-import gzip
-import json
-import os
-import logging
-import uuid
-import time
-import shutil
-import random
-import re
-import xml.etree.ElementTree as ET
-import urllib3
-from io import BytesIO
-from datetime import datetime
-from urllib.parse import unquote, urlparse, urlunparse
-from bs4 import BeautifulSoup
-
-# Disable the InsecureRequestWarning
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-# --- Configuration ---
-OUTPUT_DIR = "playlists"
-USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-REQUEST_TIMEOUT = 30 
-
-REGION_MAP = {
-    'us': 'United States', 'gb': 'United Kingdom', 'ca': 'Canada',
-    'de': 'Germany', 'at': 'Austria', 'ch': 'Switzerland',
-    'es': 'Spain', 'fr': 'France', 'it': 'Italy', 'br': 'Brazil',
-    'mx': 'Mexico', 'ar': 'Argentina', 'cl': 'Chile', 'co': 'Colombia',
-    'pe': 'Peru', 'se': 'Sweden', 'no': 'Norway', 'dk': 'Denmark',
-    'in': 'India', 'jp': 'Japan', 'kr': 'South Korea', 'au': 'Australia'
-}
-
-TOP_REGIONS = ['United States', 'Canada', 'United Kingdom']
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
-
-# --- Helper Functions ---
-
-def cleanup_output_dir():
-    if os.path.exists(OUTPUT_DIR):
-        logger.info(f"Cleaning up old playlists in {OUTPUT_DIR}...")
-        for filename in os.listdir(OUTPUT_DIR):
-            file_path = os.path.join(OUTPUT_DIR, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                logger.error(f"Failed to delete {file_path}: {e}")
-    else:
-        os.makedirs(OUTPUT_DIR)
-
-def fetch_url(url, is_json=True, is_gzipped=False, headers=None, stream=False, retries=3):
-    headers = headers or {'User-Agent': USER_AGENT}
-    for i in range(retries):
-        try:
-            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT, stream=stream)
-            if response.status_code == 429:
-                time.sleep((i + 1) * 10 + random.uniform(0, 5))
-                continue
-            response.raise_for_status()
-            content = response.content
-            if is_gzipped:
-                try:
-                    with gzip.GzipFile(fileobj=BytesIO(content), mode='rb') as f:
-                        content = f.read()
-                    content = content.decode('utf-8')
-                except:
-                    content = content.decode('utf-8')
-            else:
-                content = content.decode('utf-8')
-            return json.loads(content) if is_json else content
-        except Exception as e:
-            logger.warning(f"Fetch failed (attempt {i+1}): {e}")
-            if i < retries - 1: time.sleep(5)
-    return None
-
-def write_m3u_file(filename, content):
-    filepath = os.path.join(OUTPUT_DIR, filename)
-    with open(filepath, 'w', encoding='utf-8') as f:
-        f.write(content)
-
-def format_extinf(channel_id, tvg_id, tvg_chno, tvg_name, tvg_logo, group_title, display_name):
-    chno_str = str(tvg_chno) if tvg_chno and str(tvg_chno).isdigit() else ""
-    return (f'#EXTINF:-1 channel-id="{channel_id}" tvg-id="{tvg_id}" tvg-chno="{chno_str}" '
-            f'tvg-name="{tvg_name.replace(chr(34), chr(39))}" tvg-logo="{tvg_logo}" '
-            f'group-title="{group_title.replace(chr(34), chr(39))}",{display_name.replace(",", "")}\n')
-
-# --- Standard Services ---
-
-def get_anonymous_token(region: str = 'us') -> str | None:
-    headers = {
-        'Accept': 'application/json',
-        'User-Agent': USER_AGENT,
-        'X-Plex-Product': 'Plex Web',
-        'X-Plex-Version': '4.150.0',
-        'X-Plex-Client-Identifier': str(uuid.uuid4()).replace('-', ''),
-        'X-Plex-Platform': 'Web',
-    }
-    x_forward_ips = {'us': '76.81.9.69'}
-    if region in x_forward_ips: headers['X-Forwarded-For'] = x_forward_ips[region]
-    params = {'X-Plex-Product': 'Plex Web', 'X-Plex-Client-Identifier': headers['X-Plex-Client-Identifier']}
-    try:
-        resp = requests.post('https://clients.plex.tv/api/v2/users/anonymous', headers=headers, params=params, timeout=15)
-        resp.raise_for_status()
-        return resp.json().get('authToken')
-    except: return None
-
-def generate_pluto_m3u():
-    data = fetch_url('https://github.com/matthuisman/i.mjh.nz/raw/refs/heads/master/PlutoTV/.channels.json.gz', is_json=True, is_gzipped=True)
-    if not data or 'regions' not in data: return
-
-    for region in list(data['regions'].keys()) + ['all']:
-        is_all = region == 'all'
-        output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/PlutoTV/{region}.xml.gz"\n']
-        channels = {}
-
-        if is_all:
-            for r_code, r_data in data['regions'].items():
-                country_name = REGION_MAP.get(r_code.lower(), r_code.upper())
-                for c_id, c_info in r_data.get('channels', {}).items():
-                    channels[f"{c_id}-{r_code}"] = {
-                        **c_info,
-                        'original_id': c_id,
-                        'country_group': country_name,
-                        'service_group': c_info.get('group', 'Other')
-                    }
-        else:
-            region_data = data['regions'].get(region, {}).get('channels', {})
-            country_name = REGION_MAP.get(region.lower(), region.upper())
-            for c_id, c_info in region_data.items():
-                channels[c_id] = {
-                    **c_info,
-                    'original_id': c_id,
-                    'country_group': country_name,
-                    'service_group': c_info.get('group', 'Other')
-                }
-
-        sorted_channels = sorted(
-            channels.items(),
-            key=lambda x: (0 if x[1]['country_group'] in TOP_REGIONS else 1, x[1].get('name', ''))
-        )
-
-        for c_id, ch in sorted_channels:
-            group_title = ch['country_group'] if is_all else ch['service_group']
-
-            output_lines.extend([
-                format_extinf(
-                    c_id,
-                    ch['original_id'],
-                    ch.get('chno'),
-                    ch['name'],
-                    ch['logo'],
-                    group_title,
-                    ch['name']
-                ),
-                f"https://jmp2.uk/plu-{ch['original_id']}.m3u8\n"
-            ])
-
-        write_m3u_file(f"plutotv_{region}.m3u", "".join(output_lines))
-
-def generate_plex_m3u():
-    data = fetch_url('https://github.com/matthuisman/i.mjh.nz/raw/refs/heads/master/Plex/.channels.json.gz', is_json=True, is_gzipped=True)
-    if not data or 'channels' not in data: return
-    found_regions = set()
-    for ch in data['channels'].values(): found_regions.update(ch.get('regions', []))
-    for region in list(found_regions) + ['all']:
-        token = get_anonymous_token(region if region != 'all' else 'us')
-        if not token: continue
-        output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/Plex/{region}.xml.gz"\n']
-        channel_list = []
-        for c_id, ch in data['channels'].items():
-            if region == 'all' or region in ch.get('regions', []):
-                group = REGION_MAP.get(region.lower(), region.upper()) if region != 'all' else 'Plex'
-                channel_list.append((group, ch['name'].lower(), format_extinf(c_id, c_id, ch.get('chno'), ch['name'], ch.get('logo', ''), group, ch['name']), f"https://epg.provider.plex.tv/library/parts/{c_id}/?X-Plex-Token={token}\n"))
-        if channel_list:
-            channel_list.sort(key=lambda x: (0 if x[0] in TOP_REGIONS else 1, x[1]))
-            for _, _, extinf, url in channel_list: output_lines.extend([extinf, url])
-            write_m3u_file(f"plex_{region}.m3u", "".join(output_lines))
-
-def generate_samsungtvplus_m3u():
-    data = fetch_url('https://github.com/matthuisman/i.mjh.nz/raw/refs/heads/master/SamsungTVPlus/.channels.json.gz', is_json=True, is_gzipped=True)
-    if not data or 'regions' not in data: return
-    slug_template = data.get('slug', '{id}.m3u8')
-
-    for region in list(data['regions'].keys()) + ['all']:
-        is_all = region == 'all'
-        output_lines = [f'#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/SamsungTVPlus/{region}.xml.gz"\n']
-        channels = {}
-
-        if is_all:
-            for r_code, r_info in data['regions'].items():
-                country_name = REGION_MAP.get(r_code.lower(), r_code.upper())
-                for c_id, c_info in r_info.get('channels', {}).items():
-                    channels[f"{c_id}-{r_code}"] = {
-                        **c_info,
-                        'original_id': c_id,
-                        'country_group': country_name,
-                        'service_group': c_info.get('group', 'Other')
-                    }
-        else:
-            region_data = data['regions'].get(region, {}).get('channels', {})
-            country_name = REGION_MAP.get(region.lower(), region.upper())
-            for c_id, c_info in region_data.items():
-                channels[c_id] = {
-                    **c_info,
-                    'original_id': c_id,
-                    'country_group': country_name,
-                    'service_group': c_info.get('group', 'Other')
-                }
-
-        sorted_channels = sorted(
-            channels.items(),
-            key=lambda x: (0 if x[1]['country_group'] in TOP_REGIONS else 1, x[1].get('name', '').lower())
-        )
-
-        for c_id, ch in sorted_channels:
-            group_title = ch['country_group'] if is_all else ch['service_group']
-
-            output_lines.extend([
-                format_extinf(
-                    c_id,
-                    ch['original_id'],
-                    ch.get('chno'),
-                    ch['name'],
-                    ch['logo'],
-                    group_title,
-                    ch['name']
-                ),
-                f"https://jmp2.uk/{slug_template.replace('{id}', ch['original_id'])}\n"
-            ])
-
-        write_m3u_file(f"samsungtvplus_{region}.m3u", "".join(output_lines))
-
-def generate_roku_m3u():
-    data = fetch_url('https://i.mjh.nz/Roku/.channels.json', is_json=True)
-    if not data: return
-
-    # Map granular Roku genre tags to consolidated group names
-    ROKU_GROUP_MAP = {
-        # News & Weather
-        'News': 'News', 'Newsmagazine': 'News', 'Special': 'News', 'Politics': 'News',
-        'Weather': 'Weather',
-
-        # Sports (general)
-        'Sports': 'Sports', 'Sports Talk': 'Sports', 'Olympics': 'Sports',
-        'Action Sports': 'Sports', 'Action': 'Sports',
-
-        # Sports (specific — fold into Sports)
-        'Baseball': 'Sports', 'Basketball': 'Sports', 'Football': 'Sports',
-        'Soccer': 'Sports', 'Hockey': 'Sports', 'Tennis': 'Sports', 'Golf': 'Sports',
-        'Boxing': 'Sports', 'Mixed Martial Arts': 'Sports', 'Martial Arts': 'Sports',
-        'Wrestling': 'Sports', 'Rugby': 'Sports', 'Volleyball': 'Sports',
-        'Skateboarding': 'Sports', 'Snowboarding': 'Sports', 'Surfing': 'Sports',
-        'Cycling': 'Sports', 'Bicycle': 'Sports', 'Bmx Racing': 'Sports',
-        'Bullfighting': 'Sports', 'Rodeo': 'Sports', 'Western': 'Sports',
-        'Fishing': 'Sports', 'Hunting': 'Sports', 'Outdoors': 'Sports',
-        'Boat Racing': 'Sports', 'Drag Racing': 'Sports', 'Motorsports': 'Sports',
-        'Motorcycle': 'Sports', 'Motorcycle Racing': 'Sports',
-        'Judo': 'Sports', 'Karate': 'Sports', 'Billiards': 'Sports',
-
-        # Auto
-        'Auto': 'Auto & Motorsports', 'Auto Racing': 'Auto & Motorsports',
-
-        # Movies
-        'Adventure': 'Movies', 'Thriller': 'Movies', 'Suspense': 'Movies',
-        'Science Fiction': 'Movies', 'Fantasy': 'Movies', 'Horror': 'Movies',
-
-        # TV / Entertainment
-        'Entertainment': 'TV & Entertainment', 'Sitcom': 'TV & Entertainment',
-        'Drama': 'TV & Entertainment', 'Soap': 'TV & Entertainment',
-        'Talk': 'TV & Entertainment', 'Reality': 'TV & Entertainment',
-        'Comedy Drama': 'TV & Entertainment', 'History': 'TV & Entertainment',
-
-        # Comedy
-        'Comedy': 'Comedy', 'Romantic Comedy': 'Comedy',
-
-        # Romance
-        'Romance': 'Romance',
-
-        # Documentary
-        'Documentary': 'Documentary', 'Nature': 'Documentary',
-
-        # Music
-        'Music': 'Music',
-
-        # Anime
-        'Anime': 'Anime',
-
-        # Gaming & Tech
-        'Gaming': 'Gaming & Tech', 'Computers': 'Gaming & Tech',
-        'Esports': 'Gaming & Tech',
-
-        # Faith
-        'Faith': 'Faith & Family', 'Religious': 'Faith & Family',
-        'Family': 'Faith & Family',
-
-        # Health
-        'Health': 'Health', 'Medical': 'Health',
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>T Play</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700&display=swap" rel="stylesheet">
+  <link rel="icon" href="https://i.postimg.cc/RCnCv14W/T-Play.png" type="image/png">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
 
-    channels = data.get('channels', {})
+    :root {
+      --bg-deep: #070b1a;
+      --glass-bg: rgba(10, 16, 28, 0.75);
+      --glass-border: rgba(59, 130, 246, 0.25);
+      --accent: #2b5cff;
+      --accent-hover: #3b6eff;
+      --text-light: #f0f3ff;
+      --text-muted: #9aa5d9;
+      --card-radius: 1.75rem;
+    }
 
-    group_map = {}
-    for c_id, ch in channels.items():
-        raw_group = ch['groups'][0] if ch.get('groups') else 'Other'
-        group = ROKU_GROUP_MAP.get(raw_group, raw_group)
-        group_map.setdefault(group, []).append((c_id, ch))
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      background: radial-gradient(ellipse at 20% 30%, #0a1025, #020617);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      color: var(--text-light);
+    }
 
-    output_lines = ['#EXTM3U url-tvg="https://github.com/matthuisman/i.mjh.nz/raw/master/Roku/all.xml.gz"\n']
-    for group in sorted(group_map.keys()):
-        for c_id, ch in sorted(group_map[group], key=lambda x: x[1].get('name', '').lower()):
-            output_lines.extend([
-                format_extinf(c_id, c_id, ch.get('chno'), ch['name'], ch['logo'], group, ch['name']),
-                f"https://jmp2.uk/rok-{c_id}.m3u8\n"
-            ])
+    .container {
+      max-width: 1100px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1rem env(safe-area-inset-right) 1.5rem env(safe-area-inset-left);
+    }
 
-    write_m3u_file("roku_all.m3u", "".join(output_lines))
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.25rem;
+      margin-bottom: 1.5rem;
+    }
 
-# --- Tubi Scraping Logic ---
+    .card {
+      background: rgba(12, 20, 32, 0.7);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      border-radius: var(--card-radius);
+      padding: 1.2rem 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+      text-align: center;
+      outline: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+      box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.4);
+    }
 
-def get_proxies(country_code):
-    url = f"https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks4&timeout=10000&country={country_code}&ssl=all&anonymity=elite"
-    response = requests.get(url)
-    if response.status_code == 200:
-        proxy_list = response.text.splitlines()
-        return [f"socks4://{proxy}" for proxy in proxy_list]
-    else:
-        return []
+    .card:hover {
+      transform: translateY(-3px);
+      background: rgba(20, 32, 50, 0.85);
+      border-color: var(--accent);
+      box-shadow: 0 12px 22px -10px rgba(0, 0, 0, 0.5);
+    }
 
-def fetch_channel_list(proxy, retries=3):
-    url = "https://tubitv.com/live"
-    for attempt in range(retries):
-        try:
-            if proxy:
-                response = requests.get(url, proxies={"http": proxy, "https": proxy}, verify=False, timeout=20)
-            else:
-                response = requests.get(url, verify=False, timeout=20)
-            response.encoding = 'utf-8'
-            if response.status_code != 200: continue
+    .card:focus-visible {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+      transform: scale(1.01);
+    }
 
-            html_content = response.content.decode('utf-8', errors='replace')
-            soup = BeautifulSoup(html_content, "html.parser")
-            script_tags = soup.find_all("script")
-            target_script = None
-            for script in script_tags:
-                if script.string and script.string.strip().startswith("window.__data"):
-                    target_script = script.string
-                    break
-            if not target_script: continue
+    .icon {
+      font-size: 2.2rem;
+      background: linear-gradient(135deg, #e0eaff, #8fb0ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      transition: all 0.2s;
+    }
 
-            start_index = target_script.find("{")
-            end_index = target_script.rfind("}") + 1
-            json_string = target_script[start_index:end_index]
-            json_string = json_string.replace('undefined', 'null')
-            json_string = re.sub(r'new Date\("([^"]*)"\)', r'"\1"', json_string)
-            return json.loads(json_string)
-        except: continue
-    return []
+    .card:hover .icon {
+      transform: scale(1.03);
+    }
 
-def create_group_mapping(json_data):
-    group_mapping = {}
-    content_ids_by_container = json_data.get('epg', {}).get('contentIdsByContainer', {})
-    for container_list in content_ids_by_container.values():
-        for category in container_list:
-            group_name = category.get('name', 'Other')
-            for content_id in category.get('contents', []):
-                group_mapping[str(content_id)] = group_name
-    return group_mapping
+    .title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+      color: #eef3ff;
+      margin-top: 0.1rem;
+    }
 
-def fetch_epg_data(channel_list):
-    epg_data = []
-    group_size = 150
-    grouped_ids = [channel_list[i:i + group_size] for i in range(0, len(channel_list), group_size)]
-    for group in grouped_ids:
-        url = "https://tubitv.com/oz/epg/programming"
-        params = {"content_id": ','.join(map(str, group))}
-        response = requests.get(url, params=params)
-        if response.status_code == 200:
-            epg_data.extend(response.json().get('rows', []))
-    return epg_data
+    .desc {
+      font-size: 0.75rem;
+      color: #a5b3da;
+      line-height: 1.3;
+      font-weight: 400;
+      padding: 0 0.3rem;
+    }
 
-def clean_stream_url(url):
-    parsed_url = urlparse(url)
-    return urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, '', '', ''))
+    .extra-card-wrapper {
+      margin-top: 0;
+    }
 
-def create_m3u_playlist(epg_data, group_mapping):
-    sorted_epg_data = sorted(epg_data, key=lambda x: x.get('title', '').lower())
-    playlist = f"#EXTM3U url-tvg=\"tubi_epg.xml\"\n"
-    seen_urls = set()
-    for elem in sorted_epg_data:
-        channel_name = elem.get('title', 'Unknown Channel').encode('utf-8', errors='ignore').decode('utf-8')
-        stream_url = unquote(elem['video_resources'][0]['manifest']['url']) if elem.get('video_resources') else ''
-        clean_url = clean_stream_url(stream_url)
-        tvg_id = str(elem.get('content_id', ''))
-        logo_url = elem.get('images', {}).get('thumbnail', [None])[0]
-        group_title = group_mapping.get(tvg_id, 'Other').encode('utf-8', errors='ignore').decode('utf-8')
-        if clean_url and clean_url not in seen_urls:
-            playlist += f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-logo="{logo_url}" group-title="{group_title}",{channel_name}\n{clean_url}\n'
-            seen_urls.add(clean_url)
-    return playlist
+    .footer {
+      margin-top: 2rem;
+      text-align: center;
+      padding: 0.8rem 0.5rem;
+      border-top: 1px solid rgba(72, 110, 180, 0.3);
+      font-size: 0.75rem;
+      color: #7b8bbc;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 1.2rem;
+      backdrop-filter: blur(4px);
+    }
 
-def create_epg_xml(epg_data):
-    root = ET.Element("tv")
-    for station in epg_data:
-        channel = ET.SubElement(root, "channel", id=str(station.get("content_id")))
-        ET.SubElement(channel, "display-name").text = station.get("title", "Unknown Title")
-        ET.SubElement(channel, "icon", src=station.get("images", {}).get("thumbnail", [None])[0])
-        for program in station.get('programs', []):
-            programme = ET.SubElement(root, "programme", channel=str(station.get("content_id")))
-            start = program.get("start_time", "")
-            stop = program.get("end_time", "")
-            try:
-                dt_start = datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ")
-                dt_stop = datetime.strptime(stop, "%Y-%m-%dT%H:%M:%SZ")
-                programme.set("start", dt_start.strftime("%Y%m%d%H%M%S +0000"))
-                programme.set("stop", dt_stop.strftime("%Y%m%d%H%M%S +0000"))
-            except:
-                programme.set("start", start)
-                programme.set("stop", stop)
-            ET.SubElement(programme, "title").text = program.get("title", "")
-            if program.get("description"):
-                ET.SubElement(programme, "desc").text = program.get("description", "")
-    return ET.ElementTree(root)
+    .footer a {
+      color: #9eb1e6;
+      text-decoration: none;
+      transition: 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-weight: 500;
+    }
 
-def generate_tubi_m3u():
-    proxies = get_proxies("US")
-    json_data = None
-    if proxies:
-        for proxy in proxies:
-            json_data = fetch_channel_list(proxy)
-            if json_data: break
-    if not json_data: json_data = fetch_channel_list(None)
-    if not json_data: return
+    .footer a:hover {
+      color: white;
+      text-shadow: 0 0 4px #3b82f6;
+    }
 
-    channel_list = []
-    content_ids_by_container = json_data.get('epg', {}).get('contentIdsByContainer', {})
-    for container_list in content_ids_by_container.values():
-        for category in container_list:
-            channel_list.extend(category.get('contents', []))
+    .footer i {
+      font-size: 0.7rem;
+    }
 
-    epg_data = fetch_epg_data(channel_list)
-    if epg_data:
-        group_mapping = create_group_mapping(json_data)
-        m3u_playlist = create_m3u_playlist(epg_data, group_mapping)
-        epg_tree = create_epg_xml(epg_data)
-        write_m3u_file("tubi_all.m3u", m3u_playlist)
-        epg_tree.write(os.path.join(OUTPUT_DIR, "tubi_epg.xml"), encoding='utf-8', xml_declaration=True)
+    /* responsive: tablet and mobile */
+    @media (max-width: 780px) {
+      .grid {
+        gap: 1rem;
+      }
+      .title {
+        font-size: 1rem;
+      }
+      .icon {
+        font-size: 1.9rem;
+      }
+      .desc {
+        font-size: 0.7rem;
+      }
+      .card {
+        padding: 1rem 0.6rem;
+        gap: 0.5rem;
+      }
+    }
 
-# --- Execution ---
+    @media (max-width: 640px) {
+      .grid {
+        grid-template-columns: 1fr;
+        max-width: 380px;
+        margin-left: auto;
+        margin-right: auto;
+        gap: 1rem;
+      }
+      .card {
+        flex-direction: row;
+        justify-content: flex-start;
+        text-align: left;
+        gap: 1rem;
+        padding: 0.9rem 1.2rem;
+        align-items: center;
+      }
+      .card .icon {
+        font-size: 2rem;
+        flex-shrink: 0;
+      }
+      .card .title {
+        font-size: 1.1rem;
+      }
+      .card .desc {
+        font-size: 0.7rem;
+      }
+      .card > div:not(.icon) {
+        display: flex;
+        flex-direction: column;
+        gap: 0.2rem;
+      }
+      .footer {
+        flex-direction: column;
+        gap: 0.6rem;
+        align-items: center;
+      }
+    }
 
-if __name__ == "__main__":
-    cleanup_output_dir()
-    generate_pluto_m3u()
-    generate_plex_m3u()
-    generate_samsungtvplus_m3u()
-    generate_tubi_m3u()
-    generate_roku_m3u()
+    @media (max-width: 480px) {
+      .container {
+        padding: 0.5rem;
+      }
+      .card {
+        padding: 0.75rem 1rem;
+      }
+      .title {
+        font-size: 1rem;
+      }
+      .icon {
+        font-size: 1.8rem;
+      }
+      .desc {
+        font-size: 0.65rem;
+      }
+    }
+
+    .no-header {
+      display: block;
+    }
+    
+    @keyframes fadeUp {
+      from {
+        opacity: 0;
+        transform: translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .card {
+      animation: fadeUp 0.35s ease forwards;
+      opacity: 0;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  
+  <div class="grid">
+    <!-- TV Card -->
+    <div class="card" tabindex="0" data-url="https://tplay.live/tv" role="button" aria-label="Open TV version">
+      <div class="icon"><i class="fa-solid fa-tv"></i></div>
+      <div>
+        <div class="title">TV</div>
+        <div class="desc">Smart TV · Android TV · Fire TV</div>
+      </div>
+    </div>
+
+    <div class="card" tabindex="0" data-url="https://tplay.live/mobile" role="button" aria-label="Open Mobile version">
+      <div class="icon"><i class="fa-solid fa-mobile-screen-button"></i></div>
+      <div>
+        <div class="title">Mobile</div>
+        <div class="desc">iOS · Android · Touch interface</div>
+      </div>
+    </div>
+
+    <div class="card" tabindex="0" data-url="https://tplay.live/mobile" role="button" aria-label="Open Desktop version">
+      <div class="icon"><i class="fa-solid fa-laptop-code"></i></div>
+      <div>
+        <div class="title">Laptop / PC</div>
+        <div class="desc">Windows · Linux · macOS</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="extra-card-wrapper">
+    <div class="card" tabindex="0" data-url="https://tplay.live/Advertisement" role="button" aria-label="Advertisement opportunities">
+      <div class="icon"><i class="fa-solid fa-chart-simple"></i></div>
+      <div>
+        <div class="title">Advertisement</div>
+        <div class="desc">Advertise on our channels</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><i class="fa-regular fa-copyright"></i> tplay.live</span>
+    <a href="mailto:tplaybd@proton.me"><i class="fa-regular fa-envelope"></i> tplaybd@proton.me</a>
+    <a href="https://t.me/tplaybd" target="_blank" rel="noopener noreferrer"><i class="fa-brands fa-telegram"></i> t.me/tplaybd</a>
+  </div>
+</div>
+
+<script>
+  (function() {
+    function setVH() {
+      let vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    }
+    setVH();
+    window.addEventListener('resize', setVH);
+    
+    const cards = Array.from(document.querySelectorAll('.card'));
+    
+    function navigateTo(url) {
+      if (!url) return;
+      window.location.href = url;
+    }
+    
+    cards.forEach(card => {
+      // click & pointer
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const targetUrl = card.dataset.url;
+        if (targetUrl) navigateTo(targetUrl);
+      });
+      
+      card.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        const targetUrl = card.dataset.url;
+        if (targetUrl) navigateTo(targetUrl);
+      }, { passive: false });
+      
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const targetUrl = card.dataset.url;
+          if (targetUrl) navigateTo(targetUrl);
+        }
+      });
+    });
+    
+    function getGridColumnsCount() {
+      return window.innerWidth <= 640 ? 1 : 3;
+    }
+    
+    document.addEventListener('keydown', (e) => {
+      const arrowKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+      if (!arrowKeys.includes(e.key)) return;
+      
+      const activeElement = document.activeElement;
+      if (!activeElement || !cards.includes(activeElement)) return;
+      
+      const currentIndex = cards.indexOf(activeElement);
+      if (currentIndex === -1) return;
+      
+      const cols = getGridColumnsCount();
+      let nextIndex = currentIndex;
+      
+      switch (e.key) {
+        case 'ArrowRight':
+          nextIndex = currentIndex + 1;
+          break;
+        case 'ArrowLeft':
+          nextIndex = currentIndex - 1;
+          break;
+        case 'ArrowDown':
+          nextIndex = currentIndex + cols;
+          break;
+        case 'ArrowUp':
+          nextIndex = currentIndex - cols;
+          break;
+        default: return;
+      }
+      
+      if (nextIndex >= 0 && nextIndex < cards.length) {
+        cards[nextIndex].focus();
+        e.preventDefault();
+        cards[nextIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+      }
+    });
+    
+    window.addEventListener('load', () => {
+      if (cards.length) {
+        cards[0].focus();
+      }
+      cards.forEach((card, idx) => {
+        card.style.animationDelay = `${idx * 0.05}s`;
+        card.style.opacity = '1';
+      });
+    });
+    
+    if (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) {
+      const style = document.createElement('style');
+      style.textContent = `.card:active { transform: scale(0.97); background: rgba(43,92,255,0.2); transition: 0.05s; }`;
+      document.head.appendChild(style);
+    }
+    
+    if ('requestIdleCallback' in window) {
+      requestIdleCallback(() => {
+        cards.forEach(card => {
+          const url = card.dataset.url;
+          if (url && url.startsWith('https://tplay.live')) {
+            const link = document.createElement('link');
+            link.rel = 'prefetch';
+            link.href = url;
+            link.as = 'document';
+            document.head.appendChild(link);
+          }
+        });
+      });
+    }
+    
+    const advCard = document.querySelector('.extra-card-wrapper .card');
+    if (advCard && !advCard.dataset.url) {
+      advCard.dataset.url = 'https://tplay.live/Advertisement';
+    }
+  })();
+</script>
+</body>
+</html>

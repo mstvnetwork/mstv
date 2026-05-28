@@ -3,10 +3,6 @@
 <head>
 <meta name="google-site-verification" content="Yynm4uIFXwlxEdH2SfRrk6bNJnQaHIArOqV-XxrlQzI" />
 <meta name="google-site-verification" content="Y1hEvT4w92Qa9BGvDwkBL7gdCxEVtBNZcHafXCA6u7g" />
-
-
-
-
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MSTV Network | Free Live Indian, Punjabi &amp; Religious TV Channels</title>
@@ -94,7 +90,6 @@
   ]
 }
 </script>
-</head>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -526,8 +521,13 @@ body {
         <p id="playerErrorMsg">Stream could not be loaded.</p>
       </div>
       <video id="videoEl" controls playsinline></video>
+      <!--
+        SANDBOX TOGGLE: controlled per-channel via "sandboxed" in channels2.json.
+        true  (default) → full sandbox applied (safer for untrusted embeds)
+        false           → sandbox removed (needed when embed requires top-nav or cookies)
+        See playChannel() for the runtime logic.
+      -->
       <iframe id="iframeEl"
-        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms"
         allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
         allowfullscreen></iframe>
     </div>
@@ -574,26 +574,32 @@ body {
 </div>
 
 <script>
-// ── CONFIG ──
+// ── CONFIG ──────────────────────────────────────────────────────────────────
 const JSON_URL      = 'channels2.json';
 const POLL_INTERVAL = 8000;
 
-// ── STATE ──
-let channels         = [];
-let filteredChannels = [];
-let currentChannel   = null;
-let searchQuery      = '';
-let activeCategory   = 'All';
-let hlsInstance      = null;
-let shakaPlayer      = null;
-let pollTimer        = null;
-let lastJsonHash     = '';
-// FIX 5: AbortController so overlapping fetches cancel the prior one
-let fetchController  = null;
-// Track whether initial full render has happened
+// Default sandbox value for iframe channels when "sandboxed" key is absent from JSON.
+// true  = apply sandbox (safer default)
+// false = no sandbox (use when embeds need top-level navigation or cookies)
+const DEFAULT_SANDBOX = true;
+
+// The sandbox attribute string applied when sandboxed === true.
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
+
+// ── STATE ────────────────────────────────────────────────────────────────────
+let channels          = [];
+let filteredChannels  = [];
+let currentChannel    = null;
+let searchQuery       = '';
+let activeCategory    = 'All';
+let hlsInstance       = null;
+let shakaPlayer       = null;
+let pollTimer         = null;
+let lastJsonHash      = '';
+let fetchController   = null;
 let initialRenderDone = false;
 
-// ── DOM REFS ──
+// ── DOM REFS ─────────────────────────────────────────────────────────────────
 const $searchInput       = document.getElementById('searchInput');
 const $channelList       = document.getElementById('channelList');
 const $channelGrid       = document.getElementById('channelGrid');
@@ -615,7 +621,7 @@ const $sidebarOverlay    = document.getElementById('sidebarOverlay');
 const $menuToggle        = document.getElementById('menuToggle');
 const $header            = document.getElementById('header');
 
-// ── HEADER HIDE-ON-SCROLL ──
+// ── HEADER HIDE-ON-SCROLL ────────────────────────────────────────────────────
 let lastY = 0;
 window.addEventListener('scroll', () => {
   const y = window.scrollY;
@@ -623,30 +629,53 @@ window.addEventListener('scroll', () => {
   lastY = y;
 }, { passive: true });
 
-// ── STABLE CHANNEL ID ──
-// Channels may lack an "id" field; derive a stable key from name+url.
+// ── STABLE CHANNEL ID ────────────────────────────────────────────────────────
 function chKey(ch) {
   return ch.id || (ch.name + '||' + ch.url);
 }
 
-// ── INIT ──
+// ── SLUG HELPER (matches generate-sitemap.js) ────────────────────────────────
+function toSlug(text) {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_|]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
 async function init() {
   shaka.polyfill.installAll();
   shakaPlayer = new shaka.Player();
   shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
-
-  // FIX 3: Attach Shaka to the video element ONCE at init — never detach/reattach.
-  // Detaching during a poll cycle caused a race that broke subsequent loads.
+  // Attach Shaka once — never detach/reattach during polling.
   await shakaPlayer.attach($videoEl);
 
   await loadChannels(false);
   startPolling();
   bindEvents();
+
+  // Deep-link: ?ch=<slug> from SEO pages, or ?q=<query> from search action
+  const params = new URLSearchParams(window.location.search);
+  const chSlug = params.get('ch');
+  const qParam = params.get('q');
+
+  if (qParam) {
+    $searchInput.value = qParam;
+    searchQuery = qParam;
+    fullRender();
+  }
+
+  if (chSlug && channels.length) {
+    const match = channels.find(c => toSlug(c.name) === chSlug);
+    if (match) playChannel(match);
+  }
 }
 
-// ── FETCH & POLL ──
+// ── FETCH & POLL ─────────────────────────────────────────────────────────────
 async function loadChannels(silent) {
-  // FIX 5: Cancel any in-flight fetch before starting a new one
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
 
@@ -657,7 +686,6 @@ async function loadChannels(silent) {
     const hash = simpleHash(text);
 
     if (hash === lastJsonHash) {
-      // Nothing changed — just update the timestamp, touch nothing else
       updateTimestamp();
       return;
     }
@@ -667,8 +695,6 @@ async function loadChannels(silent) {
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
     channels = data.filter(c => c && c.name && c.url);
 
-    // FIX 1 & 2: On first load do a full render; on subsequent polls do a
-    // surgical diff so active states and scroll position are never disrupted.
     if (!initialRenderDone) {
       initialRenderDone = true;
       fullRender();
@@ -678,12 +704,11 @@ async function loadChannels(silent) {
 
     updateTimestamp();
   } catch (e) {
-    if (e.name === 'AbortError') return; // Intentionally cancelled — not an error
+    if (e.name === 'AbortError') return;
     $updateText.textContent = 'Error: ' + e.message;
   }
 }
 
-// FIX 4: Pause polling when tab is hidden; resume + catch-up fetch when visible again.
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => {
@@ -691,15 +716,15 @@ function startPolling() {
   }, POLL_INTERVAL);
 }
 
+// Resume + catch-up fetch when tab becomes visible.
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) {
-    // Tab just became visible — fetch immediately to catch up
-    loadChannels(true);
-  }
+  if (!document.hidden) loadChannels(true);
 });
 
 function updateTimestamp() {
-  $updateText.textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  $updateText.textContent = 'Updated ' + new Date().toLocaleTimeString([], {
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
 }
 
 function simpleHash(str) {
@@ -708,17 +733,18 @@ function simpleHash(str) {
   return h;
 }
 
-// ── FILTER ──
+// ── FILTER ────────────────────────────────────────────────────────────────────
 function applyFilters() {
   const q = searchQuery.toLowerCase().trim();
   filteredChannels = channels.filter(ch => {
     const nameOk = !q || ch.name.toLowerCase().includes(q);
-    const catOk  = activeCategory === 'All' || (ch.category || '').toLowerCase() === activeCategory.toLowerCase();
+    const catOk  = activeCategory === 'All' ||
+                   (ch.category || '').toLowerCase() === activeCategory.toLowerCase();
     return nameOk && catOk;
   });
 }
 
-// ── CATEGORIES ──
+// ── CATEGORIES ───────────────────────────────────────────────────────────────
 function getCategories() {
   const cats = ['All'];
   channels.forEach(ch => {
@@ -752,7 +778,7 @@ function renderCategories() {
   wrap.style.display = cats.length > 1 ? 'block' : 'none';
 }
 
-// ── FULL RENDER (first load only) ──
+// ── FULL RENDER (first load + search changes) ─────────────────────────────────
 function fullRender() {
   applyFilters();
   renderCategories();
@@ -761,26 +787,17 @@ function fullRender() {
   updateCounts();
 }
 
-// ── FIX 1 & 2: DIFF RENDER (silent poll updates) ──
-// Instead of rebuilding the DOM from scratch, surgically:
-//   • Re-filter with the existing search/category
-//   • Patch active class on existing items in-place (no DOM rebuild)
-//   • Only do a full re-render if the channel list actually changed length
-//     or channel identity changed (new/removed channels)
+// ── DIFF RENDER (silent poll updates) ─────────────────────────────────────────
 function diffRender() {
   const prevKeys = filteredChannels.map(chKey).join(',');
   applyFilters();
   const nextKeys = filteredChannels.map(chKey).join(',');
 
-  // Categories may have changed (new category added/removed)
   renderCategories();
 
   if (prevKeys === nextKeys) {
-    // Same channels in same order — only patch active states in-place.
-    // This is the common hot-path: JSON changed but channel list identical.
     patchActiveStates();
   } else {
-    // Channel list changed — rebuild sidebar and grid fully.
     renderSidebar();
     renderGrid();
   }
@@ -788,7 +805,6 @@ function diffRender() {
   updateCounts();
 }
 
-// Patch .active class on existing sidebar/grid items without touching innerHTML.
 function patchActiveStates() {
   const activeKey = currentChannel ? chKey(currentChannel) : null;
   document.querySelectorAll('.channel-item').forEach(el => {
@@ -801,7 +817,7 @@ function patchActiveStates() {
   });
 }
 
-// ── RENDER HELPERS ──
+// ── RENDER HELPERS ────────────────────────────────────────────────────────────
 function renderSidebar() {
   if (!filteredChannels.length) {
     $channelList.innerHTML = `<div class="empty-state">
@@ -813,7 +829,7 @@ function renderSidebar() {
   const activeKey = currentChannel ? chKey(currentChannel) : null;
   $channelList.innerHTML = filteredChannels.map((ch, i) => `
     <div class="channel-item${chKey(ch) === activeKey ? ' active' : ''}"
-         data-idx="${i}" style="animation-delay:${Math.min(i*16,320)}ms">
+         data-idx="${i}" style="animation-delay:${Math.min(i * 16, 320)}ms">
       ${logo(ch, 40, 'ch-logo', 'ch-logo-fallback')}
       <div class="ch-info">
         <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
@@ -824,7 +840,10 @@ function renderSidebar() {
     </div>`).join('');
 
   $channelList.querySelectorAll('.channel-item').forEach(el =>
-    el.addEventListener('click', () => { playChannel(filteredChannels[+el.dataset.idx]); closeSidebar(); })
+    el.addEventListener('click', () => {
+      playChannel(filteredChannels[+el.dataset.idx]);
+      closeSidebar();
+    })
   );
 }
 
@@ -832,7 +851,7 @@ function renderGrid() {
   const activeKey = currentChannel ? chKey(currentChannel) : null;
   $channelGrid.innerHTML = filteredChannels.map((ch, i) => `
     <div class="grid-card${chKey(ch) === activeKey ? ' active' : ''}"
-         data-idx="${i}" style="animation-delay:${Math.min(i*10,400)}ms">
+         data-idx="${i}" style="animation-delay:${Math.min(i * 10, 400)}ms">
       ${logo(ch, 54, 'grid-logo', 'grid-logo-fallback')}
       <div class="grid-name">${esc(ch.name)}</div>
     </div>`).join('');
@@ -849,26 +868,25 @@ function updateCounts() {
   $footerCount.textContent  = channels.length;
 }
 
-// ── LOGO HELPER ──
+// ── LOGO HELPER ───────────────────────────────────────────────────────────────
 function logo(ch, size, imgCls, fbCls) {
   const s = `width:${size}px;height:${size}px`;
   return ch.logo
-    ? `<img class="${imgCls}" src="${esc(ch.logo)}" alt="${esc(ch.name)}" style="${s}"
+    ? `<img class="${imgCls}" src="${esc(ch.logo)}" alt="${esc(ch.name)}" style="${s}" loading="lazy"
          onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
        <div class="${fbCls}" style="${s};display:none">📺</div>`
     : `<div class="${fbCls}" style="${s}">📺</div>`;
 }
 
 function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// ── PLAY ──
+// ── PLAY ──────────────────────────────────────────────────────────────────────
 async function playChannel(ch) {
   if (!ch) return;
   currentChannel = ch;
 
-  // Update active states on existing DOM nodes without rebuilding
   const activeKey = chKey(ch);
   document.querySelectorAll('.channel-item').forEach(el =>
     el.classList.toggle('active', chKey(filteredChannels[+el.dataset.idx] || {}) === activeKey));
@@ -886,18 +904,32 @@ async function playChannel(ch) {
   if (type === 'iframe') {
     $videoEl.style.display  = 'none';
     $iframeEl.style.display = 'block';
-    $iframeEl.src           = ch.url;
-    $iframeEl.onload        = () => showLoader(false);
-    $iframeEl.onerror       = () => showError('iFrame could not be loaded.');
-  } else if (type === 'dash') {
+
+    // ── SANDBOX TOGGLE LOGIC ─────────────────────────────────────────────────
+    // Read "sandboxed" from channel JSON:
+    //   true / undefined / missing → apply sandbox attribute
+    //   false → remove sandbox attribute entirely
+    // This lets trusted embeds (e.g. full-featured players) opt out of
+    // sandboxing per-channel without changing any code.
+    const useSandbox = ch.sandboxed !== false; // false only if explicitly set to false
+    if (useSandbox) {
+      $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+    } else {
+      $iframeEl.removeAttribute('sandbox');
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    $iframeEl.src     = ch.url;
+    $iframeEl.onload  = () => showLoader(false);
+    $iframeEl.onerror = () => showError('iFrame could not be loaded.');
+  } else if (type === 'dash' || ch.url.includes('.mpd')) {
     $iframeEl.style.display = 'none';
     $videoEl.style.display  = 'block';
     await playDASH(ch.url);
   } else {
     $iframeEl.style.display = 'none';
     $videoEl.style.display  = 'block';
-    if (ch.url.includes('.mpd')) await playDASH(ch.url);
-    else await playHLS(ch.url);
+    await playHLS(ch.url);
   }
 
   updateNowPlaying(ch);
@@ -912,12 +944,18 @@ async function playHLS(url) {
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 30 });
     hlsInstance.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) showError('HLS error: ' + d.type); });
-    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      showLoader(false);
+      $videoEl.play().catch(() => {});
+    });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia($videoEl);
   } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     $videoEl.src = url;
-    $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
+    $videoEl.addEventListener('loadedmetadata', () => {
+      showLoader(false);
+      $videoEl.play().catch(() => {});
+    }, { once: true });
     $videoEl.addEventListener('error', () => showError('Stream could not be loaded.'), { once: true });
   } else {
     showError('HLS is not supported on this browser.');
@@ -926,10 +964,9 @@ async function playHLS(url) {
 
 async function playDASH(url) {
   try {
-    // FIX 3: shakaPlayer is already attached at init — just load the source.
     await shakaPlayer.load(url);
     showLoader(false);
-    $videoEl.play().catch(()=>{});
+    $videoEl.play().catch(() => {});
   } catch (e) {
     showError('DASH error: ' + e.message);
   }
@@ -937,12 +974,15 @@ async function playDASH(url) {
 
 async function teardown() {
   if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-  // FIX 3: Only unload the Shaka source — do NOT detach/reattach.
   try { await shakaPlayer.unload(); } catch {}
   $videoEl.pause();
   $videoEl.removeAttribute('src');
   $videoEl.load();
+  // Blank iframe safely — restore sandbox to default for next use
   $iframeEl.src = 'about:blank';
+  $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+  $iframeEl.onload  = null;
+  $iframeEl.onerror = null;
 }
 
 function updateNowPlaying(ch) {
@@ -962,34 +1002,41 @@ function showError(msg) {
   $playerError.classList.add('show');
 }
 
-// ── EVENTS ──
+// ── EVENTS ────────────────────────────────────────────────────────────────────
 function bindEvents() {
-  $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  $searchInput.addEventListener('input', e => {
+    searchQuery = e.target.value;
+    fullRender();
+  });
   $menuToggle.addEventListener('click', () => {
-    $sidebar.classList.toggle('open');
-    $sidebarOverlay.classList.toggle('show', $sidebar.classList.contains('open'));
+    const open = $sidebar.classList.toggle('open');
+    $sidebarOverlay.classList.toggle('show', open);
   });
   $sidebarOverlay.addEventListener('click', closeSidebar);
 }
+
 function closeSidebar() {
   $sidebar.classList.remove('open');
   $sidebarOverlay.classList.remove('show');
 }
 
-// ── TOP-NAVIGATION BLOCKER ──
-(function() {
+// ── TOP-NAVIGATION BLOCKER ────────────────────────────────────────────────────
+(function () {
   const _open = window.open.bind(window);
   window.open = (url, target, f) => {
     if (target === '_blank' || target === '_top' || target === '_parent') return null;
     return _open(url, target, f);
   };
   window.addEventListener('beforeunload', e => {
-    if (currentChannel && (currentChannel.type||'').toLowerCase() === 'iframe') {
-      e.preventDefault(); e.returnValue = ''; return '';
+    if (currentChannel && (currentChannel.type || '').toLowerCase() === 'iframe') {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
     }
   });
   window.addEventListener('message', e => {
-    if (e.data && typeof e.data === 'object' && (e.data.type === 'navigate' || e.data.href || e.data.redirect))
+    if (e.data && typeof e.data === 'object' &&
+        (e.data.type === 'navigate' || e.data.href || e.data.redirect))
       e.stopImmediatePropagation();
   }, true);
 })();

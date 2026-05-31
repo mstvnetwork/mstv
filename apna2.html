@@ -1,0 +1,916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Apna TV 24/7 - Cinema Mode</title>
+
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+
+#main-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', sans-serif;
+    background: radial-gradient(circle at top, #111, #000);
+    color: #fff;
+    min-height: 100vh;
+}
+
+body { margin: 0; background: #000; }
+
+header {
+    text-align: center;
+    margin: 24px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+}
+
+header .brand-name {
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 1px;
+    background: linear-gradient(90deg, #ff2d55, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 18px rgba(255,45,85,0.45));
+    line-height: 1.1;
+}
+
+header .brand-sub {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    margin-top: 3px;
+}
+
+header .brand-divider {
+    margin-top: 10px;
+    width: 120px;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #ff2d55, #ff8c00, transparent);
+    opacity: 0.75;
+}
+
+.player-wrapper {
+    width: 100%;
+    max-width: 1200px;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 40px rgba(255,0,0,0.25);
+    margin: 15px;
+    position: relative;
+}
+
+iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+    display: block;
+}
+
+/* ── Channel Logo Overlay ── */
+#channel-logo {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    pointer-events: none;
+    user-select: none;
+}
+
+#channel-logo .logo-name {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, #ff2d55, #ff8c00);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+    line-height: 1.15;
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,0.9));
+}
+
+#channel-logo .logo-sub {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 0.6rem;
+    font-weight: 500;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.75);
+    margin-top: 1px;
+    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.9));
+}
+
+#channel-logo::after {
+    content: '';
+    display: block;
+    height: 2px;
+    width: 100%;
+    margin-top: 4px;
+    background: linear-gradient(90deg, transparent, #ff2d55, #ff8c00);
+    border-radius: 2px;
+    opacity: 0.7;
+}
+
+#ticker {
+    position: absolute; 
+    bottom: 25px; 
+    left: 0;
+    width: 100%; 
+    overflow: hidden; 
+    white-space: nowrap;
+    z-index: 10000; 
+    padding: 1px 0;
+    background: rgba(0, 0, 0, 0.4);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#ticker .ticker-track {
+    display: inline-block;
+    white-space: nowrap;
+    will-change: transform;
+    color: #ff3b3b; 
+    font-family: sans-serif; 
+    font-size: 14px;
+}
+
+#ticker .ticker-track span {
+    display: inline-block;
+    padding-right: 100px;
+}
+
+@keyframes infiniteScrollMarquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.epg-section {
+    width: 100%;
+    max-width: 1200px;
+    padding: 0 15px 10px;
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.epg-card {
+    flex: 1;
+    min-width: 240px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.3s;
+}
+
+.epg-card.live {
+    border-color: #ff2d55;
+    box-shadow: 0 0 14px rgba(255,45,85,0.2);
+}
+
+.epg-logo {
+    width: 54px;
+    height: 54px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: #111;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 13px;
+    color: #ff2d55;
+    letter-spacing: 0.5px;
+    overflow: hidden;
+}
+
+.epg-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+}
+
+.epg-info { flex: 1; min-width: 0; }
+
+.epg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 20px;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.epg-badge.live {
+    background: rgba(255,45,85,0.15);
+    color: #ff2d55;
+    border: 1px solid rgba(255,45,85,0.3);
+}
+
+.epg-badge.next {
+    background: rgba(255,255,255,0.08);
+    color: #aaa;
+    border: 1px solid rgba(255,255,255,0.12);
+}
+
+.live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #ff2d55;
+    animation: blink 1.2s ease-in-out infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+.epg-title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 3px;
+}
+
+.epg-time { font-size: 0.8rem; color: #888; }
+.epg-time strong { color: #ddd; font-weight: 600; }
+
+.instructions {
+    max-width: 900px;
+    text-align:center;
+    font-size: 0.9rem;
+    color:#aaa;
+    margin: 6px 15px 20px;
+    line-height:1.5;
+}
+.instructions span { color:#ff3b3b; font-weight:600; }
+
+footer {
+    width: 100%;
+    padding: 40px 20px;
+    background: #0a0a0a;
+    border-top: 1px solid #222;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+.footer-container {
+    max-width: 1000px;
+    margin: 0 auto;
+    text-align: center;
+}
+
+.disclaimer-box {
+    padding: 20px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    margin-bottom: 30px;
+}
+
+.disclaimer-box p {
+    font-size: 0.85rem;
+    color: #888;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.disclaimer-box strong {
+    color: #bbb;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 0.75rem;
+}
+
+.disclaimer-box span { color: #ddd; }
+
+.footer-divider {
+    border: 0;
+    border-top: 1px solid #222;
+    margin-bottom: 25px;
+    width: 50%;
+}
+
+.footer-bottom p {
+    font-size: 0.8rem;
+    color: #555;
+    letter-spacing: 0.3px;
+}
+
+.footer-bottom span {
+    color: #999;
+    font-weight: 600;
+}
+
+.social-links {
+    margin-bottom: 25px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.social-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+    color: #888;
+    text-decoration: none;
+    font-size: 1.2rem;
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.social-icon:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(255, 255, 255, 0.1);
+}
+
+@media(max-width:600px){
+    header .brand-name { font-size: 2rem; }
+    header .brand-sub  { font-size: 0.62rem; letter-spacing: 3px; }
+    .epg-section { gap: 10px; }
+    .epg-card { min-width: 100%; }
+    #channel-logo .logo-name { font-size: 0.95rem; }
+    #channel-logo .logo-sub  { font-size: 0.52rem; }
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════ MAIN CONTENT — All Browsers ══════════════ -->
+<div id="main-content">
+
+<header>
+    <div class="brand-name">Apna Tv</div>
+    <div class="brand-sub">Ghar Jaisa</div>
+    <div class="brand-divider"></div>
+</header>
+
+<div class="player-wrapper" id="mainWrapper">
+
+    <!-- Channel Logo Overlay -->
+    <div id="channel-logo">
+        <div class="logo-name">Apna Tv</div>
+        <div class="logo-sub">Ghar Jaisa</div>
+    </div>
+
+    <!-- Ticker -->
+    <div id="ticker"><span>Loading EPG.....</span></div>
+
+    <!-- Snap-back shield: covers iframe to block pointer interactions on the video bar -->
+    <div id="seekShield" style="
+        position:absolute;
+        bottom:0;left:0;right:0;
+        height:60px;
+        z-index:9999;
+        background:transparent;
+        pointer-events:auto;
+        -webkit-tap-highlight-color:transparent;
+    "></div>
+
+    <iframe
+        id="videoPlayer"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
+        playsinline
+        webkit-playsinline
+        allowfullscreen
+    ></iframe>
+</div>
+
+<div class="epg-section" id="epgSection">
+    <div class="epg-card live" id="cardNow">
+        <div class="epg-logo" id="logoNow">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge live"><div class="live-dot"></div> Live now</div>
+            <div class="epg-title" id="titleNow">Loading…</div>
+            <div class="epg-time">Finishing At <strong id="timeNow">--:--</strong></div>
+        </div>
+    </div>
+    <div class="epg-card" id="cardNext">
+        <div class="epg-logo" id="logoNext">TV</div>
+        <div class="epg-info">
+            <div class="epg-badge next">Coming Up Next</div>
+            <div class="epg-title" id="titleNext">Loading…</div>
+            <div class="epg-time">Starts At <strong id="timeNext">--:--</strong></div>
+        </div>
+    </div>
+</div>
+
+<div class="instructions">
+    <p><span>Note:</span> Do not refresh the webpage unless video does not play.</p>
+    <p>If refreshed accidentally, the video may restart from beginning until next program starts.</p>
+</div>
+
+<footer id="footer">
+    <div class="disclaimer-box">
+        <p>
+            <strong>Disclaimer &amp; Copyright:</strong> Apna Tv Network does not host, provide, or store any media content on its own servers. 
+            We provide a curated directory of <span>publicly available streams</span> found on the internet. 
+        </p>
+    </div>
+    <div class="footer-container">
+        <div class="social-links">
+            <a href="#" class="social-icon" aria-label="Facebook"><i class="fab fa-facebook-f"></i></a>
+            <a href="#" class="social-icon" aria-label="Twitter"><i class="fab fa-twitter"></i></a>
+            <a href="#" class="social-icon" aria-label="Instagram"><i class="fab fa-instagram"></i></a>
+            <a href="#" class="social-icon" aria-label="YouTube"><i class="fab fa-youtube"></i></a>
+            <a href="#" class="social-icon" aria-label="Telegram"><i class="fab fa-telegram-plane"></i></a>
+        </div>
+        <hr class="footer-divider">
+        <div class="footer-bottom">
+            <p>© 2026 <span>Apna Tv Network</span>. All Rights Reserved.</p>
+        </div>
+    </div>
+</footer>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+</div><!-- /main-content -->
+
+<script>
+/* ═══════════════════════════════════════════════════════════════
+   AGGRESSIVE UNIVERSAL SNAP-BACK SYSTEM
+   Works on: Samsung Internet, Safari, Xiaomi, Firefox, Opera,
+             UC Browser, Brave, Chrome — any browser.
+   Strategy:
+     1. Re-load iframe src instantly if src ever changes
+     2. Intercept all pointer/touch on the seek-bar region
+     3. Message listener blocks postMessage seeks from iframe
+     4. MutationObserver watches iframe src attribute
+     5. Polling watchdog reloads if src drifts
+     6. Visibility change re-enforces correct src on tab resume
+     7. setInterval hard-enforce every 500 ms
+═══════════════════════════════════════════════════════════════ */
+(function() {
+    'use strict';
+
+    /* ── Canonical source truth ── */
+    let _canonicalSrc = '';          // set by EPG logic
+    let _snapLocked   = false;       // brief lock during src resets
+
+    const iframe  = document.getElementById('videoPlayer');
+    const shield  = document.getElementById('seekShield');
+    const wrapper = document.getElementById('mainWrapper');
+
+    /* ────────────────────────────────────────────
+       UTILITY: force iframe back to canonical src
+    ──────────────────────────────────────────── */
+    function snapBack(reason) {
+        if (_snapLocked || !_canonicalSrc) return;
+        if (iframe.src === _canonicalSrc) return;
+
+        _snapLocked = true;
+        console.warn('[SnapBack] Restoring src. Reason:', reason);
+
+        // Blank first (forces full reload — critical for Samsung/Safari)
+        iframe.src = 'about:blank';
+
+        // Use both setTimeout AND requestAnimationFrame for max compat
+        var restore = function() {
+            iframe.src = _canonicalSrc;
+            _snapLocked = false;
+        };
+
+        if (window.requestAnimationFrame) {
+            requestAnimationFrame(function() { setTimeout(restore, 0); });
+        } else {
+            setTimeout(restore, 50);
+        }
+    }
+
+    /* ────────────────────────────────────────────
+       EXPOSE setSrc for EPG logic to call
+       All src changes MUST go through this.
+    ──────────────────────────────────────────── */
+    window.__setPlayerSrc = function(url) {
+        if (!url) {
+            _canonicalSrc = '';
+            iframe.src = '';
+            return;
+        }
+        if (url === _canonicalSrc) return;
+        _canonicalSrc = url;
+        _snapLocked = true;
+        iframe.src = 'about:blank';
+        var restore = function() {
+            iframe.src = _canonicalSrc;
+            _snapLocked = false;
+        };
+        if (window.requestAnimationFrame) {
+            requestAnimationFrame(function() { setTimeout(restore, 0); });
+        } else {
+            setTimeout(restore, 50);
+        }
+    };
+
+    /* ────────────────────────────────────────────
+       1. MutationObserver — catches ANY src change
+          (most reliable for Samsung, Xiaomi WebView)
+    ──────────────────────────────────────────── */
+    if (window.MutationObserver) {
+        var obs = new MutationObserver(function(mutations) {
+            mutations.forEach(function(m) {
+                if (m.type === 'attributes' && m.attributeName === 'src') {
+                    // Only snap if we didn't set it ourselves
+                    if (!_snapLocked) {
+                        snapBack('MutationObserver src change');
+                    }
+                }
+            });
+        });
+        obs.observe(iframe, { attributes: true, attributeFilter: ['src'] });
+    }
+
+    /* ────────────────────────────────────────────
+       2. Hard-polling watchdog every 500 ms
+          Catches drift in any browser
+    ──────────────────────────────────────────── */
+    setInterval(function() {
+        if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
+            snapBack('polling watchdog');
+        }
+    }, 500);
+
+    /* ────────────────────────────────────────────
+       3. Touch / pointer shield on seek-bar region
+          Blocks taps on bottom 60px of player
+          Critical for Samsung Internet & Safari touch
+    ──────────────────────────────────────────── */
+    function blockEvent(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return false;
+    }
+
+    var shieldEvents = [
+        'touchstart','touchend','touchmove',
+        'mousedown','mouseup','click',
+        'pointerdown','pointerup','pointermove'
+    ];
+    shieldEvents.forEach(function(ev) {
+        shield.addEventListener(ev, blockEvent, { passive: false, capture: true });
+    });
+
+    /* ────────────────────────────────────────────
+       4. Full-wrapper touch guard
+          Prevents long-press / double-tap seek
+          on all mobile browsers (Samsung, Xiaomi, Safari)
+    ──────────────────────────────────────────── */
+    var lastTap = 0;
+    wrapper.addEventListener('touchend', function(e) {
+        var now = Date.now();
+        if (now - lastTap < 400) {
+            // Double-tap detected — block it
+            e.preventDefault();
+            e.stopPropagation();
+        }
+        lastTap = now;
+    }, { passive: false, capture: true });
+
+    // Block context menu (long-press on Android)
+    wrapper.addEventListener('contextmenu', blockEvent, { capture: true });
+
+    /* ────────────────────────────────────────────
+       5. postMessage listener
+          Some browsers relay seek commands via postMessage
+    ──────────────────────────────────────────── */
+    window.addEventListener('message', function(e) {
+        try {
+            var data = e.data;
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch(_) {}
+            }
+            if (data && typeof data === 'object') {
+                var isSeek = (
+                    data.event === 'seeking' ||
+                    data.event === 'seek' ||
+                    data.method === 'seekTo' ||
+                    data.func  === 'seekTo' ||
+                    (data.info && data.info.currentTime !== undefined)
+                );
+                if (isSeek) {
+                    snapBack('postMessage seek intercepted');
+                }
+            }
+        } catch(_) {}
+    }, { capture: true });
+
+    /* ────────────────────────────────────────────
+       6. Visibility change — re-enforce on tab resume
+          Safari & Samsung often seek on background/resume
+    ──────────────────────────────────────────── */
+    document.addEventListener('visibilitychange', function() {
+        if (!document.hidden) {
+            setTimeout(function() {
+                if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
+                    snapBack('visibility resume');
+                }
+            }, 300);
+        }
+    });
+
+    /* ────────────────────────────────────────────
+       7. Page focus re-enforce
+          Handles alt-tab, app switcher returns (iOS/Android)
+    ──────────────────────────────────────────── */
+    window.addEventListener('focus', function() {
+        setTimeout(function() {
+            if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
+                snapBack('window focus');
+            }
+        }, 300);
+    });
+
+    /* ────────────────────────────────────────────
+       8. iframe load event — detect unexpected reloads
+    ──────────────────────────────────────────── */
+    iframe.addEventListener('load', function() {
+        if (!_snapLocked && _canonicalSrc) {
+            // Small grace period then verify
+            setTimeout(function() {
+                if (iframe.src !== _canonicalSrc) {
+                    snapBack('iframe load mismatch');
+                }
+            }, 800);
+        }
+    });
+
+    /* ────────────────────────────────────────────
+       9. Samsung/Xiaomi: Disable user-select &
+          drag on the wrapper to prevent seek drags
+    ──────────────────────────────────────────── */
+    wrapper.style.userSelect        = 'none';
+    wrapper.style.webkitUserSelect  = 'none';
+    wrapper.style.msUserSelect      = 'none';
+    wrapper.style.webkitTouchCallout = 'none';
+
+    /* Disable drag */
+    wrapper.addEventListener('dragstart', blockEvent, { capture: true });
+    wrapper.addEventListener('selectstart', blockEvent, { capture: true });
+
+})();
+
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAYER + EPG + TICKER LOGIC
+═══════════════════════════════════════════════════════════════ */
+(function initPlayer() {
+    const EPG_URL   = "epg.json";
+    const SSE_URL   = "epg-stream";
+    const POLL_MS   = 3000;
+
+    const ticker      = document.getElementById("ticker");
+    const titleNow    = document.getElementById("titleNow");
+    const timeNow     = document.getElementById("timeNow");
+    const logoNow     = document.getElementById("logoNow");
+    const titleNext   = document.getElementById("titleNext");
+    const timeNext    = document.getElementById("timeNext");
+    const logoNext    = document.getElementById("logoNext");
+
+    let globalEpgData = null;
+    let lastUrl       = null;
+
+    /* ── Ticker ── */
+    let currentTickerText = null;
+
+    function setTickerText(text) {
+        if (text === currentTickerText) return;
+        currentTickerText = text;
+
+        let track = ticker.querySelector(".ticker-track");
+        if (!track) {
+            track = document.createElement("div");
+            track.className = "ticker-track";
+            const span1 = document.createElement("span");
+            const span2 = document.createElement("span");
+            track.appendChild(span1);
+            track.appendChild(span2);
+            ticker.innerHTML = "";
+            ticker.appendChild(track);
+        }
+
+        const spans = track.querySelectorAll("span");
+        spans[0].textContent = text;
+        spans[1].textContent = text;
+
+        const charWidth  = 8.4;
+        const totalWidth = text.length * charWidth + 100;
+        const duration   = Math.max(10, totalWidth / 80);
+
+        track.style.animation = "none";
+        track.offsetWidth;
+        track.style.animation = `infiniteScrollMarquee ${duration}s linear infinite`;
+    }
+
+    function buildTickerText(data, current, next) {
+        const parts = [];
+        if (data.tickerMessage && data.tickerMessage.trim()) {
+            parts.push(data.tickerMessage.trim());
+        }
+        if (current) {
+            const label = current.tickerLabel || current.title || "Live Programme";
+            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
+        } else {
+            parts.push(`⚪ Station Off-Air`);
+        }
+        if (next && next !== current) {
+            const label = next.tickerLabel || next.title || "Next Show";
+            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
+        }
+        if (data.schedule && Array.isArray(data.schedule)) {
+            const nowSec   = getCurrentISTSeconds();
+            const upcoming = data.schedule.filter(item => {
+                if (item === current || item === next) return false;
+                return getSecondsFromTimeString(item.start) > nowSec;
+            }).slice(0, 5);
+            upcoming.forEach(item => {
+                const label = item.tickerLabel || item.title || "Show";
+                parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
+            });
+        }
+        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
+    }
+
+    /* ── Time helpers ── */
+    function getSecondsFromTimeString(timeStr) {
+        if (!timeStr) return 0;
+        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+        return (parseInt(parts[0]||0,10)*3600) + (parseInt(parts[1]||0,10)*60) + (parseInt(parts[2]||0,10));
+    }
+    function getCurrentISTSeconds() {
+        const istStr = new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
+        return getSecondsFromTimeString(istStr);
+    }
+    function formatTimeSimple(timeStr) {
+        if (!timeStr) return "00:00";
+        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
+        if (parts.length >= 2)
+            return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
+        return "00:00";
+    }
+    function setLogo(el, logoSrc, fallbackText) {
+        if (logoSrc) {
+            el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
+        } else {
+            el.textContent = fallbackText || "TV";
+        }
+    }
+
+    /* ── Core Schedule Calculation & UI Update ── */
+    function processActiveSchedule() {
+        if (!globalEpgData) return;
+
+        const schedule = globalEpgData.schedule;
+        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
+
+        const nowSec = getCurrentISTSeconds();
+        let current = null, next = null;
+
+        for (let i = 0; i < schedule.length; i++) {
+            const startSec = getSecondsFromTimeString(schedule[i].start);
+            const endSec   = getSecondsFromTimeString(schedule[i].end);
+            let isCurrent  = false;
+            if (endSec < startSec) {
+                if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
+            } else {
+                if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
+            }
+            if (isCurrent) {
+                current = schedule[i];
+                next    = schedule[i + 1] || null;
+                break;
+            }
+        }
+
+        /* ── Update player via snap-back safe setter ── */
+        if (current && current.url) {
+            if (current.url !== lastUrl) {
+                // Always use the safe setter — never set iframe.src directly
+                window.__setPlayerSrc(current.url);
+                lastUrl = current.url;
+            }
+        } else {
+            if (lastUrl !== "") {
+                window.__setPlayerSrc('');
+                lastUrl = "";
+            }
+        }
+
+        /* ── UI Text panels ── */
+        if (current) {
+            titleNow.textContent = current.title || "Programme";
+            timeNow.textContent  = formatTimeSimple(current.end);
+            setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
+        } else {
+            titleNow.textContent = "Off Air";
+            timeNow.textContent  = "--:--";
+            setLogo(logoNow, "", "OFF");
+        }
+
+        if (next) {
+            titleNext.textContent = next.title || "Next Show";
+            timeNext.textContent  = formatTimeSimple(next.start);
+            setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
+        } else {
+            titleNext.textContent = "End of Schedule";
+            timeNext.textContent  = "--:--";
+            setLogo(logoNext, "", "END");
+        }
+
+        setTickerText(buildTickerText(globalEpgData, current, next));
+    }
+
+    /* ── Fetch EPG ── */
+    async function fetchAndRender() {
+        try {
+            const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
+            if (!res.ok) throw new Error("epg.json not found");
+            globalEpgData = await res.json();
+            processActiveSchedule();
+        } catch (err) {
+            console.error("EPG fetch error:", err);
+            titleNow.textContent  = "Connecting…";
+            titleNext.textContent = "Connecting…";
+            setTickerText("Loading EPG.....");
+        }
+    }
+
+    /* ── SSE ── */
+    function startSSE() {
+        if (!window.EventSource) return false;
+        const es = new EventSource(SSE_URL);
+        let connected = false;
+
+        es.onopen = () => { connected = true; };
+
+        es.addEventListener("epg", e => {
+            try { globalEpgData = JSON.parse(e.data); processActiveSchedule(); }
+            catch(err) { console.warn("SSE parse error:", err); }
+        });
+
+        es.onmessage = e => {
+            try { globalEpgData = JSON.parse(e.data); processActiveSchedule(); }
+            catch(err) { console.warn("SSE message parse error:", err); }
+        };
+
+        es.onerror = () => {
+            if (!connected) { es.close(); startPolling(); }
+        };
+
+        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
+        return true;
+    }
+
+    /* ── Polling fallback ── */
+    function startPolling() {
+        console.log("SSE not available — using polling fallback");
+        fetchAndRender();
+        setInterval(fetchAndRender, POLL_MS);
+    }
+
+    /* ── Boot ── */
+    fetchAndRender();
+    startSSE();
+    setInterval(processActiveSchedule, 1000);
+})();
+</script>
+</body>
+                                                                     </html>

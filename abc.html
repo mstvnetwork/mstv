@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Linear HLS Player Fix</title>
+    <style>
+        body { margin: 0; background: #111; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; font-family: sans-serif; color: #fff; }
+        .video-container { width: 100%; max-width: 800px; padding: 20px; box-sizing: border-box; }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 8px; }
+        .now-playing { margin-top: 15px; text-align: center; font-size: 1.2rem; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+</head>
+<body>
+
+<div class="video-container">
+    <video id="linear-video" controls playsinline muted autoplay></video>
+    <div class="now-playing">
+        <span id="show-title">Loading Schedule...</span>
+    </div>
+</div>
+
+<script>
+    // Schedule explicitly timed for your current late-night slot in Victoria
+    const jsonSchedule = {
+      "schedule": [
+        {
+          "title": "Anupama",
+          "start": "01:18:00",
+          "end": "01:19:00",
+          "url": "https://hlsplayers.pages.dev/player2?url=https://s2.videoapne.to/hls/,bdohws7v7bboxuzvta2p4g2ws2khimvq24xbpns7osntfggpd74dnpjxuvna,.urlset/master.m3u8",
+
+        },
+        {
+          "title": "The Great Indian Kapil Show",
+          "start": "01:19:00",
+          "end": "01:25:00",
+          "url": "https://hlsplayers.pages.dev/player2?url=https://si.videoapne.to/hls/,bdohws6n7bboxuzvta2p4hct3roxtnt3veh2nxklit5prwibjscxjipymnfa,.urlset/master.m3u8"
+        }
+      ]
+    };
+    
+
+
+
+    
+
+    const video = document.getElementById('linear-video');
+    const titleEl = document.getElementById('show-title');
+    
+    let currentActiveUrl = "";
+    let hls = null;
+
+    function extractM3u8(wrapperUrl) {
+        try {
+            const urlObj = new URL(wrapperUrl);
+            let rawUrl = urlObj.searchParams.get('url');
+            
+            if (rawUrl) {
+                return decodeURIComponent(rawUrl).trim();
+            }
+            return wrapperUrl; 
+        } catch (e) {
+            return wrapperUrl; 
+        }
+    }
+
+    function timeToSeconds(timeStr) {
+        const parts = timeStr.split(':');
+        return (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
+    }
+
+    function checkSchedule() {
+        const now = new Date();
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const seconds = String(now.getSeconds()).padStart(2, '0');
+        const currentTimeStr = `${hours}:${minutes}:${seconds}`;
+        
+        const currentSeconds = timeToSeconds(currentTimeStr);
+
+        const activeSlot = jsonSchedule.schedule.find(slot => {
+            const startSec = timeToSeconds(slot.start);
+            const endSec = timeToSeconds(slot.end);
+            return currentSeconds >= startSec && currentSeconds < endSec;
+        });
+
+        if (activeSlot) {
+            const targetStream = extractM3u8(activeSlot.url);
+
+            if (currentActiveUrl !== targetStream) {
+                currentActiveUrl = targetStream;
+                titleEl.textContent = `Now Playing: ${activeSlot.title}`;
+                loadHlsStream(targetStream);
+            }
+        } else {
+            titleEl.textContent = "Off Air - No Scheduled Program";
+            if (hls) { hls.destroy(); currentActiveUrl = ""; }
+        }
+    }
+
+    function loadHlsStream(streamUrl) {
+        if (hls) {
+            hls.destroy(); 
+        }
+
+        if (!streamUrl || typeof streamUrl !== 'string') {
+            console.error("Invalid stream URL generated:", streamUrl);
+            return;
+        }
+
+        if (Hls.isSupported()) {
+            hls = new Hls({
+                liveDurationInfinity: true, 
+                maxLiveSyncPlaybackRate: 1
+            });
+            hls.loadSource(streamUrl);
+            hls.attachMediaElement(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(() => console.log("Tap screen to unmute audio."));
+            });
+            
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    console.warn("HLS Encountered a stream load error:", data.type);
+                }
+            });
+        } 
+        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = streamUrl;
+            video.play();
+        }
+    }
+
+    checkSchedule();
+    setInterval(checkSchedule, 2000);
+</script>
+
+</body>
+</html>
+
+
+        

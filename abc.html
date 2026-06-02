@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Canvas Video Player Test</title>
+    <title>Secure HLS Player Test</title>
     <style>
         body {
             background-color: #121212;
@@ -17,104 +17,66 @@
             margin: 0;
             padding: 20px;
         }
-        .container {
-            text-align: center;
-            max-width: 640px;
-            width: 100%;
-        }
-        /* Style the canvas like a sleek video player */
-        #video-canvas {
+        .container { text-align: center; max-width: 640px; width: 100%; }
+        video {
             width: 100%;
             aspect-ratio: 16 / 9;
             background-color: #000000;
             border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
         }
-        .controls {
-            margin-top: 15px;
-        }
-        button {
-            background-color: #3182ce;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            font-size: 16px;
-            border-radius: 5px;
-            cursor: pointer;
-            margin: 0 5px;
-        }
-        button:hover {
-            background-color: #2b6cb0;
-        }
-        .status {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #a0aec0;
-        }
+        .status { margin-top: 10px; font-size: 14px; color: #a0aec0; }
     </style>
-    <!-- Include the JSMpeg library via CDN -->
-    <script src="https://cloudflare.com"></script>
+    <!-- Include HLSJS Engine which intercepts stream fragments into Blob RAM -->
+    <script src="https://jsdelivr.net"></script>
 </head>
 <body>
 
 <div class="container">
-    <h2>Canvas Video Stream Test</h2>
-    <p>Mobile browsers (like Samsung Internet) cannot hijack this because there is no video tag.</p>
+    <h2>Secure HLS Client Test</h2>
+    <p>Using HLS.js to isolate streams into non-hijackable local Blob URLs.</p>
     
-    <!-- This is the rendering layer. No HTML5 video element is used. -->
-    <canvas id="video-canvas"></canvas>
-
-    <div class="controls">
-        <button id="play-btn">Play</button>
-        <button id="pause-btn">Pause</button>
-    </div>
+    <!-- Standard video tag, but restricted to prevent native UI takeovers -->
+    <video id="video-player" controls controlslist="nodownload noremoteplayback" playsinline></video>
     
-    <div class="status" id="status-text">Status: Initialising...</div>
+    <div class="status" id="status-text">Status: Initialising Engine...</div>
 </div>
 
 <script>
-    // 1. Target the canvas element
-    const canvas = document.getElementById('video-canvas');
+    const video = document.getElementById('video-player');
     const statusText = document.getElementById('status-text');
 
-    // 2. Define your third-party external stream link
-    // Note: The file MUST be an MPEG-TS format video (.ts).
-    // This is a sample public stream used for testing JSMpeg.
-    const thirdPartyStreamUrl = 'https://hlsplayers.pages.dev/player2?url=https://s2.videoapne.to/hls/,bdohws7v7bboxuzvta2p4g2ws2khimvq24xbpns7osntfggpd74dnpjxuvna,.urlset/master.m3u8
-';
+    // EXCLUSIVELY use the direct .m3u8 stream endpoint.
+    // Strip the external "hlsplayers.pages.dev" wrapper so the engine gets raw data.
+    const thirdPartyStreamUrl = 'https://hlsplayers.pages.dev/player2?url=https://s2.videoapne.to/hls/,bdohws7v7bboxuzvta2p4g2ws2khimvq24xbpns7osntfggpd74dnpjxuvna,.urlset/master.m3u8';
 
-    try {
-        statusText.innerText = 'Status: Fetching stream into memory...';
 
-        // 3. Initialise the JSMpeg player configuration
-        const player = new JSMpeg.Player(thirdPartyStreamUrl, {
-            canvas: canvas,
-            autoplay: false, // Mobile browsers require user interaction for audio
-            loop: true,
-            preserveDrawingBuffer: true,
-            onSourceEstablished: () => {
-                statusText.innerText = 'Status: Connected to third-party stream!';
-            },
-            onPlay: () => {
-                statusText.innerText = 'Status: Playing (Canvas active)';
-            },
-            onPause: () => {
-                statusText.innerText = 'Status: Paused';
+    if (Hls.isSupported()) {
+        const hls = new Hls({
+            // Force fragments to process exclusively through JS fetch buffers
+            maxBufferLength: 10,
+            enableWorker: true
+        });
+
+        statusText.innerText = 'Status: Loading manifest...';
+        hls.loadSource(rawHlsUrl);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            statusText.innerText = 'Status: Stream ready! Playback secured.';
+        });
+
+        hls.on(Hls.Events.ERROR, function(event, data) {
+            if (data.details === 'manifestLoadOnError') {
+                statusText.innerText = 'Status Error: CORS Blocked by provider server.';
+            } else {
+                statusText.innerText = 'Playback Error: ' + data.details;
             }
         });
-
-        // 4. Hook up your custom UI controls to the JSMpeg instance API
-        document.getElementById('play-btn').addEventListener('click', () => {
-            player.play();
-        });
-
-        document.getElementById('pause-btn').addEventListener('click', () => {
-            player.pause();
-        });
-
-    } catch (error) {
-        statusText.innerText = 'Error loading player: ' + error.message;
-        console.error(error);
+    } 
+    // Fallback context for native engine architectures (iOS Safari)
+    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = rawHlsUrl;
+        statusText.innerText = 'Status: Relying on Native fallback routing.';
     }
 </script>
 

@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure HLS Player Test</title>
+    <title>Secure Wrapper Sandbox Test</title>
     <style>
         body {
-            background-color: #121212;
+            background-color: #0c0c0c;
             color: #ffffff;
             font-family: Arial, sans-serif;
             display: flex;
@@ -17,67 +17,81 @@
             margin: 0;
             padding: 20px;
         }
-        .container { text-align: center; max-width: 640px; width: 100%; }
-        video {
+        .player-container {
+            position: relative;
             width: 100%;
+            max-width: 720px;
             aspect-ratio: 16 / 9;
-            background-color: #000000;
-            border-radius: 8px;
+            background-color: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
         }
-        .status { margin-top: 10px; font-size: 14px; color: #a0aec0; }
+        /* Style the iframe to fit perfectly inside the container */
+        #secure-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        /* Shield overlay: intercepts direct interactions to stop native touch holds */
+        .interaction-shield {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50px; /* Shields the top zone where title/share menus spawn */
+            z-index: 10;
+            background: transparent;
+        }
+        .instructions {
+            margin-top: 20px;
+            color: #888;
+            font-size: 14px;
+            text-align: center;
+        }
     </style>
-    <!-- Include HLSJS Engine which intercepts stream fragments into Blob RAM -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
 </head>
 <body>
 
-<div class="container">
-    <h2>Secure HLS Client Test</h2>
-    <p>Using HLS.js to isolate streams into non-hijackable local Blob URLs.</p>
-    
-    <!-- Standard video tag, but restricted to prevent native UI takeovers -->
-    <video id="video-player" controls controlslist="nodownload noremoteplayback" playsinline></video>
-    
-    <div class="status" id="status-text">Status: Initialising Engine...</div>
+<div class="player-container">
+    <!-- Transparent protective barrier -->
+    <div class="interaction-shield"></div>
+
+    <!-- 
+      The Sandbox Attribute is critical:
+      - allow-scripts: Lets the Cloudflare wrapper player load and run its JavaScript
+      - allow-same-origin: Allows the embedded video player to fetch its required manifest tokens
+      - NO "allow-top-navigation" or popups: Keeps the browser engine locked to your container UI
+    -->
+    <iframe 
+        id="secure-frame"
+        sandbox="allow-scripts allow-same-origin allow-forms"
+        allow="autoplay; encrypted-media; picture-in-picture"
+        allowfullscreen>
+    </iframe>
+</div>
+
+<div class="instructions">
+    <p>Testing Sandboxed External Wrapper Stream</p>
+    <div id="debug-status">Status: Preparing secure container...</div>
 </div>
 
 <script>
-    const video = document.getElementById('video-player');
-    const statusText = document.getElementById('status-text');
+    document.addEventListener("DOMContentLoaded", () => {
+        const iframe = document.getElementById('secure-frame');
+        const status = document.getElementById('debug-status');
 
-    // EXCLUSIVELY use the direct .m3u8 stream endpoint.
-    // Strip the external "hlsplayers.pages.dev" wrapper so the engine gets raw data.
-    const thirdPartyStreamUrl = 'https://hlsplayers.pages.dev/player2?url=https://s2.videoapne.to/hls/,bdohws7v7bboxuzvta2p4g2ws2khimvq24xbpns7osntfggpd74dnpjxuvna,.urlset/master.m3u8';
-
-
-    if (Hls.isSupported()) {
-        const hls = new Hls({
-            // Force fragments to process exclusively through JS fetch buffers
-            maxBufferLength: 10,
-            enableWorker: true
-        });
-
-        statusText.innerText = 'Status: Loading manifest...';
-        hls.loadSource(rawHlsUrl);
-        hls.attachMedia(video);
-
-        hls.on(Hls.Events.MANIFEST_PARSED, function() {
-            statusText.innerText = 'Status: Stream ready! Playback secured.';
-        });
-
-        hls.on(Hls.Events.ERROR, function(event, data) {
-            if (data.details === 'manifestLoadOnError') {
-                statusText.innerText = 'Status Error: CORS Blocked by provider server.';
-            } else {
-                statusText.innerText = 'Playback Error: ' + data.details;
-            }
-        });
-    } 
-    // Fallback context for native engine architectures (iOS Safari)
-    else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        video.src = rawHlsUrl;
-        statusText.innerText = 'Status: Relying on Native fallback routing.';
-    }
+        // Construct the full URL precisely without illegal line breaks
+        const targetUrl = "https://hlsplayers.pages.dev/player2?url=https://s2.videoapne.to/hls/,bdohws7v7bboxuzvta2p4g2ws2khimvq24xbpns7osntfggpd74dnpjxuvna,.urlset/master.m3u8";
+        
+        try {
+            // Assign target straight to frame window
+            iframe.src = targetUrl;
+            status.innerText = "Status: Sandboxed environment initialized successfully.";
+        } catch (err) {
+            status.innerText = "Execution error: " + err.message;
+        }
+    });
 </script>
 
 </body>

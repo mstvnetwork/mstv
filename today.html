@@ -3,11 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Looping IST TV Station</title>
+    <title>24/7 Live TV Station (IST Switcher)</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.1.4/dist/hls.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plyr@3.6.12/dist/plyr.min.js"></script>
-   
-    
     <style>
         body { margin: 0; background-color: #000; color: #fff; font-family: Arial, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; }
         .video-container { position: relative; width: 80%; max-width: 800px; aspect-ratio: 16 / 9; background: #111; }
@@ -19,25 +17,21 @@
 <body>
 
 <div class="video-container">
-    <video id="live-player" playsinline muted></video>
+    <!-- No default controls ensures users cannot seek or skip -->
+    <video id="live-player" playsinline autoplay muted></video>
     <div class="status-overlay">
-        <span class="live-indicator"></span> LIVE LOOP (IST): <span id="stream-info">Loading...</span>
+        <span class="live-indicator"></span> LIVE (IST): <span id="stream-info">Connecting...</span>
     </div>
 </div>
 
 <script>
-    // Corrected schedule matching current India Time (approx 21:32 IST)
+    // AUTOMATIC IST TIME TEST
+    // Setting this slot to match the current time window right now
     const schedule = [
         {
-            title: "Midnight Madness Show",
+            title: "IndiaTV Aapki Adalat Live",
             url: "https://amg01550-indiatv-indiatv-aapkiadalat-mi-xiaomi-n5tuk.amagi.tv/playlist/amg01550-indiatv-indiatv-aapkiadalat-mi-xiaomi/playlist.m3u8",
             start: "21:00:00", 
-            end: "22:50:00"
-        },
-        {
-            title: "Late Night Backup Stream",
-            url: "https://mux.dev",
-            start: "22:50:00",
             end: "23:59:59"
         }
     ];
@@ -45,7 +39,6 @@
     const video = document.getElementById('live-player');
     const streamInfo = document.getElementById('stream-info');
     let currentStreamUrl = "";
-    let targetPlaybackPosition = 0;
     let hls = null;
 
     function timeStringToSeconds(timeStr) {
@@ -54,18 +47,19 @@
     }
 
     function syncPlayerToSchedule() {
-        // Double-check if library failed to load entirely
         if (typeof Hls === 'undefined') {
-            streamInfo.innerText = "Error: HLS Engine Failed to Load";
+            streamInfo.innerText = "Error: Player engine missing.";
             return;
         }
 
         const now = new Date();
         const istString = now.toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour12: false });
-        const timeParts = istString.split(', ');
-        if(!timeParts[1]) return;
         
-        const currentSecondsInDay = timeStringToSeconds(timeParts[1]);
+        // Handle various browser format differences safely
+        const timeMatch = istString.match(/\d{2}:\d{2}:\d{2}/);
+        if (!timeMatch) return;
+        
+        const currentSecondsInDay = timeStringToSeconds(timeMatch[0]);
         let activeVideo = null;
 
         for (let item of schedule) {
@@ -74,69 +68,57 @@
 
             if (currentSecondsInDay >= startSec && currentSecondsInDay < endSec) {
                 activeVideo = item;
-                targetPlaybackPosition = currentSecondsInDay - startSec;
                 break;
             }
         }
 
         if (!activeVideo) {
-            streamInfo.innerText = "Intermission";
+            streamInfo.innerText = "Station Offline";
             video.pause();
             return;
         }
 
         streamInfo.innerText = activeVideo.title;
 
+        // Only switch the channel source if the scheduled slot changes
         if (currentStreamUrl !== activeVideo.url) {
             currentStreamUrl = activeVideo.url;
-            loadStream(currentStreamUrl);
-        } else {
-            if (Math.abs(video.currentTime - targetPlaybackPosition) > 2) {
-                video.currentTime = targetPlaybackPosition;
-            }
+            loadLiveStream(currentStreamUrl);
         }
     }
 
-    function loadStream(url) {
+    function loadLiveStream(url) {
         if (Hls.isSupported()) {
             if (hls) hls.destroy();
             
-            hls = new Hls({ maxMaxBufferLength: 10 });
+            hls = new Hls({
+                liveDurationInfinity: true, // Forces player to treat this as an endless live stream
+                manifestLoadingMaxRetry: 5
+            });
             hls.loadSource(url);
             hls.attachMedia(video);
             
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.currentTime = targetPlaybackPosition;
-                video.play().catch(err => console.log("Click the screen to unmute audio."));
-            });
-            
-            // Log networking errors to console to verify geo-blocks
-            hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    console.log("HLS Error Encountered:", data.type);
-                }
+                video.play().catch(() => {
+                    console.log("Autoplay muted. Awaiting click.");
+                });
             });
         } 
         else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
-            video.addEventListener('loadedmetadata', function() {
-                video.currentTime = targetPlaybackPosition;
-                video.play().catch(err => console.log("Click the screen to unmute audio."));
-            });
+            video.play().catch(() => {});
         }
     }
 
-    video.addEventListener('seeking', () => {
-        if (Math.abs(video.currentTime - targetPlaybackPosition) > 1.5) {
-            video.currentTime = targetPlaybackPosition;
+    // Unmute player cleanly on the first viewer tap
+    document.body.addEventListener('click', () => {
+        if (video.muted) {
+            video.muted = false;
         }
     });
 
-    document.body.addEventListener('click', () => {
-        if (video.muted) video.muted = false;
-    });
-
-    setInterval(syncPlayerToSchedule, 1000);
+    // Check schedule match every 2 seconds
+    setInterval(syncPlayerToSchedule, 2000);
     syncPlayerToSchedule();
 </script>
 

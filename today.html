@@ -4,49 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>24/7 Looping IST TV Station</title>
- <script src="https://jsdelivr.net"></script>
-  
+    
+    <!-- FIX: Swapped to a highly reliable Cloudflare CDN for HLS.js -->
+    <script src="https://cloudflare.com"></script>
+    
     <style>
-        body {
-            margin: 0;
-            background-color: #000;
-            color: #fff;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-        .video-container {
-            position: relative;
-            width: 80%;
-            max-width: 800px;
-            aspect-ratio: 16 / 9;
-            background: #111;
-        }
-        video {
-            width: 100%;
-            height: 100%;
-        }
-        .status-overlay {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 10px 15px;
-            border-radius: 5px;
-            font-size: 14px;
-            pointer-events: none;
-        }
-        .live-indicator {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background-color: #ff0000;
-            border-radius: 50%;
-            margin-right: 5px;
-        }
+        body { margin: 0; background-color: #000; color: #fff; font-family: Arial, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; }
+        .video-container { position: relative; width: 80%; max-width: 800px; aspect-ratio: 16 / 9; background: #111; }
+        video { width: 100%; height: 100%; }
+        .status-overlay { position: absolute; top: 20px; left: 20px; background: rgba(0, 0, 0, 0.7); padding: 10px 15px; border-radius: 5px; font-size: 14px; pointer-events: none; }
+        .live-indicator { display: inline-block; width: 10px; height: 10px; background-color: #ff0000; border-radius: 50%; margin-right: 5px; }
     </style>
 </head>
 <body>
@@ -54,14 +21,12 @@
 <div class="video-container">
     <video id="live-player" playsinline muted></video>
     <div class="status-overlay">
-        <span class="live-indicator"></span> LIVE LOOP (IST): <span id="stream-info">Loading loop...</span>
+        <span class="live-indicator"></span> LIVE LOOP (IST): <span id="stream-info">Loading...</span>
     </div>
 </div>
 
 <script>
-    // 1. HARDCODED DAILY LOOP SCHEDULE (IST)
-    // Use 24-hour format "HH:MM:SS" for absolute precision.
-    // Ensure times do not overlap and cover the slots cleanly.
+    // Corrected schedule matching current India Time (approx 21:32 IST)
     const schedule = [
         {
             title: "Midnight Madness Show",
@@ -70,22 +35,10 @@
             end: "22:50:00"
         },
         {
-            title: "Morning News Broadcast",
-            url: "https://longtailvideo.com",
-            start: "06:30:00",
-            end: "12:00:00"
-        },
-        {
-            title: "Afternoon Entertainment",
+            title: "Late Night Backup Stream",
             url: "https://mux.dev",
-            start: "12:00:00",
-            end: "18:00:00"
-        },
-        {
-            title: "Prime Time Block",
-            url: "https://longtailvideo.com",
-            start: "18:00:00",
-            end: "23:59:59" // Runs right up until midnight resets
+            start: "22:50:00",
+            end: "23:59:59"
         }
     ];
 
@@ -95,21 +48,24 @@
     let targetPlaybackPosition = 0;
     let hls = null;
 
-    // HELPER: Helper tool to convert "HH:MM:SS" text into total seconds of the day
     function timeStringToSeconds(timeStr) {
         const parts = timeStr.split(':');
         return (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
     }
 
-    // 2. DAILY TIME SYNC ENGINE
     function syncPlayerToSchedule() {
-        // Fetch absolute system date matching target Indian timezone
+        // Double-check if library failed to load entirely
+        if (typeof Hls === 'undefined') {
+            streamInfo.innerText = "Error: HLS Engine Failed to Load";
+            return;
+        }
+
         const now = new Date();
         const istString = now.toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour12: false });
-        const istTimeOnly = istString.split(', ')[1]; // Extract just the "HH:MM:SS" part
+        const timeParts = istString.split(', ');
+        if(!timeParts[1]) return;
         
-        // Convert current time of day in India directly into raw seconds
-        const currentSecondsInDay = timeStringToSeconds(istTimeOnly);
+        const currentSecondsInDay = timeStringToSeconds(timeParts[1]);
         let activeVideo = null;
 
         for (let item of schedule) {
@@ -118,7 +74,6 @@
 
             if (currentSecondsInDay >= startSec && currentSecondsInDay < endSec) {
                 activeVideo = item;
-                // Playback target matches exactly how many seconds have ticked since segment start
                 targetPlaybackPosition = currentSecondsInDay - startSec;
                 break;
             }
@@ -132,19 +87,16 @@
 
         streamInfo.innerText = activeVideo.title;
 
-        // Load stream if target index has changed
         if (currentStreamUrl !== activeVideo.url) {
             currentStreamUrl = activeVideo.url;
             loadStream(currentStreamUrl);
         } else {
-            // Instant snap-back defense if user falls out of loop rhythm
             if (Math.abs(video.currentTime - targetPlaybackPosition) > 2) {
                 video.currentTime = targetPlaybackPosition;
             }
         }
     }
 
-    // 3. SECURE HLS LOADER
     function loadStream(url) {
         if (Hls.isSupported()) {
             if (hls) hls.destroy();
@@ -155,19 +107,25 @@
             
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
                 video.currentTime = targetPlaybackPosition;
-                video.play().catch(err => console.log("Waiting for viewer tap to engage audio..."));
+                video.play().catch(err => console.log("Click the screen to unmute audio."));
+            });
+            
+            // Log networking errors to console to verify geo-blocks
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    console.log("HLS Error Encountered:", data.type);
+                }
             });
         } 
         else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = url;
             video.addEventListener('loadedmetadata', function() {
                 video.currentTime = targetPlaybackPosition;
-                video.play().catch(err => console.log("Waiting for viewer tap to engage audio..."));
+                video.play().catch(err => console.log("Click the screen to unmute audio."));
             });
         }
     }
 
-    // 4. LOCK CONTROLS
     video.addEventListener('seeking', () => {
         if (Math.abs(video.currentTime - targetPlaybackPosition) > 1.5) {
             video.currentTime = targetPlaybackPosition;
@@ -178,7 +136,6 @@
         if (video.muted) video.muted = false;
     });
 
-    // Run interval calculations
     setInterval(syncPlayerToSchedule, 1000);
     syncPlayerToSchedule();
 </script>

@@ -3,59 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Live TV Station (IST Switcher)</title>
+    <title>24/7 Virtual Linear TV Station (IST)</title>
+    <!-- Stable HLS.js Library Engine -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.1.4/dist/hls.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/plyr@3.6.12/dist/plyr.min.js"></script>
     <style>
-        body { margin: 0; background-color: #000; color: #fff; font-family: Arial, sans-serif; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; }
-        .video-container { position: relative; width: 80%; max-width: 800px; aspect-ratio: 16 / 9; background: #111; }
-        video { width: 100%; height: 100%; }
-        .status-overlay { position: absolute; top: 20px; left: 20px; background: rgba(0, 0, 0, 0.7); padding: 10px 15px; border-radius: 5px; font-size: 14px; pointer-events: none; }
-        .live-indicator { display: inline-block; width: 10px; height: 10px; background-color: #ff0000; border-radius: 50%; margin-right: 5px; }
+        body { 
+            margin: 0; 
+            background-color: #000; 
+            color: #fff; 
+            font-family: Arial, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            overflow: hidden; 
+        }
+        .video-container { 
+            position: relative; 
+            width: 80%; 
+            max-width: 800px; 
+            aspect-ratio: 16 / 9; 
+            background: #111; 
+        }
+        video { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+        }
+        .status-overlay { 
+            position: absolute; 
+            top: 20px; 
+            left: 20px; 
+            background: rgba(0, 0, 0, 0.7); 
+            padding: 10px 15px; 
+            border-radius: 5px; 
+            font-size: 14px; 
+            pointer-events: none; 
+            z-index: 10;
+        }
+        .live-indicator { 
+            display: inline-block; 
+            width: 10px; 
+            height: 10px; 
+            background-color: #ff0000; 
+            border-radius: 50%; 
+            margin-right: 5px; 
+        }
     </style>
 </head>
 <body>
 
 <div class="video-container">
-    <!-- No default controls ensures users cannot seek or skip -->
+    <!-- Clean element with no control panel to block timeline manipulation -->
     <video id="live-player" playsinline autoplay muted></video>
     <div class="status-overlay">
-        <span class="live-indicator"></span> LIVE (IST): <span id="stream-info">Connecting...</span>
+        <span class="live-indicator"></span> VIRTUAL LIVE (IST): <span id="stream-info">Initializing...</span>
     </div>
 </div>
 
 <script>
-    // AUTOMATIC IST TIME TEST
-    // Setting this slot to match the current time window right now
+    // 1. HARDCODED DAILY 24-HOUR SCHEDULE (IST)
+    // Supports static .m3u8 playlists and raw .mp4 files transparently.
+    // Ensure schedule windows accurately span across the full 24-hour block.
     const schedule = [
         {
-            title: "IndiaTV Aapki Adalat Live",
-            url: "https://amg01550-indiatv-indiatv-aapkiadalat-mi-xiaomi-n5tuk.amagi.tv/playlist/amg01550-indiatv-indiatv-aapkiadalat-mi-xiaomi/playlist.m3u8",
-            start: "21:00:00", 
-            end: "23:59:59"
+            title: "Early Morning Block",
+            url: "https://devstreaming-cdn.apple.com/videos/streaming/examples/img_bipbop_adv_example_fmp4/master.m3u8", // Example M3U8
+            start: "21:52:00", 
+            end: "21:54:00"
+        },
+        {
+            title: "Afternoon Cinema",
+            url: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8", // Example MP4
+            start: "21:54:00",
+            end: "21:55:00"
         }
+        
     ];
 
     const video = document.getElementById('live-player');
     const streamInfo = document.getElementById('stream-info');
     let currentStreamUrl = "";
+    let targetPlaybackPosition = 0;
     let hls = null;
 
+    // Converted string parsing utility
     function timeStringToSeconds(timeStr) {
         const parts = timeStr.split(':');
         return (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
     }
 
+    // 2. ABSOLUTE SYNCHRONIZATION RUNTIME
     function syncPlayerToSchedule() {
-        if (typeof Hls === 'undefined') {
-            streamInfo.innerText = "Error: Player engine missing.";
-            return;
-        }
-
         const now = new Date();
+        // Force evaluation via Indian Standard Time string mapping
         const istString = now.toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour12: false });
         
-        // Handle various browser format differences safely
         const timeMatch = istString.match(/\d{2}:\d{2}:\d{2}/);
         if (!timeMatch) return;
         
@@ -68,57 +113,101 @@
 
             if (currentSecondsInDay >= startSec && currentSecondsInDay < endSec) {
                 activeVideo = item;
+                // Calculations establish exactly where the timeline ought to stand
+                targetPlaybackPosition = currentSecondsInDay - startSec;
                 break;
             }
         }
 
         if (!activeVideo) {
-            streamInfo.innerText = "Station Offline";
+            streamInfo.innerText = "Intermission";
             video.pause();
             return;
         }
 
         streamInfo.innerText = activeVideo.title;
 
-        // Only switch the channel source if the scheduled slot changes
+        // Channel state switcher logic
         if (currentStreamUrl !== activeVideo.url) {
             currentStreamUrl = activeVideo.url;
-            loadLiveStream(currentStreamUrl);
+            loadMediaSource(currentStreamUrl);
+        } else {
+            // Strict alignment defense loop
+            // If local timeline drifts out of sync by more than 2 seconds, force snap back
+            if (Math.abs(video.currentTime - targetPlaybackPosition) > 2) {
+                // Prevent infinite loop if the video file length is shorter than the schedule block
+                if (video.duration && targetPlaybackPosition < video.duration) {
+                    video.currentTime = targetPlaybackPosition;
+                } else if (video.duration) {
+                    // Loop fallback if content is shorter than the slot duration
+                    video.currentTime = targetPlaybackPosition % video.duration;
+                }
+            }
         }
     }
 
-    function loadLiveStream(url) {
-        if (Hls.isSupported()) {
+    // 3. HYBRID SOURCE LOADER ENGINE
+    function loadMediaSource(url) {
+        const isHls = url.includes('.m3u8');
+
+        // Handle M3U8 files on platforms supporting HLS.js
+        if (isHls && Hls.isSupported()) {
             if (hls) hls.destroy();
             
-            hls = new Hls({
-                liveDurationInfinity: true, // Forces player to treat this as an endless live stream
-                manifestLoadingMaxRetry: 5
-            });
+            hls = new Hls({ maxMaxBufferLength: 10 });
             hls.loadSource(url);
             hls.attachMedia(video);
             
             hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play().catch(() => {
-                    console.log("Autoplay muted. Awaiting click.");
-                });
+                applyInitialSyncPosition();
             });
         } 
-        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Handle MP4 files or native Apple Safari M3U8 playback
+        else {
+            if (hls) { hls.destroy(); hls = null; }
             video.src = url;
-            video.play().catch(() => {});
+            video.load();
+            
+            video.onloadedmetadata = function() {
+                applyInitialSyncPosition();
+            };
         }
     }
 
-    // Unmute player cleanly on the first viewer tap
+    function applyInitialSyncPosition() {
+        let seekPos = targetPlaybackPosition;
+        if (video.duration && targetPlaybackPosition > video.duration) {
+            seekPos = targetPlaybackPosition % video.duration;
+        }
+        video.currentTime = seekPos;
+        video.play().catch(() => console.log("Awaiting viewer click interaction to unmute audio."));
+    }
+
+    // 4. INTERACTION LOCKDOWN OVERRIDES
+    video.addEventListener('seeking', () => {
+        let correctPos = targetPlaybackPosition;
+        if (video.duration && targetPlaybackPosition > video.duration) {
+            correctPos = targetPlaybackPosition % video.duration;
+        }
+        if (Math.abs(video.currentTime - correctPos) > 1.5) {
+            video.currentTime = correctPos;
+        }
+    });
+
+    video.addEventListener('pause', () => {
+        // Blocks external pausing commands immediately
+        video.play().catch(() => {});
+    });
+
+    // Unmute upon click handler engagement
     document.body.addEventListener('click', () => {
         if (video.muted) {
             video.muted = false;
         }
     });
 
-    // Check schedule match every 2 seconds
-    setInterval(syncPlayerToSchedule, 2000);
+    // Continuously check synchronization parameters every 1 second
+    setInterval(syncPlayerToSchedule, 1000);
     syncPlayerToSchedule();
 </script>
 

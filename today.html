@@ -3,207 +3,243 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Virtual Linear TV Station (IST)</title>
-    <!-- Stable HLS.js Library Engine -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.1.4/dist/hls.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/plyr@3.6.12/dist/plyr.min.js"></script>
+    <title>24/7 Global Linear TV</title>
     <style>
-        body { 
-            margin: 0; 
-            background-color: #000; 
-            color: #fff; 
-            font-family: Arial, sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            overflow: hidden; 
+        body {
+            background-color: #111;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
-        .video-container { 
-            position: relative; 
-            width: 80%; 
-            max-width: 800px; 
-            aspect-ratio: 16 / 9; 
-            background: #111; 
+        .container {
+            max-width: 800px;
+            width: 100%;
         }
-        video { 
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
+        .player-wrapper {
+            position: relative;
+            width: 100%;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
         }
-        .status-overlay { 
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            background: rgba(0, 0, 0, 0.7); 
-            padding: 10px 15px; 
-            border-radius: 5px; 
-            font-size: 14px; 
-            pointer-events: none; 
+        video {
+            width: 100%;
+            display: block;
+        }
+        /* Completely blocks mouse clicks/taps on the video timeline scrubber */
+        .video-shield {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             z-index: 10;
+            background: transparent;
         }
-        .live-indicator { 
-            display: inline-block; 
-            width: 10px; 
-            height: 10px; 
-            background-color: #ff0000; 
-            border-radius: 50%; 
-            margin-right: 5px; 
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        button {
+            background: #e50914;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #b81d24; }
+        .schedule-box {
+            margin-top: 25px;
+            background: #222;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .schedule-title {
+            font-size: 18px;
+            margin-top: 0;
+            border-bottom: 1px solid #444;
+            padding-bottom: 8px;
+        }
+        .program-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333;
+        }
+        .program-item.active {
+            color: #2ecc71;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
 
-<div class="video-container">
-    <!-- Clean element with no control panel to block timeline manipulation -->
-    <video id="live-player" playsinline autoplay muted></video>
-    <div class="status-overlay">
-        <span class="live-indicator"></span> VIRTUAL LIVE (IST): <span id="stream-info">Initializing...</span>
+<div class="container">
+    <h1 style="text-align: center;">🎬 My Synchronized TV Channel</h1>
+    
+    <div class="player-wrapper">
+        <div class="video-shield" id="shield"></div>
+        <video id="tvPlayer" playsinline>
+            Your browser does not support HTML5 video.
+        </video>
+    </div>
+
+    <div class="controls">
+        <button id="playBtn">📺 TUNE IN LIVE</button>
+        <button id="muteBtn" style="background: #555;">🔊 MUTE / UNMUTE</button>
+    </div>
+
+    <div class="schedule-box">
+        <h3 class="schedule-title">📅 TV Guide / Schedule</h3>
+        <div id="scheduleList"></div>
     </div>
 </div>
 
 <script>
-    // 1. HARDCODED DAILY 24-HOUR SCHEDULE (IST)
-    // Supports static .m3u8 playlists and raw .mp4 files transparently.
-    // Ensure schedule windows accurately span across the full 24-hour block.
-    const schedule = [
-        {
-            title: "v1",
-            url: "https://lizer123.site/stream/bTN1OC80MS8yNjM2ZDgxMzZlNTNkNzg0NTljMjcxOGUxYmY4MmQzNC8xMDgwcC8xMDgwcC5tM3U4P2lkPQ==", // Example M3U8
-            start: "16:00:00", 
-            end: "20:58:00"
+// ============================================================================
+// 1. CHANNELS PLAYLIST CONFIGURATION
+// ============================================================================
+// - Add as many movies as you want here.
+// - timeSlot: Use 24-hour time format ("HH:MM").
+// - duration: Match the exact length of the video file in seconds.
+const PLAYLIST = [
+    { 
+        name: "Movie Slot 1",   
+        timeSlot: "00:00", 
+        duration: 7200, // 2 Hours long
+        url: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/nagin.mp4" 
+    },
+    { 
+        name: "Movie Slot 2 (GitHub Hosted)",   
+        timeSlot: "02:00", 
+        duration: 5400, // 1.5 Hours long
+        url: "https://github.com" 
+    },
+    { 
+        name: "Movie Slot 3",   
+        timeSlot: "03:30", 
+        duration: 3600, // 1 Hour long
+        url: "https://googleapis.com" 
+    }
+    // You can paste 20+ movies down here following this identical layout pattern
+];
+
+const player = document.getElementById('tvPlayer');
+const playBtn = document.getElementById('playBtn');
+const muteBtn = document.getElementById('muteBtn');
+const scheduleList = document.getElementById('scheduleList');
+
+let currentActiveIndex = -1;
+
+// ============================================================================
+// 2. TIMING & ENGINE ENGINE
+// ============================================================================
+function getSecondsSinceMidnight() {
+    const now = new Date();
+    return (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds();
+}
+
+function timeToSeconds(timeStr) {
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    return (hours * 3600) + (minutes * 60);
+}
+
+function syncBroadcast() {
+    const nowInSeconds = getSecondsSinceMidnight();
+    let activeVideo = null;
+    let activeIndex = -1;
+
+    // Detect which item matches the user's active device clock time
+    for (let i = 0; i < PLAYLIST.length; i++) {
+        const slotStart = timeToSeconds(PLAYLIST[i].timeSlot);
+        const slotEnd = slotStart + PLAYLIST[i].duration;
+
+        if (nowInSeconds >= slotStart && nowInSeconds < slotEnd) {
+            activeVideo = PLAYLIST[i];
+            activeIndex = i;
+            break;
         }
-        
-        
-    ];
-
-    const video = document.getElementById('live-player');
-    const streamInfo = document.getElementById('stream-info');
-    let currentStreamUrl = "";
-    let targetPlaybackPosition = 0;
-    let hls = null;
-
-    // Converted string parsing utility
-    function timeStringToSeconds(timeStr) {
-        const parts = timeStr.split(':');
-        return (parseInt(parts[0], 10) * 3600) + (parseInt(parts[1], 10) * 60) + parseInt(parts[2], 10);
     }
 
-    // 2. ABSOLUTE SYNCHRONIZATION RUNTIME
-    function syncPlayerToSchedule() {
-        const now = new Date();
-        // Force evaluation via Indian Standard Time string mapping
-        const istString = now.toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour12: false });
-        
-        const timeMatch = istString.match(/\d{2}:\d{2}:\d{2}/);
-        if (!timeMatch) return;
-        
-        const currentSecondsInDay = timeStringToSeconds(timeMatch[0]);
-        let activeVideo = null;
+    // Loop fallback: default to item 0 if timeline parameters exceed schedule configurations
+    if (!activeVideo && PLAYLIST.length > 0) {
+        activeVideo = PLAYLIST[0];
+        activeIndex = 0;
+    }
 
-        for (let item of schedule) {
-            const startSec = timeStringToSeconds(item.start);
-            const endSec = timeStringToSeconds(item.end);
+    if (activeVideo) {
+        const slotStartSeconds = timeToSeconds(activeVideo.timeSlot);
+        const targetTime = nowInSeconds - slotStartSeconds;
 
-            if (currentSecondsInDay >= startSec && currentSecondsInDay < endSec) {
-                activeVideo = item;
-                // Calculations establish exactly where the timeline ought to stand
-                targetPlaybackPosition = currentSecondsInDay - startSec;
-                break;
-            }
-        }
-
-        if (!activeVideo) {
-            streamInfo.innerText = "Intermission";
-            video.pause();
-            return;
-        }
-
-        streamInfo.innerText = activeVideo.title;
-
-        // Channel state switcher logic
-        if (currentStreamUrl !== activeVideo.url) {
-            currentStreamUrl = activeVideo.url;
-            loadMediaSource(currentStreamUrl);
+        // Change video track source only when hitting a new schedule time block
+        if (player.src !== activeVideo.url) {
+            player.src = activeVideo.url;
+            player.currentTime = targetTime;
+            player.play().catch(() => { console.log("Autoplay paused. Manual user interface input required."); });
         } else {
-            // Strict alignment defense loop
-            // If local timeline drifts out of sync by more than 2 seconds, force snap back
-            if (Math.abs(video.currentTime - targetPlaybackPosition) > 2) {
-                // Prevent infinite loop if the video file length is shorter than the schedule block
-                if (video.duration && targetPlaybackPosition < video.duration) {
-                    video.currentTime = targetPlaybackPosition;
-                } else if (video.duration) {
-                    // Loop fallback if content is shorter than the slot duration
-                    video.currentTime = targetPlaybackPosition % video.duration;
-                }
+            // ANTI-CHEAT LOCK: Reverts timeline manipulation instantaneously back to live stream frame
+            if (Math.abs(player.currentTime - targetTime) > 1.5) {
+                player.currentTime = targetTime;
             }
         }
-    }
-
-    // 3. HYBRID SOURCE LOADER ENGINE
-    function loadMediaSource(url) {
-        const isHls = url.includes('.m3u8');
-
-        // Handle M3U8 files on platforms supporting HLS.js
-        if (isHls && Hls.isSupported()) {
-            if (hls) hls.destroy();
-            
-            hls = new Hls({ maxMaxBufferLength: 10 });
-            hls.loadSource(url);
-            hls.attachMedia(video);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                applyInitialSyncPosition();
-            });
-        } 
-        // Handle MP4 files or native Apple Safari M3U8 playback
-        else {
-            if (hls) { hls.destroy(); hls = null; }
-            video.src = url;
-            video.load();
-            
-            video.onloadedmetadata = function() {
-                applyInitialSyncPosition();
-            };
+        
+        if (activeIndex !== currentActiveIndex) {
+            currentActiveIndex = activeIndex;
+            renderSchedule(activeIndex);
         }
     }
+}
 
-    function applyInitialSyncPosition() {
-        let seekPos = targetPlaybackPosition;
-        if (video.duration && targetPlaybackPosition > video.duration) {
-            seekPos = targetPlaybackPosition % video.duration;
-        }
-        video.currentTime = seekPos;
-        video.play().catch(() => console.log("Awaiting viewer click interaction to unmute audio."));
-    }
+// ============================================================================
+// 3. SECURITY & INTERACTION INTERCEPTORS
+// ============================================================================
+// Scans video sync state tightly every 250 milliseconds
+setInterval(syncBroadcast, 250);
 
-    // 4. INTERACTION LOCKDOWN OVERRIDES
-    video.addEventListener('seeking', () => {
-        let correctPos = targetPlaybackPosition;
-        if (video.duration && targetPlaybackPosition > video.duration) {
-            correctPos = targetPlaybackPosition % video.duration;
-        }
-        if (Math.abs(video.currentTime - correctPos) > 1.5) {
-            video.currentTime = correctPos;
-        }
+player.addEventListener('seeking', () => syncBroadcast());
+player.addEventListener('play', () => syncBroadcast());
+
+// Blocks standard browser right-click diagnostic panels from revealing video URLs
+document.getElementById('shield').addEventListener('contextmenu', e => e.preventDefault());
+
+// ============================================================================
+// 4. USER INTERFACE EVENTS
+// ============================================================================
+playBtn.addEventListener('click', () => {
+    syncBroadcast();
+    player.play();
+    playBtn.innerText = "📺 LIVE AND SYNCED";
+});
+
+muteBtn.addEventListener('click', () => {
+    player.muted = !player.muted;
+});
+
+function renderSchedule(activeIndex) {
+    scheduleList.innerHTML = "";
+    PLAYLIST.forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.className = `program-item ${idx === activeIndex ? 'active' : ''}`;
+        div.innerHTML = `
+            <span>${idx === activeIndex ? '▶ ' : ''}${item.name}</span>
+            <span>${item.timeSlot}</span>
+        `;
+        scheduleList.appendChild(div);
     });
+}
 
-    video.addEventListener('pause', () => {
-        // Blocks external pausing commands immediately
-        video.play().catch(() => {});
-    });
-
-    // Unmute upon click handler engagement
-    document.body.addEventListener('click', () => {
-        if (video.muted) {
-            video.muted = false;
-        }
-    });
-
-    // Continuously check synchronization parameters every 1 second
-    setInterval(syncPlayerToSchedule, 1000);
-    syncPlayerToSchedule();
+// Initialise the TV Guide UI layout list
+renderSchedule(-1);
 </script>
 
 </body>

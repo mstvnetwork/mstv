@@ -31,33 +31,52 @@
             width: 100%;
             display: block;
         }
-        /* Completely blocks mouse clicks/taps on the video timeline scrubber */
+        /* Completely blocks manual timeline scrubbing while letting clicks hit our buttons */
         .video-shield {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 10;
+            z-index: 5;
             background: transparent;
         }
-        .controls {
-            margin-top: 15px;
-            display: flex;
-            gap: 10px;
-            justify-content: center;
+        /* Animated Volume Control Interface Layer */
+        .volume-overlay {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 10;
         }
-        button {
-            background: #e50914;
+        .volume-btn {
+            background: rgba(0, 0, 0, 0.7);
+            border: 2px solid rgba(255, 255, 255, 0.2);
             color: white;
-            border: none;
-            padding: 10px 20px;
-            font-size: 16px;
-            font-weight: bold;
-            border-radius: 4px;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
-        button:hover { background: #b81d24; }
+        .volume-btn:hover {
+            transform: scale(1.1);
+            background: rgba(229, 9, 20, 0.9);
+            border-color: #e50914;
+        }
+        /* Icon animation parameters */
+        .volume-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+            transition: transform 0.2s ease;
+        }
+        .volume-btn:active svg {
+            transform: scale(0.85);
+        }
         .schedule-box {
             margin-top: 25px;
             background: #222;
@@ -85,49 +104,54 @@
 <body>
 
 <div class="container">
-    <h1 style="text-align: center;">🎬 My Synchronized TV Channel</h1>
+    <h1 style="text-align: center;">🎬 MS TV Network</h1>
     
     <div class="player-wrapper">
         <div class="video-shield" id="shield"></div>
-        <video id="tvPlayer" playsinline>
+        
+        <!-- Native 'autoplay' and 'muted' parameters enforce instant background streaming -->
+        <video id="tvPlayer" autoplay muted playsinline>
             Your browser does not support HTML5 video.
         </video>
-    </div>
 
-    <div class="controls">
-        <button id="playBtn">📺 TUNE IN LIVE</button>
-        <button id="muteBtn" style="background: #555;">🔊 MUTE / UNMUTE</button>
+        <!-- Floating audio status overlay container -->
+        <div class="volume-overlay">
+            <button class="volume-btn" id="volumeToggle" title="Toggle Sound">
+                <!-- Inline SVG lets us dynamically replace paths smoothly -->
+                <svg id="volumeIcon" viewBox="0 0 24 24">
+                    <!-- Default state: Muted icon (speaker with an X) -->
+                    <path id="iconPath" d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                </svg>
+            </button>
+        </div>
     </div>
 
     <div class="schedule-box">
-        <h3 class="schedule-title">📅 TV Guide / Schedule</h3>
+        <h3 class="schedule-title">📅 Live TV Schedule</h3>
         <div id="scheduleList"></div>
     </div>
 </div>
 
 <script>
 // ============================================================================
-// 1. CHANNELS PLAYLIST CONFIGURATION
+// 1. PLAYLIST DEFINITIONS
 // ============================================================================
-// - Add as many movies as you want here.
-// - timeSlot: Use 24-hour time format ("HH:MM").
-// - duration: Match the exact length of the video file in seconds.
 const PLAYLIST = [
     { 
         name: "Movie Slot 1",   
-        timeSlot: "00:00", 
+        timeSlot: "03:00", 
         duration: 7200, // 2 Hours long
         url: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/nagin.mp4" 
     },
     { 
         name: "Movie Slot 2 (GitHub Hosted)",   
-        timeSlot: "02:00", 
+        timeSlot: "05:00", 
         duration: 5400, // 1.5 Hours long
         url: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/nagin.mp4" 
     },
     { 
         name: "Movie Slot 3",   
-        timeSlot: "03:30", 
+        timeSlot: "06:30", 
         duration: 3600, // 1 Hour long
         url: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/nagin.mp4" 
     }
@@ -135,14 +159,16 @@ const PLAYLIST = [
 ];
 
 const player = document.getElementById('tvPlayer');
-const playBtn = document.getElementById('playBtn');
-const muteBtn = document.getElementById('muteBtn');
-const scheduleList = document.getElementById('scheduleList');
-
+const volumeToggle = document.getElementById('volumeToggle');
+const iconPath = document.getElementById('iconPath');
 let currentActiveIndex = -1;
 
+// Path descriptions for seamless SVG asset toggles
+const MUTED_SVG_PATH = "M4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4zM16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71z";
+const UNMUTED_SVG_PATH = "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+
 // ============================================================================
-// 2. TIMING & ENGINE ENGINE
+// 2. LINEAR CODES SYNCHRONIZER
 // ============================================================================
 function getSecondsSinceMidnight() {
     const now = new Date();
@@ -159,7 +185,6 @@ function syncBroadcast() {
     let activeVideo = null;
     let activeIndex = -1;
 
-    // Detect which item matches the user's active device clock time
     for (let i = 0; i < PLAYLIST.length; i++) {
         const slotStart = timeToSeconds(PLAYLIST[i].timeSlot);
         const slotEnd = slotStart + PLAYLIST[i].duration;
@@ -171,7 +196,6 @@ function syncBroadcast() {
         }
     }
 
-    // Loop fallback: default to item 0 if timeline parameters exceed schedule configurations
     if (!activeVideo && PLAYLIST.length > 0) {
         activeVideo = PLAYLIST[0];
         activeIndex = 0;
@@ -181,13 +205,14 @@ function syncBroadcast() {
         const slotStartSeconds = timeToSeconds(activeVideo.timeSlot);
         const targetTime = nowInSeconds - slotStartSeconds;
 
-        // Change video track source only when hitting a new schedule time block
         if (player.src !== activeVideo.url) {
             player.src = activeVideo.url;
             player.currentTime = targetTime;
-            player.play().catch(() => { console.log("Autoplay paused. Manual user interface input required."); });
+            
+            // Re-attempt background execution handling
+            player.play().catch(e => console.log("Autoplay background constraint handled."));
         } else {
-            // ANTI-CHEAT LOCK: Reverts timeline manipulation instantaneously back to live stream frame
+            // Strict frame alignment evaluation loop
             if (Math.abs(player.currentTime - targetTime) > 1.5) {
                 player.currentTime = targetTime;
             }
@@ -201,31 +226,44 @@ function syncBroadcast() {
 }
 
 // ============================================================================
-// 3. SECURITY & INTERACTION INTERCEPTORS
+// 3. LIFECYCLE MANAGEMENT & CONTROLS
 // ============================================================================
-// Scans video sync state tightly every 250 milliseconds
-setInterval(syncBroadcast, 250);
+// Run synchronization immediately when the page layout resources stand ready
+window.addEventListener('DOMContentLoaded', () => {
+    syncBroadcast();
+    // Fire background execution loop
+    setInterval(syncBroadcast, 250);
+});
 
 player.addEventListener('seeking', () => syncBroadcast());
 player.addEventListener('play', () => syncBroadcast());
 
-// Blocks standard browser right-click diagnostic panels from revealing video URLs
+// Intercept window background suspension issues
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+        syncBroadcast();
+    }
+});
+
+// Interactive Volume Toggle Event Listener
+volumeToggle.addEventListener('click', () => {
+    player.muted = !player.muted;
+    
+    // Change internal path variables to animate speaker graphic states
+    if (player.muted) {
+        iconPath.setAttribute('d', MUTED_SVG_PATH);
+        volumeToggle.style.borderColor = "rgba(255, 255, 255, 0.2)";
+    } else {
+        iconPath.setAttribute('d', UNMUTED_SVG_PATH);
+        volumeToggle.style.borderColor = "#2ecc71"; // Give an aesthetic green flare when live sound activates
+    }
+});
+
+// Structural block tracking browser panel utilities from intercepting elements
 document.getElementById('shield').addEventListener('contextmenu', e => e.preventDefault());
 
-// ============================================================================
-// 4. USER INTERFACE EVENTS
-// ============================================================================
-playBtn.addEventListener('click', () => {
-    syncBroadcast();
-    player.play();
-    playBtn.innerText = "📺 LIVE AND SYNCED";
-});
-
-muteBtn.addEventListener('click', () => {
-    player.muted = !player.muted;
-});
-
 function renderSchedule(activeIndex) {
+    const scheduleList = document.getElementById('scheduleList');
     scheduleList.innerHTML = "";
     PLAYLIST.forEach((item, idx) => {
         const div = document.createElement('div');
@@ -237,10 +275,8 @@ function renderSchedule(activeIndex) {
         scheduleList.appendChild(div);
     });
 }
-
-// Initialise the TV Guide UI layout list
-renderSchedule(-1);
 </script>
 
 </body>
 </html>
+

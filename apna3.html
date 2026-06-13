@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apna TV 24/7 Linear</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<style>
+body{margin:0;background:#000;color:#fff;font-family:Segoe UI,sans-serif}
+header{text-align:center;padding:20px}
+.brand{font-size:2.5rem;font-weight:900;color:#ff5a5a}
+.player-wrapper{max-width:1200px;margin:auto;position:relative}
+video{width:100%;display:block;background:#000}
+#ticker{padding:8px;background:#111;overflow:hidden;white-space:nowrap}
+.epg{display:flex;gap:10px;max-width:1200px;margin:10px auto}
+.card{flex:1;background:#161616;padding:12px;border-radius:10px}
+.live{border:1px solid #ff2d55}
+</style>
+</head>
+<body>
+<header><div class="brand">Apna TV</div></header>
+
+<div class="player-wrapper">
+<video id="videoPlayer" playsinline controls controlsList="nodownload"></video>
+</div>
+
+<div id="ticker">Loading...</div>
+
+<div class="epg">
+<div class="card live">
+<h3>Live Now</h3>
+<div id="titleNow">Loading...</div>
+</div>
+<div class="card">
+<h3>Next</h3>
+<div id="titleNext">Loading...</div>
+</div>
+</div>
+
+<script>
+const CHANNEL_EPOCH = new Date("2024-01-01T00:00:00Z").getTime();
+const EPG_URL = "epg.json";
+const RESYNC_DRIFT = 3;
+
+const video = document.getElementById("videoPlayer");
+let playlist=[];
+let totalDur=0;
+let currentIndex=-1;
+let hls=null;
+
+function computePos(nowMs){
+ const elapsed=((nowMs-CHANNEL_EPOCH)/1000%totalDur+totalDur)%totalDur;
+ let acc=0;
+ for(let i=0;i<playlist.length;i++){
+   if(elapsed<acc+playlist[i].duration){
+     return {index:i,offset:elapsed-acc};
+   }
+   acc+=playlist[i].duration;
+ }
+ return {index:0,offset:0};
+}
+
+function loadItem(index,seek){
+ const item=playlist[index];
+ currentIndex=index;
+
+ if(hls){hls.destroy();hls=null;}
+
+ if(item.url.includes(".m3u8")){
+   if(Hls.isSupported()){
+      hls=new Hls();
+      hls.loadSource(item.url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+         video.currentTime=seek;
+         video.play().catch(()=>{});
+      });
+   }
+ }else{
+   video.src=item.url;
+   video.onloadedmetadata=()=>{
+      video.currentTime=seek;
+      video.play().catch(()=>{});
+   };
+ }
+
+ document.getElementById("titleNow").textContent=item.title;
+ document.getElementById("titleNext").textContent=playlist[(index+1)%playlist.length].title;
+}
+
+async function init(){
+ const data=await fetch(EPG_URL+"?_="+Date.now()).then(r=>r.json());
+ playlist=data.schedule;
+ totalDur=playlist.reduce((a,b)=>a+b.duration,0);
+ document.getElementById("ticker").textContent=data.tickerMessage||"Apna TV";
+ const pos=computePos(Date.now());
+ loadItem(pos.index,pos.offset);
+}
+
+video.addEventListener("seeking",()=>{
+ const pos=computePos(Date.now());
+ if(Math.abs(video.currentTime-pos.offset)>1){
+   video.currentTime=pos.offset;
+ }
+});
+
+video.addEventListener("contextmenu",e=>e.preventDefault());
+
+setInterval(()=>{
+ if(!playlist.length)return;
+ const pos=computePos(Date.now());
+
+ if(pos.index!==currentIndex){
+   loadItem(pos.index,pos.offset);
+   return;
+ }
+
+ if(!video.paused){
+   const drift=Math.abs(video.currentTime-pos.offset);
+   if(drift>RESYNC_DRIFT){
+      video.currentTime=pos.offset;
+   }
+ }
+},1000);
+
+init();
+</script>
+</body>
+</html>

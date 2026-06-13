@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VPN-Optimized Live Player</title>
+    <title>Abortion-Proof Live Player</title>
     <style>
         body {
             font-family: sans-serif;
@@ -13,6 +13,7 @@
             height: 100vh;
             background-color: #121212;
             margin: 0;
+            user-select: none;
         }
         .player-container {
             position: relative;
@@ -24,6 +25,11 @@
             width: 90%;
             max-width: 640px;
         }
+        /* Hiding the native timeline scrubber via CSS shadows */
+        video::-webkit-media-controls-timeline { display: none !important; }
+        video::-webkit-media-controls-current-time-display { display: none !important; }
+        video::-webkit-media-controls-time-remaining-display { display: none !important; }
+        
         video {
             width: 100%;
             border-radius: 4px;
@@ -44,7 +50,7 @@
         .overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.8);
+            background: rgba(0,0,0,0.9);
             display: flex;
             justify-content: center;
             align-items: center;
@@ -62,54 +68,74 @@
             border-radius: 5px;
             cursor: pointer;
         }
+        .status-text {
+            color: #aaa;
+            font-size: 12px;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
 
 <div class="player-container">
     <div id="interactionOverlay" class="overlay">
-        <button class="play-btn">🔊 Click to Tune In Live</button>
+        <button class="play-btn">🔊 Sync & Tune In Live</button>
     </div>
 
-    <div class="badge">● Global Live Sync</div>
+    <div class="badge">● Global Live Stream</div>
     <video 
         id="globalLivePlayer" 
         controls 
-        controlslist="nodownload noremoteplayback" 
+        controlslist="nodownload noremoteplayback nofullscreen" 
         disablePictureInPicture
         preload="auto"
         playsinline>
         <source src="https://ia600100.us.archive.org/16/items/cooking_202606/nagin.mp4?cnt=0" type="video/mp4">
         Your browser does not support the video tag.
     </video>
+    <div id="syncStatus" class="status-text">Connecting to global timeline...</div>
 </div>
 
 <script>
     const video = document.getElementById('globalLivePlayer');
     const overlay = document.getElementById('interactionOverlay');
+    const statusText = document.getElementById('syncStatus');
     
     let videoDuration = 0;
     let initialized = false;
-    let networkSyncLock = false; // Prevents overlapping sync calls
 
     function getGlobalSyncTime() {
         if (!videoDuration) return 0;
-        const nowInSeconds = Math.floor(Date.now() / 1000);
-        return nowInSeconds % videoDuration;
+        return (Math.floor(Date.now() / 1000)) % videoDuration;
     }
 
-    function syncVideoTimeline(force = false) {
-        if (!videoDuration || (!initialized && !force)) return;
-        
-        // HALT if browser is currently processing a previous download segment
-        if (networkSyncLock || video.seeking) return; 
+    // Dynamic tempo drift matching engine instead of forceful hard skips
+    function dynamicDriftCorrection() {
+        if (!videoDuration || !initialized || video.paused) return;
 
         const targetTime = getGlobalSyncTime();
-        
-        // Relaxed threshold window (4 seconds) safely accommodates VPN routing overhead
-        if (Math.abs(video.currentTime - targetTime) > 4.0) {
-            networkSyncLock = true; 
+        const drift = video.currentTime - targetTime;
+
+        // CRITICAL DRIFT (Over 8 seconds lag): Only perform a hard jump if absolutely broken
+        if (Math.abs(drift) > 8.0) {
+            statusText.innerText = "Re-centering stream connection...";
             video.currentTime = targetTime;
+            return;
+        }
+
+        // SOFT DRIFT CORRECTION (Smoothly scales playback speed without dropping connection)
+        if (drift < -1.5) {
+            // Video is lagging behind live stream -> Catch up smoothly
+            video.playbackRate = 1.35;
+            statusText.innerText = "Syncing Status: Realigning stream pace (+35%)";
+        } else if (drift > 1.5) {
+            // Video is ahead -> Slow down slightly
+            video.playbackRate = 0.75;
+            statusText.innerText = "Syncing Status: Anchoring frames (-25%)";
+        } else {
+            // Perfect match
+            video.playbackRate = 1.0;
+            statusText.innerText = "Syncing Status: Perfectly Synchronized";
         }
     }
 
@@ -117,15 +143,14 @@
         videoDuration = video.duration;
     });
 
-    // Reset sync lock ONLY when network chunk load confirms success
-    video.addEventListener('seeked', () => {
-        networkSyncLock = false;
-    });
-
     overlay.addEventListener('click', () => {
         overlay.style.display = 'none'; 
         video.muted = false;
         
+        // Initial setup jump happens exactly once upon manual startup gesture
+        const targetTime = getGlobalSyncTime();
+        video.currentTime = targetTime;
+
         if (video.readyState >= 2) {
             startLivePlayback();
         } else {
@@ -134,34 +159,30 @@
     });
 
     function startLivePlayback() {
-        syncVideoTimeline(true);
-        video.play().catch(err => console.log("Playback failed: ", err));
-        initialized = true;
+        video.play().then(() => {
+            initialized = true;
+        }).catch(err => console.log("Init block:", err));
     }
 
-    // Capture manual scroll attempts and forcefully reset them
+    // Hard snap-back defense if a user tries to use keyboard shortcuts to skip ahead
     video.addEventListener('seeking', () => {
-        if (initialized && !networkSyncLock) {
+        if (initialized) {
             const targetTime = getGlobalSyncTime();
-            if (Math.abs(video.currentTime - targetTime) > 1.0) {
+            if (Math.abs(video.currentTime - targetTime) > 2.0) {
                 video.currentTime = targetTime;
             }
         }
     });
 
+    // Reset speed parameters on tab visibility changes
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && initialized) {
-            networkSyncLock = false; // Clear stale locks from inactive tabs
-            syncVideoTimeline(true);
+            video.currentTime = getGlobalSyncTime();
         }
     });
 
-    // Run interval loop at a slower cadence (every 6 seconds) to allow buffering over VPN
-    setInterval(() => {
-        if (initialized && !video.paused) {
-            syncVideoTimeline();
-        }
-    }, 6000);
+    // Run the dynamic speed tuning analyzer every 2 seconds
+    setInterval(dynamicDriftCorrection, 2000);
 </script>
 </body>
 </html>

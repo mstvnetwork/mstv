@@ -96,6 +96,7 @@
     <div id="syncStatus" class="status-text">Connecting to global timeline...</div>
 </div>
 
+
 <script>
     const video = document.getElementById('globalLivePlayer');
     const overlay = document.getElementById('interactionOverlay');
@@ -103,39 +104,35 @@
     
     let videoDuration = 0;
     let initialized = false;
+    let isOffline = !navigator.onLine;
 
     function getGlobalSyncTime() {
         if (!videoDuration) return 0;
         return (Math.floor(Date.now() / 1000)) % videoDuration;
     }
 
-    // Dynamic tempo drift matching engine instead of forceful hard skips
     function dynamicDriftCorrection() {
-        if (!videoDuration || !initialized || video.paused) return;
+        // Halt checks immediately if network drops or metadata isn't ready
+        if (!videoDuration || !initialized || video.paused || isOffline) return;
 
         const targetTime = getGlobalSyncTime();
         const drift = video.currentTime - targetTime;
 
-        // CRITICAL DRIFT (Over 8 seconds lag): Only perform a hard jump if absolutely broken
-        if (Math.abs(drift) > 8.0) {
+        if (Math.abs(drift) > 10.0) {
             statusText.innerText = "Re-centering stream connection...";
             video.currentTime = targetTime;
             return;
         }
 
-        // SOFT DRIFT CORRECTION (Smoothly scales playback speed without dropping connection)
         if (drift < -1.5) {
-            // Video is lagging behind live stream -> Catch up smoothly
             video.playbackRate = 1.35;
-            statusText.innerText = "Syncing Status: Realigning stream pace (+35%)";
+            statusText.innerText = "Syncing Status: Catching Up (+35%)";
         } else if (drift > 1.5) {
-            // Video is ahead -> Slow down slightly
             video.playbackRate = 0.75;
-            statusText.innerText = "Syncing Status: Anchoring frames (-25%)";
+            statusText.innerText = "Syncing Status: Slowing Down (-25%)";
         } else {
-            // Perfect match
             video.playbackRate = 1.0;
-            statusText.innerText = "Syncing Status: Perfectly Synchronized";
+            statusText.innerText = "Syncing Status: Fully Synchronized";
         }
     }
 
@@ -143,11 +140,27 @@
         videoDuration = video.duration;
     });
 
+    // CATCH CRITICAL NETWORK TIMEOUTS (Like VPN drops)
+    video.addEventListener('error', () => {
+        const err = video.error;
+        if (err && err.code === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED / Network unreachable
+            statusText.innerText = "Network connection broken. Retrying link...";
+            setTimeout(recoverPlayerConnection, 3000);
+        }
+    });
+
+    function recoverPlayerConnection() {
+        if (isOffline) return;
+        const currentPosition = getGlobalSyncTime();
+        video.load(); // Forces DNS re-resolution and cleans out error buffers
+        video.currentTime = currentPosition;
+        video.play().catch(() => {});
+    }
+
     overlay.addEventListener('click', () => {
         overlay.style.display = 'none'; 
         video.muted = false;
         
-        // Initial setup jump happens exactly once upon manual startup gesture
         const targetTime = getGlobalSyncTime();
         video.currentTime = targetTime;
 
@@ -161,12 +174,14 @@
     function startLivePlayback() {
         video.play().then(() => {
             initialized = true;
-        }).catch(err => console.log("Init block:", err));
+        }).catch(() => {
+            statusText.innerText = "Click player container to start streaming.";
+        });
     }
 
-    // Hard snap-back defense if a user tries to use keyboard shortcuts to skip ahead
+    // Capture manual keyboard skip overrides
     video.addEventListener('seeking', () => {
-        if (initialized) {
+        if (initialized && !isOffline) {
             const targetTime = getGlobalSyncTime();
             if (Math.abs(video.currentTime - targetTime) > 2.0) {
                 video.currentTime = targetTime;
@@ -174,15 +189,19 @@
         }
     });
 
-    // Reset speed parameters on tab visibility changes
+    // Monitor Operating System Network Interfaces
+    window.addEventListener('online', () => { isOffline = false; recoverPlayerConnection(); });
+    window.addEventListener('offline', () => { isOffline = true; statusText.innerText = "Offline: Check your VPN connection."; });
+
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && initialized) {
             video.currentTime = getGlobalSyncTime();
         }
     });
 
-    // Run the dynamic speed tuning analyzer every 2 seconds
     setInterval(dynamicDriftCorrection, 2000);
 </script>
 </body>
 </html>
+
+    

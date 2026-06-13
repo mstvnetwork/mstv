@@ -465,452 +465,92 @@ footer {
 </div><!-- /main-content -->
 
 <script>
-/* ═══════════════════════════════════════════════════════════════
-   AGGRESSIVE UNIVERSAL SNAP-BACK SYSTEM
-   Works on: Samsung Internet, Safari, Xiaomi, Firefox, Opera,
-             UC Browser, Brave, Chrome — any browser.
-   Strategy:
-     1. Re-load iframe src instantly if src ever changes
-     2. Intercept all pointer/touch on the seek-bar region
-     3. Message listener blocks postMessage seeks from iframe
-     4. MutationObserver watches iframe src attribute
-     5. Polling watchdog reloads if src drifts
-     6. Visibility change re-enforces correct src on tab resume
-     7. setInterval hard-enforce every 500 ms
-═══════════════════════════════════════════════════════════════ */
-(function() {
-    'use strict';
+const CHANNEL_EPOCH = new Date("2024-01-01T00:00:00Z").getTime();
+const EPG_URL = "epg.json";
+const RESYNC_DRIFT = 3;
 
-    /* ── Canonical source truth ── */
-    let _canonicalSrc = '';          // set by EPG logic
-    let _snapLocked   = false;       // brief lock during src resets
+const video = document.getElementById("videoPlayer");
+let playlist=[];
+let totalDur=0;
+let currentIndex=-1;
+let hls=null;
 
-    const iframe  = document.getElementById('videoPlayer');
-    const shield  = document.getElementById('seekShield');
-    const wrapper = document.getElementById('mainWrapper');
+function computePos(nowMs){
+ const elapsed=((nowMs-CHANNEL_EPOCH)/1000%totalDur+totalDur)%totalDur;
+ let acc=0;
+ for(let i=0;i<playlist.length;i++){
+   if(elapsed<acc+playlist[i].duration){
+     return {index:i,offset:elapsed-acc};
+   }
+   acc+=playlist[i].duration;
+ }
+ return {index:0,offset:0};
+}
 
-    /* ────────────────────────────────────────────
-       UTILITY: force iframe back to canonical src
-    ──────────────────────────────────────────── */
-    function snapBack(reason) {
-        if (_snapLocked || !_canonicalSrc) return;
-        if (iframe.src === _canonicalSrc) return;
+function loadItem(index,seek){
+ const item=playlist[index];
+ currentIndex=index;
 
-        _snapLocked = true;
-        console.warn('[SnapBack] Restoring src. Reason:', reason);
+ if(hls){hls.destroy();hls=null;}
 
-        // Blank first (forces full reload — critical for Samsung/Safari)
-        iframe.src = 'about:blank';
+ if(item.url.includes(".m3u8")){
+   if(Hls.isSupported()){
+      hls=new Hls();
+      hls.loadSource(item.url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED,()=>{
+         video.currentTime=seek;
+         video.play().catch(()=>{});
+      });
+   }
+ }else{
+   video.src=item.url;
+   video.onloadedmetadata=()=>{
+      video.currentTime=seek;
+      video.play().catch(()=>{});
+   };
+ }
 
-        // Use both setTimeout AND requestAnimationFrame for max compat
-        var restore = function() {
-            iframe.src = _canonicalSrc;
-            _snapLocked = false;
-        };
+ document.getElementById("titleNow").textContent=item.title;
+ document.getElementById("titleNext").textContent=playlist[(index+1)%playlist.length].title;
+}
 
-        if (window.requestAnimationFrame) {
-            requestAnimationFrame(function() { setTimeout(restore, 0); });
-        } else {
-            setTimeout(restore, 50);
-        }
-    }
+async function init(){
+ const data=await fetch(EPG_URL+"?_="+Date.now()).then(r=>r.json());
+ playlist=data.schedule;
+ totalDur=playlist.reduce((a,b)=>a+b.duration,0);
+ document.getElementById("ticker").textContent=data.tickerMessage||"Apna TV";
+ const pos=computePos(Date.now());
+ loadItem(pos.index,pos.offset);
+}
 
-    /* ────────────────────────────────────────────
-       EXPOSE setSrc for EPG logic to call
-       All src changes MUST go through this.
-    ──────────────────────────────────────────── */
-    window.__setPlayerSrc = function(url) {
-        if (!url) {
-            _canonicalSrc = '';
-            iframe.src = '';
-            return;
-        }
-        if (url === _canonicalSrc) return;
-        _canonicalSrc = url;
-        _snapLocked = true;
-        iframe.src = 'about:blank';
-        var restore = function() {
-            iframe.src = _canonicalSrc;
-            _snapLocked = false;
-        };
-        if (window.requestAnimationFrame) {
-            requestAnimationFrame(function() { setTimeout(restore, 0); });
-        } else {
-            setTimeout(restore, 50);
-        }
-    };
+video.addEventListener("seeking",()=>{
+ const pos=computePos(Date.now());
+ if(Math.abs(video.currentTime-pos.offset)>1){
+   video.currentTime=pos.offset;
+ }
+});
 
-    /* ────────────────────────────────────────────
-       1. MutationObserver — catches ANY src change
-          (most reliable for Samsung, Xiaomi WebView)
-    ──────────────────────────────────────────── */
-    if (window.MutationObserver) {
-        var obs = new MutationObserver(function(mutations) {
-            mutations.forEach(function(m) {
-                if (m.type === 'attributes' && m.attributeName === 'src') {
-                    // Only snap if we didn't set it ourselves
-                    if (!_snapLocked) {
-                        snapBack('MutationObserver src change');
-                    }
-                }
-            });
-        });
-        obs.observe(iframe, { attributes: true, attributeFilter: ['src'] });
-    }
+video.addEventListener("contextmenu",e=>e.preventDefault());
 
-    /* ────────────────────────────────────────────
-       2. Hard-polling watchdog every 500 ms
-          Catches drift in any browser
-    ──────────────────────────────────────────── */
-    setInterval(function() {
-        if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
-            snapBack('polling watchdog');
-        }
-    }, 500);
+setInterval(()=>{
+ if(!playlist.length)return;
+ const pos=computePos(Date.now());
 
-    /* ────────────────────────────────────────────
-       3. Touch / pointer shield on seek-bar region
-          Blocks taps on bottom 60px of player
-          Critical for Samsung Internet & Safari touch
-    ──────────────────────────────────────────── */
-    function blockEvent(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.stopImmediatePropagation();
-        return false;
-    }
+ if(pos.index!==currentIndex){
+   loadItem(pos.index,pos.offset);
+   return;
+ }
 
-    var shieldEvents = [
-        'touchstart','touchend','touchmove',
-        'mousedown','mouseup','click',
-        'pointerdown','pointerup','pointermove'
-    ];
-    shieldEvents.forEach(function(ev) {
-        shield.addEventListener(ev, blockEvent, { passive: false, capture: true });
-    });
+ if(!video.paused){
+   const drift=Math.abs(video.currentTime-pos.offset);
+   if(drift>RESYNC_DRIFT){
+      video.currentTime=pos.offset;
+   }
+ }
+},1000);
 
-    /* ────────────────────────────────────────────
-       4. Full-wrapper touch guard
-          Prevents long-press / double-tap seek
-          on all mobile browsers (Samsung, Xiaomi, Safari)
-    ──────────────────────────────────────────── */
-    var lastTap = 0;
-    wrapper.addEventListener('touchend', function(e) {
-        var now = Date.now();
-        if (now - lastTap < 400) {
-            // Double-tap detected — block it
-            e.preventDefault();
-            e.stopPropagation();
-        }
-        lastTap = now;
-    }, { passive: false, capture: true });
-
-    // Block context menu (long-press on Android)
-    wrapper.addEventListener('contextmenu', blockEvent, { capture: true });
-
-    /* ────────────────────────────────────────────
-       5. postMessage listener
-          Some browsers relay seek commands via postMessage
-    ──────────────────────────────────────────── */
-    window.addEventListener('message', function(e) {
-        try {
-            var data = e.data;
-            if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch(_) {}
-            }
-            if (data && typeof data === 'object') {
-                var isSeek = (
-                    data.event === 'seeking' ||
-                    data.event === 'seek' ||
-                    data.method === 'seekTo' ||
-                    data.func  === 'seekTo' ||
-                    (data.info && data.info.currentTime !== undefined)
-                );
-                if (isSeek) {
-                    snapBack('postMessage seek intercepted');
-                }
-            }
-        } catch(_) {}
-    }, { capture: true });
-
-    /* ────────────────────────────────────────────
-       6. Visibility change — re-enforce on tab resume
-          Safari & Samsung often seek on background/resume
-    ──────────────────────────────────────────── */
-    document.addEventListener('visibilitychange', function() {
-        if (!document.hidden) {
-            setTimeout(function() {
-                if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
-                    snapBack('visibility resume');
-                }
-            }, 300);
-        }
-    });
-
-    /* ────────────────────────────────────────────
-       7. Page focus re-enforce
-          Handles alt-tab, app switcher returns (iOS/Android)
-    ──────────────────────────────────────────── */
-    window.addEventListener('focus', function() {
-        setTimeout(function() {
-            if (!_snapLocked && _canonicalSrc && iframe.src !== _canonicalSrc) {
-                snapBack('window focus');
-            }
-        }, 300);
-    });
-
-    /* ────────────────────────────────────────────
-       8. iframe load event — detect unexpected reloads
-    ──────────────────────────────────────────── */
-    iframe.addEventListener('load', function() {
-        if (!_snapLocked && _canonicalSrc) {
-            // Small grace period then verify
-            setTimeout(function() {
-                if (iframe.src !== _canonicalSrc) {
-                    snapBack('iframe load mismatch');
-                }
-            }, 800);
-        }
-    });
-
-    /* ────────────────────────────────────────────
-       9. Samsung/Xiaomi: Disable user-select &
-          drag on the wrapper to prevent seek drags
-    ──────────────────────────────────────────── */
-    wrapper.style.userSelect        = 'none';
-    wrapper.style.webkitUserSelect  = 'none';
-    wrapper.style.msUserSelect      = 'none';
-    wrapper.style.webkitTouchCallout = 'none';
-
-    /* Disable drag */
-    wrapper.addEventListener('dragstart', blockEvent, { capture: true });
-    wrapper.addEventListener('selectstart', blockEvent, { capture: true });
-
-})();
-
-
-/* ═══════════════════════════════════════════════════════════════
-   PLAYER + EPG + TICKER LOGIC
-═══════════════════════════════════════════════════════════════ */
-(function initPlayer() {
-    const EPG_URL   = "epg.json";
-    const SSE_URL   = "epg-stream";
-    const POLL_MS   = 3000;
-
-    const ticker      = document.getElementById("ticker");
-    const titleNow    = document.getElementById("titleNow");
-    const timeNow     = document.getElementById("timeNow");
-    const logoNow     = document.getElementById("logoNow");
-    const titleNext   = document.getElementById("titleNext");
-    const timeNext    = document.getElementById("timeNext");
-    const logoNext    = document.getElementById("logoNext");
-
-    let globalEpgData = null;
-    let lastUrl       = null;
-
-    /* ── Ticker ── */
-    let currentTickerText = null;
-
-    function setTickerText(text) {
-        if (text === currentTickerText) return;
-        currentTickerText = text;
-
-        let track = ticker.querySelector(".ticker-track");
-        if (!track) {
-            track = document.createElement("div");
-            track.className = "ticker-track";
-            const span1 = document.createElement("span");
-            const span2 = document.createElement("span");
-            track.appendChild(span1);
-            track.appendChild(span2);
-            ticker.innerHTML = "";
-            ticker.appendChild(track);
-        }
-
-        const spans = track.querySelectorAll("span");
-        spans[0].textContent = text;
-        spans[1].textContent = text;
-
-        const charWidth  = 8.4;
-        const totalWidth = text.length * charWidth + 100;
-        const duration   = Math.max(10, totalWidth / 80);
-
-        track.style.animation = "none";
-        track.offsetWidth;
-        track.style.animation = `infiniteScrollMarquee ${duration}s linear infinite`;
-    }
-
-    function buildTickerText(data, current, next) {
-        const parts = [];
-        if (data.tickerMessage && data.tickerMessage.trim()) {
-            parts.push(data.tickerMessage.trim());
-        }
-        if (current) {
-            const label = current.tickerLabel || current.title || "Live Programme";
-            parts.push(`🔴 Now Streaming: ${label}  (until ${formatTimeSimple(current.end)})`);
-        } else {
-            parts.push(`⚪ Station Off-Air`);
-        }
-        if (next && next !== current) {
-            const label = next.tickerLabel || next.title || "Next Show";
-            parts.push(`🕒⏭ Coming Up: ${label}  (starts ${formatTimeSimple(next.start)})`);
-        }
-        if (data.schedule && Array.isArray(data.schedule)) {
-            const nowSec   = getCurrentISTSeconds();
-            const upcoming = data.schedule.filter(item => {
-                if (item === current || item === next) return false;
-                return getSecondsFromTimeString(item.start) > nowSec;
-            }).slice(0, 5);
-            upcoming.forEach(item => {
-                const label = item.tickerLabel || item.title || "Show";
-                parts.push(`🕒 ${formatTimeSimple(item.start)} — ${label}`);
-            });
-        }
-        return parts.length ? parts.join("   ·   ") + "   ·   " : "Off Air.....";
-    }
-
-    /* ── Time helpers ── */
-    function getSecondsFromTimeString(timeStr) {
-        if (!timeStr) return 0;
-        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-        return (parseInt(parts[0]||0,10)*3600) + (parseInt(parts[1]||0,10)*60) + (parseInt(parts[2]||0,10));
-    }
-    function getCurrentISTSeconds() {
-        const istStr = new Date().toLocaleTimeString('en-GB', { timeZone:'Asia/Kolkata', hour12:false });
-        return getSecondsFromTimeString(istStr);
-    }
-    function formatTimeSimple(timeStr) {
-        if (!timeStr) return "00:00";
-        const parts = String(timeStr).replace(/[^\d]/g, ':').split(':').filter(p => p !== "");
-        if (parts.length >= 2)
-            return String(parts[0]).padStart(2,'0') + ":" + String(parts[1]).padStart(2,'0');
-        return "00:00";
-    }
-    function setLogo(el, logoSrc, fallbackText) {
-        if (logoSrc) {
-            el.innerHTML = `<img src="${logoSrc}" alt="logo" onerror="this.parentElement.textContent='${fallbackText}'">`;
-        } else {
-            el.textContent = fallbackText || "TV";
-        }
-    }
-
-    /* ── Core Schedule Calculation & UI Update ── */
-    function processActiveSchedule() {
-        if (!globalEpgData) return;
-
-        const schedule = globalEpgData.schedule;
-        if (!schedule || !Array.isArray(schedule) || schedule.length === 0) return;
-
-        const nowSec = getCurrentISTSeconds();
-        let current = null, next = null;
-
-        for (let i = 0; i < schedule.length; i++) {
-            const startSec = getSecondsFromTimeString(schedule[i].start);
-            const endSec   = getSecondsFromTimeString(schedule[i].end);
-            let isCurrent  = false;
-            if (endSec < startSec) {
-                if (nowSec >= startSec || nowSec < endSec) isCurrent = true;
-            } else {
-                if (nowSec >= startSec && nowSec < endSec) isCurrent = true;
-            }
-            if (isCurrent) {
-                current = schedule[i];
-                next    = schedule[i + 1] || null;
-                break;
-            }
-        }
-
-        /* ── Update player via snap-back safe setter ── */
-        if (current && current.url) {
-            if (current.url !== lastUrl) {
-                // Always use the safe setter — never set iframe.src directly
-                window.__setPlayerSrc(current.url);
-                lastUrl = current.url;
-            }
-        } else {
-            if (lastUrl !== "") {
-                window.__setPlayerSrc('');
-                lastUrl = "";
-            }
-        }
-
-        /* ── UI Text panels ── */
-        if (current) {
-            titleNow.textContent = current.title || "Programme";
-            timeNow.textContent  = formatTimeSimple(current.end);
-            setLogo(logoNow, current.logo, (current.title||"TV").substring(0,4).toUpperCase());
-        } else {
-            titleNow.textContent = "Off Air";
-            timeNow.textContent  = "--:--";
-            setLogo(logoNow, "", "OFF");
-        }
-
-        if (next) {
-            titleNext.textContent = next.title || "Next Show";
-            timeNext.textContent  = formatTimeSimple(next.start);
-            setLogo(logoNext, next.logo, (next.title||"TV").substring(0,4).toUpperCase());
-        } else {
-            titleNext.textContent = "End of Schedule";
-            timeNext.textContent  = "--:--";
-            setLogo(logoNext, "", "END");
-        }
-
-        setTickerText(buildTickerText(globalEpgData, current, next));
-    }
-
-    /* ── Fetch EPG ── */
-    async function fetchAndRender() {
-        try {
-            const res = await fetch(EPG_URL + "?v=" + Date.now(), { cache:"no-store" });
-            if (!res.ok) throw new Error("epg.json not found");
-            globalEpgData = await res.json();
-            processActiveSchedule();
-        } catch (err) {
-            console.error("EPG fetch error:", err);
-            titleNow.textContent  = "Connecting…";
-            titleNext.textContent = "Connecting…";
-            setTickerText("Loading EPG.....");
-        }
-    }
-
-    /* ── SSE ── */
-    function startSSE() {
-        if (!window.EventSource) return false;
-        const es = new EventSource(SSE_URL);
-        let connected = false;
-
-        es.onopen = () => { connected = true; };
-
-        es.addEventListener("epg", e => {
-            try { globalEpgData = JSON.parse(e.data); processActiveSchedule(); }
-            catch(err) { console.warn("SSE parse error:", err); }
-        });
-
-        es.onmessage = e => {
-            try { globalEpgData = JSON.parse(e.data); processActiveSchedule(); }
-            catch(err) { console.warn("SSE message parse error:", err); }
-        };
-
-        es.onerror = () => {
-            if (!connected) { es.close(); startPolling(); }
-        };
-
-        setTimeout(() => { if (!connected) { es.close(); startPolling(); } }, 4000);
-        return true;
-    }
-
-    /* ── Polling fallback ── */
-    function startPolling() {
-        console.log("SSE not available — using polling fallback");
-        fetchAndRender();
-        setInterval(fetchAndRender, POLL_MS);
-    }
-
-    /* ── Boot ── */
-    fetchAndRender();
-    startSSE();
-    setInterval(processActiveSchedule, 1000);
-})();
+init();
 </script>
 </body>
-                                                                     </html>
+</html>

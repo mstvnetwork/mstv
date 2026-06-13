@@ -3,205 +3,275 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Abortion-Proof Live Player</title>
+    <title>Scheduled Live TV Player</title>
     <style>
         body {
-            font-family: sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #121212;
+            background-color: #0a0a0a;
             margin: 0;
             user-select: none;
+            overflow: hidden;
         }
-        .player-container {
+
+        /* Custom Player Skin Wrapper */
+        .video-container {
             position: relative;
-            text-align: center;
-            background: #1e1e1e;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-            width: 90%;
-            max-width: 640px;
+            width: 100%;
+            max-width: 854px; /* 16:9 Standard widescreen */
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            overflow: hidden;
         }
-        /* Hiding the native timeline scrubber via CSS shadows */
-        video::-webkit-media-controls-timeline { display: none !important; }
-        video::-webkit-media-controls-current-time-display { display: none !important; }
-        video::-webkit-media-controls-time-remaining-display { display: none !important; }
-        
+
+        /* Force video to fill skin without native overlapping elements */
         video {
             width: 100%;
-            border-radius: 4px;
-            background: #000;
+            height: 100%;
+            object-fit: contain;
             display: block;
         }
-        .badge {
-            display: inline-block;
-            background: #ff0000;
-            color: white;
-            padding: 4px 8px;
-            font-size: 12px;
-            font-weight: bold;
-            border-radius: 4px;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }
-        .overlay {
+
+        /* Universal Tap-To-Tune-In Overlay */
+        .gate-overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.9);
+            background: rgba(15, 15, 15, 0.95);
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             z-index: 10;
-            border-radius: 8px;
             cursor: pointer;
+            transition: opacity 0.4s ease;
         }
-        .play-btn {
+
+        .tune-btn {
             background: #ff0000;
-            color: white;
+            color: #fff;
             border: none;
-            padding: 12px 24px;
+            padding: 14px 28px;
             font-size: 16px;
             font-weight: bold;
-            border-radius: 5px;
+            border-radius: 30px;
             cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255,0,0,0.4);
         }
-        .status-text {
-            color: #aaa;
+
+        /* Custom UI Skin Bar */
+        .custom-controls {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            opacity: 0; /* Hidden by default, appears on mouse move */
+            transition: opacity 0.3s ease;
+            z-index: 5;
+        }
+
+        .video-container:hover .custom-controls {
+            opacity: 1;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .action-btn {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+
+        .action-btn:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #fff;
             font-size: 12px;
-            margin-top: 8px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            background: #ff0000;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.9); opacity: 0.6; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.9); opacity: 0.6; }
+        }
+
+        .ticker-text {
+            color: #ccc;
+            font-size: 13px;
         }
     </style>
 </head>
 <body>
 
-<div class="player-container">
-    <div id="interactionOverlay" class="overlay">
-        <button class="play-btn">🔊 Sync & Tune In Live</button>
+<div class="video-container" id="playerWrapper">
+    <!-- Unmute Intercept Overlay -->
+    <div id="gateOverlay" class="gate-overlay">
+        <button class="tune-btn">🔊 Tune In Live Stream</button>
     </div>
 
-    <div class="badge">● Global Live Stream</div>
-    <video 
-        id="globalLivePlayer" 
-        controls 
-        controlslist="nodownload noremoteplayback nofullscreen" 
-        disablePictureInPicture
-        preload="auto"
-        playsinline>
-        <source src="https://ia600100.us.archive.org/16/items/cooking_202606/nagin.mp4?cnt=0" type="video/mp4">
-        Your browser does not support the video tag.
-    </video>
-    <div id="syncStatus" class="status-text">Connecting to global timeline...</div>
+    <!-- Raw Video Element with NO controls attribute -->
+    <video id="tvPlayer" playsinline preload="auto"></video>
+
+    <!-- Bespoke Minimalist Controls Skin -->
+    <div class="custom-controls">
+        <div class="control-group">
+            <span class="live-indicator"><span class="dot"></span>Live</span>
+            <span id="nowPlaying" class="ticker-text">Loading Schedule...</span>
+        </div>
+        <div class="control-group">
+            <button id="muteBtn" class="action-btn">🔊 Mute</button>
+            <button id="fsBtn" class="action-btn">⛶ Fullscreen</button>
+        </div>
+    </div>
 </div>
 
-
 <script>
-    const video = document.getElementById('globalLivePlayer');
-    const overlay = document.getElementById('interactionOverlay');
-    const statusText = document.getElementById('syncStatus');
-    
-    let videoDuration = 0;
-    let initialized = false;
-    let isOffline = !navigator.onLine;
+    // 1. DEFINE YOUR BROADCAST SCHEDULE HERE
+    // Total program block duration must sum up correctly
+    const SCHEDULE = [
+        {
+            title: "Cooking Segment (Nagin)",
+            url: "https://ia600100.us.archive.org/16/items/cooking_202606/nagin.mp4?cnt=0",
+            duration: 201 // Exact length of video in seconds
+        }
+        // To expand your live channel schedule, simply add more video rows below:
+        // { title: "Show 2", url: "https://domain.com", duration: 300 },
+    ];
 
-    function getGlobalSyncTime() {
-        if (!videoDuration) return 0;
-        return (Math.floor(Date.now() / 1000)) % videoDuration;
+    // Calculate total looping block duration
+    const totalScheduleDuration = SCHEDULE.reduce((sum, item) => sum + item.duration, 0);
+
+    const player = document.getElementById('tvPlayer');
+    const wrapper = document.getElementById('playerWrapper');
+    const gate = document.getElementById('gateOverlay');
+    const muteBtn = document.getElementById('muteBtn');
+    const fsBtn = document.getElementById('fsBtn');
+    const ticker = document.getElementById('nowPlaying');
+
+    let initialized = false;
+
+    // 2. PARSE CURRENT BROADCAST FRAME BASED ON GLOBAL UNIX CLOCK
+    function getBroadcastState() {
+        const globalUnixSeconds = Math.floor(Date.now() / 1000);
+        // Find exact location in our looping broadcast master block
+        let currentBlockTime = globalUnixSeconds % totalScheduleDuration;
+
+        let accumulatedTime = 0;
+        for (let i = 0; i < SCHEDULE.length; i++) {
+            const track = SCHEDULE[i];
+            if (currentBlockTime >= accumulatedTime && currentBlockTime < (accumulatedTime + track.duration)) {
+                return {
+                    track: track,
+                    seekTime: currentBlockTime - accumulatedTime
+                };
+            }
+            accumulatedTime += track.duration;
+        }
+        return { track: SCHEDULE[0], seekTime: 0 };
     }
 
-    function dynamicDriftCorrection() {
-        // Halt checks immediately if network drops or metadata isn't ready
-        if (!videoDuration || !initialized || video.paused || isOffline) return;
+    // 3. SEAMLESS SYNC CONTROLLER
+    function syncToSchedule(forceJump = false) {
+        if (!initialized && !forceJump) return;
 
-        const targetTime = getGlobalSyncTime();
-        const drift = video.currentTime - targetTime;
+        const state = getBroadcastState();
+        ticker.innerText = `Now Airing: ${state.track.title}`;
 
-        if (Math.abs(drift) > 10.0) {
-            statusText.innerText = "Re-centering stream connection...";
-            video.currentTime = targetTime;
+        // If the video track source changed entirely, update it
+        if (player.src !== state.track.url) {
+            player.src = state.track.url;
+            player.currentTime = state.seekTime;
+            player.play().catch(()=>{});
             return;
         }
 
-        if (drift < -1.5) {
-            video.playbackRate = 1.35;
-            statusText.innerText = "Syncing Status: Catching Up (+35%)";
-        } else if (drift > 1.5) {
-            video.playbackRate = 0.75;
-            statusText.innerText = "Syncing Status: Slowing Down (-25%)";
+        // Keep local playback aligned within a tight 2-second window
+        if (Math.abs(player.currentTime - state.seekTime) > 2.0) {
+            player.currentTime = state.seekTime;
+        }
+    }
+
+    // 4. CUSTOM SKIN INPUT ACTIONS
+    gate.addEventListener('click', () => {
+        gate.style.opacity = '0';
+        setTimeout(() => gate.style.display = 'none', 400);
+
+        player.muted = false;
+        initialized = true;
+
+        // Force timeline jump directly to active broadcast frame on user entrance
+        syncToSchedule(true);
+        player.play().catch(err => console.log("Stream init error:", err));
+    });
+
+    // Custom Mute Button Switcher
+    muteBtn.addEventListener('click', () => {
+        if (player.muted) {
+            player.muted = false;
+            muteBtn.innerText = "🔊 Mute";
         } else {
-            video.playbackRate = 1.0;
-            statusText.innerText = "Syncing Status: Fully Synchronized";
-        }
-    }
-
-    video.addEventListener('loadedmetadata', () => {
-        videoDuration = video.duration;
-    });
-
-    // CATCH CRITICAL NETWORK TIMEOUTS (Like VPN drops)
-    video.addEventListener('error', () => {
-        const err = video.error;
-        if (err && err.code === 4) { // MEDIA_ERR_SRC_NOT_SUPPORTED / Network unreachable
-            statusText.innerText = "Network connection broken. Retrying link...";
-            setTimeout(recoverPlayerConnection, 3000);
+            player.muted = true;
+            muteBtn.innerText = "🔇 Unmute";
         }
     });
 
-    function recoverPlayerConnection() {
-        if (isOffline) return;
-        const currentPosition = getGlobalSyncTime();
-        video.load(); // Forces DNS re-resolution and cleans out error buffers
-        video.currentTime = currentPosition;
-        video.play().catch(() => {});
-    }
-
-    overlay.addEventListener('click', () => {
-        overlay.style.display = 'none'; 
-        video.muted = false;
-        
-        const targetTime = getGlobalSyncTime();
-        video.currentTime = targetTime;
-
-        if (video.readyState >= 2) {
-            startLivePlayback();
+    // Custom Fullscreen Trigger
+    fsBtn.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+            wrapper.requestFullscreen().catch(err => alert(err.message));
+            fsBtn.innerText = "⛶ Exit Fullscreen";
         } else {
-            video.addEventListener('canplay', startLivePlayback, { once: true });
+            document.exitFullscreen();
+            fsBtn.innerText = "⛶ Fullscreen";
         }
     });
 
-    function startLivePlayback() {
-        video.play().then(() => {
-            initialized = true;
-        }).catch(() => {
-            statusText.innerText = "Click player container to start streaming.";
-        });
-    }
-
-    // Capture manual keyboard skip overrides
-    video.addEventListener('seeking', () => {
-        if (initialized && !isOffline) {
-            const targetTime = getGlobalSyncTime();
-            if (Math.abs(video.currentTime - targetTime) > 2.0) {
-                video.currentTime = targetTime;
-            }
-        }
-    });
-
-    // Monitor Operating System Network Interfaces
-    window.addEventListener('online', () => { isOffline = false; recoverPlayerConnection(); });
-    window.addEventListener('offline', () => { isOffline = true; statusText.innerText = "Offline: Check your VPN connection."; });
-
+    // Monitor for tab focus change transitions to snap alignment back safely
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && initialized) {
-            video.currentTime = getGlobalSyncTime();
+            syncToSchedule(true);
         }
     });
 
-    setInterval(dynamicDriftCorrection, 2000);
+    // Run active dynamic alignment checking loops every 4 seconds
+    setInterval(syncToSchedule, 4000);
 </script>
 </body>
 </html>
 
-    
+
+
+

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Pseudo-Live Player</title>
+    <title>VPN-Optimized Live Player</title>
     <style>
         body {
             font-family: sans-serif;
@@ -41,7 +41,6 @@
             margin-bottom: 10px;
             text-transform: uppercase;
         }
-        /* Tap to Play Interaction Overlay */
         .overlay {
             position: absolute;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -88,38 +87,45 @@
 <script>
     const video = document.getElementById('globalLivePlayer');
     const overlay = document.getElementById('interactionOverlay');
+    
     let videoDuration = 0;
     let initialized = false;
+    let networkSyncLock = false; // Prevents overlapping sync calls
 
-    // 1. Calculate pseudo-live position via epoch timestamp modulo
     function getGlobalSyncTime() {
         if (!videoDuration) return 0;
         const nowInSeconds = Math.floor(Date.now() / 1000);
         return nowInSeconds % videoDuration;
     }
 
-    // 2. Safe synchronization handler
-    function syncVideoTimeline() {
-        if (!videoDuration) return;
+    function syncVideoTimeline(force = false) {
+        if (!videoDuration || (!initialized && !force)) return;
+        
+        // HALT if browser is currently processing a previous download segment
+        if (networkSyncLock || video.seeking) return; 
+
         const targetTime = getGlobalSyncTime();
         
-        // Correct time drift if user scrolls or delays occur
-        if (Math.abs(video.currentTime - targetTime) > 1.5) {
+        // Relaxed threshold window (4 seconds) safely accommodates VPN routing overhead
+        if (Math.abs(video.currentTime - targetTime) > 4.0) {
+            networkSyncLock = true; 
             video.currentTime = targetTime;
         }
     }
 
-    // Capture metadata to calculate loop constraints
     video.addEventListener('loadedmetadata', () => {
         videoDuration = video.duration;
     });
 
-    // 3. User interaction removes autoplay protection blocks
+    // Reset sync lock ONLY when network chunk load confirms success
+    video.addEventListener('seeked', () => {
+        networkSyncLock = false;
+    });
+
     overlay.addEventListener('click', () => {
         overlay.style.display = 'none'; 
-        video.muted = false; // Safely unmute after active gesture
+        video.muted = false;
         
-        // Wait for buffer readiness to avoid skipping into a dead zone
         if (video.readyState >= 2) {
             startLivePlayback();
         } else {
@@ -128,31 +134,34 @@
     });
 
     function startLivePlayback() {
-        syncVideoTimeline();
-        video.play().catch(err => console.log("Playback error: ", err));
+        syncVideoTimeline(true);
+        video.play().catch(err => console.log("Playback failed: ", err));
         initialized = true;
     }
 
-    // 4. Trap and reject manual scrollbar adjustments
+    // Capture manual scroll attempts and forcefully reset them
     video.addEventListener('seeking', () => {
-        if (initialized && videoDuration) {
-            syncVideoTimeline();
+        if (initialized && !networkSyncLock) {
+            const targetTime = getGlobalSyncTime();
+            if (Math.abs(video.currentTime - targetTime) > 1.0) {
+                video.currentTime = targetTime;
+            }
         }
     });
 
-    // Enforce background/tab change sync recovery
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && initialized) {
-            syncVideoTimeline();
+            networkSyncLock = false; // Clear stale locks from inactive tabs
+            syncVideoTimeline(true);
         }
     });
 
-    // Keep active connections aligned every 4 seconds
+    // Run interval loop at a slower cadence (every 6 seconds) to allow buffering over VPN
     setInterval(() => {
         if (initialized && !video.paused) {
             syncVideoTimeline();
         }
-    }, 4000);
+    }, 6000);
 </script>
 </body>
 </html>

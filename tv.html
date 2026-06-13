@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Pseudo-Live Player</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #121212;
+            margin: 0;
+        }
+        .player-container {
+            text-align: center;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            width: 90%;
+            max-width: 640px;
+        }
+        video {
+            width: 100%;
+            border-radius: 4px;
+            background: #000;
+        }
+        .badge {
+            display: inline-block;
+            background: #ff0000;
+            color: white;
+            padding: 4px 8px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+<body>
+
+<div class="player-container">
+    <div class="badge">● Global Live Sync</div>
+    <video 
+        id="globalLivePlayer" 
+        controls 
+        controlslist="nodownload noremoteplayback" 
+        disablePictureInPicture
+        autoplay 
+        muted
+        playsinline>
+        <source src="https://ia600100.us.archive.org/16/items/cooking_202606/nagin.mp4?cnt=0" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+</div>
+
+<script>
+    const video = document.getElementById('globalLivePlayer');
+    let videoDuration = 0;
+    let isSyncing = false;
+
+    // 1. Calculate global frame positioning
+    function getGlobalSyncTime() {
+        if (!videoDuration) return 0;
+        const nowInSeconds = Math.floor(Date.now() / 1000);
+        // Modulo math forces the video to loop identically worldwide
+        return nowInSeconds % videoDuration;
+    }
+
+    // 2. Synchronize playback timeline
+    function syncVideoTimeline() {
+        if (!videoDuration || isSyncing) return;
+        
+        const targetTime = getGlobalSyncTime();
+        // Only force set time if drift is larger than 1 second
+        if (Math.abs(video.currentTime - targetTime) > 1) {
+            isSyncing = true;
+            video.currentTime = targetTime;
+        }
+    }
+
+    // Initialize sync once video metadata (duration) loads
+    video.addEventListener('loadedmetadata', () => {
+        videoDuration = video.duration;
+        syncVideoTimeline();
+    });
+
+    // 3. Block timeline tampering (Scrollbar / Progress Bar)
+    video.addEventListener('seeking', (e) => {
+        if (videoDuration) {
+            const targetTime = getGlobalSyncTime();
+            // Reject user scroll, snap back to target global frame
+            video.currentTime = targetTime;
+        }
+    });
+
+    // Reset sync lock once seeking completes
+    video.addEventListener('seeked', () => {
+        isSyncing = false;
+    });
+
+    // Periodic micro-sync correction loop (every 5 seconds)
+    setInterval(syncVideoTimeline, 5000);
+</script>
+</body>
+</html>

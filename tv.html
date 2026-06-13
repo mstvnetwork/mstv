@@ -15,6 +15,7 @@
             margin: 0;
         }
         .player-container {
+            position: relative;
             text-align: center;
             background: #1e1e1e;
             padding: 20px;
@@ -27,6 +28,7 @@
             width: 100%;
             border-radius: 4px;
             background: #000;
+            display: block;
         }
         .badge {
             display: inline-block;
@@ -39,19 +41,44 @@
             margin-bottom: 10px;
             text-transform: uppercase;
         }
+        /* Tap to Play Interaction Overlay */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .play-btn {
+            background: #ff0000;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
 
 <div class="player-container">
+    <div id="interactionOverlay" class="overlay">
+        <button class="play-btn">🔊 Click to Tune In Live</button>
+    </div>
+
     <div class="badge">● Global Live Sync</div>
     <video 
         id="globalLivePlayer" 
         controls 
         controlslist="nodownload noremoteplayback" 
         disablePictureInPicture
-        autoplay 
-        muted
+        preload="auto"
         playsinline>
         <source src="https://ia600100.us.archive.org/16/items/cooking_202606/nagin.mp4?cnt=0" type="video/mp4">
         Your browser does not support the video tag.
@@ -60,51 +87,72 @@
 
 <script>
     const video = document.getElementById('globalLivePlayer');
+    const overlay = document.getElementById('interactionOverlay');
     let videoDuration = 0;
-    let isSyncing = false;
+    let initialized = false;
 
-    // 1. Calculate global frame positioning
+    // 1. Calculate pseudo-live position via epoch timestamp modulo
     function getGlobalSyncTime() {
         if (!videoDuration) return 0;
         const nowInSeconds = Math.floor(Date.now() / 1000);
-        // Modulo math forces the video to loop identically worldwide
         return nowInSeconds % videoDuration;
     }
 
-    // 2. Synchronize playback timeline
+    // 2. Safe synchronization handler
     function syncVideoTimeline() {
-        if (!videoDuration || isSyncing) return;
-        
+        if (!videoDuration) return;
         const targetTime = getGlobalSyncTime();
-        // Only force set time if drift is larger than 1 second
-        if (Math.abs(video.currentTime - targetTime) > 1) {
-            isSyncing = true;
+        
+        // Correct time drift if user scrolls or delays occur
+        if (Math.abs(video.currentTime - targetTime) > 1.5) {
             video.currentTime = targetTime;
         }
     }
 
-    // Initialize sync once video metadata (duration) loads
+    // Capture metadata to calculate loop constraints
     video.addEventListener('loadedmetadata', () => {
         videoDuration = video.duration;
-        syncVideoTimeline();
     });
 
-    // 3. Block timeline tampering (Scrollbar / Progress Bar)
-    video.addEventListener('seeking', (e) => {
-        if (videoDuration) {
-            const targetTime = getGlobalSyncTime();
-            // Reject user scroll, snap back to target global frame
-            video.currentTime = targetTime;
+    // 3. User interaction removes autoplay protection blocks
+    overlay.addEventListener('click', () => {
+        overlay.style.display = 'none'; 
+        video.muted = false; // Safely unmute after active gesture
+        
+        // Wait for buffer readiness to avoid skipping into a dead zone
+        if (video.readyState >= 2) {
+            startLivePlayback();
+        } else {
+            video.addEventListener('canplay', startLivePlayback, { once: true });
         }
     });
 
-    // Reset sync lock once seeking completes
-    video.addEventListener('seeked', () => {
-        isSyncing = false;
+    function startLivePlayback() {
+        syncVideoTimeline();
+        video.play().catch(err => console.log("Playback error: ", err));
+        initialized = true;
+    }
+
+    // 4. Trap and reject manual scrollbar adjustments
+    video.addEventListener('seeking', () => {
+        if (initialized && videoDuration) {
+            syncVideoTimeline();
+        }
     });
 
-    // Periodic micro-sync correction loop (every 5 seconds)
-    setInterval(syncVideoTimeline, 5000);
+    // Enforce background/tab change sync recovery
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && initialized) {
+            syncVideoTimeline();
+        }
+    });
+
+    // Keep active connections aligned every 4 seconds
+    setInterval(() => {
+        if (initialized && !video.paused) {
+            syncVideoTimeline();
+        }
+    }, 4000);
 </script>
 </body>
 </html>

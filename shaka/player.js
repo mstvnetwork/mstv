@@ -7,7 +7,7 @@
 const CHANNEL_EPOCH   = new Date('2024-01-01T00:00:00Z').getTime();
 const PLAYLIST_URL    = './playlist.json';
 
-const POLL_MS         = 5000;   // playlist change check interval
+const POLL_MS         = 60000;   // playlist change check interval
 const WATCHDOG_MS     = 1000;   // sync ticker
 const RESYNC_DRIFT    = 3;      // seconds drift before snap (video mode)
 const IFRAME_RESYNC   = 8;      // seconds drift before iframe reload

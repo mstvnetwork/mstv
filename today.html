@@ -1,55 +1,227 @@
-<!-- Secure Iframe Wrapper Container -->
-<div id="videoContainer" style="position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000;">
-  
-  <!-- Your Chosen Embedded Player -->
-  <iframe 
-    id="securedIframePlayer"
-    src="https://www.m3u8player.online/embed/mp4?url=https%3A%2F%2Fia600100.us.archive.org%2F16%2Fitems%2Fcooking_202606%2Fnagin.mp4%3Fcnt%3D0" 
-    width="100%" 
-    height="100%" 
-    style="border: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;" 
-    scrolling="no"
-    allow="autoplay"
-    allowfullscreen>
-  </iframe>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HLS Pseudo-Live Stream</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #0a0a0a;
+            margin: 0;
+            user-select: none;
+            overflow: hidden;
+        }
 
-  <!-- Total Shield Layer (Prevents clicking, pausing, or skipping entirely) -->
-  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 999; cursor: default;"></div>
+        .video-container {
+            position: relative;
+            width: 90%;
+            max-width: 854px; 
+            aspect-ratio: 16 / 9;
+            background: #000;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            overflow: hidden;
+        }
 
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* Block default browser seekbars */
+        video::-webkit-media-controls-timeline { display: none !important; }
+        video::-webkit-media-controls-current-time-display { display: none !important; }
+        video::-webkit-media-controls-time-remaining-display { display: none !important; }
+
+        .gate-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 15, 15, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .tune-btn {
+            background: #ff0000;
+            color: #fff;
+            border: none;
+            padding: 14px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(255,0,0,0.4);
+        }
+
+        .custom-controls {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.85));
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 5;
+        }
+
+        .video-container:hover .custom-controls { opacity: 1; }
+        .control-group { display: flex; align-items: center; gap: 15px; }
+
+        .action-btn {
+            background: rgba(255,255,255,0.1);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .live-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #fff;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .dot { width: 8px; height: 8px; background: #ff0000; border-radius: 50%; }
+        .ticker-text { color: #ccc; font-size: 13px; }
+    </style>
+    <!-- Load the HLS Streaming Engine Core Engine via Cloudflare CDN -->
+    <script src=""></script>
+</head>
+<body>
+
+<div class="video-container" id="playerWrapper">
+    <div id="gateOverlay" class="gate-overlay">
+        <button class="tune-btn">🔊 Tune In Live Stream</button>
+    </div>
+
+    <!-- Clear, native presentation block without control attributes -->
+    <video id="tvPlayer" playsinline autoplay muted preload="auto"></video>
+
+    <div class="custom-controls">
+        <div class="control-group">
+            <span class="live-indicator"><span class="dot"></span>Live</span>
+            <span id="nowPlaying" class="ticker-text">Syncing Channel...</span>
+        </div>
+        <div class="control-group">
+            <button id="muteBtn" class="action-btn">🔊 Unmute</button>
+            <button id="fsBtn" class="action-btn">⛶ Fullscreen</button>
+        </div>
+    </div>
 </div>
 
-<!-- Strict External Monitoring Script -->
 <script>
-  const playerIframe = document.getElementById('securedIframePlayer');
-  const initialSrc = playerIframe.src;
-  
-  let totalAllowedSeconds = 0;
-  let validationInterval = null;
+    const FIXED_DURATION = 201; 
+    const STREAM_SOURCE = './index.m3u8'; // relative reference to your generated index playlist
 
-  // Start the background tracking clock as soon as the container appears
-  function startTracking() {
-    validationInterval = setInterval(() => {
-      totalAllowedSeconds += 1;
-    }, 1000);
-  }
+    const player = document.getElementById('tvPlayer');
+    const wrapper = document.getElementById('playerWrapper');
+    const gate = document.getElementById('gateOverlay');
+    const muteBtn = document.getElementById('muteBtn');
+    const fsBtn = document.getElementById('fsBtn');
+    const ticker = document.getElementById('nowPlaying');
 
-  // Monitor for illegal interactions or browser focus shifts
-  window.addEventListener('blur', () => {
-    // Triggers if user opens dev tools, inspects element, or tries to click into the iframe
-    handleViolation();
-  });
+    let initialized = false;
+    let hlsInstance = null;
 
-  function handleViolation() {
-    console.warn("Playback rules violated. Resetting stream timeline.");
-    
-    // Hard reset: Force the iframe to reload back to the beginning
-    playerIframe.src = "https://www.m3u8player.online/embed/mp4?url=https%3A%2F%2Fia600100.us.archive.org%2F16%2Fitems%2Fcooking_202606%2Fnagin.mp4%3Fcnt%3D0";
-    playerIframe.src = initialSrc;
-    
-    // Reset our validation timer tracking clock
-    totalAllowedSeconds = 0;
-  }
+    function getBroadcastSeekTime() {
+        return (Math.floor(Date.now() / 1000)) % FIXED_DURATION;
+    }
 
-  // Initialize tracking
-  startTracking();
+    function syncToSchedule() {
+        if (!initialized || player.paused) return;
+        const targetSeekTime = getBroadcastSeekTime();
+        if (Math.abs(player.currentTime - targetSeekTime) > 3.0) {
+            player.currentTime = targetSeekTime;
+        }
+    }
+
+    // Initialize HLS Stream Engine Engine Configuration
+    function setupHlsStream() {
+        if (Hls.isSupported()) {
+            hlsInstance = new Hls({ maxBufferSize: 2 * 1024 * 1024 }); // 2MB small chunk sizes to stay lightweight over VPNs
+            hlsInstance.loadSource(STREAM_SOURCE);
+            hlsInstance.attachMedia(player);
+        } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+            // Safari Fallback support
+            player.src = STREAM_SOURCE;
+        }
+    }
+
+    gate.addEventListener('click', () => {
+        gate.style.opacity = '0';
+        setTimeout(() => gate.style.display = 'none', 400);
+
+        player.muted = false;
+        muteBtn.innerText = " Normandy Mute";
+        muteBtn.innerText = "¼ Mute";
+        muteBtn.innerText = "🔇 Mute";
+        initialized = true;
+        ticker.innerText = "Now Airing: Cooking Segment (Nagin)";
+
+        setupHlsStream();
+
+        // Enforce the initial live jump calculation safely
+        if (Hls.isSupported()) {
+            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                player.currentTime = getBroadcastSeekTime();
+                player.play().catch(() => {});
+            });
+        } else {
+            player.addEventListener('loadedmetadata', () => {
+                player.currentTime = getBroadcastSeekTime();
+                player.play().catch(() => {});
+            });
+        }
+    });
+
+    muteBtn.addEventListener('click', () => {
+        if (player.muted) {
+            player.muted = false;
+            muteBtn.innerText = "🔇 Mute";
+        } else {
+            player.muted = true;
+            muteBtn.innerText = "🔊 Unmute";
+        }
+    });
+
+    fsBtn.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+            wrapper.requestFullscreen().catch(() => {});
+            fsBtn.innerText = "⛶ Exit Fullscreen";
+        } else {
+            document.exitFullscreen();
+            fsBtn.innerText = "⛶ Fullscreen";
+        }
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && initialized) {
+            player.currentTime = getBroadcastSeekTime();
+        }
+    });
+
+    setInterval(syncToSchedule, 4000);
 </script>
+</body>
+</html>

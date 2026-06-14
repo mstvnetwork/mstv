@@ -1,17 +1,55 @@
-<!-- Video Container with Anti-Skip Shield -->
-<div style="position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden;">
+<!-- Secure Iframe Wrapper Container -->
+<div id="videoContainer" style="position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: #000;">
   
-  <!-- The Embedded Player -->
+  <!-- Your Chosen Embedded Player -->
   <iframe 
-    src="https://www.m3u8player.online/embed/mp4?url=https%3A%2F%2Fia600100.us.archive.org%2F16%2Fitems%2Fcooking_202606%2Fnagin.mp4%3Fcnt%3D0" 
+    id="securedIframePlayer"
+    src="https://m3u8player.online" 
     width="100%" 
     height="100%" 
-    style="border: none; width: 100%; height: 100%;" 
+    style="border: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;" 
     scrolling="no"
+    allow="autoplay"
     allowfullscreen>
   </iframe>
 
-  <!-- Invisible Anti-Skip Shield (Blocks clicks on the timeline bar) -->
-  <div style="position: absolute; bottom: 0; left: 0; width: 100%; height: 15%; background: transparent; z-index: 999; cursor: default;"></div>
+  <!-- Total Shield Layer (Prevents clicking, pausing, or skipping entirely) -->
+  <div style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: transparent; z-index: 999; cursor: default;"></div>
 
 </div>
+
+<!-- Strict External Monitoring Script -->
+<script>
+  const playerIframe = document.getElementById('securedIframePlayer');
+  const initialSrc = playerIframe.src;
+  
+  let totalAllowedSeconds = 0;
+  let validationInterval = null;
+
+  // Start the background tracking clock as soon as the container appears
+  function startTracking() {
+    validationInterval = setInterval(() => {
+      totalAllowedSeconds += 1;
+    }, 1000);
+  }
+
+  // Monitor for illegal interactions or browser focus shifts
+  window.addEventListener('blur', () => {
+    // Triggers if user opens dev tools, inspects element, or tries to click into the iframe
+    handleViolation();
+  });
+
+  function handleViolation() {
+    console.warn("Playback rules violated. Resetting stream timeline.");
+    
+    // Hard reset: Force the iframe to reload back to the beginning
+    playerIframe.src = "https://www.m3u8player.online/embed/mp4?url=https%3A%2F%2Fia600100.us.archive.org%2F16%2Fitems%2Fcooking_202606%2Fnagin.mp4%3Fcnt%3D0";
+    playerIframe.src = initialSrc;
+    
+    // Reset our validation timer tracking clock
+    totalAllowedSeconds = 0;
+  }
+
+  // Initialize tracking
+  startTracking();
+</script>

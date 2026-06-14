@@ -53,50 +53,62 @@
     const CHANNEL_START_UNIX = 1700000000; // Fixed anchor timestamp
     const HLS_MANIFEST_URL = "https://cdn.jsdelivr.net/gh/mstvnetwork/mstv@main/index.m3u8"; 
     // =========================================================================
+const video = document.getElementById('video');
+    const unmuteBtn = document.getElementById('unmute-overlay');
 
-    const player = videojs('live-player');
-
-    // Mount the streaming source
-    player.src({
-        src: HLS_MANIFEST_URL,
-        type: 'application/x-mpegURL'
-    });
-
-    // Calculates mathematical live point relative to the global clock
+    // Calculates the mathematical live point relative to the global clock
     function getGlobalLivePosition() {
         const currentUnixTimeSeconds = Date.now() / 1000;
         const totalSecondsElapsed = currentUnixTimeSeconds - CHANNEL_START_UNIX;
         
-        // Endless continuous loops across your 2546-second timeline
+        // Endless loops across your 2546-second timeline
         return totalSecondsElapsed % VIDEO_DURATION;
     }
 
-    // Force player to snap to live position as soon as video metadata loads
-    player.on('loadedmetadata', function() {
-        player.currentTime(getGlobalLivePosition());
-        player.play().catch(err => console.log("Autoplay waiting for click."));
-    });
-
-    // Strict Anti-Tamper/Anti-Drift Logic
-    player.on('timeupdate', function() {
-        const targetTime = getGlobalLivePosition();
-        const drift = Math.abs(player.currentTime() - targetTime);
+    // Initialize HLS Engine
+    if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: false
+        });
         
-        // Reset player timeline instantly if it gets desynced by more than 2 seconds
+        hls.loadSource(HLS_MANIFEST_URL);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            video.currentTime = getGlobalLivePosition();
+            video.play().catch(err => console.log("Autoplay waiting for click."));
+        });
+
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Fallback for native Safari / iOS browsers which don't need hls.js
+        video.src = HLS_MANIFEST_URL;
+        video.addEventListener('loadedmetadata', function() {
+            video.currentTime = getGlobalLivePosition();
+            video.play().catch(err => console.log("Autoplay waiting for click."));
+        });
+    }
+
+    // STRICT ANTI-TAMPER / ANTI-DRIFT GUARD
+    // Triggers continuously during playback. If the user lags, buffers, or tries to alter time, snap them back.
+    video.addEventListener('timeupdate', function() {
+        const targetTime = getGlobalLivePosition();
+        const drift = Math.abs(video.currentTime - targetTime);
+        
+        // If user drifts out of sync by more than 2 seconds, snap back instantly
         if (drift > 2) {
-            player.currentTime(targetTime);
+            video.currentTime = targetTime;
         }
     });
 
-    // Handle Overlay Activation
-    const unmuteBtn = document.getElementById('unmute-overlay');
+    // Handle Overlay Interaction
     unmuteBtn.addEventListener('click', function() {
-        player.muted(false);
-        unmuteBtn.style.display = 'none'; // Clear overlay button
-        player.currentTime(getGlobalLivePosition()); // Final micro-sync adjustment
+        video.muted = false;
+        unmuteBtn.style.display = 'none'; // Erase overlay button
+        video.currentTime = getGlobalLivePosition(); // Instant micro-sync on click
     });
 
-    // Keyboard lockouts (Disables Space, Left Arrow, Right Arrow)
+    // Strict Keyboard Lockouts (Disables Spacebar, Left/Right Arrows)
     window.addEventListener('keydown', function(e) {
         if ([32, 37, 39].indexOf(e.keyCode) > -1) {
             e.preventDefault();

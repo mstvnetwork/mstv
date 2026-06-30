@@ -163,7 +163,7 @@ img{max-width:100%;display:block}
 /* CATEGORY CHIPS */
 #categoryWrap{
   display:flex;gap:6px;padding:12px 16px;overflow-x:auto;white-space:nowrap;scrollbar-width:none;
-  border-bottom:1px solid var(--border);min-height:49px;
+  border-bottom:1px solid var(--border);
 }
 #categoryWrap::-webkit-scrollbar{display:none}
 .cat-pill{
@@ -264,7 +264,9 @@ img{max-width:100%;display:block}
     <div class="np-live"><span class="live-dot"></span>LIVE</div>
   </div>
 
-  <nav id="categoryWrap" role="group" aria-label="Filter by category"></nav>
+  <nav id="categoryWrap" role="group" aria-label="Filter by category">
+    <button class="cat-pill active" data-cat="All">All</button>
+  </nav>
 
   <div id="gridWrap">
     <div id="gridTitle" role="heading" aria-level="2">ALL CHANNELS <span class="count" id="gridCount"></span></div>
@@ -372,6 +374,7 @@ async function ensureShaka(){
 
 // ── INIT ──
 async function init(){
+  document.querySelectorAll('#categoryWrap .cat-pill').forEach(bindCatPill);
   await loadChannels(false);
   startPolling();
   bindEvents();
@@ -425,16 +428,22 @@ function getCategories(){
   channels.forEach(ch=>{ if(ch.category && !cats.includes(ch.category)) cats.push(ch.category); });
   return cats;
 }
+function bindCatPill(btn){
+  btn.addEventListener('click',()=>{
+    activeCategory=btn.dataset.cat;
+    renderCategories(); renderGrid(); updateCounts();
+  });
+}
 function renderCategories(){
   const cats=getCategories();
   const wrap=document.getElementById('categoryWrap');
+  const existing=[...wrap.querySelectorAll('.cat-pill')].map(b=>b.dataset.cat);
+  if(existing.length===cats.length && existing.every((c,i)=>c===cats[i])){
+    wrap.querySelectorAll('.cat-pill').forEach(btn=>btn.classList.toggle('active',btn.dataset.cat===activeCategory));
+    return;
+  }
   wrap.innerHTML=cats.map(cat=>`<button class="cat-pill${activeCategory===cat?' active':''}" data-cat="${esc(cat)}">${esc(cat)}</button>`).join('');
-  wrap.querySelectorAll('.cat-pill').forEach(btn=>
-    btn.addEventListener('click',()=>{
-      activeCategory=btn.dataset.cat;
-      renderCategories(); renderGrid(); updateCounts();
-    })
-  );
+  wrap.querySelectorAll('.cat-pill').forEach(bindCatPill);
   wrap.style.display=cats.length>1?'flex':'none';
 }
 

@@ -181,6 +181,7 @@ img{max-width:100%;display:block}
 .grid-card{
   background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);
   padding:16px 10px;cursor:pointer;text-align:center;display:flex;align-items:center;justify-content:center;min-height:64px;
+  text-decoration:none;color:inherit;
 }
 .grid-card.active{border-color:var(--pink);background:var(--surface2)}
 .grid-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.35;word-break:break-word}
@@ -257,7 +258,7 @@ img{max-width:100%;display:block}
 
   <div id="gridWrap">
     <div id="gridTitle" role="heading" aria-level="2">ALL CHANNELS <span class="count" id="gridCount"></span></div>
-    <div id="channelGrid" role="list"></div>
+    <div id="channelGrid" aria-label="Channel list"></div>
   </div>
 
   <footer id="footer">
@@ -444,14 +445,19 @@ function renderGrid(){
     return;
   }
   const activeKey=currentChannel?chKey(currentChannel):null;
-  $channelGrid.innerHTML=filteredChannels.map((ch,i)=>
-    `<div class="grid-card${chKey(ch)===activeKey?' active':''}" role="listitem" data-idx="${i}" tabindex="0" aria-label="Watch ${esc(ch.name)}">
-      <div class="grid-name">${esc(ch.name)}</div>
-    </div>`).join('');
+  $channelGrid.innerHTML=filteredChannels.map((ch,i)=>{
+    const slug=ch.name.toLowerCase().trim().replace(/[^\w\s-]/g,'').replace(/[\s_|]+/g,'-').replace(/-{2,}/g,'-').replace(/^-|-$/g,'');
+    return `<a class="grid-card${chKey(ch)===activeKey?' active':''}" href="?ch=${encodeURIComponent(slug)}" data-idx="${i}" aria-label="Watch ${esc(ch.name)} live">
+      <span class="grid-name">${esc(ch.name)}</span>
+    </a>`;
+  }).join('');
   $channelGrid.querySelectorAll('.grid-card').forEach(el=>{
-    const handler=()=>playChannel(filteredChannels[+el.dataset.idx]);
-    el.addEventListener('click',handler);
-    el.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); handler(); } });
+    el.addEventListener('click',e=>{
+      e.preventDefault();
+      const ch=filteredChannels[+el.dataset.idx];
+      playChannel(ch);
+      history.replaceState(null,'','?ch='+encodeURIComponent(el.getAttribute('href').slice(4)));
+    });
   });
 }
 function updateCounts(){

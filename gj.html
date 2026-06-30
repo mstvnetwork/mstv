@@ -374,7 +374,6 @@ async function ensureShaka(){
 
 // ── INIT ──
 async function init(){
-  document.querySelectorAll('#categoryWrap .cat-pill').forEach(bindCatPill);
   await loadChannels(false);
   startPolling();
   bindEvents();
@@ -428,12 +427,6 @@ function getCategories(){
   channels.forEach(ch=>{ if(ch.category && !cats.includes(ch.category)) cats.push(ch.category); });
   return cats;
 }
-function bindCatPill(btn){
-  btn.addEventListener('click',()=>{
-    activeCategory=btn.dataset.cat;
-    renderCategories(); renderGrid(); updateCounts();
-  });
-}
 function renderCategories(){
   const cats=getCategories();
   const wrap=document.getElementById('categoryWrap');
@@ -443,9 +436,14 @@ function renderCategories(){
     return;
   }
   wrap.innerHTML=cats.map(cat=>`<button class="cat-pill${activeCategory===cat?' active':''}" data-cat="${esc(cat)}">${esc(cat)}</button>`).join('');
-  wrap.querySelectorAll('.cat-pill').forEach(bindCatPill);
   wrap.style.display=cats.length>1?'flex':'none';
 }
+document.getElementById('categoryWrap').addEventListener('click', e=>{
+  const btn=e.target.closest('.cat-pill');
+  if(!btn) return;
+  activeCategory=btn.dataset.cat;
+  renderCategories(); renderGrid(); updateCounts();
+});
 
 // ── RENDER ──
 function fullRender(){ applyFilters(); renderCategories(); renderGrid(); updateCounts(); }
@@ -477,14 +475,17 @@ function renderGrid(){
       <span class="grid-name">${esc(ch.name)}</span>
     </a>`;
   }).join('');
-  $channelGrid.querySelectorAll('.grid-card').forEach(el=>{
-    el.addEventListener('click',e=>{
-      e.preventDefault();
-      const ch=filteredChannels[+el.dataset.idx];
-      playChannel(ch);
-      history.replaceState(null,'','?ch='+encodeURIComponent(el.getAttribute('href').slice(4)));
-    });
-  });
+}
+// Event delegation: one listener for the whole grid, bound once, never re-attached on re-render.
+$channelGrid.addEventListener('click', e=>{
+  const el=e.target.closest('.grid-card');
+  if(!el) return;
+  e.preventDefault();
+  const ch=filteredChannels[+el.dataset.idx];
+  if(!ch) return;
+  playChannel(ch);
+  history.replaceState(null,'','?ch='+encodeURIComponent(el.getAttribute('href').slice(4)));
+});
 }
 function updateCounts(){
   const n=filteredChannels.length;

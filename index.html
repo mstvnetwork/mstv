@@ -64,22 +64,22 @@
     href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 </noscript>
 
-<!-- PERFORMANCE: Preload only hls.js — it's needed immediately for most channels.
-     Shaka Player is now lazy-loaded on-demand only when a DASH channel is picked
-     (removed from head — was adding ~230KB of unused JS on every page load). -->
+<!-- PERFORMANCE: Preload player libraries so they're fetched early but non-blocking -->
 <link rel="preload" as="script" crossorigin href="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js">
+<link rel="preload" as="script" crossorigin href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.compiled.min.js">
 
 <!-- GoatCounter: async, non-blocking -->
 <script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
 
-<!-- PERFORMANCE: hls.js deferred — loaded after HTML parse, before DOMContentLoaded -->
+<!-- PERFORMANCE: Player libs deferred — loaded after HTML parse, before DOMContentLoaded -->
 <script defer src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.compiled.min.js"></script>
 
 <style>
 :root{
   --bg:#0b0d14;--bg2:#0f1219;--bg3:#151923;--surface:#1c2235;
   --border:rgba(255,255,255,0.08);--accent:#e63e6d;--accent2:#ff6b35;
-  --gold:#f5c842;--text:#e8ecf4;--muted:#98a2c0;--live:#22c55e;
+  --gold:#f5c842;--text:#e8ecf4;--muted:#6b7694;--live:#22c55e;
   --radius:12px;--sidebar:290px;--header-h:62px;
   --player-h:clamp(200px,44vw,560px);
   /* Fallback system fonts render instantly, replaced by web fonts after load */
@@ -179,10 +179,13 @@ body{
   content:'';position:absolute;left:0;top:22%;bottom:22%;width:3px;border-radius:2px;
   background:linear-gradient(var(--accent),var(--accent2));
 }
-.ch-num{
-  width:34px;height:34px;border-radius:8px;background:var(--bg3);flex-shrink:0;
-  border:1px solid var(--border);display:grid;place-items:center;
-  font-family:var(--font-mono);font-size:11px;font-weight:600;color:var(--muted);
+.ch-logo{
+  width:40px;height:40px;border-radius:8px;object-fit:contain;
+  background:var(--bg3);flex-shrink:0;border:1px solid var(--border);
+}
+.ch-logo-fallback{
+  width:40px;height:40px;border-radius:8px;background:var(--bg3);flex-shrink:0;
+  border:1px solid var(--border);display:grid;place-items:center;font-size:15px;color:var(--muted);
 }
 .ch-info{flex:1;min-width:0}
 .ch-name{
@@ -246,7 +249,7 @@ body{
 .ph-sub{font-size:13px;color:var(--muted);line-height:1.6;max-width:260px}
 .ph-cue{
   display:flex;align-items:center;gap:7px;font-family:var(--font-mono);font-size:10px;
-  color:rgba(152,162,192,.8);letter-spacing:1.5px;text-transform:uppercase;
+  color:rgba(107,118,148,.7);letter-spacing:1.5px;text-transform:uppercase;
   animation:nudge 2.2s ease-in-out infinite;
 }
 @keyframes nudge{0%,100%{transform:translateX(0)}50%{transform:translateX(-6px)}}
@@ -308,6 +311,8 @@ body{
   background:var(--bg3);border-bottom:1px solid var(--border);flex-shrink:0;
 }
 #nowPlayingBar.visible{display:flex}
+.np-logo{width:30px;height:30px;border-radius:6px;object-fit:contain;background:var(--bg2);border:1px solid var(--border)}
+.np-logo-fallback{width:30px;height:30px;border-radius:6px;background:var(--bg2);border:1px solid var(--border);display:grid;place-items:center;font-size:13px}
 .np-name{font-size:13px;font-weight:600;color:var(--text)}
 .np-live{margin-left:auto;display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--live);letter-spacing:1px}
 .np-live-dot{width:6px;height:6px;border-radius:50%;background:var(--live);animation:blink 1.4s infinite}
@@ -335,11 +340,8 @@ body{
 .grid-card:hover::after{opacity:.04}
 .grid-card.active{border-color:var(--accent)}
 .grid-card.active::after{opacity:.08}
-.grid-num{
-  width:44px;height:44px;border-radius:8px;margin:0 auto 8px;background:var(--bg3);
-  display:grid;place-items:center;font-family:var(--font-mono);font-size:13px;
-  font-weight:600;color:var(--muted);
-}
+.grid-logo{width:54px;height:54px;object-fit:contain;border-radius:8px;margin:0 auto 8px;background:var(--bg3);display:block}
+.grid-logo-fallback{width:54px;height:54px;border-radius:8px;margin:0 auto 8px;background:var(--bg3);display:grid;place-items:center;font-size:20px}
 .grid-name{font-size:11px;font-weight:500;color:var(--text);line-height:1.3;word-break:break-word}
 
 /* Footer */
@@ -362,7 +364,7 @@ body{
 #updateStatus{font-family:var(--font-mono);font-size:10px;color:var(--muted);display:flex;align-items:center;gap:5px}
 .update-dot{width:5px;height:5px;border-radius:50%;background:var(--gold);animation:blink 2s infinite}
 .footer-disclaimer{font-size:10.5px;color:var(--muted);line-height:1.7;text-align:center;max-width:860px;margin:0 auto}
-.footer-disclaimer strong{color:rgba(245,200,66,.9);font-weight:600}
+.footer-disclaimer strong{color:rgba(245,200,66,.8);font-weight:600}
 .footer-disclaimer a{color:var(--muted);text-decoration:underline;text-underline-offset:2px}
 
 /* Sidebar overlay */
@@ -406,11 +408,6 @@ body{
   .footer-right{display:none}
 }
 
-@media(prefers-reduced-motion:reduce){
-  html{scroll-behavior:auto}
-  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
-}
-
 @keyframes fadeSlide{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .channel-item,.grid-card{animation:fadeSlide .22s ease both}
 </style>
@@ -419,13 +416,13 @@ body{
 
 <header id="header">
   <div class="logo-mark">
-    <div class="logo-icon" role="img" aria-label="MSTV logo">📺</div>
+    <div class="logo-icon">📺</div>
     <div>
       <div class="logo-text">MSTV</div>
       <div class="logo-sub">Live Network</div>
     </div>
   </div>
-  <div class="live-badge"><span class="live-dot" aria-hidden="true"></span>LIVE</div>
+  <div class="live-badge"><span class="live-dot"></span>LIVE</div>
   <div class="search-wrap">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
       <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -471,7 +468,7 @@ body{
 
       <!-- HTTP stream notice — shown when URL is http:// (mixed content blocked) -->
       <div id="httpNotice" role="alert" aria-live="polite">
-        <div class="http-icon" aria-hidden="true">🔓</div>
+        <div class="http-icon">🔓</div>
         <div class="http-title">HTTP Stream</div>
         <div class="http-desc" id="httpDesc">
           This stream uses an unencrypted HTTP link. Browsers block HTTP media
@@ -506,6 +503,7 @@ body{
     </div>
 
     <div id="nowPlayingBar" aria-live="polite" aria-label="Now playing">
+      <div id="npLogoWrap"></div>
       <div>
         <div class="np-name" id="npName">—</div>
       </div>
@@ -564,7 +562,6 @@ let activeCategory    = 'All';
 let hlsInstance       = null;
 let shakaPlayer       = null;
 let shakaReady        = false;
-let shakaLoading      = null;
 let pollTimer         = null;
 let lastJsonHash      = '';
 let fetchController   = null;
@@ -587,6 +584,7 @@ const $httpNotice        = document.getElementById('httpNotice');
 const $httpOpenBtn       = document.getElementById('httpOpenBtn');
 const $httpDesc          = document.getElementById('httpDesc');
 const $nowPlayingBar     = document.getElementById('nowPlayingBar');
+const $npLogoWrap        = document.getElementById('npLogoWrap');
 const $npName            = document.getElementById('npName');
 const $updateText        = document.getElementById('updateText');
 const $sidebar           = document.getElementById('sidebar');
@@ -611,35 +609,25 @@ const esc    = s  => String(s||'')
   .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const isHttp = u  => /^http:\/\//i.test(u);
 
-// ── SCRIPT LOADER (for on-demand Shaka Player) ───────────────────────────────
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-    const s = document.createElement('script');
-    s.src = src;
-    s.crossOrigin = 'anonymous';
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Failed to load ' + src));
-    document.head.appendChild(s);
+// ── SHAKA LAZY INIT ───────────────────────────────────────────────────────────
+// Libraries are deferred — wait for them before first DASH play.
+function waitForShaka() {
+  return new Promise(resolve => {
+    if (typeof shaka !== 'undefined') { resolve(); return; }
+    const check = setInterval(() => {
+      if (typeof shaka !== 'undefined') { clearInterval(check); resolve(); }
+    }, 50);
   });
 }
 
-// ── SHAKA — LAZY LOADED ON FIRST DASH PLAY ONLY ──────────────────────────────
-// Not preloaded or pre-warmed anymore: this used to add ~230KB of unused JS
-// to every page load even for users who never watch a DASH channel.
 async function ensureShaka() {
   if (shakaReady) return;
-  if (!shakaLoading) {
-    shakaLoading = (async () => {
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.compiled.min.js');
-      shaka.polyfill.installAll();
-      shakaPlayer = new shaka.Player();
-      shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
-      await shakaPlayer.attach($videoEl);
-      shakaReady = true;
-    })();
-  }
-  return shakaLoading;
+  await waitForShaka();
+  shaka.polyfill.installAll();
+  shakaPlayer = new shaka.Player();
+  shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
+  await shakaPlayer.attach($videoEl);
+  shakaReady = true;
 }
 
 function waitForHls() {
@@ -653,8 +641,8 @@ function waitForHls() {
 
 // ── INIT ──────────────────────────────────────────────────────────────────────
 async function init() {
-  // Shaka is no longer pre-warmed here — it loads only when a DASH
-  // channel is actually selected (see playDASH / ensureShaka).
+  // Pre-warm Shaka in background (non-blocking)
+  ensureShaka().catch(() => {});
 
   await loadChannels(false);
   startPolling();
@@ -788,7 +776,7 @@ function renderSidebar() {
     `<div class="channel-item${chKey(ch)===activeKey?' active':''}" role="listitem"
          data-idx="${i}" style="animation-delay:${Math.min(i*16,320)}ms"
          tabindex="0" aria-label="Watch ${esc(ch.name)}">
-      ${chBadge(ch, i, 'ch-num')}
+      ${logo(ch, 40, 'ch-logo', 'ch-logo-fallback')}
       <div class="ch-info">
         <div class="ch-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
       </div>
@@ -808,7 +796,7 @@ function renderGrid() {
     `<div class="grid-card${chKey(ch)===activeKey?' active':''}" role="listitem"
          data-idx="${i}" style="animation-delay:${Math.min(i*10,400)}ms"
          tabindex="0" aria-label="Watch ${esc(ch.name)}">
-      ${chBadge(ch, i, 'grid-num')}
+      ${logo(ch, 54, 'grid-logo', 'grid-logo-fallback')}
       <div class="grid-name">${esc(ch.name)}</div>
     </div>`).join('');
   $channelGrid.querySelectorAll('.grid-card').forEach(el => {
@@ -823,13 +811,13 @@ function updateCounts() {
   $gridCount.textContent    = '(' + n + ')';
   $footerCount.textContent  = channels.length;
 }
-
-// ── CHANNEL BADGE (no images — logos removed for performance) ───────────────
-// Text-only numbered badge instead of an <img>: zero network requests,
-// zero decode cost, zero CLS risk, no "Improve image delivery" penalty.
-function chBadge(ch, idx, cls) {
-  const label = (ch.name || '').trim().slice(0, 2).toUpperCase() || (idx + 1);
-  return `<div class="${cls}" aria-hidden="true">${esc(label)}</div>`;
+function logo(ch, size, imgCls, fbCls) {
+  const s = `width:${size}px;height:${size}px`;
+  return ch.logo
+    ? `<img class="${imgCls}" src="${esc(ch.logo)}" alt="${esc(ch.name)}" style="${s}" loading="lazy" decoding="async"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+       <div class="${fbCls}" style="${s};display:none" aria-hidden="true">📺</div>`
+    : `<div class="${fbCls}" style="${s}" aria-hidden="true">📺</div>`;
 }
 
 // ── PLAY ──────────────────────────────────────────────────────────────────────
@@ -943,6 +931,11 @@ async function teardown() {
 function updateNowPlaying(ch) {
   $nowPlayingBar.classList.add('visible');
   $npName.textContent = ch.name;
+  $npLogoWrap.innerHTML = ch.logo
+    ? `<img class="np-logo" src="${esc(ch.logo)}" alt="${esc(ch.name)}" loading="lazy"
+         onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+       <div class="np-logo-fallback" style="display:none" aria-hidden="true">📺</div>`
+    : `<div class="np-logo-fallback" aria-hidden="true">📺</div>`;
 }
 
 function scrollToPlayer() {

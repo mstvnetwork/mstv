@@ -3,52 +3,235 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Isolated Video Player View</title>
+    <title>Global Live Streaming Portal</title>
+
+    <!-- Load Hls.js engine for real-time live decoding -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
     <style>
         body {
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background-color: #0b0c10;
+            color: #fff;
             margin: 0;
-            padding: 0;
-            background-color: #000;
+            padding: 20px;
             display: flex;
-            justify-content: center;
+            flex-direction: column;
             align-items: center;
-            height: 100vh;
-            overflow: hidden;
         }
-
-        /* 1. This container acts as a mask, hiding everything outside its borders */
-        .player-clipper-box {
-            width: 850px;          /* Match the precise width of the source player */
-            height: 480px;         /* Match the precise height of the source player */
-            overflow: hidden;      /* Chops off the rest of the webpage */
-            position: relative;
-            border: 3px solid #333;
-            border-radius: 8px;
+        .filter-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .filter-btn {
+            background: #1f2833;
+            color: #45f3ff;
+            border: 2px solid #45f3ff;
+            padding: 10px 25px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .filter-btn.active, .filter-btn:hover {
+            background: #45f3ff;
+            color: #0b0c10;
+            box-shadow: 0 0 15px rgba(69, 243, 255, 0.4);
+        }
+        .main-container {
+            display: flex;
+            max-width: 1200px;
+            width: 100%;
+            gap: 20px;
+        }
+        .player-viewport {
+            flex: 3;
+            background: #000;
+            border: 2px solid #1f2833;
+            border-radius: 12px;
+            overflow: hidden;
+            height: 540px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        video {
+            width: 100%;
+            height: 100%;
             background: #000;
         }
-
-        /* 2. Position the iframe inside the box and shift it to hide menus */
-        .player-clipper-box iframe {
-            position: absolute;
-            
-            /* Adjust these numbers to perfectly align the player in your window */
-            top: -220px;          /* Pushes the header/nav menu UP off-screen */
-            left: -150px;         /* Pushes the left sidebar/menus out of view */
-            
-            width: 1200px;        /* Set a large width to give the page room to render */
-            height: 1000px;       /* Set a large height so the player isn't cut off */
-            
-            border: none;
-            pointer-events: auto; /* Keeps player play/pause clicks working */
+        .sidebar {
+            flex: 1;
+            background: #1f2833;
+            border-radius: 12px;
+            padding: 15px;
+            height: 510px;
+            overflow-y: auto;
+            border: 1px solid #2c3540;
+        }
+        .channel-row {
+            padding: 12px;
+            margin-bottom: 8px;
+            background: #2c3540;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 14px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .channel-row:hover {
+            background: #45f3ff;
+            color: #0b0c10;
+            transform: translateX(3px);
+        }
+        .status {
+            text-align: center;
+            color: #888;
+            font-style: italic;
+            margin-top: 200px;
         }
     </style>
 </head>
 <body>
 
-    <!-- Only the area bounded by this box will be visible to users -->
-    <div class="player-clipper-box">
-        <iframe src="https://bhoomtv.org/live/bollywood-colors/" scrolling="no"></iframe>
+    <h1>Live Broadcast Hub</h1>
+
+    <!-- Country Filter Navigation -->
+    <div class="filter-bar">
+        <button class="filter-btn active" onclick="switchCountry('IN', this)">🇮🇳 India</button>
+        <button class="filter-btn" onclick="switchCountry('US', this)">🇺🇸 United States</button>
+        <button class="filter-btn" onclick="switchCountry('GB', this)">🇬🇧 United Kingdom</button>
     </div>
+
+    <div class="main-container">
+        <!-- Pure Media Output Frame -->
+        <div class="player-viewport">
+            <video id="main-video-element" controls autoplay playsinline></video>
+        </div>
+
+        <!-- Auto-Populating Channel Feed -->
+        <div class="sidebar" id="sidebar-list">
+            <div class="status">Connecting to streaming database API...</div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('main-video-element');
+        let hlsEngine = null;
+        let masterStreamsCache = [];
+        let currentCountry = 'IN'; // Starts default on Indian feeds
+
+        // API endpoints mapping channels and stream sources
+        const STREAMS_API = 'https://iptv-org.github.io/api/streams.json';
+        const CHANNELS_API = 'https://iptv-org.github.io/api/channels.json';
+
+        async function initializePortal() {
+            try {
+                // Fetch data streams simultaneously to optimize initial boot speed
+                const [streamsRes, channelsRes] = await Promise.all([
+                    fetch(STREAMS_API),
+                    fetch(CHANNELS_API)
+                ]);
+
+                const streams = await streamsRes.json();
+                const channels = await channelsRes.json();
+
+                // Build a quick-lookup map matching Channel ID with targeted Country ISO code
+                const channelCountryMap = {};
+                channels.forEach(ch => {
+                    if (ch.id && ch.country) {
+                        channelCountryMap[ch.id] = ch.country;
+                    }
+                });
+
+                // Structure an optimized data cache combining stream links and country locations
+                masterStreamsCache = streams.map(stream => {
+                    return {
+                        url: stream.url,
+                        channelId: stream.channel,
+                        country: channelCountryMap[stream.channel] || 'UNKNOWN'
+                    };
+                });
+
+                // Display default selected country
+                renderChannelList();
+
+            } catch (err) {
+                console.error("API Synch Error: ", err);
+                document.getElementById('sidebar-list').innerHTML = '<div class="status" style="color:#ff3366;">Database offline. Link synchronization failed.</div>';
+            }
+        }
+
+        function renderChannelList() {
+            const listContainer = document.getElementById('sidebar-list');
+            listContainer.innerHTML = '';
+
+            // Filter down the global database array strictly to the chosen location code
+            const filteredChannels = masterStreamsCache.filter(item => item.country === currentCountry);
+
+            if (filteredChannels.length === 0) {
+                listContainer.innerHTML = '<div class="status">No active public streams for this region today.</div>';
+                return;
+            }
+
+            // Cap items at 50 to maintain performance
+            filteredChannels.slice(0, 50).forEach((item, index) => {
+                const row = document.createElement('div');
+                row.className = 'channel-row';
+
+                // Formats the raw ID back to a readable broadcast station title
+                const cleanName = item.channelId ? item.channelId.replace(/\.[a-z]{2,3}$/i, '').replace(/([A-Z])/g, ' $1').trim() : `Channel ${index + 1}`;
+                row.innerText = cleanName.toUpperCase();
+
+                row.onclick = () => runStream(item.url);
+                listContainer.appendChild(row);
+            });
+
+            // Automatically launch the top working stream upon category switch
+            runStream(filteredChannels[0].url);
+        }
+
+        function runStream(streamUrl) {
+            if (hlsEngine) {
+                hlsEngine.destroy();
+                hlsEngine = null;
+            }
+
+            if (window.Hls && Hls.isSupported()) {
+                hlsEngine = new Hls();
+                hlsEngine.loadSource(streamUrl);
+                hlsEngine.attachMedia(video);
+                hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => {
+                    video.play().catch(() => console.log('Autoplay deferred for tap confirmation.'));
+                });
+                hlsEngine.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error('Fatal HLS error:', data);
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = streamUrl;
+                video.addEventListener('loadedmetadata', () => video.play());
+            } else {
+                console.error('HLS playback not supported in this browser.');
+            }
+        }
+
+        function switchCountry(countryCode, element) {
+            currentCountry = countryCode;
+
+            // Toggle active styling states across the filter bar buttons
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            element.classList.add('active');
+
+            renderChannelList();
+        }
+
+        // Run application setup
+        initializePortal();
+    </script>
 
 </body>
 </html>

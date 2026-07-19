@@ -3,52 +3,81 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Embedded Bhoom TV Test Page</title>
+    <title>Serverless Stream Embed Test</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 20px;
-            background-color: #f4f4f9;
+            background-color: #111;
+            color: #fff;
             text-align: center;
         }
-        h1 {
-            color: #333;
-        }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: #fff;
-            padding: 20px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        .video-box {
+            max-width: 900px;
+            margin: 20px auto;
+            background: #222;
+            border: 2px solid #444;
             border-radius: 8px;
+            overflow: hidden;
+            height: 600px;
         }
-        /* Styling the customized iframe container */
-        iframe[is="x-frame-bypass"] {
+        #stream-frame {
             width: 100%;
-            height: 650px;
-            border: 2px solid #ccc;
-            border-radius: 4px;
+            height: 100%;
+            border: none;
+        }
+        .status-msg {
+            color: #aaa;
+            font-style: italic;
         }
     </style>
-
-    <!-- 1. Include the Custom Elements polyfill for Safari/WebKit compatibility -->
-    <script src="https://unpkg.com/@ungap/custom-elements-builtin"></script>
-    
-    <!-- 2. Include the primary X-Frame-Bypass JS module via UNPKG -->
-    <script type="module" src="https://unpkg.com/x-frame-bypass"></script>
 </head>
 <body>
 
-    <div class="container">
-        <h1>Bollywood Colors Live Stream</h1>
-        <p>Testing iframe bypass embedding for bhoomtv.org</p>
-        
-        <!-- 3. The customized iframe utilizing the x-frame-bypass registry -->
-        <iframe is="x-frame-bypass" src="https://cors.io?url=https://bhoomtv.org/live/bollywood-colors/">
-            <p>Your browser does not support customized iframes.</p>
-        </iframe>
+    <h1>Bollywood Colors Live Player</h1>
+    <p class="status-msg" id="status">Loading stream from source wrapper...</p>
+
+    <div class="video-box">
+        <!-- The container frame where bypassed HTML content will load -->
+        <iframe id="stream-frame" allowfullscreen></iframe>
     </div>
+
+    <script>
+        // 1. Define the restricted video page link
+        const targetUrl = 'https://bhoomtv.org/live/bollywood-colors/';
+        
+        // 2. Use the free AllOrigins proxy service to pull raw page HTML via JSONP
+        const proxyUrl = `https://allorigins.win{encodeURIComponent(targetUrl)}`;
+
+        fetch(proxyUrl)
+            .then(response => {
+                if (response.ok) return response.json();
+                throw new Error('Network response proxy failure.');
+            })
+            .then(data => {
+                let htmlContent = data.contents;
+
+                // 3. Inject a HTML <base> tag into the raw code 
+                // This forces the video components and styles to load from Bhoom TV instead of your site
+                const baseTag = '<head><base href="https://bhoomtv.org/">';
+                htmlContent = htmlContent.replace('<head>', baseTag);
+
+                // 4. Inject the modified HTML into your site's iframe
+                const iframe = document.getElementById('stream-frame');
+                const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                
+                iframeDoc.open();
+                iframeDoc.write(htmlContent);
+                iframeDoc.close();
+
+                document.getElementById('status').innerText = "Stream payload injected successfully!";
+            })
+            .catch(error => {
+                console.error('Error fetching stream:', error);
+                document.getElementById('status').innerText = "Failed to fetch stream. The public proxy might be overloaded.";
+            });
+    </script>
 
 </body>
 </html>

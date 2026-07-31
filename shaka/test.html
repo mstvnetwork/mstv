@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Embedded Shaka Stream Player</title>
+    <!-- Shaka Player UI library and CSS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.css">
+    
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        .player-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+        }
+        #channel-info {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(0, 0, 0, 0.7);
+            color: #fff;
+            padding: 8px 14px;
+            border-radius: 4px;
+            font-size: 14px;
+            z-index: 100;
+            pointer-events: none;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="player-container" data-shaka-player-container>
+    <div id="channel-info">Loading...</div>
+    <video data-shaka-player id="video" autoplay controls></video>
+</div>
+
+<script>
+// ============================================================
+// PASTE YOUR JSON CHANNELS ARRAY HERE
+// ============================================================
+const CHANNELS = [
+    {
+        "name": "ABC Cartoons",
+        "type": "dash",
+        "url": "https://abc-iview-mediapackagestreams-1.akamaized.net/out/v1/399aa25b71e84ab19a7d3261703c4a29/index.mpd",
+        "drm": {
+            "aec51cf82ef14226a097a4ff91b7b32e": "652bcaec397fb789fa5138fd3461333c"
+        }
+    },
+    {
+        "name": "ABC Kids",
+        "type": "dash",
+        "url": "https://abc-iview-mediapackagestreams-2.akamaized.net/out/v1/8c6fa500258e44289312adb342b0f7ad/index.mpd",
+        "drm": {
+            "b70a4c3a102b47ec832d11da8a024161": "8bd84110abda56e41511c16feaa2de69"
+        }
+    }
+];
+// ============================================================
+
+let player;
+let ui;
+
+async function initPlayer() {
+    shaka.polyfill.installAll();
+
+    if (!shaka.Player.isBrowserSupported()) {
+        alert('Browser does not support Shaka Player.');
+        return;
+    }
+
+    const video = document.getElementById('video');
+    const container = document.querySelector('[data-shaka-player-container]');
+    
+    player = new shaka.Player(video);
+    ui = new shaka.ui.Overlay(player, container, video);
+
+    // Error Handling
+    player.addEventListener('error', (event) => {
+        console.error('Shaka Player Error:', event.detail);
+    });
+
+    // Load channel based on initial URL hash
+    loadChannelFromHash();
+
+    // Listen for URL hash changes dynamically (e.g., changing iframe src from #1 to #2)
+    window.addEventListener('hashchange', loadChannelFromHash);
+}
+
+function getChannelIndexFromHash() {
+    const hash = window.location.hash.replace('#', '');
+    const index = parseInt(hash, 10);
+    // Convert 1-based hash (#1, #2) to 0-based index
+    if (!isNaN(index) && index > 0 && index <= CHANNELS.length) {
+        return index - 1;
+    }
+    return 0; // Default to first channel if no hash or invalid hash is provided
+}
+
+async function loadChannelFromHash() {
+    const index = getChannelIndexFromHash();
+    const channel = CHANNELS[index];
+
+    if (!channel) return;
+
+    // Display Overlay Title
+    const infoBox = document.getElementById('channel-info');
+    infoBox.innerText = `[#${index + 1}] ${channel.name}`;
+    infoBox.style.display = 'block';
+
+    // Configure DRM ClearKey if present
+    const drmConfig = { clearKeys: {} };
+    if (channel.drm && Object.keys(channel.drm).length > 0) {
+        drmConfig.clearKeys = channel.drm;
+    }
+
+    player.configure({
+        drm: drmConfig
+    });
+
+    try {
+        await player.load(channel.url);
+        console.log(`Loaded: ${channel.name}`);
+    } catch (error) {
+        console.error(`Failed to load ${channel.name}:`, error);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initPlayer);
+</script>
+
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Embedded Shaka Stream Player</title>
+    <title>Embedded Stream Player</title>
     <!-- Shaka Player UI library and CSS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/shaka-player.ui.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.11/controls.css">
@@ -34,7 +34,7 @@
             position: absolute;
             top: 15px;
             left: 15px;
-            background: rgba(0, 0, 0, 0.7);
+            background: rgba(0, 0, 0, 0.75);
             color: #fff;
             padding: 8px 14px;
             border-radius: 4px;
@@ -43,18 +43,34 @@
             pointer-events: none;
             display: none;
         }
+        #error-banner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(220, 53, 69, 0.9);
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 6px;
+            font-size: 16px;
+            text-align: center;
+            z-index: 101;
+            display: none;
+            max-width: 80%;
+        }
     </style>
 </head>
 <body>
 
-<!-- UI Container without conflicting native controls -->
 <div class="player-container" id="container" data-shaka-player-container>
     <div id="channel-info">Loading...</div>
-    <!-- Removed 'controls' attribute to prevent duplicate play overlay -->
-    <video data-shaka-player id="video" autoplay></video>
+    <div id="error-banner"></div>
+    <!-- 'muted' and 'playsinline' allow autoplay policies to pass -->
+    <video data-shaka-player id="video" muted playsinline></video>
 </div>
 
 <script>
+// Replace this array with your output JSON
 const CHANNELS = [
     {
         "name": "ABC Cartoons",
@@ -81,21 +97,24 @@ async function initPlayer() {
     shaka.polyfill.installAll();
 
     if (!shaka.Player.isBrowserSupported()) {
-        alert('Browser does not support Shaka Player.');
+        showError('Browser does not support Shaka Player.');
         return;
     }
 
     const video = document.getElementById('video');
     const container = document.getElementById('container');
     
-    player = new shaka.Player(video);
-    ui = new shaka.ui.Overlay(player, container, video);
+    // Initialize Shaka UI overlay first
+    ui = new shaka.ui.Overlay(new shaka.Player(video), container, video);
+    player = ui.getControls().getPlayer();
 
+    // Catch Shaka Player Runtime Errors
     player.addEventListener('error', (event) => {
-        console.error('Shaka Player Error:', event.detail);
+        console.error('Shaka Error Code:', event.detail.code, event.detail);
+        showError(`Playback Error (Code: ${event.detail.code})`);
     });
 
-    // Handle channel changes
+    // Handle channel selection
     await loadChannelFromHash();
     window.addEventListener('hashchange', loadChannelFromHash);
 }
@@ -106,25 +125,40 @@ function getChannelIndexFromHash() {
     if (!isNaN(index) && index > 0 && index <= CHANNELS.length) {
         return index - 1;
     }
-    return 0; // Default to first channel
+    return 0; // Default to channel 1
+}
+
+function showError(msg) {
+    const errBanner = document.getElementById('error-banner');
+    errBanner.innerText = msg;
+    errBanner.style.display = 'block';
+}
+
+function hideError() {
+    const errBanner = document.getElementById('error-banner');
+    errBanner.style.display = 'none';
 }
 
 async function loadChannelFromHash() {
+    hideError();
     const index = getChannelIndexFromHash();
     const channel = CHANNELS[index];
 
-    if (!channel) return;
+    if (!channel) {
+        showError('Channel not found in JSON data');
+        return;
+    }
 
-    // Display Overlay Title
+    // Display overlay title
     const infoBox = document.getElementById('channel-info');
     infoBox.innerText = `[#${index + 1}] ${channel.name}`;
     infoBox.style.display = 'block';
 
-    // Unload the current channel first so re-selecting identical URLs works reliably
+    // Unload existing video stream
     try {
         await player.unload();
     } catch (e) {
-        console.warn('Unload state notice:', e);
+        // Ignore unload warnings on initial setup
     }
 
     // Configure ClearKey DRM
@@ -133,16 +167,23 @@ async function loadChannelFromHash() {
         drmConfig.clearKeys = channel.drm;
     }
 
-    player.configure({ drm: drmConfig });
+    player.configure({ 
+        drm: drmConfig,
+        streaming: {
+            alwaysStreamText: true
+        }
+    });
 
     try {
         await player.load(channel.url);
         const video = document.getElementById('video');
-        video.play().catch(() => {
-            // Browser autoplay restrictions may require a user click
-        });
+        
+        // Attempt playback
+        await video.play();
     } catch (error) {
-        console.error(`Failed to load ${channel.name}:`, error);
+        if (error.name !== 'AbortError') {
+            console.error(`Failed to load ${channel.name}:`, error);
+        }
     }
 }
 

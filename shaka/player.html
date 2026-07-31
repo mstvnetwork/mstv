@@ -8573,76 +8573,46 @@ const CHANNELS = [
 ]
 // ============================================================
 
-let player;
-let ui;
+ async function initApp() {
+            const video = document.getElementById('video');
+            const hash = window.location.hash.substring(1);
+            let index = (parseInt(hash, 10) || 1) - 1;
+            const stream = streamList[index] || streamList[0];
 
-async function initPlayer() {
-    shaka.polyfill.installAll();
+            // --- 1. HLS ENGINE (STRICTLY NON-SHAKA) ---
+            if (stream.type === "hls") {
+                if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = stream.url;
+                } 
+                else if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(stream.url);
+                    hls.attachMedia(video);
+                } 
+                return; 
+            }
 
-    if (!shaka.Player.isBrowserSupported()) {
-        alert('Browser does not support Shaka Player.');
-        return;
-    }
+            // --- 2. DASH ENGINE (STRICTLY SHAKA) ---
+            if (stream.type === "dash") {
+                if (typeof shaka === 'undefined') return;
 
-    const video = document.getElementById('video');
-    const container = document.querySelector('[data-shaka-player-container]');
-    
-    player = new shaka.Player(video);
-    ui = new shaka.ui.Overlay(player, container, video);
+                shaka.polyfill.installAll();
+                const player = new shaka.Player(video);
 
-    // Error Handling
-    player.addEventListener('error', (event) => {
-        console.error('Shaka Player Error:', event.detail);
-    });
+                if (stream.drm) {
+                    player.configure({ drm: { clearKeys: stream.drm } });
+                }
 
-    // Load channel based on initial URL hash
-    loadChannelFromHash();
+                try {
+                    await player.load(stream.url);
+                } catch (e) {
+                    console.error('DASH Load Error', e);
+                }
+            }
+        }
 
-    // Listen for URL hash changes dynamically (e.g., changing iframe src from #1 to #2)
-    window.addEventListener('hashchange', loadChannelFromHash);
-}
-
-function getChannelIndexFromHash() {
-    const hash = window.location.hash.replace('#', '');
-    const index = parseInt(hash, 10);
-    // Convert 1-based hash (#1, #2) to 0-based index
-    if (!isNaN(index) && index > 0 && index <= CHANNELS.length) {
-        return index - 1;
-    }
-    return 0; // Default to first channel if no hash or invalid hash is provided
-}
-
-async function loadChannelFromHash() {
-    const index = getChannelIndexFromHash();
-    const channel = CHANNELS[index];
-
-    if (!channel) return;
-
-    // Display Overlay Title
-    const infoBox = document.getElementById('channel-info');
-    infoBox.innerText = `[#${index + 1}] ${channel.name}`;
-    infoBox.style.display = 'block';
-
-    // Configure DRM ClearKey if present
-    const drmConfig = { clearKeys: {} };
-    if (channel.drm && Object.keys(channel.drm).length > 0) {
-        drmConfig.clearKeys = channel.drm;
-    }
-
-    player.configure({
-        drm: drmConfig
-    });
-
-    try {
-        await player.load(channel.url);
-        console.log(`Loaded: ${channel.name}`);
-    } catch (error) {
-        console.error(`Failed to load ${channel.name}:`, error);
-    }
-}
-
-document.addEventListener('DOMContentLoaded', initPlayer);
-</script>
-
+        window.addEventListener('hashchange', () => window.location.reload());
+        window.onload = initApp;
+    </script>
 </body>
 </html>

@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shaka Player DRM Test</title>
+  
+  <!-- Shaka Player UI CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/controls.min.css" />
+  
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .player-wrapper {
+      width: 100%;
+      max-width: 800px;
+      background: #000;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+    }
+
+    .channels-container {
+      display: flex;
+      gap: 15px;
+      margin-top: 20px;
+      width: 100%;
+      max-width: 800px;
+    }
+
+    .channel-card {
+      flex: 1;
+      background: #1e1e1e;
+      border: 2px solid #333;
+      border-radius: 8px;
+      padding: 15px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .channel-card:hover {
+      background: #2a2a2a;
+      border-color: #007bff;
+    }
+
+    .channel-card.active {
+      border-color: #00ff66;
+      background: #1a3322;
+    }
+
+    .channel-card h3 {
+      margin: 0 0 5px 0;
+      font-size: 18px;
+    }
+
+    .channel-card p {
+      margin: 0;
+      font-size: 12px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Live DRM Player</h2>
+
+  <!-- Player Container -->
+  <div class="player-wrapper" data-shaka-player-container>
+    <video data-shaka-player id="video" autoplay muted></video>
+  </div>
+
+  <!-- Channel Cards -->
+  <div class="channels-container">
+    <div class="channel-card active" id="card-0" onclick="switchChannel(0)">
+      <h3>ABC Kids</h3>
+      <p>ClearKey DRM (Static Key)</p>
+    </div>
+
+    <div class="channel-card" id="card-1" onclick="switchChannel(1)">
+      <h3>E 24</h3>
+      <p>ClearKey DRM (License URL + Custom Headers)</p>
+    </div>
+  </div>
+
+  <!-- Shaka Player JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.js"></script>
+
+  <script>
+    // Channels Data Array
+    const channels = [
+      {
+        "name": "ABC Kids",
+        "type": "dash",
+        "url": "https://abc-iview-mediapackagestreams-2.akamaized.net/out/v1/8c6fa500258e44289312adb342b0f7ad/index.mpd",
+        "drm": {
+          "b70a4c3a102b47ec832d11da8a024161": "8bd84110abda56e41511c16feaa2de69"
+        }
+      }, 
+      {
+        "name": "E 24",
+        "type": "hls",
+        "url": "https://jiooo.cr7x.workers.dev/live/999/999/591/index.mpd|plaYtv/7.1.5 (Linux;Android 15;Jioplus) ExoPlayerLib/2.11.7",
+        "drm": {
+          "https": "//clearkey.joker-verse.workers.dev/license"
+        }
+      }
+    ];
+
+    let playerInstance = null;
+    let uiInstance = null;
+    const videoElement = document.getElementById('video');
+
+    // 1. Initialize Shaka Player
+    document.addEventListener('DOMContentLoaded', async () => {
+      shaka.polyfill.installAll();
+
+      if (shaka.Player.isBrowserSupported()) {
+        const container = document.querySelector('[data-shaka-player-container]');
+        
+        playerInstance = new shaka.Player(videoElement);
+        uiInstance = new shaka.ui.Overlay(playerInstance, container, videoElement);
+
+        uiInstance.configure({
+          'doubleClickForFullscreen': false,
+          'singleClickForPlayAndPause': true
+        });
+
+        playerInstance.addEventListener('error', (event) => {
+          console.error('Shaka Player Error:', event.detail);
+        });
+
+        // Load Channel 0 by default
+        switchChannel(0);
+
+      } else {
+        alert('Your browser does not support Shaka Player.');
+      }
+    });
+
+    // 2. Single-Tap Channel Switcher with DRM Handling
+    async function switchChannel(index) {
+      if (!playerInstance) return;
+
+      const channel = channels[index];
+
+      // Update Card Visual Highlight
+      document.querySelectorAll('.channel-card').forEach(card => card.classList.remove('active'));
+      const selectedCard = document.getElementById(`card-${index}`);
+      if (selectedCard) selectedCard.classList.add('active');
+
+      // Unbind previous request filters
+      playerInstance.getNetworkingEngine().clearRequestFilters();
+
+      try {
+        // --- PARSE URL & HEADERS ---
+        let rawUrl = channel.url;
+        let customUserAgent = null;
+
+        if (rawUrl.includes('|')) {
+          const parts = rawUrl.split('|');
+          rawUrl = parts[0];
+          customUserAgent = parts[1];
+        }
+
+        // Apply User-Agent header if present
+        if (customUserAgent) {
+          playerInstance.getNetworkingEngine().registerRequestFilter((type, request) => {
+            request.headers['User-Agent'] = customUserAgent;
+          });
+        }
+
+        // --- CONFIGURE DRM ---
+        const drmConfig = { clearKeys: {}, servers: {} };
+
+        if (channel.drm) {
+          const firstKey = Object.keys(channel.drm)[0];
+          const firstVal = channel.drm[firstKey];
+
+          // Check if value is a license URL or a Key/KeyID pair
+          if (typeof firstVal === 'string' && (firstVal.startsWith('http://') || firstVal.startsWith('https://'))) {
+            // License Server Mode
+            drmConfig.servers['org.w3.clearkey'] = firstVal;
+          } else if (firstKey.startsWith('https')) {
+            // Reconstruct dynamic license server URL
+            const fullLicenseUrl = firstKey + ':' + firstVal;
+            drmConfig.servers['org.w3.clearkey'] = fullLicenseUrl;
+          } else {
+            // Static Key/KeyID Pair Mode
+            drmConfig.clearKeys[firstKey] = firstVal;
+          }
+        }
+
+        // Pass DRM configuration to Shaka
+        playerInstance.configure({
+          drm: {
+            clearKeys: drmConfig.clearKeys,
+            servers: drmConfig.servers
+          }
+        });
+
+        // --- PLAYBACK EXECUTION ---
+        videoElement.muted = true;
+        const playPromise = videoElement.play();
+        if (playPromise !== undefined) playPromise.catch(() => {});
+
+        // Reuse instance and load stream
+        await playerInstance.load(rawUrl);
+        await videoElement.play();
+
+      } catch (error) {
+        console.error('Failed to load DRM channel stream:', error);
+      }
+    }
+  </script>
+</body>
+</html>

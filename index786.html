@@ -166,7 +166,7 @@ html, body {
 .np-name { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .np-live { margin-left: auto; color: var(--live); font-family: var(--font-mono); font-size: 9px; }
 
-/* ── DOUBLE MODE SCROLL RIBBON (Categories Left Vertical + Channels Right Horizontal) ── */
+/* ── DOUBLE MODE SCROLL RIBBON ── */
 #listWrap {
   flex-shrink: 0;
   height: 96px;
@@ -265,7 +265,7 @@ html, body {
   margin-top: 2px;
 }
 
-.empty-state { font-size: 11px; color: var(--dim); padding: 0 12px; }
+.empty-state { font-size: 12px; color: var(--dim); padding: 0 12px; font-weight: 500; }
 
 /* Footer Styling */
 #footer {
@@ -433,7 +433,6 @@ const POLL_INTERVAL = 8000;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 // SIMPLIFIED CATEGORY DEFINITION & ORDERING:
-// Easily reorder, edit icons, or add new categories here!
 const CATEGORY_CONFIG = [
   { id: 'All', icon: '🌐' },
   { id: 'News', icon: '📰' },
@@ -451,8 +450,9 @@ const CATEGORY_CONFIG = [
   { id: 'Infotainment', icon: '💡' }
 ];
 
+// activeCategory is null on initial load so text prompt displays first
 let channels = [], filteredChannels = [], currentChannel = null;
-let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonHash = '', fetchController = null;
+let searchQuery = '', activeCategory = null, hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonHash = '', fetchController = null;
 
 const $searchInput = document.getElementById('searchInput');
 const $channelList = document.getElementById('channelList');
@@ -567,6 +567,10 @@ function simpleHash(str) {
 }
 
 function applyFilters() {
+  if (!activeCategory) {
+    filteredChannels = [];
+    return;
+  }
   const q = searchQuery.toLowerCase().trim();
   filteredChannels = channels.filter(ch => {
     const nameOk = !q || ch.name.toLowerCase().includes(q);
@@ -579,7 +583,6 @@ function renderCategoryBar() {
   const counts = { All: channels.length };
   channels.forEach(ch => { const c = catOf(ch); counts[c] = (counts[c]||0) + 1; });
   
-  // Dynamic extraction of additional categories present in JSON but not in CONFIG
   const dynamicCats = Object.keys(counts).filter(c => !CATEGORY_CONFIG.some(item => item.id.toLowerCase() === c.toLowerCase()));
   
   const allCats = [
@@ -590,8 +593,9 @@ function renderCategoryBar() {
   $categoryBar.innerHTML = allCats.map(item => {
     const cat = item.id;
     const count = counts[cat] || 0;
-    if (cat !== 'All' && count === 0) return ''; // Hide empty categories
-    return `<button class="cat-pill${activeCategory.toLowerCase()===cat.toLowerCase()?' active':''}" data-cat="${esc(cat)}">
+    if (cat !== 'All' && count === 0) return '';
+    const isActive = activeCategory && activeCategory.toLowerCase() === cat.toLowerCase();
+    return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}">
       <span>${item.icon} ${esc(cat)}</span> <span class="cat-n">(${count})</span>
     </button>`;
   }).join('');
@@ -606,14 +610,21 @@ function fullRender() {
   applyFilters();
   renderCategoryBar();
   renderList();
-  $channelCount.textContent = filteredChannels.length + ' Channels';
+  $channelCount.textContent = activeCategory ? (filteredChannels.length + ' Channels') : (channels.length + ' Total');
 }
 
 function renderList() {
-  if (!filteredChannels.length) {
-    $channelList.innerHTML = `<div class="empty-state">No channels found in this category.</div>`;
+  // Initial unselected category state
+  if (!activeCategory && !searchQuery) {
+    $channelList.innerHTML = `<div class="empty-state">⬅️ Select category button to watch</div>`;
     return;
   }
+
+  if (!filteredChannels.length) {
+    $channelList.innerHTML = `<div class="empty-state">No channels found.</div>`;
+    return;
+  }
+
   const activeKey = currentChannel ? chKey(currentChannel) : null;
   $channelList.innerHTML = filteredChannels.map((ch, i) => {
     const isActive = chKey(ch) === activeKey;
@@ -751,7 +762,12 @@ function showError(msg) {
 }
 
 function bindEvents() {
-  $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  $searchInput.addEventListener('input', e => { 
+    searchQuery = e.target.value; 
+    // If user starts typing a search query without selecting a category, default to 'All'
+    if (searchQuery && !activeCategory) activeCategory = 'All';
+    fullRender(); 
+  });
 }
 
 // Global top navigation blocker
@@ -766,4 +782,4 @@ function bindEvents() {
 document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
-  </html>
+</html>

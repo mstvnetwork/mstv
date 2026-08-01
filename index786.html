@@ -554,11 +554,10 @@ setInterval(async () => {
 }, 60000);
 
 const JSON_URL      = 'channels2.json';
-const POLL_INTERVAL = 8000;
+const POLL_INTERVAL = 5000;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [
-
   { id: 'Android/Windows', icon: '' },
   { id: 'News', icon: '📰' },
   { id: 'Entertainment', icon: '🎬' },
@@ -577,7 +576,7 @@ const CATEGORY_CONFIG = [
 ];
 
 let channels = [], filteredChannels = [], currentChannel = null;
-let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonHash = '', fetchController = null;
+let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
 
 const $searchInput = document.getElementById('searchInput');
 const $channelList = document.getElementById('channelList');
@@ -663,15 +662,28 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(JSON_URL + '?_=' + Date.now(), { signal: fetchController.signal, cache: 'no-store' });
+    const res = await fetch(JSON_URL + '?t=' + Date.now(), { 
+      signal: fetchController.signal, 
+      cache: 'no-store',
+      headers: {
+        'Pragma': 'no-cache',
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      }
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
-    const hash = simpleHash(text);
-    if (hash === lastJsonHash) { updateTimestamp(); return; }
-    lastJsonHash = hash;
+
+    if (text === lastJsonRaw) { 
+      updateTimestamp(); 
+      return; 
+    }
+    
     let data = JSON.parse(text);
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
+    
+    lastJsonRaw = text;
     channels = data.filter(c => c && c.name && c.url).map(c => ({ ...c, category: catOf(c) }));
+    
     fullRender();
     updateTimestamp();
   } catch (e) {
@@ -684,11 +696,15 @@ function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { if (!document.hidden) loadChannels(true); }, POLL_INTERVAL);
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    loadChannels(true);
+  }
+});
+
 function updateTimestamp() {
   $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-}
-function simpleHash(str) {
-  let h = 0; for (let i = 0; i < str.length; i++) h = (Math.imul(31,h) + str.charCodeAt(i)) | 0; return h;
 }
 
 function applyFilters() {

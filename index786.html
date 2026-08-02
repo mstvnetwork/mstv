@@ -775,14 +775,15 @@ function logo(ch) {
     : `<div class="row-logo-fallback">📺</div>`;
 }
 
-// Function to handle cropped window popup stream launch
+// Function to handle cropped window popup stream launch with Header and Ticker
 function openPopUpStream(ch) {
   const topShift = ch.cropTop || '-65px';
   const leftShift = ch.cropLeft || '-10px';
   const title = esc(ch.name);
   const targetUrl = esc(ch.url);
+  const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
-  const windowFeatures = 'width=920,height=530,resizable=yes,scrollbars=no,status=no';
+  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
   if (mstvPopupWindow && !mstvPopupWindow.closed) {
     mstvPopupWindow.close();
@@ -802,25 +803,95 @@ function openPopUpStream(ch) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title} - MSTV Stream</title>
   <style>
+    :root {
+      --void: #06070b;
+      --cyan: #3df2ff;
+      --panel: #0f1220;
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --ink: #f2f4fb;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body, html {
       margin: 0;
       padding: 0;
-      background: #000;
+      background: var(--void);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       overflow: hidden;
       width: 100%;
       height: 100vh;
       display: flex;
+      flex-direction: column;
+    }
+
+    /* 1. Header Styling */
+    .popup-header {
+      height: 40px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .popup-header .title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: 0.5px;
+    }
+    .popup-header .badge {
+      font-size: 9px;
+      font-weight: 700;
+      background: rgba(61, 242, 255, 0.15);
+      color: var(--cyan);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(61, 242, 255, 0.3);
+      margin-left: auto;
+    }
+
+    /* 2. Scrolling Ticker Bar */
+    .ticker-wrap {
+      height: 26px;
+      background: #000;
+      border-bottom: 1px solid var(--glass-border);
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .ticker {
+      display: inline-block;
+      white-space: nowrap;
+      padding-left: 100%;
+      animation: marquee 22s linear infinite;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--cyan);
+    }
+    @keyframes marquee {
+      0% { transform: translate3d(0, 0, 0); }
+      100% { transform: translate3d(-100%, 0, 0); }
+    }
+
+    /* 3. Outer viewport box */
+    .crop-viewport-wrapper {
+      flex: 1;
+      width: 100%;
+      display: flex;
       justify-content: center;
       align-items: center;
+      background: #000;
     }
     .crop-viewport {
       position: relative;
       width: 100%;
       max-width: 900px;
-      height: 506px;
+      height: 100%;
       overflow: hidden;
       background: #000;
-      border-radius: 8px;
     }
     .crop-viewport iframe {
       position: absolute;
@@ -833,8 +904,22 @@ function openPopUpStream(ch) {
   </style>
 </head>
 <body>
-  <div class="crop-viewport">
-    <iframe src="${targetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+  <!-- Header Section -->
+  <header class="popup-header">
+    <span class="title">📺 ${title}</span>
+    <span class="badge">MSTV POPUP PLAYER</span>
+  </header>
+
+  <!-- Scrolling Text Section -->
+  <div class="ticker-wrap">
+    <div class="ticker">${tickerText}</div>
+  </div>
+
+  <!-- Stream Section -->
+  <div class="crop-viewport-wrapper">
+    <div class="crop-viewport">
+      <iframe src="${targetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+    </div>
   </div>
 </body>
 </html>`;

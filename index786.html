@@ -774,13 +774,17 @@ function logo(ch) {
        <div class="row-logo-fallback" style="display:none">📺</div>`
     : `<div class="row-logo-fallback">📺</div>`;
 }
-function openPopUpStream(ch) {
+
+    function openPopUpStream(ch) {
   const topShift = ch.cropTop || '0px';
   const leftShift = ch.cropLeft || '0px';
   const zoomLevel = ch.cropZoom || '100%';
   const title = esc(ch.name);
   const targetUrl = esc(ch.url);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
+
+  // Check channel access type directly from channels3.json
+  const isPrivate = ch.access === 'private';
 
   const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
@@ -824,6 +828,7 @@ function openPopUpStream(ch) {
       display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0;
     }
     .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
+    
     .align-btn {
       background: rgba(61, 242, 255, 0.15); color: var(--cyan);
       border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px;
@@ -854,7 +859,6 @@ function openPopUpStream(ch) {
       border: 0;
     }
 
-    /* ALIGNMENT TOOL PANEL OVERLAY */
     #alignTool {
       display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999;
       background: rgba(15, 18, 32, 0.95); border: 1px solid var(--cyan);
@@ -874,7 +878,7 @@ function openPopUpStream(ch) {
 <body>
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
-    <button class="align-btn" onclick="toggleAlignTool()">🎯 Adjust Alignment</button>
+    ${isPrivate ? '<button class="align-btn" onclick="toggleAlignTool()">🎯 Adjust Alignment</button>' : ''}
   </header>
 
   <div class="ticker-wrap">
@@ -886,7 +890,7 @@ function openPopUpStream(ch) {
       <iframe id="popFrame" src="${targetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
 
-    <!-- Live Alignment Tool -->
+    ${isPrivate ? `
     <div id="alignTool">
       <div class="tool-row">
         <label>Top Shift:</label>
@@ -901,35 +905,38 @@ function openPopUpStream(ch) {
         <input type="text" id="zoomInput" value="${zoomLevel}">
       </div>
       <button class="copy-btn" onclick="copyConfig()">📋 Copy JSON Config</button>
-    </div>
+    </div>` : ''}
   </div>
 
   <script>
     const iframe = document.getElementById('popFrame');
     const alignTool = document.getElementById('alignTool');
-    const topInput = document.getElementById('topInput');
-    const leftInput = document.getElementById('leftInput');
-    const zoomInput = document.getElementById('zoomInput');
-
+    
     function toggleAlignTool() {
-      alignTool.classList.toggle('active');
+      if (alignTool) alignTool.classList.toggle('active');
     }
 
-    function updatePosition() {
-      iframe.style.top = topInput.value;
-      iframe.style.left = leftInput.value;
-      iframe.style.width = zoomInput.value;
-      iframe.style.height = zoomInput.value;
-    }
+    if (${isPrivate}) {
+      const topInput = document.getElementById('topInput');
+      const leftInput = document.getElementById('leftInput');
+      const zoomInput = document.getElementById('zoomInput');
 
-    topInput.addEventListener('input', updatePosition);
-    leftInput.addEventListener('input', updatePosition);
-    zoomInput.addEventListener('input', updatePosition);
+      function updatePosition() {
+        iframe.style.top = topInput.value;
+        iframe.style.left = leftInput.value;
+        iframe.style.width = zoomInput.value;
+        iframe.style.height = zoomInput.value;
+      }
 
-    function copyConfig() {
-      const configStr = '"cropTop": "' + topInput.value + '", "cropLeft": "' + leftInput.value + '", "cropZoom": "' + zoomInput.value + '"';
-      navigator.clipboard.writeText(configStr);
-      alert('Copied to clipboard! Paste this into channels3.json:\\n\\n' + configStr);
+      topInput.addEventListener('input', updatePosition);
+      leftInput.addEventListener('input', updatePosition);
+      zoomInput.addEventListener('input', updatePosition);
+
+      window.copyConfig = function() {
+        const configStr = '"cropTop": "' + topInput.value + '", "cropLeft": "' + leftInput.value + '", "cropZoom": "' + zoomInput.value + '"';
+        navigator.clipboard.writeText(configStr);
+        alert('Copied to clipboard! Update channel in JSON:\\n\\n' + configStr);
+      };
     }
   <\/script>
 </body>
@@ -939,7 +946,7 @@ function openPopUpStream(ch) {
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
   mstvPopupWindow.focus();
-}
+    }
   async function playChannel(ch) {
   if (!ch) return;
   currentChannel = ch;

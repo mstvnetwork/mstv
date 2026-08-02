@@ -198,20 +198,20 @@ html, body {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.cat-pill[data-cat=""] { border-left: 4px solid #3df2ff; }
-.cat-pill[data-cat=""]            { border-left: 4px solid #ff4d6a; }
-.cat-pill[data-cat=""]   { border-left: 4px solid #8d5cff; }
-.cat-pill[data-cat=""]          { border-left: 4px solid #ffcf5c; }
-.cat-pill[data-cat=""]           { border-left: 4px solid #ff007f; }
-.cat-pill[data-cat=""]          { border-left: 4px solid #00ff88; }
-.cat-pill[data-cat=""]         { border-left: 4px solid #00d2ff; }
-.cat-pill[data-cat=""]       { border-left: 4px solid #ff9900; }
-.cat-pill[data-cat=""]      { border-left: 4px solid #ff5500; }
-.cat-pill[data-cat=""]         { border-left: 4px solid #e600ff; }
-.cat-pill[data-cat=""]            { border-left: 4px solid #00ffcc; }
-.cat-pill[data-cat=""]          { border-left: 4px solid #ffff00; }
-.cat-pill[data-cat=""]        { border-left: 4px solid #ab47bc; }
-.cat-pill[data-cat=""]    { border-left: 4px solid #29b6f6; }
+.cat-pill[data-cat="Android/Windows"] { border-left: 4px solid #3df2ff; }
+.cat-pill[data-cat="News"]            { border-left: 4px solid #ff4d6a; }
+.cat-pill[data-cat="Entertainment"]   { border-left: 4px solid #8d5cff; }
+.cat-pill[data-cat="Movies"]          { border-left: 4px solid #ffcf5c; }
+.cat-pill[data-cat="Music"]           { border-left: 4px solid #ff007f; }
+.cat-pill[data-cat="Sports"]          { border-left: 4px solid #00ff88; }
+.cat-pill[data-cat="Cricket"]         { border-left: 4px solid #00d2ff; }
+.cat-pill[data-cat="Religious"]       { border-left: 4px solid #ff9900; }
+.cat-pill[data-cat="Devotional"]      { border-left: 4px solid #ff5500; }
+.cat-pill[data-cat="Punjabi"]         { border-left: 4px solid #e600ff; }
+.cat-pill[data-cat="Kids"]            { border-left: 4px solid #00ffcc; }
+.cat-pill[data-cat="Comedy"]          { border-left: 4px solid #ffff00; }
+.cat-pill[data-cat="Regional"]        { border-left: 4px solid #ab47bc; }
+.cat-pill[data-cat="Infotainment"]    { border-left: 4px solid #29b6f6; }
 
 .cat-pill:hover {
   background: var(--panel2);
@@ -540,7 +540,7 @@ html, body {
   </footer>
 </div>
 
-    <script>
+<script>
 const CURRENT_VERSION = "v2.2.0"; 
 
 setInterval(async () => {
@@ -557,13 +557,29 @@ const JSON_URL      = 'channels3.json';
 const POLL_INTERVAL = 1500; // Rapid sub-2-second sync interval for true live updates
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
-const CATEGORY_CONFIG = [];
+const CATEGORY_CONFIG = [
+  { id: 'Entertainment 1', icon: '🎬' },
+  { id: 'Entertainment 2 (Only Android/Windows)', icon: '🎬' },
+  
+  { id: 'Android/Windows', icon: '' },
+  { id: 'News', icon: '📰' },
+  
+  { id: 'Movies', icon: '🍿' },
+  { id: 'All', icon: '🌐' },
+  { id: 'Music', icon: '🎵' },
+  { id: 'Sports', icon: '⚽' },
+  { id: 'Cricket', icon: '🏏' },
+  { id: 'Religious', icon: '🙏' },
+  { id: 'Devotional', icon: '✨' },
+  { id: 'Punjabi', icon: '🎶' },
+  { id: 'Kids', icon: '🎈' },
+  { id: 'Comedy', icon: '😄' },
+  { id: 'Regional', icon: '📡' },
+  { id: 'Infotainment', icon: '💡' }
+];
 
 let channels = [], filteredChannels = [], currentChannel = null;
 let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
-
-// Pop-up window tracker
-let mstvPopupWindow = null;
 
 const $searchInput = document.getElementById('searchInput');
 const $channelList = document.getElementById('channelList');
@@ -593,14 +609,10 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Enhanced iOS & iPadOS detection logic (Fixes desktop mode iPadOS User Agents)
 const isIOS = (() => {
   const ua = navigator.userAgent || '';
-  const isAppleMobile = /iPad|iPhone|iPod/.test(ua);
-  const isiPadOS = (navigator.platform === 'MacIntel' || navigator.platform === 'Macintosh') && navigator.maxTouchPoints > 0;
-  return isAppleMobile || isiPadOS;
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 })();
-
 const isDashStream = ch => (ch.type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(ch.url||'');
 
 function attemptOpenInApp(url, onFail) {
@@ -775,161 +787,6 @@ function logo(ch) {
     : `<div class="row-logo-fallback">📺</div>`;
 }
 
-// Function to handle cropped window popup stream launch with Header and Ticker
-function openPopUpStream(ch) {
-  const topShift = ch.cropTop || '-65px';
-  const leftShift = ch.cropLeft || '-10px';
-  const title = esc(ch.name);
-  const targetUrl = esc(ch.url);
-  const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
-
-  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
-
-  if (mstvPopupWindow && !mstvPopupWindow.closed) {
-    mstvPopupWindow.close();
-  }
-
-  mstvPopupWindow = _nativeOpen('about:blank', 'MSTVPopUpWindow', windowFeatures);
-
-  if (!mstvPopupWindow) {
-    alert('Pop-up was blocked by browser! Please allow pop-ups for this site.');
-    return;
-  }
-
-  const popupHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${title} - MSTV Stream</title>
-  <style>
-    :root {
-      --void: #06070b;
-      --cyan: #3df2ff;
-      --panel: #0f1220;
-      --glass-border: rgba(255, 255, 255, 0.08);
-      --ink: #f2f4fb;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html {
-      margin: 0;
-      padding: 0;
-      background: var(--void);
-      color: var(--ink);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      overflow: hidden;
-      width: 100%;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* 1. Header Styling */
-    .popup-header {
-      height: 40px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--glass-border);
-      display: flex;
-      align-items: center;
-      padding: 0 14px;
-      gap: 10px;
-      flex-shrink: 0;
-    }
-    .popup-header .title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #fff;
-      letter-spacing: 0.5px;
-    }
-    .popup-header .badge {
-      font-size: 9px;
-      font-weight: 700;
-      background: rgba(61, 242, 255, 0.15);
-      color: var(--cyan);
-      padding: 2px 6px;
-      border-radius: 4px;
-      border: 1px solid rgba(61, 242, 255, 0.3);
-      margin-left: auto;
-    }
-
-    /* 2. Scrolling Ticker Bar */
-    .ticker-wrap {
-      height: 26px;
-      background: #000;
-      border-bottom: 1px solid var(--glass-border);
-      overflow: hidden;
-      display: flex;
-      align-items: center;
-      flex-shrink: 0;
-    }
-    .ticker {
-      display: inline-block;
-      white-space: nowrap;
-      padding-left: 100%;
-      animation: marquee 22s linear infinite;
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--cyan);
-    }
-    @keyframes marquee {
-      0% { transform: translate3d(0, 0, 0); }
-      100% { transform: translate3d(-100%, 0, 0); }
-    }
-
-    /* 3. Outer viewport box */
-    .crop-viewport-wrapper {
-      flex: 1;
-      width: 100%;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      background: #000;
-    }
-    .crop-viewport {
-      position: relative;
-      width: 100%;
-      max-width: 900px;
-      height: 100%;
-      overflow: hidden;
-      background: #000;
-    }
-    .crop-viewport iframe {
-      position: absolute;
-      top: ${topShift};
-      left: ${leftShift};
-      width: calc(100% + 20px);
-      height: calc(100% + -25px);
-      border: 0;
-    }
-  </style>
-</head>
-<body>
-  <!-- Header Section -->
-  <header class="popup-header">
-    <span class="title">📺 ${title}</span>
-    <span class="badge">MSTV POPUP PLAYER</span>
-  </header>
-
-  <!-- Scrolling Text Section -->
-  <div class="ticker-wrap">
-    <div class="ticker">${tickerText}</div>
-  </div>
-
-  <!-- Stream Section -->
-  <div class="crop-viewport-wrapper">
-    <div class="crop-viewport">
-      <iframe src="${targetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
-    </div>
-  </div>
-</body>
-</html>`;
-
-  mstvPopupWindow.document.open();
-  mstvPopupWindow.document.write(popupHtml);
-  mstvPopupWindow.document.close();
-  mstvPopupWindow.focus();
-}
-
 async function playChannel(ch) {
   if (!ch) return;
   currentChannel = ch;
@@ -944,15 +801,6 @@ async function playChannel(ch) {
   await teardown();
 
   const type = (ch.type || '').toLowerCase();
-
-  // Check for pop-up stream type
-  if (type === 'popup' || ch.popup === true) {
-    showLoader(false);
-    $videoEl.style.display = $iframeEl.style.display = 'none';
-    openPopUpStream(ch);
-    updateNowPlaying(ch);
-    return;
-  }
 
   if (isHttp(ch.url)) {
     showLoader(false);
@@ -1019,19 +867,11 @@ async function playHLS(url) {
 async function playDASH(url) {
   try {
     await ensureShaka();
-    
-    // Safety 10-second loader timeout for DASH network errors
-    const loadPromise = shakaPlayer.load(url);
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('DASH timeout')), 10000)
-    );
-
-    await Promise.race([loadPromise, timeoutPromise]);
-
+    await shakaPlayer.load(url);
     showLoader(false);
     $videoEl.play().catch(()=>{});
   } catch (e) {
-    showError('DASH error: Stream unavailable or unsupported');
+    showError('DASH error');
   }
 }
 
@@ -1062,17 +902,15 @@ function bindEvents() {
   });
 }
 
-// Preserve native window.open reference for popups
-const _nativeOpen = window.open.bind(window);
-
 (function() {
+  const _open = window.open.bind(window);
   window.open = (url, target, f) => {
     if (target === '_top' || target === '_parent') return null;
-    return _nativeOpen(url, target, f);
+    return _open(url, target, f);
   };
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-    </script>
+</script>
 </body>
 </html>

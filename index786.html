@@ -336,8 +336,9 @@ html, body {
   </footer>
 </div>
 
+    
 <script>
-const CURRENT_VERSION = "v2.3.0"; 
+const CURRENT_VERSION = "v2.4.0"; 
 
 // ── CLOUDFLARE WORKERS CONFIGURATION (PRIMARY + BACKUP) ─────────────────────
 const WORKER_PRIMARY = "https://stream-proxy.cabletv.workers.dev/";
@@ -784,8 +785,14 @@ async function playChannel(ch) {
 
   // STAGE 1: Check mobile enforcement before making network requests
   if (type === 'popup' || ch.popup === true) {
-    if (!isStrictMobile()) {
-      showError('This stream is only available on mobile devices, watch on your mobile.');
+    const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
+    
+    // Default fallback message if not specified in JSON
+    const fallbackMessage = ch.popupFallbackMsg || 
+      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
+
+    if (popupRestriction === 'restricted' && !isStrictMobile()) {
+      showError(fallbackMessage);
       updateNowPlaying(ch);
       return;
     }
@@ -797,7 +804,7 @@ async function playChannel(ch) {
     return;
   }
 
-  // STAGE 2: Execute Pop-up stream if mobile check passes
+  // STAGE 2: Execute Pop-up stream if mobile/restriction check passes
   if (type === 'popup' || ch.popup === true) {
     showLoader(false);
     $videoEl.style.display = $iframeEl.style.display = 'none';

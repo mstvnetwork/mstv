@@ -342,12 +342,11 @@ const CURRENT_VERSION = "v2.6.0";
 const WORKER_APIS = [
   "https://stream-proxy.cabletv.workers.dev/",      // Worker 1 (Primary)
   "https://backup.mstvindianetworkusa.workers.dev/"  // Worker 2 (Backup)
-  // Add more worker URLs here as needed
 ];
 
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = 'streamdata.json';
+const JSON_URL      = 'streamdata#.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -405,7 +404,7 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * YouTube Link Helper: Converts standard YouTube URLs to autoplaying, unbranded embeds
+ * YouTube Link Helper: Converts standard YouTube URLs to autoplaying embeds with controls
  */
 const isYouTubeUrl = (url) => /(?:youtube\.com|youtu\.be)/i.test(url || '');
 
@@ -424,11 +423,11 @@ function formatYouTubeEmbedUrl(rawUrl) {
 
   if (!videoId) return rawUrl;
 
-  // Clean Embed Parameters to force autoplay, mute for autoplay compliance, hide controls/logos
+  // Set controls=1 so users get native unmute/volume controls
   const params = new URLSearchParams({
     autoplay: '1',
     mute: '1',
-    controls: '0',
+    controls: '1',
     modestbranding: '1',
     rel: '0',
     showinfo: '0',
@@ -440,9 +439,6 @@ function formatYouTubeEmbedUrl(rawUrl) {
   return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
 }
 
-/**
- * Fetches stream URL with seamless automatic failover across multiple Workers
- */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
   
@@ -473,7 +469,7 @@ async function getStreamUrl(channel) {
       }
     } catch (err) {
       clearTimeout(timeoutId);
-      console.warn(`Worker [${i + 1}] (${workerUrl}) failed or timed out. Trying next worker...`);
+      console.warn(`Worker [${i + 1}] (${workerUrl}) failed or timed out.`);
     }
   }
 
@@ -655,7 +651,6 @@ function openPopUpStream(ch, targetUrl) {
   const title = esc(ch.name);
   let safeTargetUrl = esc(targetUrl);
 
-  // Auto-format YouTube URL inside Popup if needed
   if (isYouTubeUrl(targetUrl)) {
     safeTargetUrl = esc(formatYouTubeEmbedUrl(targetUrl));
   }
@@ -686,107 +681,20 @@ function openPopUpStream(ch, targetUrl) {
     body, html { margin: 0; padding: 0; background: #06070b; color: #f2f4fb; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; width: 100%; height: 100vh; display: flex; flex-direction: column; }
     .popup-header { height: 38px; background: #0f1220; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
     .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
-    .align-btn { background: rgba(61, 242, 255, 0.15); color: #3df2ff; border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto; }
-    .align-btn:hover { background: #3df2ff; color: #000; }
-    .ticker-wrap { height: 24px; background: #000; border-bottom: 1px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; flex-shrink: 0; }
-    .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee 22s linear infinite; font-size: 11px; font-weight: 600; color: #3df2ff; }
-    @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
     .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
     .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
-    
-    /* ALIGNER TOOL CONTAINER */
-    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
-    #alignerPanel.active { display: block; }
-    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
-    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
-    .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
 <body>
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
-    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
   </header>
-  <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" allow="autoplay; encrypted-media" allowfullscreen></iframe>
     </div>
-    
-    ${isPrivate ? `
-    <div id="alignerPanel">
-      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
-        <span>Stream Aligner</span>
-        <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
-      </div>
-      <div class="zoom-controls">
-        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
-        <div>
-          <button id="btnZoomOut">-</button>
-          <button id="btnZoomIn">+</button>
-        </div>
-      </div>
-      <div class="align-grid">
-        <div></div><button id="btnUp">▲</button><div></div>
-        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
-        <div></div><button id="btnDown">▼</button><div></div>
-      </div>
-      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
-      <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
-    </div>` : ''}
   </div>
-
-  <script>
-    (function() {
-      const isPrivate = ${isPrivate};
-      if (!isPrivate) return;
-
-      const iframe = document.getElementById('popFrame');
-      const panel = document.getElementById('alignerPanel');
-      const toggleBtn = document.getElementById('toggleAligner');
-      const closeBtn = document.getElementById('closeAligner');
-
-      let topVal = parseInt("${topShift}") || 0;
-      let leftVal = parseInt("${leftShift}") || 0;
-      let zoomVal = parseInt("${zoomLevel}") || 100;
-
-      function updateStyles() {
-        iframe.style.top = topVal + 'px';
-        iframe.style.left = leftVal + 'px';
-        iframe.style.width = zoomVal + '%';
-        iframe.style.height = zoomVal + '%';
-
-        document.getElementById('valTop').textContent = topVal + 'px';
-        document.getElementById('valLeft').textContent = leftVal + 'px';
-        document.getElementById('valZoom').textContent = zoomVal + '%';
-      }
-
-      if (toggleBtn) toggleBtn.onclick = () => panel.classList.toggle('active');
-      if (closeBtn) closeBtn.onclick = () => panel.classList.remove('active');
-
-      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
-      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
-      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
-      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
-      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
-
-      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
-      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
-
-      document.getElementById('btnCopyJson').onclick = () => {
-        const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
-        navigator.clipboard.writeText(jsonSnippet).then(() => {
-          const btn = document.getElementById('btnCopyJson');
-          btn.textContent = '✅ Copied!';
-          setTimeout(() => btn.textContent = '📋 Copy JSON', 1500);
-        });
-      };
-    })();
-  <\/script>
 </body>
 </html>`;
 
@@ -811,12 +719,9 @@ async function playChannel(ch) {
 
   const type = (ch.type || '').toLowerCase();
 
-  // STAGE 1: Check mobile enforcement directly from JSON configuration
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    
-    const fallbackMessage = ch.popupFallbackMsg || 
-      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
+    const fallbackMessage = ch.popupFallbackMsg || "📱 Mobile Access Only: This stream is optimized for mobile viewing.";
 
     if (popupRestriction === 'restricted' && !isStrictMobile()) {
       showError(fallbackMessage);
@@ -825,14 +730,12 @@ async function playChannel(ch) {
     }
   }
 
-  // STAGE 2: Fetch stream URL via Worker Failover Loop
   let streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
     showError("Failed to fetch secure stream URL");
     return;
   }
 
-  // STAGE 3: Launch Pop-up stream if allowed
   if (type === 'popup' || ch.popup === true) {
     showLoader(false);
     $videoEl.style.display = $iframeEl.style.display = 'none';
@@ -866,7 +769,6 @@ async function playChannel(ch) {
     return;
   }
 
-  // STAGE 4: iFrame or YouTube Auto-Embed Handling
   if (type === 'iframe' || isYouTubeUrl(streamUrl)) {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
@@ -874,7 +776,7 @@ async function playChannel(ch) {
     if (isYouTubeUrl(streamUrl)) {
       streamUrl = formatYouTubeEmbedUrl(streamUrl);
       $iframeEl.setAttribute('allow', 'autoplay; encrypted-media');
-      $iframeEl.removeAttribute('sandbox'); // Allow YouTube internal scripts to initialize cleanly
+      $iframeEl.removeAttribute('sandbox');
     } else {
       if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
       else $iframeEl.removeAttribute('sandbox');
@@ -958,7 +860,8 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-  </script>                 
+    
+ </script>                 
 
 </body>
 </html>

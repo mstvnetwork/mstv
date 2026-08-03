@@ -335,17 +335,19 @@ html, body {
       </div>
   </footer>
 </div>
-
-    
 <script>
-const CURRENT_VERSION = "v2.4.0"; 
+const CURRENT_VERSION = "v2.5.0"; 
 
-// ── CLOUDFLARE WORKERS CONFIGURATION (PRIMARY + BACKUP) ─────────────────────
-const WORKER_PRIMARY = "https://stream-proxy.cabletv.workers.dev/";
-const WORKER_BACKUP  = "https://backup.mstvindianetworkusa.workers.dev/";
+// ── CLOUDFLARE WORKERS CONFIGURATION (MULTI-WORKER FAILOVER) ────────────────
+const WORKER_APIS = [
+  "https://stream-proxy.cabletv.workers.dev/",      // Worker 1 (Primary)
+  "https://backup.mstvindianetworkusa.workers.dev/"  // Worker 2 (Backup)
+  // Add more worker URLs here as needed
+];
+
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = 'streamdata.json';
+const JSON_URL      = 'streamdata#.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -403,52 +405,45 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Helper to fetch channel stream link with automatic failover
- */
-async function fetchStreamFromWorker(workerUrl, key, channelName) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-  try {
-    const res = await fetch(workerUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: key, name: channelName }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.url || null;
-  } catch (err) {
-    clearTimeout(timeoutId);
-    return null;
-  }
-}
-
-/**
- * Tries Primary Worker first; falls back to Secondary Worker automatically
+ * Fetches stream URL with seamless automatic failover across multiple Workers
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
   
+  // Return cached URL if previously resolved in session
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  let streamUrl = await fetchStreamFromWorker(WORKER_PRIMARY, key, channel.name);
+  // Iterate sequentially through available Workers
+  for (let i = 0; i < WORKER_APIS.length; i++) {
+    const workerUrl = WORKER_APIS[i];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout per Worker
 
-  if (!streamUrl) {
-    console.warn("Primary Worker unreachable/failed. Trying Backup Worker...");
-    streamUrl = await fetchStreamFromWorker(WORKER_BACKUP, key, channel.name);
+    try {
+      const res = await fetch(workerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: key, name: channel.name }),
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.url) {
+          streamCache[key] = data.url; // Save to local cache
+          return data.url;
+        }
+      }
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn(`Worker [${i + 1}] (${workerUrl}) failed or timed out. Trying next worker...`);
+    }
   }
 
-  if (streamUrl) {
-    streamCache[key] = streamUrl;
-    return streamUrl;
-  }
-
+  // If all workers fail
   return null;
 }
 
@@ -782,11 +777,11 @@ async function playChannel(ch) {
 
   const type = (ch.type || '').toLowerCase();
 
-  // STAGE 1: Check mobile enforcement before making network requests
+  // STAGE 1: Check mobile enforcement directly from JSON configuration
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
     
-    // Default fallback message if not specified in JSON
+    // Default fallback message if not defined in JSON
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
@@ -797,13 +792,14 @@ async function playChannel(ch) {
     }
   }
 
+  // STAGE 2: Fetch stream URL via Worker Failover Loop
   const streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
     showError("Failed to fetch secure stream URL");
     return;
   }
 
-  // STAGE 2: Execute Pop-up stream if mobile/restriction check passes
+  // STAGE 3: Launch Pop-up stream if allowed
   if (type === 'popup' || ch.popup === true) {
     showLoader(false);
     $videoEl.style.display = $iframeEl.style.display = 'none';

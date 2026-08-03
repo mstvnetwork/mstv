@@ -775,7 +775,7 @@ function logo(ch) {
     : `<div class="row-logo-fallback">📺</div>`;
 }
 
-    function openPopUpStream(ch) {
+  function openPopUpStream(ch) {
   const topShift = ch.cropTop || '0px';
   const leftShift = ch.cropLeft || '0px';
   const zoomLevel = ch.cropZoom || '100%';
@@ -783,8 +783,10 @@ function logo(ch) {
   const targetUrl = esc(ch.url);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
+  // Check channel access type directly from channels3.json
   const isPrivate = ch.access === 'private';
-  const windowFeatures = 'width=960,height=620,resizable=yes,scrollbars=no,status=no';
+
+  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
   if (mstvPopupWindow && !mstvPopupWindow.closed) {
     mstvPopupWindow.close();
@@ -810,19 +812,16 @@ function logo(ch) {
       --panel: #0f1220;
       --glass-border: rgba(255, 255, 255, 0.1);
       --ink: #f2f4fb;
-      --green: #00ff88;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    
     body, html {
       margin: 0; padding: 0;
       background: var(--void); color: var(--ink);
       font-family: system-ui, -apple-system, sans-serif;
-      overflow: hidden; width: 100vw; height: 100vh;
+      overflow: hidden; width: 100%; height: 100vh;
       display: flex; flex-direction: column;
     }
 
-    /* HEADER */
     .popup-header {
       height: 38px; background: var(--panel);
       border-bottom: 1px solid var(--glass-border);
@@ -836,7 +835,6 @@ function logo(ch) {
       padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto;
     }
 
-    /* TICKER BANNER */
     .ticker-wrap {
       height: 24px; background: #000; border-bottom: 1px solid var(--glass-border);
       overflow: hidden; display: flex; align-items: center; flex-shrink: 0;
@@ -847,14 +845,9 @@ function logo(ch) {
     }
     @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 
-    /* VIEWPORT CONTAINER (FIXED FLEX GROW) */
     .crop-viewport-wrapper {
-      flex: 1 1 auto;
-      min-height: 0; /* Prevents flex child from pushing footer offscreen */
-      width: 100%;
-      background: #000;
-      position: relative;
-      overflow: hidden;
+      flex: 1; width: 100%; display: flex;
+      justify-content: center; align-items: center; background: #000; position: relative;
     }
     .crop-viewport {
       position: relative; width: 100%; height: 100%; overflow: hidden; background: #000;
@@ -866,40 +859,6 @@ function logo(ch) {
       border: 0;
     }
 
-    /* FOOTER (FIXED HEIGHT AT BOTTOM) */
-    .popup-footer {
-      height: 36px; background: var(--panel);
-      border-top: 1px solid var(--glass-border);
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0 12px; font-size: 11px; color: #a0a5c0; flex-shrink: 0; z-index: 10;
-    }
-    .status-badge {
-      display: flex; align-items: center; gap: 6px; font-weight: 600; color: #fff;
-    }
-    .live-dot {
-      width: 7px; height: 7px; background: var(--green);
-      border-radius: 50%; box-shadow: 0 0 8px var(--green);
-      animation: pulse 1.5s infinite;
-    }
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-
-    .footer-actions {
-      display: flex; gap: 8px; align-items: center;
-    }
-    .footer-btn {
-      background: rgba(255, 255, 255, 0.05); color: #fff;
-      border: 1px solid var(--glass-border); border-radius: 4px;
-      padding: 3px 8px; font-size: 10px; font-weight: 600; cursor: pointer;
-      transition: all 0.2s ease;
-    }
-    .footer-btn:hover {
-      background: rgba(61, 242, 255, 0.2); border-color: var(--cyan); color: var(--cyan);
-    }
-    .brand-text {
-      font-weight: 700; color: var(--cyan); letter-spacing: 0.5px;
-    }
-
-    /* ALIGNMENT TOOL OVERLAY */
     #alignTool {
       display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999;
       background: rgba(15, 18, 32, 0.95); border: 1px solid var(--cyan);
@@ -917,18 +876,15 @@ function logo(ch) {
   </style>
 </head>
 <body>
-  <!-- HEADER -->
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
     ${isPrivate ? '<button class="align-btn" onclick="toggleAlignTool()">🎯 Adjust Alignment</button>' : ''}
   </header>
 
-  <!-- SCROLLING TICKER -->
   <div class="ticker-wrap">
     <div class="ticker">${tickerText}</div>
   </div>
 
-  <!-- PLAYER VIEWPORT -->
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
       <iframe id="popFrame" src="${targetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
@@ -952,33 +908,10 @@ function logo(ch) {
     </div>` : ''}
   </div>
 
-  <!-- FOOTER BAR -->
-  <footer class="popup-footer">
-    <div class="status-badge">
-      <span class="live-dot"></span>
-      <span>LIVE TRANSMISSION</span>
-    </div>
-
-    <div class="footer-actions">
-      <button class="footer-btn" onclick="reloadStream()">🔄 Reload Stream</button>
-      <button class="footer-btn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
-    </div>
-
-    <div class="brand-text">
-      MSTV NETWORK
-    </div>
-  </footer>
-
   <script>
     const iframe = document.getElementById('popFrame');
     const alignTool = document.getElementById('alignTool');
-
-    function reloadStream() {
-      iframe.src = iframe.src;
-    }
-
     
-
     function toggleAlignTool() {
       if (alignTool) alignTool.classList.toggle('active');
     }
@@ -1013,7 +946,7 @@ function logo(ch) {
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
   mstvPopupWindow.focus();
-}
+      }        
   async function playChannel(ch) {
   if (!ch) return;
   currentChannel = ch;

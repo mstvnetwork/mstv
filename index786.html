@@ -335,8 +335,8 @@ html, body {
       </div>
   </footer>
 </div>
-<script>
-const CURRENT_VERSION = "v2.5.0"; 
+ <script>
+const CURRENT_VERSION = "v2.6.0"; 
 
 // ── CLOUDFLARE WORKERS CONFIGURATION (MULTI-WORKER FAILOVER) ────────────────
 const WORKER_APIS = [
@@ -385,7 +385,7 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Strict Mobile Detector (Phone check: Excludes PCs, Laptops, and Tablets)
+// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
@@ -405,21 +405,55 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
+ * YouTube Link Helper: Converts standard YouTube URLs to autoplaying, unbranded embeds
+ */
+const isYouTubeUrl = (url) => /(?:youtube\.com|youtu\.be)/i.test(url || '');
+
+function formatYouTubeEmbedUrl(rawUrl) {
+  let videoId = '';
+  
+  if (rawUrl.includes('youtu.be/')) {
+    videoId = rawUrl.split('youtu.be/')[1].split('?')[0].split('&')[0];
+  } else if (rawUrl.includes('watch?v=')) {
+    videoId = rawUrl.split('watch?v=')[1].split('&')[0];
+  } else if (rawUrl.includes('/embed/')) {
+    videoId = rawUrl.split('/embed/')[1].split('?')[0];
+  } else if (rawUrl.includes('/live/')) {
+    videoId = rawUrl.split('/live/')[1].split('?')[0];
+  }
+
+  if (!videoId) return rawUrl;
+
+  // Clean Embed Parameters to force autoplay, mute for autoplay compliance, hide controls/logos
+  const params = new URLSearchParams({
+    autoplay: '1',
+    mute: '1',
+    controls: '0',
+    modestbranding: '1',
+    rel: '0',
+    showinfo: '0',
+    iv_load_policy: '3',
+    enablejsapi: '1',
+    playsinline: '1'
+  });
+
+  return `https://www.youtube.com/embed/${videoId}?${params.toString()}`;
+}
+
+/**
  * Fetches stream URL with seamless automatic failover across multiple Workers
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
   
-  // Return cached URL if previously resolved in session
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  // Iterate sequentially through available Workers
   for (let i = 0; i < WORKER_APIS.length; i++) {
     const workerUrl = WORKER_APIS[i];
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout per Worker
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
 
     try {
       const res = await fetch(workerUrl, {
@@ -433,7 +467,7 @@ async function getStreamUrl(channel) {
       if (res.ok) {
         const data = await res.json();
         if (data && data.url) {
-          streamCache[key] = data.url; // Save to local cache
+          streamCache[key] = data.url;
           return data.url;
         }
       }
@@ -443,7 +477,6 @@ async function getStreamUrl(channel) {
     }
   }
 
-  // If all workers fail
   return null;
 }
 
@@ -616,13 +649,18 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
-  const topShift = ch.cropTop || '-72px';
-  const leftShift = ch.cropLeft || '35px';
-  const zoomLevel = ch.cropZoom || '80%';
+  const topShift = ch.cropTop || '0px';
+  const leftShift = ch.cropLeft || '0px';
+  const zoomLevel = ch.cropZoom || '100%';
   const title = esc(ch.name);
-  const safeTargetUrl = esc(targetUrl);
-  const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
+  let safeTargetUrl = esc(targetUrl);
 
+  // Auto-format YouTube URL inside Popup if needed
+  if (isYouTubeUrl(targetUrl)) {
+    safeTargetUrl = esc(formatYouTubeEmbedUrl(targetUrl));
+  }
+
+  const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
   const isPrivate = ch.access === 'private';
   const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
@@ -676,7 +714,7 @@ function openPopUpStream(ch, targetUrl) {
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allow="autoplay; encrypted-media" allowfullscreen></iframe>
     </div>
     
     ${isPrivate ? `
@@ -727,12 +765,8 @@ function openPopUpStream(ch, targetUrl) {
         document.getElementById('valZoom').textContent = zoomVal + '%';
       }
 
-      if (toggleBtn) {
-        toggleBtn.onclick = () => panel.classList.toggle('active');
-      }
-      if (closeBtn) {
-        closeBtn.onclick = () => panel.classList.remove('active');
-      }
+      if (toggleBtn) toggleBtn.onclick = () => panel.classList.toggle('active');
+      if (closeBtn) closeBtn.onclick = () => panel.classList.remove('active');
 
       document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
       document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
@@ -781,7 +815,6 @@ async function playChannel(ch) {
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
     
-    // Default fallback message if not defined in JSON
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
@@ -793,7 +826,7 @@ async function playChannel(ch) {
   }
 
   // STAGE 2: Fetch stream URL via Worker Failover Loop
-  const streamUrl = await getStreamUrl(ch);
+  let streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
     showError("Failed to fetch secure stream URL");
     return;
@@ -833,11 +866,20 @@ async function playChannel(ch) {
     return;
   }
 
-  if (type === 'iframe') {
+  // STAGE 4: iFrame or YouTube Auto-Embed Handling
+  if (type === 'iframe' || isYouTubeUrl(streamUrl)) {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
-    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
-    else $iframeEl.removeAttribute('sandbox');
+
+    if (isYouTubeUrl(streamUrl)) {
+      streamUrl = formatYouTubeEmbedUrl(streamUrl);
+      $iframeEl.setAttribute('allow', 'autoplay; encrypted-media');
+      $iframeEl.removeAttribute('sandbox'); // Allow YouTube internal scripts to initialize cleanly
+    } else {
+      if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+      else $iframeEl.removeAttribute('sandbox');
+    }
+
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
@@ -916,7 +958,8 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-</script>
+  </script>                 
+
 </body>
 </html>
 

@@ -335,7 +335,7 @@ html, body {
       </div>
   </footer>
 </div>
- <script>
+  <script>
 const CURRENT_VERSION = "v2.6.0"; 
 
 // ── CLOUDFLARE WORKERS CONFIGURATION (MULTI-WORKER FAILOVER) ────────────────
@@ -423,7 +423,6 @@ function formatYouTubeEmbedUrl(rawUrl) {
 
   if (!videoId) return rawUrl;
 
-  // Set controls=1 so users get native unmute/volume controls
   const params = new URLSearchParams({
     autoplay: '1',
     mute: '1',
@@ -656,7 +655,6 @@ function openPopUpStream(ch, targetUrl) {
   }
 
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
-  const isPrivate = ch.access === 'private';
   const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
   if (mstvPopupWindow && !mstvPopupWindow.closed) {
@@ -669,6 +667,9 @@ function openPopUpStream(ch, targetUrl) {
     alert('Pop-up was blocked by browser! Please allow pop-ups for this site.');
     return;
   }
+
+  // Sandbox applied here as well to block YouTube redirection inside popups
+  const iframeSandboxAttr = isYouTubeUrl(targetUrl) ? `sandbox="${SANDBOX_VALUE}"` : '';
 
   const popupHtml = `<!DOCTYPE html>
 <html lang="en">
@@ -692,7 +693,7 @@ function openPopUpStream(ch, targetUrl) {
   </header>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" ${iframeSandboxAttr} allow="autoplay; encrypted-media" allowfullscreen></iframe>
     </div>
   </div>
 </body>
@@ -776,7 +777,9 @@ async function playChannel(ch) {
     if (isYouTubeUrl(streamUrl)) {
       streamUrl = formatYouTubeEmbedUrl(streamUrl);
       $iframeEl.setAttribute('allow', 'autoplay; encrypted-media');
-      $iframeEl.removeAttribute('sandbox');
+      
+      // SANDBOX FIX: Applies standard script/presentation permissions while blocking external link navigation / popups (preventing YouTube logo redirects)
+      $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     } else {
       if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
       else $iframeEl.removeAttribute('sandbox');
@@ -860,8 +863,8 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-    
- </script>                 
+  </script>
+                 
 
 </body>
 </html>

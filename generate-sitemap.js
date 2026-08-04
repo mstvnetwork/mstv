@@ -5,7 +5,6 @@
  *   2. /sitemap.xml               — full sitemap pointing to CF canonical domain
  *
  * Run: node generate-sitemap.js
- * Or let Netlify/CF run it via build command in netlify.toml / wrangler.toml.
  */
 
 const fs   = require('fs');
@@ -31,16 +30,17 @@ try {
 }
 
 const channels = Array.isArray(raw) ? raw : (raw.channels || []);
-const valid    = channels.filter(ch => ch && ch.name && ch.url);
+
+// ── FIX: Validate channel based on ID or Name (since URL is dynamically resolved via Workers)
+const valid = channels.filter(ch => ch && ch.name && (ch.id || ch.name));
 
 if (!valid.length) {
-  console.error('❌  No valid channels found.');
+  console.error('❌  No valid channels found in streamdata.json.');
   process.exit(1);
 }
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
-/** URL slug — must match toSlug() in index.html */
 const getSlug = (text) =>
   text
     .toLowerCase()
@@ -90,7 +90,6 @@ valid.forEach((ch) => {
   const typeLabel = (ch.type || 'hls').toUpperCase();
 
   // ── SEO landing page ────────────────────────────────────────────────────────
-  // The "Watch Live" button links to /?ch=<slug> which index.html resolves on load.
   const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>

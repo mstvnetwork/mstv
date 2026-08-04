@@ -13,7 +13,7 @@ const path = require('path');
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
 const CANONICAL_DOMAIN = 'https://crickethd.pages.dev';
-const CHANNELS_FILE    = './channels2.json';
+const CHANNELS_FILE    = './streamdata.json';
 const PAGES_DIR        = path.join(__dirname, 'channels_pages');
 
 // ── LOAD CHANNELS ─────────────────────────────────────────────────────────────
@@ -26,7 +26,7 @@ let raw;
 try {
   raw = JSON.parse(fs.readFileSync(CHANNELS_FILE, 'utf8'));
 } catch (e) {
-  console.error('❌  channels2.json is not valid JSON.', e.message);
+  console.error('❌  streamdata.json is not valid JSON.', e.message);
   process.exit(1);
 }
 

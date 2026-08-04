@@ -3,62 +3,80 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live TV Stream</title>
-    <!-- Load Hls.js -->
+    <title>Live Stream Player</title>
+
+    <!-- 1. DO NOT REMOVE THIS LINE: Loads the HLS Library -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
     <style>
         body {
             margin: 0;
-            background: #0d0d0d;
+            padding: 0;
+            background-color: #000;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
         }
-        .player-wrapper {
+        .player-container {
             width: 100%;
-            max-width: 900px;
+            max-width: 960px;
+            padding: 10px;
         }
         video {
             width: 100%;
             height: auto;
             border-radius: 8px;
-            background: #000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
 <body>
 
-    <div class="player-wrapper">
-        <video id="video" controls autoplay muted></video>
+    <div class="player-container">
+        <!-- Video Element -->
+        <video id="video" controls muted playsinline></video>
     </div>
 
+    <!-- 2. THIS IS THE INLINE SCRIPT BLOCK TO UPDATE -->
     <script>
         const video = document.getElementById('video');
-        
-        // 1. Raw stream extracted by your Node.js script
-        const rawStreamUrl = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
-        
-        // 2. Your deployed Cloudflare Worker URL
-        const workerProxyUrl = 'https://ch1.ghubtv1.workers.dev/?url=';
-        
-        // 3. Construct proxied URL
-        const targetStream = workerProxyUrl + encodeURIComponent(rawStreamUrl);
+
+        // Target stream link extracted by your scraper
+        const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
+
+        // Your Cloudflare Worker proxy endpoint
+        const workerProxy = 'https://ch1.ghubtv1.workers.dev/?url=';
+
+        // Combine into proxied URL
+        const proxiedStream = workerProxy + encodeURIComponent(rawStream);
 
         if (Hls.isSupported()) {
-            const hls = new Hls();
-            hls.loadSource(targetStream);
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+            });
+
+            hls.loadSource(proxiedStream);
             hls.attachMedia(video);
+
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play();
+                // Safely start playback to prevent DOMException race conditions
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(() => {
+                        console.log("Autoplay was blocked by browser. Click play on video.");
+                    });
+                }
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native fallback for Safari / iOS
-            video.src = targetStream;
+            // Safari / Native iOS fallback
+            video.src = proxiedStream;
             video.addEventListener('loadedmetadata', () => {
-                video.play();
+                video.play().catch(() => {});
             });
         }
     </script>
+
 </body>
 </html>

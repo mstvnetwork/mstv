@@ -39,44 +39,59 @@
     </div>
 
     <!-- 2. THIS IS THE INLINE SCRIPT BLOCK TO UPDATE -->
-    <script>
-        const video = document.getElementById('video');
+<script>
+    const video = document.getElementById('video');
 
-        // Target stream link extracted by your scraper
-        const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
+    // Your extracted target stream link
+    const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
 
-        // Your Cloudflare Worker proxy endpoint
-        const workerProxy = 'https://ch1.ghubtv1.workers.dev/?url=';
+    // Base URL of your Cloudflare Worker
+    const workerEndpoint = 'https://ch1.ghubtv1.workers.dev/?url=';
 
-        // Combine into proxied URL
-        const proxiedStream = workerProxy + encodeURIComponent(rawStream);
-
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-            });
-
-            hls.loadSource(proxiedStream);
-            hls.attachMedia(video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                // Safely start playback to prevent DOMException race conditions
-                const playPromise = video.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(() => {
-                        console.log("Autoplay was blocked by browser. Click play on video.");
-                    });
+    if (Hls.isSupported()) {
+        const hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            // Automatically wraps ALL sub-playlists (.m3u8) and segment (.ts) requests through worker
+            xhrSetup: function(xhr, url) {
+                // If the URL isn't already going through your worker, wrap it!
+                if (!url.startsWith(workerEndpoint)) {
+                    xhr.open('GET', workerEndpoint + encodeURIComponent(url), true);
                 }
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari / Native iOS fallback
-            video.src = proxiedStream;
-            video.addEventListener('loadedmetadata', () => {
-                video.play().catch(() => {});
-            });
-        }
-    </script>
+            }
+        });
+
+        // Load initial stream through worker proxy
+        hls.loadSource(workerEndpoint + encodeURIComponent(rawStream));
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log("Stream manifest parsed successfully!");
+        });
+
+        // Catch HLS runtime errors
+        hls.on(Hls.Events.ERROR, (event, data) => {
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.log("Network error encountered, trying to recover...");
+                        hls.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.log("Media error encountered, recovering...");
+                        hls.recoverMediaError();
+                        break;
+                    default:
+                        hls.destroy();
+                        break;
+                }
+            }
+        });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Native Safari fallback
+        video.src = workerEndpoint + encodeURIComponent(rawStream);
+    }
+ </script>
 
 </body>
 </html>

@@ -1,12 +1,64 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Live Stream</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live TV Stream</title>
+    <!-- Load Hls.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        body {
+            margin: 0;
+            background: #0d0d0d;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .player-wrapper {
+            width: 100%;
+            max-width: 900px;
+        }
+        video {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            background: #000;
+        }
+    </style>
 </head>
-<body style="margin:0; background:#000;">
-    <video controls autoplay muted style="width:100%; max-width:800px; display:block; margin:auto;">
-        <source src="https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247" type="application/x-mpegURL">
-        Your browser does not support HLS video.
-    </video>
+<body>
+
+    <div class="player-wrapper">
+        <video id="video" controls autoplay muted></video>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        
+        // 1. Raw stream extracted by your Node.js script
+        const rawStreamUrl = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
+        
+        // 2. Your deployed Cloudflare Worker URL
+        const workerProxyUrl = 'https://stream-proxy.YOUR-SUBDOMAIN.workers.dev/?url=';
+        
+        // 3. Construct proxied URL
+        const targetStream = workerProxyUrl + encodeURIComponent(rawStreamUrl);
+
+        if (Hls.isSupported()) {
+            const hls = new Hls();
+            hls.loadSource(targetStream);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play();
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native fallback for Safari / iOS
+            video.src = targetStream;
+            video.addEventListener('loadedmetadata', () => {
+                video.play();
+            });
+        }
+    </script>
 </body>
 </html>

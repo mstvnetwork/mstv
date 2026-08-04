@@ -4,94 +4,61 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Live Stream Player</title>
-
-    <!-- 1. DO NOT REMOVE THIS LINE: Loads the HLS Library -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
     <style>
         body {
             margin: 0;
-            padding: 0;
-            background-color: #000;
+            background: #000;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
         }
-        .player-container {
-            width: 100%;
-            max-width: 960px;
-            padding: 10px;
-        }
         video {
-            width: 100%;
-            height: auto;
+            width: 90%;
+            max-width: 900px;
             border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
 <body>
 
-    <div class="player-container">
-        <!-- Video Element -->
-        <video id="video" controls muted playsinline></video>
-    </div>
+    <video id="video" controls muted playsinline></video>
 
-    <!-- 2. THIS IS THE INLINE SCRIPT BLOCK TO UPDATE -->
-<script>
-    const video = document.getElementById('video');
+    <script>
+        const video = document.getElementById('video');
+        const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
+        const workerProxy = 'https://ch1.ghubtv1.workers.dev/?url=';
 
-    // Your extracted target stream link
-    const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
-
-    // Base URL of your Cloudflare Worker
-    const workerEndpoint = 'https://ch1.ghubtv1.workers.dev/?url=';
-
-    if (Hls.isSupported()) {
-        const hls = new Hls({
-            enableWorker: true,
-            lowLatencyMode: true,
-            // Automatically wraps ALL sub-playlists (.m3u8) and segment (.ts) requests through worker
-            xhrSetup: function(xhr, url) {
-                // If the URL isn't already going through your worker, wrap it!
-                if (!url.startsWith(workerEndpoint)) {
-                    xhr.open('GET', workerEndpoint + encodeURIComponent(url), true);
+        if (Hls.isSupported()) {
+            const hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: true,
+                xhrSetup: function(xhr, url) {
+                    // Make sure EVERY request goes through worker with proper encoding
+                    if (!url.startsWith(workerProxy)) {
+                        xhr.open('GET', workerProxy + encodeURIComponent(url), true);
+                    }
                 }
-            }
-        });
+            });
 
-        // Load initial stream through worker proxy
-        hls.loadSource(workerEndpoint + encodeURIComponent(rawStream));
-        hls.attachMedia(video);
+            // Initial manifest request
+            hls.loadSource(workerProxy + encodeURIComponent(rawStream));
+            hls.attachMedia(video);
 
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            console.log("Stream manifest parsed successfully!");
-        });
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                video.play().catch(e => console.log("Autoplay blocked, click play button."));
+            });
 
-        // Catch HLS runtime errors
-        hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-                switch (data.type) {
-                    case Hls.ErrorTypes.NETWORK_ERROR:
-                        console.log("Network error encountered, trying to recover...");
-                        hls.startLoad();
-                        break;
-                    case Hls.ErrorTypes.MEDIA_ERROR:
-                        console.log("Media error encountered, recovering...");
-                        hls.recoverMediaError();
-                        break;
-                    default:
-                        hls.destroy();
-                        break;
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                    hls.startLoad();
                 }
-            }
-        });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Native Safari fallback
-        video.src = workerEndpoint + encodeURIComponent(rawStream);
-    }
- </script>
+            });
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = workerProxy + encodeURIComponent(rawStream);
+        }
+    </script>
 
 </body>
 </html>

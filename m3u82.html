@@ -3,78 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Stream Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <title>Stream Embed</title>
     <style>
-        body {
-            margin: 0;
-            background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-        }
-        video {
-            width: 100%;
-            max-width: 900px;
-            border-radius: 8px;
-        }
+        body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }
+        .iframe-container { width: 100%; max-width: 900px; aspect-ratio: 16/9; }
+        iframe { width: 100%; height: 100%; border: none; }
     </style>
 </head>
 <body>
 
-    <video id="video" controls muted playsinline></video>
+    <div class="iframe-container">
+        <!-- Srcdoc isolates the execution context, allowing embed player scripts to run naturally -->
+        <iframe 
+            srcdoc='
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta name="referrer" content="no-referrer">
+                    <style>body,html{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#000;}</style>
+                </head>
+                <body>
+                    <iframe src="https://playyonogames.in/sliv/play.php?c=1000009247" width="100%" height="100%" frameborder="0" allowfullscreen="true" scrolling="no"></iframe>
+                </body>
+                </html>
+            '
+            allow="autoplay; encrypted-media; picture-in-picture" 
+            allowfullscreen>
+        </iframe>
+    </div>
 
-    <script>
-        const video = document.getElementById('video');
-        
-        // Original stream URL
-        const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
-        
-        // Cloudflare Worker Endpoint
-        const workerProxy = 'https://ch1.ghubtv1.workers.dev/?url=';
-
-        if (Hls.isSupported()) {
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-                pLoader: function(config) {
-                    let loader = new Hls.DefaultConfig.loader(config);
-                    this.load = function(context, config, callbacks) {
-                        let targetUrl = context.url;
-                        
-                        // If url isn't going through worker proxy yet, wrap it
-                        if (!targetUrl.startsWith(workerProxy)) {
-                            // Resolve relative parameter paths against stream base origin
-                            if (!targetUrl.startsWith('http')) {
-                                targetUrl = new URL(targetUrl, 'https://playyonogames.in/sliv/').href;
-                            }
-                            context.url = workerProxy + encodeURIComponent(targetUrl);
-                        }
-                        
-                        loader.load(context, config, callbacks);
-                    };
-                    this.abort = function() { loader.abort(); };
-                    this.destroy = function() { loader.destroy(); };
-                }
-            });
-
-            // Load stream
-            hls.loadSource(workerProxy + encodeURIComponent(rawStream));
-            hls.attachMedia(video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => console.log("Autoplay paused. Click play button."));
-            });
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    hls.startLoad();
-                }
-            });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = workerProxy + encodeURIComponent(rawStream);
-        }
-    </script>
 </body>
 </html>

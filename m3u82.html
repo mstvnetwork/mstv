@@ -15,7 +15,7 @@
             height: 100vh;
         }
         video {
-            width: 90%;
+            width: 100%;
             max-width: 900px;
             border-radius: 8px;
         }
@@ -27,27 +27,44 @@
 
     <script>
         const video = document.getElementById('video');
+        
+        // Original stream URL
         const rawStream = 'https://playyonogames.in/sliv/stream.php?e=.m3u8&id=1000009247';
+        
+        // Cloudflare Worker Endpoint
         const workerProxy = 'https://ch1.ghubtv1.workers.dev/?url=';
 
         if (Hls.isSupported()) {
             const hls = new Hls({
                 enableWorker: true,
                 lowLatencyMode: true,
-                xhrSetup: function(xhr, url) {
-                    // Make sure EVERY request goes through worker with proper encoding
-                    if (!url.startsWith(workerProxy)) {
-                        xhr.open('GET', workerProxy + encodeURIComponent(url), true);
-                    }
+                pLoader: function(config) {
+                    let loader = new Hls.DefaultConfig.loader(config);
+                    this.load = function(context, config, callbacks) {
+                        let targetUrl = context.url;
+                        
+                        // If url isn't going through worker proxy yet, wrap it
+                        if (!targetUrl.startsWith(workerProxy)) {
+                            // Resolve relative parameter paths against stream base origin
+                            if (!targetUrl.startsWith('http')) {
+                                targetUrl = new URL(targetUrl, 'https://playyonogames.in/sliv/').href;
+                            }
+                            context.url = workerProxy + encodeURIComponent(targetUrl);
+                        }
+                        
+                        loader.load(context, config, callbacks);
+                    };
+                    this.abort = function() { loader.abort(); };
+                    this.destroy = function() { loader.destroy(); };
                 }
             });
 
-            // Initial manifest request
+            // Load stream
             hls.loadSource(workerProxy + encodeURIComponent(rawStream));
             hls.attachMedia(video);
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(e => console.log("Autoplay blocked, click play button."));
+                video.play().catch(e => console.log("Autoplay paused. Click play button."));
             });
 
             hls.on(Hls.Events.ERROR, (event, data) => {
@@ -59,6 +76,5 @@
             video.src = workerProxy + encodeURIComponent(rawStream);
         }
     </script>
-
 </body>
 </html>

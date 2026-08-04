@@ -3,38 +3,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live TV Stream</title>
-    <!-- Load HLS.js Library -->
+    <title>Live TV Player</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
+        * { box-sizing: border-box; }
         body {
             margin: 0;
-            padding: 0;
-            background-color: #0d0d0d;
+            background: #000;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            font-family: sans-serif;
+            color: #fff;
+            font-family: Arial, sans-serif;
         }
-        .player-container {
+        .container {
             width: 100%;
             max-width: 900px;
             padding: 10px;
-            box-sizing: border-box;
         }
         video {
             width: 100%;
-            height: auto;
+            aspect-ratio: 16/9;
+            background: #111;
             border-radius: 8px;
-            background: #000;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+            box-shadow: 0 4px 25px rgba(0,0,0,0.8);
         }
     </style>
 </head>
 <body>
 
-    <div class="player-container">
+    <div class="container">
         <video id="video" controls autoplay muted playsinline></video>
     </div>
 
@@ -48,31 +47,44 @@
             const hls = new Hls({
                 enableWorker: true,
                 lowLatencyMode: true,
+                manifestLoadingTimeOut: 20000,
+                manifestLoadingMaxRetry: 5
             });
 
             hls.loadSource(streamUrl);
             hls.attachMedia(video);
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => {
-                    console.log("Autoplay blocked. Tap the video to play manually.");
+                video.play().catch(e => {
+                    console.log("Autoplay blocked. Tap video screen to un-mute and play.");
                 });
             });
 
+            // Automatic error recovery for stream delays
             hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal && data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                    console.log("Re-connecting to Render relay...");
-                    hls.startLoad();
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            console.log("Network glitch, reconnecting to Render...");
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            console.log("Media error, recovering...");
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            hls.destroy();
+                            break;
+                    }
                 }
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari / iOS Native Fallback
+            // Safari / iOS Fallback
             video.src = streamUrl;
             video.addEventListener('loadedmetadata', () => {
-                video.play().catch(() => {});
+                video.play().catch(e => {});
             });
         }
     </script>
-
 </body>
 </html>

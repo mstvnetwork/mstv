@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StreamHub — Live Channels</title>
+<meta name="description" content="Watch your channels, anywhere.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<style>
+  :root{
+    --bg: #0b0e14;
+    --bg-elev: #10141d;
+    --card: #141924;
+    --card-hover: #1a2130;
+    --line: #1f2734;
+    --text: #e9edf5;
+    --text-dim: #8b96a8;
+    --accent: #ff4d5e;
+    --accent-dim: #7a2530;
+    --live: #22c55e;
+    --radius: 10px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Manrope', system-ui, sans-serif;
+    min-height:100vh;
+  }
+  ::selection{ background: var(--accent); color:#fff; }
+
+  /* ---------- Top bar ---------- */
+  header{
+    position: sticky; top:0; z-index: 40;
+    background: rgba(11,14,20,0.85);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .header-inner{
+    max-width: 1400px; margin: 0 auto;
+    display:flex; align-items:center; gap:20px;
+    padding: 14px 20px;
+  }
+  .logo{
+    display:flex; align-items:center; gap:9px;
+    font-weight:800; font-size:20px; letter-spacing:-0.02em;
+    white-space:nowrap;
+  }
+  .logo-mark{
+    width:30px;height:30px;border-radius:8px;
+    background: linear-gradient(135deg, var(--accent), #ff8a5c);
+    display:flex;align-items:center;justify-content:center;
+    font-size:15px; flex-shrink:0;
+  }
+  .search-wrap{ flex:1; max-width: 480px; position:relative; }
+  .search-wrap input{
+    width:100%;
+    background: var(--card);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 10px 14px 10px 38px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color .15s, background .15s;
+  }
+  .search-wrap input:focus{ border-color: var(--accent); background: var(--card-hover); }
+  .search-wrap svg{ position:absolute; left:13px; top:50%; transform:translateY(-50%); opacity:.5; }
+  .header-right{ margin-left:auto; display:flex; align-items:center; gap:14px; }
+  .live-pill{
+    display:flex; align-items:center; gap:6px;
+    font-size:12px; font-weight:600; color:var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+    white-space:nowrap;
+  }
+  .live-dot{
+    width:7px;height:7px;border-radius:50%; background: var(--live);
+    box-shadow: 0 0 0 3px rgba(34,197,94,0.15);
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.4;} }
+
+  /* ---------- Category filter bar ---------- */
+  .cat-bar{
+    max-width:1400px; margin:0 auto;
+    display:flex; gap:8px; padding: 14px 20px 4px;
+    overflow-x:auto; scrollbar-width:none;
+  }
+  .cat-bar::-webkit-scrollbar{ display:none; }
+  .cat-btn{
+    flex-shrink:0;
+    background: var(--card);
+    border:1px solid var(--line);
+    color: var(--text-dim);
+    padding: 7px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor:pointer;
+    transition: all .15s;
+    white-space:nowrap;
+  }
+  .cat-btn:hover{ color:var(--text); border-color:#333f52; }
+  .cat-btn.active{
+    background: var(--accent);
+    border-color: var(--accent);
+    color:#fff;
+  }
+
+  /* ---------- Grid ---------- */
+  main{ max-width:1400px; margin:0 auto; padding: 10px 20px 60px; }
+  .section-title{
+    font-size:13px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-dim); font-weight:700;
+    margin: 22px 0 12px; display:flex; align-items:center; gap:8px;
+  }
+  .count-badge{
+    font-family:'JetBrains Mono', monospace;
+    background:var(--card); border:1px solid var(--line);
+    padding:1px 8px; border-radius:6px; font-size:11px; color:var(--text-dim);
+  }
+  .grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px;
+  }
+  .channel-card{
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow:hidden;
+    cursor:pointer;
+    transition: transform .15s, border-color .15s, background .15s;
+    position:relative;
+  }
+  .channel-card:hover{
+    transform: translateY(-3px);
+    border-color: var(--accent-dim);
+    background: var(--card-hover);
+  }
+  .channel-card:focus-visible{
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .thumb{
+    aspect-ratio: 16/10;
+    background: #0d1119;
+    display:flex; align-items:center; justify-content:center;
+    position:relative;
+    overflow:hidden;
+  }
+  .thumb img{
+    width:100%; height:100%; object-fit:cover;
+    filter: saturate(0.9);
+  }
+  .thumb .fallback{
+    font-size:26px; font-weight:800; color: var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+  }
+  .thumb .play-overlay{
+    position:absolute; inset:0;
+    background: rgba(0,0,0,0.35);
+    display:flex; align-items:center; justify-content:center;
+    opacity:0; transition: opacity .15s;
+  }
+  .channel-card:hover .play-overlay{ opacity:1; }
+  .play-overlay svg{ width:38px; height:38px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.5)); }
+  .live-tag{
+    position:absolute; top:7px; left:7px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(4px);
+    color: var(--live);
+    font-size:10px; font-weight:700;
+    padding: 2px 7px; border-radius: 5px;
+    display:flex; align-items:center; gap:4px;
+    font-family:'JetBrains Mono', monospace;
+    letter-spacing: .03em;
+  }
+  .live-tag .live-dot{ width:5px; height:5px; box-shadow:none; }
+  .ch-id{
+    position:absolute; top:7px; right:7px;
+    background: rgba(0,0,0,0.6);
+    color: var(--text-dim);
+    font-size:10px; font-weight:600;
+    padding: 2px 7px; border-radius: 5px;
+    font-family:'JetBrains Mono', monospace;
+  }
+  .ch-info{ padding: 10px 11px 12px; }
+  .ch-name{
+    font-size: 13.5px; font-weight: 700;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    margin-bottom:3px;
+  }
+  .ch-cat{ font-size:11px; color: var(--text-dim); }
+
+  .empty-state{
+    text-align:center; padding: 70px 20px; color: var(--text-dim);
+  }
+
+  /* ---------- Player Modal ---------- */
+  .modal-backdrop{
+    position:fixed; inset:0; z-index:100;
+    background: rgba(5,6,9,0.9);
+    backdrop-filter: blur(6px);
+    display:none;
+    align-items:center; justify-content:center;
+    padding: 20px;
+  }
+  .modal-backdrop.open{ display:flex; }
+  .player-modal{
+    width:100%; max-width: 960px;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow:hidden;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+    animation: modalIn .2s ease;
+  }
+  @keyframes modalIn{ from{ opacity:0; transform: scale(.97) translateY(8px);} to{opacity:1; transform:none;} }
+  .player-head{
+    display:flex; align-items:center; gap:10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .player-head .live-tag{ position:static; background:none; padding:0; }
+  .player-head h3{ font-size:14px; font-weight:700; flex:1; }
+  .close-btn{
+    background: var(--card); border:1px solid var(--line);
+    color: var(--text); width:30px; height:30px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    cursor:pointer; transition: background .15s;
+  }
+  .close-btn:hover{ background: var(--card-hover); }
+  .video-wrap{
+    position:relative; width:100%; aspect-ratio:16/9; background:#000;
+  }
+  video{ width:100%; height:100%; display:block; }
+  .video-status{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:10px;
+    color: var(--text-dim); font-size:13px;
+    background: #000;
+    text-align:center; padding: 20px;
+  }
+  .spinner{
+    width:30px;height:30px; border-radius:50%;
+    border: 3px solid var(--line); border-top-color: var(--accent);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg);} }
+  .player-foot{
+    padding: 10px 16px; font-size:11.5px; color:var(--text-dim);
+    font-family:'JetBrains Mono', monospace;
+    border-top:1px solid var(--line);
+    display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap;
+  }
+
+  footer{
+    text-align:center; padding: 30px 20px 50px;
+    color: var(--text-dim); font-size:12px;
+    border-top: 1px solid var(--line);
+  }
+
+  @media (max-width: 640px){
+    .header-inner{ flex-wrap:wrap; }
+    .search-wrap{ order:3; max-width:none; width:100%; }
+    .grid{ grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap:10px; }
+    .ch-name{ font-size:12.5px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-mark">▶</div>
+      <span>StreamHub</span>
+    </div>
+    <div class="search-wrap">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input id="searchInput" type="text" placeholder="Search channels...">
+    </div>
+    <div class="header-right">
+      <div class="live-pill"><span class="live-dot"></span> <span id="channelCount">0</span> channels</div>
+    </div>
+  </div>
+  <div class="cat-bar" id="catBar"></div>
+</header>
+
+<main>
+  <div class="section-title">All channels <span class="count-badge" id="gridCount">0</span></div>
+  <div class="grid" id="channelGrid"></div>
+  <div class="empty-state" id="emptyState" style="display:none;">No channels match your search.</div>
+</main>
+
+<footer>
+  StreamHub — built for content you own or have rights to distribute.
+</footer>
+
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="player-modal">
+    <div class="player-head">
+      <span class="live-tag"><span class="live-dot"></span>LIVE</span>
+      <h3 id="modalTitle">Channel</h3>
+      <button class="close-btn" id="closeBtn" aria-label="Close">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="video-wrap">
+      <video id="videoEl" controls playsinline autoplay></video>
+      <div class="video-status" id="videoStatus" style="display:none;">
+        <div class="spinner"></div>
+        <span id="statusText">Connecting to stream…</span>
+      </div>
+    </div>
+    <div class="player-foot">
+      <span id="modalCategory">—</span>
+      <span id="modalId">ID: —</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const DATA_URL = "streamdata.json";
+  let channels = [];
+  let activeCategory = "All";
+  let hls = null;
+
+  const grid = document.getElementById('channelGrid');
+  const catBar = document.getElementById('catBar');
+  const searchInput = document.getElementById('searchInput');
+  const emptyState = document.getElementById('emptyState');
+  const gridCount = document.getElementById('gridCount');
+  const channelCount = document.getElementById('channelCount');
+
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const videoEl = document.getElementById('videoEl');
+  const videoStatus = document.getElementById('videoStatus');
+  const statusText = document.getElementById('statusText');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalCategory = document.getElementById('modalCategory');
+  const modalId = document.getElementById('modalId');
+  const closeBtn = document.getElementById('closeBtn');
+
+  fetch(DATA_URL)
+    .then(r => r.json())
+    .then(data => {
+      channels = data;
+      channelCount.textContent = channels.length;
+      buildCategories();
+      renderGrid();
+    })
+    .catch(err => {
+      grid.innerHTML = '<div class="empty-state">Could not load streamdata.json</div>';
+      console.error(err);
+    });
+
+  function buildCategories(){
+    const cats = ["All", ...new Set(channels.map(c => c.category))];
+    catBar.innerHTML = cats.map(c =>
+      `<button class="cat-btn ${c==='All'?'active':''}" data-cat="${c}">${c}</button>`
+    ).join('');
+    catBar.querySelectorAll('.cat-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeCategory = btn.dataset.cat;
+        catBar.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderGrid();
+      });
+    });
+  }
+
+  function renderGrid(){
+    const q = searchInput.value.trim().toLowerCase();
+    const filtered = channels.filter(c => {
+      const matchCat = activeCategory === 'All' || c.category === activeCategory;
+      const matchQ = !q || c.name.toLowerCase().includes(q) || c.category.toLowerCase().includes(q);
+      return matchCat && matchQ;
+    });
+
+    gridCount.textContent = filtered.length;
+    emptyState.style.display = filtered.length ? 'none' : 'block';
+
+    grid.innerHTML = filtered.map(c => `
+      <div class="channel-card" tabindex="0" role="button" data-id="${c.id}" aria-label="Play ${escapeHtml(c.name)}">
+        <div class="thumb">
+          ${c.logo
+            ? `<img src="${c.logo}" alt="${escapeHtml(c.name)}" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+               <div class="fallback" style="display:none;">${initials(c.name)}</div>`
+            : `<div class="fallback">${initials(c.name)}</div>`
+          }
+          <div class="live-tag"><span class="live-dot"></span>LIVE</div>
+          <div class="ch-id">#${c.id}</div>
+          <div class="play-overlay">
+            <svg viewBox="0 0 24 24" fill="white"><circle cx="12" cy="12" r="11" fill="rgba(0,0,0,0.4)"/><path d="M10 8l6 4-6 4V8z" fill="white"/></svg>
+          </div>
+        </div>
+        <div class="ch-info">
+          <div class="ch-name">${escapeHtml(c.name)}</div>
+          <div class="ch-cat">${escapeHtml(c.category)}</div>
+        </div>
+      </div>
+    `).join('');
+
+    grid.querySelectorAll('.channel-card').forEach(card => {
+      card.addEventListener('click', () => openChannel(card.dataset.id));
+      card.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChannel(card.dataset.id); }
+      });
+    });
+  }
+
+  function initials(name){
+    return name.split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+  }
+  function escapeHtml(s){
+    const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
+  }
+
+  searchInput.addEventListener('input', renderGrid);
+
+  function openChannel(id){
+    const ch = channels.find(c => c.id === id);
+    if (!ch) return;
+
+    modalTitle.textContent = ch.name;
+    modalCategory.textContent = ch.category;
+    modalId.textContent = 'ID: ' + ch.id;
+    modalBackdrop.classList.add('open');
+
+    loadStream(ch);
+  }
+
+  // In production, replace this direct URL lookup with a fetch() call to
+  // your Cloudflare Worker (e.g. stream-proxy.workers.dev) which resolves
+  // the channel id -> real stream URL server-side, instead of storing URLs
+  // in this public JSON file.
+  function loadStream(ch){
+    showStatus('Connecting to stream…');
+    const src = ch.url;
+
+    if (hls) { hls.destroy(); hls = null; }
+
+    if (!src) {
+      showStatus('No stream source configured for this channel.');
+      return;
+    }
+
+    if (src.endsWith('.m3u8') && window.Hls && Hls.isSupported()) {
+      hls = new Hls();
+      hls.loadSource(src);
+      hls.attachMedia(videoEl);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hideStatus();
+        videoEl.play().catch(()=>{});
+      });
+      hls.on(Hls.Events.ERROR, (event, data) => {
+        if (data.fatal) showStatus('Stream unavailable. Try another channel.');
+      });
+    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+      videoEl.src = src;
+      videoEl.addEventListener('loadedmetadata', hideStatus, { once:true });
+      videoEl.play().catch(()=>{});
+    } else {
+      videoEl.src = src;
+      videoEl.addEventListener('loadedmetadata', hideStatus, { once:true });
+      videoEl.play().catch(()=>{});
+    }
+  }
+
+  function showStatus(msg){
+    statusText.textContent = msg;
+    videoStatus.style.display = 'flex';
+  }
+  function hideStatus(){
+    videoStatus.style.display = 'none';
+  }
+
+  function closeModal(){
+    modalBackdrop.classList.remove('open');
+    videoEl.pause();
+    videoEl.removeAttribute('src');
+    videoEl.load();
+    if (hls) { hls.destroy(); hls = null; }
+  }
+
+  closeBtn.addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', e => { if (e.target === modalBackdrop) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+})();
+</script>
+
+</body>
+  </html>

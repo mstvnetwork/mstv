@@ -761,6 +761,26 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.close();
   mstvPopupWindow.focus();
 }
+  // ✅ Correct way to fetch from WORKER_APIS
+async function fetchStream(channelId) {
+  for (const workerUrl of WORKER_APIS) {
+    try {
+      const response = await fetch(workerUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: channelId })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return data.url; // Successfully got stream URL
+      }
+    } catch (err) {
+      console.warn(`Worker ${workerUrl} failed, trying backup...`);
+    }
+  }
+  throw new Error("All worker endpoints failed.");
+}
 
 async function playChannel(ch) {
   if (!ch) return;

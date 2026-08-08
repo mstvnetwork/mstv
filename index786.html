@@ -1,236 +1,1112 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cricket HD & Live TV Player</title>
-  
-  <!-- HLS.js Library for HLS (.m3u8) Playback -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <!-- YouTube IFrame Player API -->
-  <script src="https://www.youtube.com/iframe_api"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="description" content="MSTV Network offers 24/7 live TV streams, music, and movies.">
+    <meta name="robots" content="index, follow">
 
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    body {
-      background-color: #0f0f11;
-      color: #ffffff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      min-height: 100vh;
-      padding: 20px;
-    }
-    .player-card {
-      width: 100%;
-      max-width: 960px;
-      background-color: #1a1a1e;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    }
-    .video-container {
-      position: relative;
-      width: 100%;
-      padding-top: 56.25%; /* 16:9 Aspect Ratio */
-      background-color: #000000;
-    }
-    .video-container video,
-    .video-container iframe,
-    .video-container #ytApiPlayer {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      border: none;
-      object-fit: contain;
-    }
-    .yt-shield-full {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      z-index: 2;
-      background: transparent;
-      cursor: pointer;
-    }
-    .spinner {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 50px;
-      height: 50px;
-      border: 5px solid rgba(255,255,255,0.2);
-      border-radius: 50%;
-      border-top-color: #3b82f6;
-      animation: spin 1s cubic-bezier(0.55, 0.15, 0.45, 0.85) infinite;
-      z-index: 10;
-      display: none;
-    }
-    @keyframes spin {
-      0% { transform: translate(-50%, -50%) rotate(0deg); }
-      100% { transform: translate(-50%, -50%) rotate(360deg); }
-    }
-    .ticker {
-      background-color: #25252b;
-      padding: 12px 20px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #60a5fa;
-      border-bottom: 1px solid #2e2e38;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .controls {
-      display: flex;
-      gap: 10px;
-      padding: 15px 20px;
-      background-color: #141417;
-      flex-wrap: wrap;
-    }
-    button {
-      background-color: #2563eb;
-      color: white;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      cursor: pointer;
-      font-weight: 500;
-      transition: background-color 0.2s ease;
-    }
-    button:hover {
-      background-color: #1d4ed8;
-    }
-    button.secondary {
-      background-color: #374151;
-    }
-    button.secondary:hover {
-      background-color: #4b5563;
-    }
-  </style>
+    <title>MSTV Network - Live Player</title>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+
+    <!-- Fonts: a condensed display face for broadcast-style headings + a clean workhorse body face -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+    <!-- Analytics -->
+    <script data-goatcounter="https://mstv.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
+
+    <style>
+      :root {
+        --bg-main: #07090c;
+        --bg-elevated: #0d1117;
+        --card-bg: rgba(19, 23, 30, 0.86);
+        --card-bg-solid: #131720;
+        --accent-gold: #ffcf3f;
+        --accent-gold-deep: #e0a800;
+        --accent-red: #ff4438;
+        --accent-blue: #2f8fff;
+        --accent-green: #35d488;
+        --text-primary: #f4f6f8;
+        --text-secondary: #b7bfc9;
+        --text-muted: #74808f;
+        --border-color: rgba(255, 255, 255, 0.09);
+        --border-color-strong: rgba(255, 255, 255, 0.16);
+        --app-height: 100vh;
+        --font-display: 'Archivo Black', 'Archivo', sans-serif;
+        --font-body: 'Archivo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        height: var(--app-height);
+        overflow: hidden;
+        background-color: var(--bg-main);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+      }
+
+      body {
+        background:
+          radial-gradient(ellipse 900px 500px at 15% -10%, rgba(47, 143, 255, 0.10), transparent 60%),
+          radial-gradient(ellipse 900px 500px at 85% 110%, rgba(255, 207, 63, 0.07), transparent 60%),
+          var(--bg-main);
+      }
+
+      ::selection { background: var(--accent-gold); color: #000; }
+
+      /* Thin scrollbars for a more polished feel */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+
+      .app-layout {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        height: var(--app-height);
+        width: 100%;
+        max-width: 1280px;
+        margin: 0 auto;
+        padding: calc(0.5rem + env(safe-area-inset-top)) calc(0.5rem + env(safe-area-inset-right)) calc(0.5rem + env(safe-area-inset-bottom)) calc(0.5rem + env(safe-area-inset-left));
+        gap: 0.5rem;
+        position: relative;
+      }
+
+      /* ============ Header ============ */
+      header.app-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.45rem 0.9rem;
+        flex-shrink: 0;
+        box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 6px 18px rgba(0,0,0,0.28);
+      }
+
+      .brand-box {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+      }
+
+      .brand-mark {
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg, rgba(255,207,63,0.18), rgba(255,207,63,0.03));
+        border: 1px solid rgba(255,207,63,0.35);
+        color: var(--accent-gold);
+        font-size: 0.85rem;
+        flex-shrink: 0;
+      }
+
+      .brand-title {
+        font-family: var(--font-display);
+        font-size: 1rem;
+        letter-spacing: 0.4px;
+        line-height: 1;
+        background: linear-gradient(135deg, #ffffff 15%, var(--accent-gold) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .brand-sub {
+        font-family: var(--font-mono);
+        font-size: 0.58rem;
+        letter-spacing: 1.5px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        margin-top: 1px;
+      }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--text-secondary);
+      }
+
+      .live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        background: rgba(255, 68, 56, 0.14);
+        color: var(--accent-red);
+        border: 1px solid rgba(255, 68, 56, 0.35);
+        padding: 3px 8px;
+        border-radius: 20px;
+        font-size: 0.63rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        font-family: var(--font-body);
+      }
+
+      .live-dot {
+        width: 6px;
+        height: 6px;
+        background-color: var(--accent-red);
+        border-radius: 50%;
+        box-shadow: 0 0 6px var(--accent-red);
+        animation: pulse 1.6s infinite;
+      }
+
+      @keyframes pulse {
+        0% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.35; transform: scale(0.75); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+
+      /* ============ Player ============ */
+      .player-section {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        max-height: 55vh;
+        width: 100%;
+        position: relative;
+        margin: auto 0;
+      }
+
+      .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        max-width: calc(55vh * (16 / 9));
+        aspect-ratio: 16 / 9;
+        background-color: #000;
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid var(--border-color-strong);
+        box-shadow: 0 12px 40px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255,255,255,0.02) inset;
+      }
+
+      /* subtle broadcast-style corner brackets — the signature detail */
+      .frame-brackets span {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 207, 63, 0.55);
+        z-index: 24;
+        pointer-events: none;
+        opacity: 0.85;
+      }
+      .frame-brackets span:nth-child(1) { top: 8px; left: 8px; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
+      .frame-brackets span:nth-child(2) { top: 8px; right: 8px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+      .frame-brackets span:nth-child(3) { bottom: 8px; left: 8px; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
+      .frame-brackets span:nth-child(4) { bottom: 8px; right: 8px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+
+      #videoContainer {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #videoContainer video,
+      #videoContainer iframe {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border: none;
+        background: #000;
+      }
+
+      .yt-shield-full {
+        position: absolute;
+        inset: 0;
+        z-index: 15;
+        background: transparent;
+        pointer-events: auto;
+      }
+
+      .player-placeholder {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 40%, rgba(255,207,63,0.06), transparent 55%),
+          radial-gradient(circle, #12161d 0%, #07090c 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        z-index: 20;
+        text-align: center;
+        padding: 0.8rem;
+      }
+
+      .placeholder-icon-wrap {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg, rgba(255,207,63,0.14), rgba(255,207,63,0.02));
+        border: 1px solid rgba(255,207,63,0.3);
+        margin-bottom: 4px;
+      }
+
+      .placeholder-icon {
+        font-size: 1.5rem;
+        color: var(--accent-gold);
+      }
+
+      .placeholder-text {
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        letter-spacing: 0.3px;
+        color: var(--text-primary);
+      }
+
+      .placeholder-subtext {
+        font-size: 0.74rem;
+        color: var(--text-muted);
+        max-width: 260px;
+      }
+
+      .player-controls-overlay {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        gap: 7px;
+        z-index: 25;
+      }
+
+      .control-btn {
+        background: rgba(10, 12, 16, 0.6);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 0.78rem;
+        transition: all 0.2s ease;
+      }
+
+      .control-btn:hover {
+        background: rgba(255, 207, 63, 0.18);
+        border-color: rgba(255, 207, 63, 0.45);
+        color: var(--accent-gold);
+        transform: scale(1.06);
+      }
+
+      /* ============ Loading spinner (used for DASH + all engines) ============ */
+      .loading-spinner-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(7, 9, 12, 0.82);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        z-index: 23;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      .loading-spinner-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .spinner-ring {
+        position: relative;
+        width: 42px;
+        height: 42px;
+      }
+
+      .spinner-ring::before,
+      .spinner-ring::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 3px solid transparent;
+      }
+
+      .spinner-ring::before {
+        border-top-color: var(--accent-gold);
+        border-right-color: var(--accent-gold);
+        animation: spin 0.9s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+      }
+
+      .spinner-ring::after {
+        inset: 7px;
+        border-bottom-color: var(--accent-blue);
+        opacity: 0.7;
+        animation: spin 1.3s linear infinite reverse;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .spinner-text {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+
+      .spinner-engine-tag {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        letter-spacing: 1px;
+        color: var(--accent-gold);
+        background: rgba(255, 207, 63, 0.1);
+        border: 1px solid rgba(255, 207, 63, 0.25);
+        padding: 2px 8px;
+        border-radius: 10px;
+        text-transform: uppercase;
+      }
+
+      /* ============ EPG Ticker ============ */
+      .epg-ticker-bar {
+        display: flex;
+        align-items: center;
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        height: 30px;
+        overflow: hidden;
+        flex-shrink: 0;
+      }
+
+      .epg-label {
+        background: linear-gradient(135deg, var(--accent-gold), var(--accent-gold-deep));
+        color: #171200;
+        font-weight: 800;
+        font-size: 0.64rem;
+        letter-spacing: 0.5px;
+        padding: 0 10px;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+      }
+
+      .ticker-wrapper {
+        flex: 1;
+        overflow: hidden;
+        position: relative;
+        white-space: nowrap;
+      }
+
+      .ticker-content {
+        display: inline-block;
+        padding-left: 100%;
+        animation: ticker-scroll 20s linear infinite;
+        font-size: 0.76rem;
+        color: var(--text-secondary);
+        font-family: var(--font-mono);
+      }
+
+      @keyframes ticker-scroll {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-100%); }
+      }
+
+      /* ============ Category Switcher ============ */
+      .category-wrapper {
+        position: relative;
+        flex-shrink: 0;
+        width: 100%;
+        z-index: 40;
+      }
+
+      .category-container {
+        display: flex;
+        justify-content: center;
+        gap: 7px;
+        width: 100%;
+      }
+
+      .category-btn {
+        flex: 1;
+        padding: 7px 8px;
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-color);
+        color: var(--text-muted);
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.78rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        transition: all 0.2s ease;
+      }
+
+      .category-btn:hover {
+        border-color: var(--border-color-strong);
+        color: var(--text-secondary);
+      }
+
+      .category-btn.active {
+        background: linear-gradient(135deg, rgba(255, 207, 63, 0.18) 0%, rgba(255, 207, 63, 0.04) 100%);
+        border-color: var(--accent-gold);
+        color: var(--accent-gold);
+        box-shadow: 0 0 0 1px rgba(255,207,63,0.15) inset;
+      }
+
+      .category-btn.active.youtube {
+        background: linear-gradient(135deg, rgba(255, 68, 56, 0.18) 0%, rgba(255, 68, 56, 0.04) 100%);
+        border-color: var(--accent-red);
+        color: var(--accent-red);
+        box-shadow: 0 0 0 1px rgba(255,68,56,0.15) inset;
+      }
+
+      .category-btn.active.livetv {
+        background: linear-gradient(135deg, rgba(47, 143, 255, 0.2) 0%, rgba(47, 143, 255, 0.04) 100%);
+        border-color: var(--accent-blue);
+        color: var(--accent-blue);
+        box-shadow: 0 0 0 1px rgba(47,143,255,0.15) inset;
+      }
+
+      .subcategories-menu {
+        display: none;
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        right: 0;
+        margin-bottom: 7px;
+        background: rgba(9, 11, 15, 0.96);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-color-strong);
+        border-radius: 10px;
+        padding: 9px;
+        box-shadow: 0 -10px 32px rgba(0, 0, 0, 0.75);
+        max-height: 210px;
+        overflow-y: auto;
+      }
+
+      .subcategories-menu.active {
+        display: block;
+      }
+
+      .subcategories-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 7px;
+      }
+
+      .subcat-btn {
+        background: rgba(255, 255, 255, 0.045);
+        border: 1px solid var(--border-color);
+        color: var(--text-primary);
+        padding: 7px 8px;
+        border-radius: 7px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        transition: all 0.2s ease;
+      }
+
+      .subcat-btn:hover, .subcat-btn.active {
+        background: rgba(47, 143, 255, 0.16);
+        border-color: var(--accent-blue);
+        color: #fff;
+      }
+
+      .channels-list {
+        display: none;
+        grid-column: 1 / -1;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--border-color);
+        border-radius: 7px;
+        padding: 7px;
+        gap: 5px;
+        margin-top: 5px;
+        max-height: 115px;
+        overflow-y: auto;
+      }
+
+      .channels-list.active {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      }
+
+      .channel-item {
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border-color);
+        color: #fff;
+        padding: 6px 9px;
+        border-radius: 5px;
+        font-size: 0.7rem;
+        cursor: pointer;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        overflow: hidden;
+        text-align: left;
+        transition: all 0.15s ease;
+      }
+
+      .channel-item:hover {
+        background: var(--accent-gold);
+        border-color: var(--accent-gold);
+        color: #171200;
+        font-weight: 700;
+      }
+
+      /* ============ Footer ============ */
+      footer.app-footer {
+        background: var(--card-bg);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid var(--border-color);
+        border-radius: 10px;
+        padding: 0.6rem 0.85rem;
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .footer-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        padding-bottom: 0.45rem;
+      }
+
+      .footer-brand-info {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-weight: 700;
+        font-size: 0.75rem;
+        color: var(--text-primary);
+        letter-spacing: 0.3px;
+      }
+
+      .footer-social-links {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      .social-icon {
+        width: 25px;
+        height: 25px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid var(--border-color);
+        color: var(--text-muted);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.68rem;
+        text-decoration: none;
+        transition: all 0.2s ease;
+      }
+
+      .social-icon:hover {
+        color: var(--accent-gold);
+        background: rgba(255, 207, 63, 0.14);
+        border-color: var(--accent-gold);
+        transform: translateY(-2px);
+      }
+
+      .footer-bottom {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 0.66rem;
+        color: var(--text-muted);
+        flex-wrap: wrap;
+        gap: 0.4rem;
+      }
+
+      .footer-nav {
+        display: flex;
+        gap: 0.8rem;
+      }
+
+      .footer-nav a {
+        color: var(--text-muted);
+        text-decoration: none;
+        transition: color 0.2s ease;
+        cursor: pointer;
+      }
+
+      .footer-nav a:hover {
+        color: var(--accent-gold);
+      }
+
+      @media (max-height: 520px) {
+        .player-section { max-height: 45vh; }
+        .app-header { padding: 0.25rem 0.6rem; }
+        .brand-title { font-size: 0.85rem; }
+        .brand-sub { display: none; }
+        .placeholder-icon-wrap { width: 42px; height: 42px; }
+        .placeholder-icon { font-size: 1.1rem; }
+        .placeholder-text { font-size: 0.78rem; }
+        .category-btn { padding: 5px 6px; font-size: 0.72rem; }
+        footer.app-footer { padding: 0.4rem 0.6rem; }
+      }
+    </style>
 </head>
 <body>
 
-  <div class="player-card">
-    <div class="ticker" id="epgTickerText">BROADCASTING: Select a channel or video</div>
-    
-    <div class="video-container" id="mediaContainer">
-      <div class="spinner" id="loadingSpinner"></div>
+  <div class="app-layout">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-box">
+        <div class="brand-mark"><i class="fa-solid fa-satellite-dish"></i></div>
+        <div>
+          <div class="brand-title">MSTV NETWORK</div>
+          <div class="brand-sub">Broadcast Hub</div>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="live-badge">
+          <span class="live-dot"></span> LIVE
+        </div>
+        <span id="currentTime">00:00</span>
+      </div>
+    </header>
+
+    <!-- Media Player -->
+    <main class="player-section">
+      <div class="video-wrapper" id="playerWrapper">
+        <div id="videoContainer"></div>
+
+        <div class="frame-brackets"><span></span><span></span><span></span><span></span></div>
+
+        <div class="player-placeholder" id="playerPlaceholder">
+          <div class="placeholder-icon-wrap"><i class="fa-solid fa-circle-play placeholder-icon"></i></div>
+          <div class="placeholder-text">MSTV Live Streaming Hub</div>
+          <div class="placeholder-subtext">Select a network category below to begin watching</div>
+        </div>
+
+        <div class="player-controls-overlay">
+          <button class="control-btn" id="muteToggle" title="Toggle Mute">
+            <i class="fa-solid fa-volume-xmark"></i>
+          </button>
+          <button class="control-btn" id="fullscreenToggle" title="Toggle Fullscreen">
+            <i class="fa-solid fa-expand"></i>
+          </button>
+        </div>
+
+        <div class="loading-spinner-overlay" id="loadingSpinner">
+          <div class="spinner-ring"></div>
+          <span class="spinner-text">Buffering Stream</span>
+          <span class="spinner-engine-tag" id="spinnerEngineTag">HLS</span>
+        </div>
+      </div>
+    </main>
+
+    <!-- EPG Ticker -->
+    <div class="epg-ticker-bar">
+      <div class="epg-label"><i class="fa-solid fa-tv" style="margin-right: 4px;"></i> EPG</div>
+      <div class="ticker-wrapper">
+        <div class="ticker-content" id="epgTickerText">
+          Please select a playlist category to view current broadcast schedule.
+        </div>
+      </div>
     </div>
 
-    <div class="controls">
-      <button onclick="playSample('hls')">Play HLS Stream (.m3u8)</button>
-      <button onclick="playSample('dash')">Play DASH Stream (.mpd)</button>
-      <button onclick="playSample('youtube')">Play YouTube Stream</button>
-      <button class="secondary" onclick="toggleMute()">Toggle Mute</button>
+    <!-- Category Tabs & Subcategories -->
+    <div class="category-wrapper">
+
+      <div class="subcategories-menu" id="subcategoriesMenu">
+        <div class="subcategories-grid" id="subcategoriesGrid"></div>
+      </div>
+
+      <nav class="category-container">
+        <button class="category-btn" id="btnApnaTv" onclick="switchCategory('apna_tv')">
+          <i class="fa-solid fa-play"></i> Apna TV
+        </button>
+        <button class="category-btn" id="btnYouTube" onclick="switchCategory('youtube')">
+          <i class="fa-brands fa-youtube"></i> YouTube
+        </button>
+        <button class="category-btn" id="btnLiveTv" onclick="toggleLiveTvMenu()">
+          <i class="fa-solid fa-tv"></i> Live TV
+        </button>
+      </nav>
     </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-top">
+        <div class="footer-brand-info">
+          <i class="fa-solid fa-shield-halved" style="color: var(--accent-gold);"></i>
+          <span>MSTV BROADCAST INDIA</span>
+        </div>
+        <div class="footer-social-links">
+          <a href="#" class="social-icon" title="YouTube"><i class="fa-brands fa-youtube"></i></a>
+          <a href="#" class="social-icon" title="Telegram"><i class="fa-brands fa-telegram"></i></a>
+          <a href="#" class="social-icon" title="Facebook"><i class="fa-brands fa-facebook-f"></i></a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <div>© 2026 MSTV India. Non-stop Live Digital Network.</div>
+        <div class="footer-nav">
+          <a onclick="alert('MSTV Network aggregates publicly hosted video streams and does not host content on its servers.')">Disclaimer</a>
+          <a onclick="alert('MSTV Network respects user privacy and stores no personal data.')">Privacy</a>
+          <a href="mailto:contact@mstvindia.com">Support</a>
+        </div>
+      </div>
+    </footer>
+
   </div>
 
+  <!-- Streaming Media Libraries (HLS & DASH) -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
+
   <script>
-    // --- GLOBAL PLAYER STATE ---
+    function setAppHeight() {
+      const doc = document.documentElement;
+      doc.style.setProperty('--app-height', `${window.innerHeight}px`);
+    }
+    window.addEventListener('resize', setAppHeight);
+    window.addEventListener('orientationchange', setAppHeight);
+    setAppHeight();
+
+    // DOM Elements
+    const container = document.getElementById('videoContainer');
+    const playerWrapper = document.getElementById('playerWrapper');
+    const playerPlaceholder = document.getElementById('playerPlaceholder');
+    const muteToggle = document.getElementById('muteToggle');
+    const fullscreenToggle = document.getElementById('fullscreenToggle');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const spinnerEngineTag = document.getElementById('spinnerEngineTag');
+    const epgTickerText = document.getElementById('epgTickerText');
+    const btnApnaTv = document.getElementById('btnApnaTv');
+    const btnYouTube = document.getElementById('btnYouTube');
+    const btnLiveTv = document.getElementById('btnLiveTv');
+    const subcategoriesMenu = document.getElementById('subcategoriesMenu');
+    const subcategoriesGrid = document.getElementById('subcategoriesGrid');
+    const currentTimeEl = document.getElementById('currentTime');
+
+    // Live TV Subcategory Definitions
+    const liveTvCategories = [
+      { key: 'sports', label: 'Sports', icon: 'fa-basketball' },
+      { key: 'music', label: 'Music', icon: 'fa-music' },
+      { key: 'news', label: 'News', icon: 'fa-newspaper' },
+      { key: 'devotional', label: 'Devotional', icon: 'fa-om' },
+      { key: 'android_pc', label: 'Android/PC', icon: 'fa-mobile-screen-button' },
+      { key: 'entertainment', label: 'Entertainment', icon: 'fa-film' }
+    ];
+
+    // State Variables
+    let rawPlaylists = {};
+    let liveTvData = {};
+    let activeCategory = null;
+    let currentPlaylist = [];
+    let videoDurations = [];
+    let totalDuration = 0;
+
     let hls = null;
     let dashPlayer = null;
+    let currentIndex = -1;
+    let isMuted = true;
+    let syncTimer = null;
+    let activeSubcatKey = null;
+
+    // Playback correction & buffering-state tracking
     let ytPlayer = null;
-    let ytCheckInterval = null;
-
-    let isMuted = false;
-    let isInitialLoading = false;
     let maxWatchedTime = 0;
-    let currentIndex = 0;
-    let activeCategory = 'live_tv'; // Change to 'vod' if using synchronized playback
+    let ytCheckInterval = null;
+    let isInitialLoading = false;
+    let isCorrectingTime = false;      // guards against feedback loop while we set currentTime ourselves
+    let lastCorrectionAt = 0;          // throttle: don't correct more than once every few seconds
+    const SYNC_DRIFT_TOLERANCE = 8;    // seconds of drift tolerated before correcting (was 3 — too aggressive)
+    const SYNC_MIN_INTERVAL_MS = 6000; // minimum time between forced corrections
+    const SKIP_PREVENTION_TOLERANCE = 6; // was 2.5 — too aggressive, fought HLS buffering after pause/play
 
-    const container = document.getElementById('mediaContainer');
-    const spinner = document.getElementById('loadingSpinner');
-    const epgTickerText = document.getElementById('epgTickerText');
+    // Load YouTube API script dynamically
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    }
 
-    // Sample Playlist Data for Testing
-    const samplePlaylist = {
-      hls: {
-        title: "Apna TV Live Stream (HLS)",
-        type: "video",
-        stream_url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
-      },
-      dash: {
-        title: "Big Buck Bunny (MPEG-DASH)",
-        type: "video",
-        stream_url: "https://dash.akamaized.net/envivio/EnvivioDash3/manifest.mpd"
-      },
-      youtube: {
-        title: "YouTube Live Broadcast",
-        type: "iframe",
-        stream_url: "https://www.youtube.com/embed/jfKfPfyJRdk"
-      }
-    };
+    function updateClock() {
+      const now = new Date();
+      currentTimeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
 
-    function showSpinner() { spinner.style.display = 'block'; }
-    function hideSpinner() { spinner.style.display = 'none'; }
+    function updateMuteButtonUI() {
+      muteToggle.innerHTML = isMuted
+        ? '<i class="fa-solid fa-volume-xmark"></i>'
+        : '<i class="fa-solid fa-volume-high"></i>';
+    }
 
-    function toggleMute() {
+    function showSpinner(engineLabel) {
+      if (engineLabel) spinnerEngineTag.textContent = engineLabel;
+      loadingSpinner.classList.add('active');
+    }
+    function hideSpinner() { loadingSpinner.classList.remove('active'); }
+
+    muteToggle.addEventListener('click', () => {
       isMuted = !isMuted;
+      updateMuteButtonUI();
       const activeVideo = container.querySelector('video');
       if (activeVideo) activeVideo.muted = isMuted;
       if (ytPlayer && typeof ytPlayer.mute === 'function') {
         if (isMuted) ytPlayer.mute(); else ytPlayer.unMute();
       }
-    }
+    });
 
-    // --- DYNAMIC DASH LOADER ---
-    function loadDashStream(video, url, startTime) {
-      function initDash() {
-        if (typeof dashjs === 'undefined') {
-          console.error('DASH.js failed to load dynamically.');
-          hideSpinner();
-          return;
-        }
-
-        dashPlayer = dashjs.MediaPlayer().create();
-        dashPlayer.initialize(video, url, true);
-
-        dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-          hideSpinner();
-          if (startTime > 0) video.currentTime = startTime;
-          video.play().catch(() => {});
-        });
-
-        dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => {
-          console.error('DASH Playback Error:', e);
-          hideSpinner();
-        });
-      }
-
-      // Load dash.all.min.js on-demand if not present
-      if (typeof dashjs === 'undefined') {
-        const script = document.createElement('script');
-        script.src = "https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js";
-        script.onload = initDash;
-        script.onerror = () => {
-          hideSpinner();
-          console.error('Could not fetch DASH library');
-        };
-        document.head.appendChild(script);
+    fullscreenToggle.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        playerWrapper.requestFullscreen().catch(err => console.error(err));
       } else {
-        initDash();
+        document.exitFullscreen();
+      }
+    });
+
+    // Fetch JSON Data
+    async function loadData() {
+      try {
+        const response = await fetch('test.json');
+        const data = await response.json();
+        rawPlaylists = data.playlists || {};
+        liveTvData = data.live_tv || {};
+        renderLiveTvSubcategories();
+      } catch (error) {
+        console.error('Failed to load test.json:', error);
+        epgTickerText.textContent = 'Error loading timetable data.';
       }
     }
 
-    // --- CORE MEDIA ENGINE ---
-    function loadMedia(item, startTime = 0) {
-      showSpinner();
-      isInitialLoading = true; // Lock sync logic during buffer/init phase
+    function toggleLiveTvMenu() {
+      const isOpen = subcategoriesMenu.classList.contains('active');
+      if (isOpen) {
+        closeSubcategoryMenu();
+      } else {
+        subcategoriesMenu.classList.add('active');
+        btnLiveTv.className = 'category-btn active livetv';
+      }
+    }
 
-      maxWatchedTime = startTime;
+    function closeSubcategoryMenu() {
+      subcategoriesMenu.classList.remove('active');
+      activeSubcatKey = null;
+      renderLiveTvSubcategories();
+      if (activeCategory !== 'live_tv') {
+        btnLiveTv.className = 'category-btn';
+      }
+    }
+
+    function renderLiveTvSubcategories() {
+      subcategoriesGrid.innerHTML = '';
+
+      liveTvCategories.forEach(cat => {
+        const channels = liveTvData[cat.key] || [];
+
+        const subcatBtn = document.createElement('button');
+        subcatBtn.className = `subcat-btn ${activeSubcatKey === cat.key ? 'active' : ''}`;
+        subcatBtn.innerHTML = `<span><i class="fa-solid ${cat.icon}" style="margin-right:4px;"></i>${cat.label}</span> <i class="fa-solid ${activeSubcatKey === cat.key ? 'fa-chevron-up' : 'fa-chevron-down'}"></i>`;
+
+        subcatBtn.onclick = (e) => {
+          e.stopPropagation();
+          activeSubcatKey = (activeSubcatKey === cat.key) ? null : cat.key;
+          renderLiveTvSubcategories();
+        };
+
+        subcategoriesGrid.appendChild(subcatBtn);
+
+        if (activeSubcatKey === cat.key) {
+          const channelList = document.createElement('div');
+          channelList.className = 'channels-list active';
+
+          if (channels.length === 0) {
+            channelList.innerHTML = '<div style="color:var(--text-muted); font-size:0.7rem; grid-column:1/-1;">No channels found</div>';
+          } else {
+            channels.forEach((ch, idx) => {
+              const chBtn = document.createElement('button');
+              chBtn.className = 'channel-item';
+              chBtn.textContent = ch.title || `Channel ${idx + 1}`;
+              chBtn.onclick = (e) => {
+                e.stopPropagation();
+                playLiveTvChannel(channels, idx, cat.label);
+              };
+              channelList.appendChild(chBtn);
+            });
+          }
+          subcategoriesGrid.appendChild(channelList);
+        }
+      });
+    }
+
+    function playLiveTvChannel(channelList, index, subcatLabel) {
+      if (playerPlaceholder) playerPlaceholder.style.display = 'none';
+
+      activeCategory = 'live_tv';
+      btnApnaTv.className = 'category-btn';
+      btnYouTube.className = 'category-btn';
+      btnLiveTv.className = 'category-btn active livetv';
+
+      currentPlaylist = channelList;
+      currentIndex = index;
+      isMuted = false;
+      updateMuteButtonUI();
+
+      if (syncTimer) clearInterval(syncTimer);
+
+      loadMedia(currentPlaylist[index], 0);
+      epgTickerText.textContent = `LIVE TV (${subcatLabel.toUpperCase()}): ${currentPlaylist[index].title}`;
+
+      closeSubcategoryMenu();
+    }
+
+    function switchCategory(categoryKey) {
+      if (!rawPlaylists[categoryKey]) return;
+
+      closeSubcategoryMenu();
+
+      if (playerPlaceholder) playerPlaceholder.style.display = 'none';
+
+      activeCategory = categoryKey;
+      currentIndex = -1;
+
+      isMuted = (categoryKey !== 'youtube');
+      updateMuteButtonUI();
+
+      if (categoryKey === 'apna_tv') {
+        btnApnaTv.className = 'category-btn active';
+        btnYouTube.className = 'category-btn';
+        btnLiveTv.className = 'category-btn';
+      } else if (categoryKey === 'youtube') {
+        btnApnaTv.className = 'category-btn';
+        btnYouTube.className = 'category-btn youtube';
+        btnLiveTv.className = 'category-btn';
+      }
+
+      currentPlaylist = rawPlaylists[categoryKey];
+      videoDurations = currentPlaylist.map(item => item.duration_seconds || 60);
+      totalDuration = videoDurations.reduce((a, b) => a + b, 0);
+
+      if (syncTimer) clearInterval(syncTimer);
+      syncPlayback();
+      syncTimer = setInterval(syncPlayback, 1000);
+    }
+
+    function getPlaybackPosition() {
+      if (totalDuration === 0) return { index: 0, time: 0 };
+      const now = Math.floor(Date.now() / 1000) % totalDuration;
+      let offset = 0;
+      for (let i = 0; i < videoDurations.length; i++) {
+        if (now < offset + videoDurations[i]) {
+          return { index: i, time: now - offset };
+        }
+        offset += videoDurations[i];
+      }
+      return { index: 0, time: 0 };
+    }
+
+    // FIX: this loop was the main cause of HLS/iframe stutter.
+    // - Correction tolerance widened (3s -> 8s) so normal buffering isn't treated as drift.
+    // - Corrections are throttled to once every 6s minimum, instead of every tick.
+    // - We skip correcting while the video isn't actually ready/playing (still buffering after a pause/play click).
+    // - isCorrectingTime guards against our own seek being picked up as "drift" a moment later.
+    function syncPlayback() {
+      if (activeCategory === 'live_tv' || currentPlaylist.length === 0) return;
+
+      const pos = getPlaybackPosition();
+
+      if (pos.index !== currentIndex) {
+        currentIndex = pos.index;
+        loadMedia(currentPlaylist[currentIndex], pos.time);
+        epgTickerText.textContent = `BROADCASTING: ${currentPlaylist[currentIndex].title}`;
+        return;
+      }
+
+      if (isInitialLoading || isCorrectingTime) return;
+
+      const now = Date.now();
+      if (now - lastCorrectionAt < SYNC_MIN_INTERVAL_MS) return;
+
+      const activeVideo = container.querySelector('video');
+      if (activeVideo) {
+        // Only correct if the video is actually in a stable playing state —
+        // never fight it while it's still buffering/seeking (readyState < 3, or .seeking true)
+        const isStable = activeVideo.readyState >= 3 && !activeVideo.seeking && !activeVideo.paused;
+        if (isStable && Math.abs(activeVideo.currentTime - pos.time) > SYNC_DRIFT_TOLERANCE) {
+          isCorrectingTime = true;
+          lastCorrectionAt = now;
+          activeVideo.currentTime = pos.time;
+          setTimeout(() => { isCorrectingTime = false; }, 800);
+        }
+      } else if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+        const ytTime = ytPlayer.getCurrentTime();
+        if (Math.abs(ytTime - pos.time) > SYNC_DRIFT_TOLERANCE) {
+          isCorrectingTime = true;
+          lastCorrectionAt = now;
+          ytPlayer.seekTo(pos.time, true);
+          setTimeout(() => { isCorrectingTime = false; }, 800);
+        }
+      }
+    }
+
+    function loadMedia(item, startTime) {
+      const engineLabel = item.stream_url.includes('.mpd') ? 'DASH'
+        : item.stream_url.includes('.m3u8') ? 'HLS'
+        : item.type === 'iframe' ? 'STREAM'
+        : 'VIDEO';
+      showSpinner(engineLabel);
+      isInitialLoading = true;
+      isCorrectingTime = false;
+
+      maxWatchedTime = startTime || 0;
       if (ytCheckInterval) clearInterval(ytCheckInterval);
 
-      // 1. Clean up HLS
       if (hls) {
         hls.stopLoad();
         hls.detachMedia();
@@ -238,31 +1114,18 @@
         hls = null;
       }
 
-      // 2. Clean up DASH (Hard Tear-Down)
       if (dashPlayer) {
-        try {
-          dashPlayer.reset();
-          dashPlayer.destroy();
-        } catch (e) {
-          console.warn('DASH teardown error:', e);
-        }
+        dashPlayer.reset();
         dashPlayer = null;
       }
 
-      // 3. Clean up YouTube
       if (ytPlayer && typeof ytPlayer.destroy === 'function') {
         ytPlayer.destroy();
         ytPlayer = null;
       }
 
-      // Clear media container (keep spinner intact)
-      const spinnerElem = spinner.cloneNode(true);
       container.innerHTML = '';
-      container.appendChild(spinnerElem);
 
-      epgTickerText.textContent = `BROADCASTING: ${item.title}`;
-
-      // --- BRANCH A: IFRAME / YOUTUBE EMBEDS ---
       if (item.type === 'iframe') {
         const videoIdMatch = item.stream_url.match(/(?:embed\/|v=)([^&?]+)/);
         const videoId = videoIdMatch ? videoIdMatch[1] : null;
@@ -272,7 +1135,6 @@
           playerDiv.id = 'ytApiPlayer';
           container.appendChild(playerDiv);
 
-          // Click shield to bypass direct iframe overlay interaction issues
           const shield = document.createElement('div');
           shield.className = 'yt-shield-full';
           shield.onclick = (e) => {
@@ -298,7 +1160,6 @@
               modestbranding: 1,
               rel: 0,
               enablejsapi: 1,
-              origin: window.location.origin, // Resolves postMessage DOMWindow console error
               mute: isMuted ? 1 : 0,
               start: Math.floor(startTime)
             },
@@ -306,12 +1167,17 @@
               onReady: (event) => {
                 hideSpinner();
                 event.target.playVideo();
-                setTimeout(() => { isInitialLoading = false; }, 2000);
+                startSkipPreventionMonitor();
+                setTimeout(() => { isInitialLoading = false; }, 3000);
               },
               onStateChange: (event) => {
                 if (event.data === YT.PlayerState.PLAYING) {
                   hideSpinner();
                   isInitialLoading = false;
+                }
+                // Show spinner again if YouTube itself reports buffering (state 3)
+                if (event.data === YT.PlayerState.BUFFERING) {
+                  showSpinner('STREAM');
                 }
               }
             }
@@ -327,7 +1193,6 @@
           container.appendChild(iframe);
         }
 
-      // --- BRANCH B: HTML5 VIDEO (HLS / DASH / DIRECT MP4) ---
       } else {
         const video = document.createElement('video');
         video.autoplay = true;
@@ -340,35 +1205,62 @@
           setTimeout(() => { isInitialLoading = false; }, 1000);
         });
 
-        video.addEventListener('waiting', () => {
-          showSpinner();
-        });
+        // Show the spinner whenever the browser is genuinely waiting on data —
+        // covers DASH/HLS re-buffering after seeks or network stalls, not just first load.
+        video.addEventListener('waiting', () => showSpinner(engineLabel));
+        video.addEventListener('seeking', () => showSpinner(engineLabel));
+        video.addEventListener('canplay', () => hideSpinner());
+        video.addEventListener('seeked', () => hideSpinner());
 
         container.appendChild(video);
 
-        // Anti-skip enforcement for VOD streams
+        // FIX: skip-prevention tolerance widened (2.5s -> 6s) and now skipped
+        // entirely while the video is buffering/seeking, so it no longer fights
+        // hls.js's own buffer recovery right after a pause/play click.
         video.addEventListener('timeupdate', () => {
-          if (activeCategory !== 'live_tv') {
-            if (video.currentTime > maxWatchedTime + 2.5) {
-              video.currentTime = maxWatchedTime;
-            } else {
-              maxWatchedTime = Math.max(maxWatchedTime, video.currentTime);
-            }
+          if (video.seeking || video.readyState < 3) return;
+          if (video.currentTime > maxWatchedTime + SKIP_PREVENTION_TOLERANCE) {
+            video.currentTime = maxWatchedTime;
+          } else {
+            maxWatchedTime = Math.max(maxWatchedTime, video.currentTime);
           }
         });
 
-        // 1. DASH MPEG-DASH (.mpd)
+        // 1. DASH (.mpd) Streams
         if (item.stream_url.includes('.mpd')) {
-          loadDashStream(video, item.stream_url, startTime);
+          if (typeof dashjs !== 'undefined') {
+            dashPlayer = dashjs.MediaPlayer().create();
+            // Reasonable default ABR/buffer settings so dash stays smooth
+            dashPlayer.updateSettings({
+              streaming: {
+                buffer: {
+                  fastSwitchEnabled: true
+                }
+              }
+            });
+            dashPlayer.initialize(video, item.stream_url, true);
 
-        // 2. HLS (.m3u8)
+            dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+              if (startTime > 0) video.currentTime = startTime;
+              video.play().catch(() => {});
+            });
+            dashPlayer.on(dashjs.MediaPlayer.events.BUFFER_LOADED, () => hideSpinner());
+            dashPlayer.on(dashjs.MediaPlayer.events.BUFFER_EMPTY, () => showSpinner('DASH'));
+            dashPlayer.on(dashjs.MediaPlayer.events.ERROR, (e) => console.error('DASH error:', e));
+          } else {
+            console.error('dash.js library failed to load.');
+          }
+
+        // 2. HLS (.m3u8) Streams
         } else if (item.stream_url.includes('.m3u8')) {
           if (Hls.isSupported()) {
             hls = new Hls({
               enableWorker: true,
               lowLatencyMode: false,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60
+              // A little more back-buffer tolerance so seeking/correction doesn't
+              // constantly force a fresh fragment fetch
+              backBufferLength: 30,
+              maxBufferLength: 30
             });
             hls.loadSource(item.stream_url);
             hls.attachMedia(video);
@@ -386,13 +1278,12 @@
                     hls.recoverMediaError();
                     break;
                   default:
-                    hls.destroy();
+                    console.error('Unrecoverable HLS error:', data);
                     break;
                 }
               }
             });
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari Native HLS Support
             video.src = item.stream_url;
             video.addEventListener('loadedmetadata', () => {
               if (startTime > 0) video.currentTime = startTime;
@@ -400,7 +1291,7 @@
             }, { once: true });
           }
 
-        // 3. Direct MP4 / Standard HTML5 Stream
+        // 3. Direct MP4 / Standard Web Media Streams
         } else {
           video.src = item.stream_url;
           video.addEventListener('loadedmetadata', () => {
@@ -411,46 +1302,21 @@
       }
     }
 
-    // --- NON-DESTRUCTIVE PLAYBACK SYNCHRONIZER ---
-    function getPlaybackPosition() {
-      // Mock calculation for synchronized room/broadcast positions
-      return { index: currentIndex, time: 0 };
-    }
-
-    function syncPlayback() {
-      // Never attempt sync operations on live streams or during initial buffering
-      if (activeCategory === 'live_tv' || isInitialLoading) return;
-
-      const pos = getPlaybackPosition();
-      const activeVideo = container.querySelector('video');
-
-      if (activeVideo && !activeVideo.seeking) {
-        // Increased safety threshold from 3s to 5s to eliminate stutter loops
-        if (Math.abs(activeVideo.currentTime - pos.time) > 5) {
-          activeVideo.currentTime = pos.time;
+    function startSkipPreventionMonitor() {
+      ytCheckInterval = setInterval(() => {
+        if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+          const currentTime = ytPlayer.getCurrentTime();
+          if (currentTime > maxWatchedTime + SKIP_PREVENTION_TOLERANCE) {
+            ytPlayer.seekTo(maxWatchedTime, true);
+          } else {
+            maxWatchedTime = Math.max(maxWatchedTime, currentTime);
+          }
         }
-      } else if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
-        const ytTime = ytPlayer.getCurrentTime();
-        if (Math.abs(ytTime - pos.time) > 5) {
-          ytPlayer.seekTo(pos.time, true);
-        }
-      }
+      }, 500);
     }
 
-    // Run sync heartbeat interval every second
-    setInterval(syncPlayback, 1000);
-
-    // Quick trigger helpers for controls
-    function playSample(type) {
-      if (samplePlaylist[type]) {
-        loadMedia(samplePlaylist[type], 0);
-      }
-    }
-
-    // Initial default stream
-    window.addEventListener('DOMContentLoaded', () => {
-      playSample('hls');
-    });
+    // Initialize App Data Load
+    loadData();
   </script>
 </body>
 </html>

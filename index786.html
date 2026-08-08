@@ -647,10 +647,9 @@
 
   </div>
 
-  <!-- HLS Library -->
+  <!-- Streaming Media Libraries (HLS & DASH) -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.js"></script>
-<!-- Include DASH.js Library for MPEG-DASH (.mpd) Streams -->
- <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
 
   <script>
     function setAppHeight() {
@@ -695,6 +694,7 @@
     let totalDuration = 0;
     
     let hls = null;
+    let dashPlayer = null;
     let currentIndex = -1;
     let isMuted = true;
     let syncTimer = null;
@@ -892,172 +892,200 @@
       return { index: 0, time: 0 };
     }
 
-    // State Variable for Dash Player Instance
-let dashPlayer = null;
+    function syncPlayback() {
+      if (activeCategory === 'live_tv' || currentPlaylist.length === 0) return;
 
-function loadMedia(item, startTime) {
-  showSpinner();
-  isInitialLoading = true;
+      const pos = getPlaybackPosition();
 
-  maxWatchedTime = startTime || 0;
-  if (ytCheckInterval) clearInterval(ytCheckInterval);
-
-  // Clean up existing HLS instance
-  if (hls) {
-    hls.stopLoad();
-    hls.detachMedia();
-    hls.destroy();
-    hls = null;
-  }
-
-  // Clean up existing DASH instance
-  if (dashPlayer) {
-    dashPlayer.reset();
-    dashPlayer = null;
-  }
-
-  // Clean up YouTube instance
-  if (ytPlayer && typeof ytPlayer.destroy === 'function') {
-    ytPlayer.destroy();
-    ytPlayer = null;
-  }
-
-  container.innerHTML = '';
-
-  // 1. IFRAME EMBED / EXTERNAL PLAYER EMBED (e.g., https://crickethd.pages.dev/index#1)
-  if (item.type === 'iframe' || item.stream_url.includes('pages.dev') || item.stream_url.includes('index#')) {
-    const iframe = document.createElement('iframe');
-    iframe.src = item.stream_url;
-    // Essential allow flags to ensure video decoding, autoplay, and fullscreen work inside iframe
-    iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-    iframe.style.width = '100%';
-    iframe.style.height = '100%';
-    iframe.style.border = 'none';
-
-    iframe.onload = () => {
-      hideSpinner();
-      isInitialLoading = false;
-    };
-
-    container.appendChild(iframe);
-
-  // 2. MPEG-DASH STREAM (.mpd)
-  } else if (item.stream_url.includes('.mpd')) {
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.muted = isMuted;
-    video.playsInline = true;
-    video.controls = false;
-
-    container.appendChild(video);
-
-    if (typeof dashjs !== 'undefined') {
-      dashPlayer = dashjs.MediaPlayer().create();
-      dashPlayer.initialize(video, item.stream_url, true);
-      
-      dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
-        hideSpinner();
-        isInitialLoading = false;
-        if (startTime > 0) video.currentTime = startTime;
-      });
-    } else {
-      console.error('dash.js library not loaded!');
+      if (pos.index !== currentIndex) {
+        currentIndex = pos.index;
+        loadMedia(currentPlaylist[currentIndex], pos.time);
+        epgTickerText.textContent = `BROADCASTING: ${currentPlaylist[currentIndex].title}`;
+      } else if (!isInitialLoading) {
+        const activeVideo = container.querySelector('video');
+        if (activeVideo && Math.abs(activeVideo.currentTime - pos.time) > 3) {
+          activeVideo.currentTime = pos.time;
+        } else if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
+          const ytTime = ytPlayer.getCurrentTime();
+          if (Math.abs(ytTime - pos.time) > 3) {
+            ytPlayer.seekTo(pos.time, true);
+          }
+        }
+      }
     }
 
-  // 3. HLS (.m3u8) STREAM
-  } else if (item.stream_url.includes('.m3u8')) {
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.muted = isMuted;
-    video.playsInline = true;
+    function loadMedia(item, startTime) {
+      showSpinner();
+      isInitialLoading = true; // Lock playback sync while buffering
 
-    container.appendChild(video);
+      maxWatchedTime = startTime || 0;
+      if (ytCheckInterval) clearInterval(ytCheckInterval);
 
-    if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: true, lowLatencyMode: false });
-      hls.loadSource(item.stream_url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        hideSpinner();
-        if (startTime > 0) video.currentTime = startTime;
-        video.play().catch(() => {});
-      });
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = item.stream_url;
-      video.addEventListener('loadedmetadata', () => {
-        hideSpinner();
-        if (startTime > 0) video.currentTime = startTime;
-        video.play().catch(() => {});
-      }, { once: true });
+      if (hls) {
+        hls.stopLoad();
+        hls.detachMedia();
+        hls.destroy();
+        hls = null;
+      }
+
+      if (dashPlayer) {
+        dashPlayer.reset();
+        dashPlayer = null;
+      }
+
+      if (ytPlayer && typeof ytPlayer.destroy === 'function') {
+        ytPlayer.destroy();
+        ytPlayer = null;
+      }
+
+      container.innerHTML = '';
+
+      if (item.type === 'iframe') {
+        const videoIdMatch = item.stream_url.match(/(?:embed\/|v=)([^&?]+)/);
+        const videoId = videoIdMatch ? videoIdMatch[1] : null;
+
+        if (videoId) {
+          const playerDiv = document.createElement('div');
+          playerDiv.id = 'ytApiPlayer';
+          container.appendChild(playerDiv);
+
+          // Transparent click shield over the YouTube frame to stop external redirects
+          const shield = document.createElement('div');
+          shield.className = 'yt-shield-full';
+          shield.onclick = (e) => {
+            e.stopPropagation();
+            if (ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+              const state = ytPlayer.getPlayerState();
+              if (state === YT.PlayerState.PLAYING) {
+                ytPlayer.pauseVideo();
+              } else {
+                ytPlayer.playVideo();
+              }
+            }
+          };
+          container.appendChild(shield);
+
+          ytPlayer = new YT.Player('ytApiPlayer', {
+            height: '100%',
+            width: '100%',
+            videoId: videoId,
+            playerVars: {
+              autoplay: 1,
+              controls: 0,        
+              modestbranding: 1,  
+              rel: 0,             
+              enablejsapi: 1,
+              mute: isMuted ? 1 : 0,
+              start: Math.floor(startTime)
+            },
+            events: {
+              onReady: (event) => {
+                hideSpinner();
+                event.target.playVideo();
+                startSkipPreventionMonitor();
+                setTimeout(() => { isInitialLoading = false; }, 3000);
+              },
+              onStateChange: (event) => {
+                if (event.data === YT.PlayerState.PLAYING) {
+                  hideSpinner();
+                  isInitialLoading = false;
+                }
+              }
+            }
+          });
+        } else {
+          const iframe = document.createElement('iframe');
+          iframe.src = item.stream_url;
+          iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+          iframe.onload = () => {
+            hideSpinner();
+            isInitialLoading = false;
+          };
+          container.appendChild(iframe);
+        }
+
+      } else {
+        // Standard HTML5 / HLS / DASH / MP4 Video Logic
+        const video = document.createElement('video');
+        video.autoplay = true;
+        video.muted = isMuted;
+        video.playsInline = true;
+        video.preload = 'auto';
+
+        video.addEventListener('playing', () => {
+          hideSpinner();
+          setTimeout(() => { isInitialLoading = false; }, 1000);
+        });
+
+        container.appendChild(video);
+
+        video.addEventListener('timeupdate', () => {
+          if (video.currentTime > maxWatchedTime + 2.5) {
+            video.currentTime = maxWatchedTime;
+          } else {
+            maxWatchedTime = Math.max(maxWatchedTime, video.currentTime);
+          }
+        });
+
+        // 1. DASH MPEG-DASH (.mpd) Streams
+        if (item.stream_url.includes('.mpd')) {
+          if (typeof dashjs !== 'undefined') {
+            dashPlayer = dashjs.MediaPlayer().create();
+            dashPlayer.initialize(video, item.stream_url, true);
+
+            dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+              hideSpinner();
+              if (startTime > 0) video.currentTime = startTime;
+              video.play().catch(() => {});
+            });
+          } else {
+            console.error('dash.js library failed to load.');
+          }
+
+        // 2. HLS (.m3u8) Streams
+        } else if (item.stream_url.includes('.m3u8')) {
+          if (Hls.isSupported()) {
+            hls = new Hls({ enableWorker: true, lowLatencyMode: false });
+            hls.loadSource(item.stream_url);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              if (startTime > 0) video.currentTime = startTime;
+              video.play().catch(() => {});
+            });
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = item.stream_url;
+            video.addEventListener('loadedmetadata', () => {
+              if (startTime > 0) video.currentTime = startTime;
+              video.play().catch(() => {});
+            }, { once: true });
+          }
+
+        // 3. Direct MP4 / Standard Web Media Streams
+        } else {
+          video.src = item.stream_url;
+          video.addEventListener('loadedmetadata', () => {
+            if (startTime > 0) video.currentTime = startTime;
+            video.play().catch(() => {});
+          }, { once: true });
+        }
+      }
     }
-
-  // 4. DIRECT MP4 / WEBM VIDEO
-  } else {
-    const video = document.createElement('video');
-    video.autoplay = true;
-    video.muted = isMuted;
-    video.playsInline = true;
-    video.src = item.stream_url;
-
-    container.appendChild(video);
-
-    video.addEventListener('loadedmetadata', () => {
-      hideSpinner();
-      if (startTime > 0) video.currentTime = startTime;
-      video.play().catch(() => {});
-    }, { once: true });
-  }
-}
-
 
     function startSkipPreventionMonitor() {
       ytCheckInterval = setInterval(() => {
         if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function') {
           const currentTime = ytPlayer.getCurrentTime();
-
           if (currentTime > maxWatchedTime + 2.5) {
             ytPlayer.seekTo(maxWatchedTime, true);
           } else {
             maxWatchedTime = Math.max(maxWatchedTime, currentTime);
           }
         }
-      }, 250);
+      }, 500);
     }
 
-    function updateEpgTicker(index) {
-      if (!currentPlaylist[index]) return;
-      const nowPlaying = currentPlaylist[index].title;
-      const nextIndex = (index + 1) % currentPlaylist.length;
-      const comingNext = currentPlaylist[nextIndex].title;
-      
-      epgTickerText.textContent = `NOW PLAYING: ${nowPlaying} — COMING NEXT: ${comingNext}`;
-    }
-
-    function syncPlayback() {
-      if (activeCategory === 'live_tv' || totalDuration === 0 || currentPlaylist.length === 0 || isInitialLoading) return;
-      
-      const { index, time } = getPlaybackPosition();
-
-      if (index !== currentIndex) {
-        currentIndex = index;
-        loadMedia(currentPlaylist[index], time);
-        updateEpgTicker(index);
-        return;
-      }
-
-      const activeVideo = container.querySelector('video');
-      if (
-        activeVideo && 
-        !activeVideo.seeking && 
-        !activeVideo.paused && 
-        activeVideo.readyState >= 3 && 
-        Math.abs(activeVideo.currentTime - time) > 6
-      ) {
-        activeVideo.currentTime = time;
-      }
-    }
-
+    // Initialize App Data Load
     loadData();
   </script>
 </body>
-</html>
+    </html>

@@ -922,7 +922,25 @@ async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-    hlsInstance.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) showError('HLS error'); });
+    
+    hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) {
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            // Try recovering network errors automatically when switching back tabs
+            hlsInstance.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hlsInstance.recoverMediaError();
+            break;
+          default:
+            // If unrecoverable, reload current stream
+            if (currentChannel) playChannel(currentChannel);
+            break;
+        }
+      }
+    });
+
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia($videoEl);

@@ -7,8 +7,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="x-dns-prefetch-control" content="on">
 <title>MSTV Network | Free Live Indian, Punjabi &amp; Religious TV Channels</title>
-<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment available on all devices.">
-<meta name="keywords" content="MSTV, live Indian TV, Punjabi channels, religious channels, HD streaming, free live TV, cricket streaming, Indian entertainment, live stream">
+<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, religious, entertainment and sports TV channels. Browse live channels by category and watch on supported devices.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MSTV Network | Free Live Indian, Punjabi &amp; Religious TV Channels">
+<meta property="og:description" content="Browse MSTV Network live Indian, Punjabi, religious, entertainment and sports TV channels by category.">
+<meta property="og:url" content="https://crickethd.pages.dev/">
+<meta property="og:site_name" content="MSTV Network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="MSTV Network | Free Live TV Channels">
+<meta name="twitter:description" content="Browse live Indian, Punjabi, religious, entertainment and sports TV channels on MSTV Network.">
 <meta name="author" content="MSTV Network">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#06070b">
@@ -239,6 +246,23 @@
     .footer-disclaimer { font-size: 8.5px; }
   }
   </style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "MSTV Network",
+  "url": "https://crickethd.pages.dev/",
+  "description": "MSTV Network provides a categorized directory and player for live Indian, Punjabi, religious, entertainment and sports TV channels."
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "MSTV Network",
+  "url": "https://crickethd.pages.dev/"
+}
+</script>
 </head>
 <body>
 
@@ -465,6 +489,33 @@ async function ensureShaka() {
   return shakaLoading;
 }
 
+function updateChannelStructuredData(list) {
+  let node = document.getElementById('channel-itemlist-schema');
+  if (!node) {
+    node = document.createElement('script');
+    node.type = 'application/ld+json';
+    node.id = 'channel-itemlist-schema';
+    document.head.appendChild(node);
+  }
+
+  const items = (Array.isArray(list) ? list : [])
+    .filter(ch => ch && ch.name)
+    .slice(0, 100)
+    .map((ch, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: String(ch.name)
+    }));
+
+  node.textContent = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'MSTV Network Live TV Channels',
+    numberOfItems: items.length,
+    itemListElement: items
+  });
+}
+
 async function init() {
   await loadChannels(false);
   startPolling();
@@ -496,6 +547,7 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
+    updateChannelStructuredData(channels);
     
     fullRender();
     updateTimestamp();

@@ -442,7 +442,6 @@ async function createBrowserHmac(message, secret) {
 
 /**
  * Gets the stream URL directly from the channel object loaded from streamdata.json.
- * Resolves client environments with the Worker interface using server-side header swaps.
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
@@ -457,12 +456,11 @@ async function getStreamUrl(channel) {
   }
 
   try {
-    // Zero external HTTP requests needed. Your worker will extract the IP server-side.
     const clientIp = "CLIENT_IP"; 
-    const userAgent = navigator.userAgent;
     const expires = Date.now() + (10 * 60 * 1000); 
 
-    const verificationString = `${channel.id}|${clientIp}|${userAgent}|${expires}`;
+    // Synchronized verification layout structure matching the new worker script
+    const verificationString = `${channel.id}|${clientIp}|${expires}`;
     const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
     const signedPlaybackUrl = `${WORKER_URL}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
 
@@ -515,6 +513,8 @@ async function ensureShaka() {
   }
   return shakaLoading;
 }
+
+
 
 
 function updateChannelStructuredData(list) {

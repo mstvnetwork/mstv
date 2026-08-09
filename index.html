@@ -7,8 +7,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="x-dns-prefetch-control" content="on">
 <title>MSTV Network | Free Live Indian, Punjabi &amp; Religious TV Channels</title>
-<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, and religious TV channels. High-speed HD streaming for cricket and entertainment available on all devices.">
-<meta name="keywords" content="MSTV, live Indian TV, Punjabi channels, religious channels, HD streaming, free live TV, cricket streaming, Indian entertainment, live stream">
+<meta name="description" content="Watch MSTV Network for free live Indian, Punjabi, religious, entertainment and sports TV channels. Browse live channels by category and watch on supported devices.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="MSTV Network | Free Live Indian, Punjabi &amp; Religious TV Channels">
+<meta property="og:description" content="Browse MSTV Network live Indian, Punjabi, religious, entertainment and sports TV channels by category.">
+<meta property="og:url" content="https://crickethd.pages.dev/">
+<meta property="og:site_name" content="MSTV Network">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="MSTV Network | Free Live TV Channels">
+<meta name="twitter:description" content="Browse live Indian, Punjabi, religious, entertainment and sports TV channels on MSTV Network.">
 <meta name="author" content="MSTV Network">
 <meta name="robots" content="index, follow">
 <meta name="theme-color" content="#06070b">
@@ -239,6 +246,23 @@
     .footer-disclaimer { font-size: 8.5px; }
   }
   </style>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "MSTV Network",
+  "url": "https://crickethd.pages.dev/",
+  "description": "MSTV Network provides a categorized directory and player for live Indian, Punjabi, religious, entertainment and sports TV channels."
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "MSTV Network",
+  "url": "https://crickethd.pages.dev/"
+}
+</script>
 </head>
 <body>
 
@@ -338,16 +362,12 @@
 <script>
 const CURRENT_VERSION = "v2.5.0"; 
 
-// ── CLOUDFLARE WORKERS CONFIGURATION (MULTI-WORKER FAILOVER) ────────────────
-const WORKER_APIS = [
-  "https://stream-proxy.cabletv.workers.dev",      // Worker 1 (Primary)
-  "https://backup.mstvindianetworkusa.workers.dev"  // Worker 2 (Backup)
-  // Add more worker URLs here as needed
-];
-
+// ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
+// Stream URLs are read directly from streamdata.json in this repository.
+// No Cloudflare Worker is used to resolve stream URLs.
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = 'streamdata.json';
+const JSON_URL      = './channels2.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -405,46 +425,26 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Fetches stream URL with seamless automatic failover across multiple Workers
+ * Gets the stream URL directly from the channel object loaded from streamdata.json.
+ * The JSON must contain a "url" field for each playable channel.
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
-  
-  // Return cached URL if previously resolved in session
+
+  // Return cached URL if previously resolved in this session.
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  // Iterate sequentially through available Workers
-  for (let i = 0; i < WORKER_APIS.length; i++) {
-    const workerUrl = WORKER_APIS[i];
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s timeout per Worker
+  const streamUrl = typeof channel.url === 'string' ? channel.url.trim() : '';
 
-    try {
-      const res = await fetch(workerUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: key, name: channel.name }),
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.url) {
-          streamCache[key] = data.url; // Save to local cache
-          return data.url;
-        }
-      }
-    } catch (err) {
-      clearTimeout(timeoutId);
-      console.warn(`Worker [${i + 1}] (${workerUrl}) failed or timed out. Trying next worker...`);
-    }
+  if (!streamUrl) {
+    console.warn(`No stream URL found in streamdata.json for "${channel.name}".`);
+    return null;
   }
 
-  // If all workers fail
-  return null;
+  streamCache[key] = streamUrl;
+  return streamUrl;
 }
 
 function attemptOpenInApp(url, onFail) {
@@ -489,6 +489,33 @@ async function ensureShaka() {
   return shakaLoading;
 }
 
+function updateChannelStructuredData(list) {
+  let node = document.getElementById('channel-itemlist-schema');
+  if (!node) {
+    node = document.createElement('script');
+    node.type = 'application/ld+json';
+    node.id = 'channel-itemlist-schema';
+    document.head.appendChild(node);
+  }
+
+  const items = (Array.isArray(list) ? list : [])
+    .filter(ch => ch && ch.name)
+    .slice(0, 100)
+    .map((ch, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: String(ch.name)
+    }));
+
+  node.textContent = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'MSTV Network Live TV Channels',
+    numberOfItems: items.length,
+    itemListElement: items
+  });
+}
+
 async function init() {
   await loadChannels(false);
   startPolling();
@@ -520,6 +547,7 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
+    updateChannelStructuredData(channels);
     
     fullRender();
     updateTimestamp();
@@ -761,26 +789,7 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.close();
   mstvPopupWindow.focus();
 }
-  // ✅ Correct way to fetch from WORKER_APIS
-async function fetchStream(channelId) {
-  for (const workerUrl of WORKER_APIS) {
-    try {
-      const response = await fetch(workerUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: channelId })
-      });
 
-      if (response.ok) {
-        const data = await response.json();
-        return data.url; // Successfully got stream URL
-      }
-    } catch (err) {
-      console.warn(`Worker ${workerUrl} failed, trying backup...`);
-    }
-  }
-  throw new Error("All worker endpoints failed.");
-}
 
 async function playChannel(ch) {
   if (!ch) return;
@@ -812,7 +821,7 @@ async function playChannel(ch) {
     }
   }
 
-  // STAGE 2: Fetch stream URL via Worker Failover Loop
+  // STAGE 2: Get stream URL directly from streamdata.json
   const streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
     showError("Failed to fetch secure stream URL");

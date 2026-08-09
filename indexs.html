@@ -359,15 +359,18 @@
       </div>
   </footer>
 </div>
-<script>
+// ── REPLACE FROM THE BEGINNING OF CURRENT_VERSION DOWN TO ENSURESHAKA() ──
+
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Stream URLs are read directly from streamdata.json in this repository.
-// No Cloudflare Worker is used to resolve stream URLs.
+// Cloudflare Worker Configurations - MUST MATCH YOUR ENVIRONMENT SECURELY
+const SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a"; 
+const WORKER_URL = "https://stream-proxy.cabletv.workers.dev";
+
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = './channels2.json';
+const JSON_URL      = './streamdata.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -425,26 +428,52 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
+ * Native helper function to calculate SHA-256 HMAC tokens directly inside the browser
+ */
+async function createBrowserHmac(message, secret) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * Gets the stream URL directly from the channel object loaded from streamdata.json.
- * The JSON must contain a "url" field for each playable channel.
+ * Uses client environment details to construct signed worker redirection tokens.
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
-  // Return cached URL if previously resolved in this session.
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  const streamUrl = typeof channel.url === 'string' ? channel.url.trim() : '';
-
-  if (!streamUrl) {
-    console.warn(`No stream URL found in streamdata.json for "${channel.name}".`);
-    return null;
+  if (!channel.id) {
+    console.warn(`No target channel ID found in data structure for "${channel.name}".`);
+    return typeof channel.url === 'string' ? channel.url.trim() : null;
   }
 
-  streamCache[key] = streamUrl;
-  return streamUrl;
+  try {
+    const ipResponse = await fetch('https://ipify.org');
+    const ipData = await ipResponse.json();
+    const clientIp = ipData.ip;
+    const userAgent = navigator.userAgent;
+    const expires = Date.now() + (10 * 60 * 1000); 
+
+    const verificationString = `${channel.id}|${clientIp}|${userAgent}|${expires}`;
+    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
+    const signedPlaybackUrl = `${WORKER_URL}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
+
+    streamCache[key] = signedPlaybackUrl;
+    return signedPlaybackUrl;
+  } catch (e) {
+    console.error("Failed to generate secure worker signature token:", e);
+    return null;
+  }
 }
 
 function attemptOpenInApp(url, onFail) {
@@ -478,7 +507,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.compiled.min.js');
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -488,6 +517,7 @@ async function ensureShaka() {
   }
   return shakaLoading;
 }
+
 
 function updateChannelStructuredData(list) {
   let node = document.getElementById('channel-itemlist-schema');

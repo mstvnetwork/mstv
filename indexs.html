@@ -567,9 +567,10 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(JSON_URL + '?t=' + Date.now(), { 
+    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
+    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
-      cache: 'no-store',
+      cache: 'reload',
       headers: {
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
@@ -587,6 +588,10 @@ async function loadChannels(silent) {
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
     
     lastJsonRaw = text;
+
+    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
+    Object.keys(streamCache).forEach(key => delete streamCache[key]);
+
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
@@ -596,8 +601,7 @@ async function loadChannels(silent) {
     if (e.name === 'AbortError') return;
     $updateText.textContent = 'Error';
   }
-}
-
+      }
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);

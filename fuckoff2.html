@@ -158,8 +158,6 @@
   "97":"https://ml-pull-dvc-myco.io:2096/SAB_ENTERTAINMENT/tracks-v1a1/mono.ts.m3u8"
 };
 
-    
-
     const urlParams = new URLSearchParams(window.location.search);
     // Support both ?ch=01 (map lookup) AND ?url=... / ?id=... (direct passthrough)
     const channelId = urlParams.get('ch');
@@ -206,14 +204,26 @@
       }
     }
 
+    // Only match .m3u8 / .mpd when it's the URL's OWN path extension,
+    // not merely present somewhere inside a query string (e.g. a wrapper
+    // player page like hlsplayers.pages.dev/player3?url=...m3u8 is NOT
+    // itself a manifest — it's an HTML page and must go to the iframe branch).
     function isDashUrl(url) {
-      return url.split('?')[0].toLowerCase().endsWith('.mpd') ||
-             url.toLowerCase().includes('.mpd');
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.mpd');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.mpd');
+      }
     }
 
     function isHlsUrl(url) {
-      return url.split('?')[0].toLowerCase().endsWith('.m3u8') ||
-             url.toLowerCase().includes('.m3u8');
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.m3u8');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.m3u8');
+      }
     }
 
     function playHls(streamUrl) {
@@ -328,7 +338,7 @@
       resolveStream(decodeURIComponent(directUrl));
     } else {
       hideLoader();
-      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2><p>Use ?ch=01 or ?url=https://...</p></div>`;
+      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2><p>Use ?ch=1 or ?url=https://...</p></div>`;
     }
   </script>
 </body>

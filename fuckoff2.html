@@ -159,7 +159,6 @@
 };
 
     const urlParams = new URLSearchParams(window.location.search);
-    // Support both ?ch=01 (map lookup) AND ?url=... / ?id=... (direct passthrough)
     const channelId = urlParams.get('ch');
     const directUrl = urlParams.get('url');
 
@@ -172,7 +171,7 @@
       loaderHidden = true;
       loader.classList.add('hide-loader');
     }
-    // Universal safety net: never let the spinner hang forever
+    
     function armFallbackTimeout(ms = 15000) {
       setTimeout(hideLoader, ms);
     }
@@ -181,22 +180,21 @@
       return /(?:youtube\.com|youtu\.be)/i.test(url);
     }
 
+    // UPDATED: Removed mute=1 so YouTube plays unmuted
     function toYouTubeEmbed(url) {
       try {
         const u = new URL(url);
-        // Already an embed URL
         if (u.pathname.startsWith('/embed/')) {
           u.searchParams.set('autoplay', '1');
-          u.searchParams.set('mute', '1');
+          u.searchParams.delete('mute'); // Remove mute restriction
           return u.toString();
         }
-        // Standard watch URL -> convert to embed
         let videoId = u.searchParams.get('v');
         if (!videoId && u.hostname.includes('youtu.be')) {
           videoId = u.pathname.slice(1);
         }
         if (videoId) {
-          return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1`;
+          return `https://youtube.com{videoId}?autoplay=1`;
         }
         return url;
       } catch (e) {
@@ -204,10 +202,6 @@
       }
     }
 
-    // Only match .m3u8 / .mpd when it's the URL's OWN path extension,
-    // not merely present somewhere inside a query string (e.g. a wrapper
-    // player page like hlsplayers.pages.dev/player3?url=...m3u8 is NOT
-    // itself a manifest — it's an HTML page and must go to the iframe branch).
     function isDashUrl(url) {
       try {
         const u = new URL(url);
@@ -226,11 +220,11 @@
       }
     }
 
+    // UPDATED: Removed video.muted = true
     function playHls(streamUrl) {
       const video = document.createElement('video');
       video.controls = true;
       video.autoplay = true;
-      video.muted = true;
       video.setAttribute('playsinline', '');
       container.appendChild(video);
 
@@ -262,11 +256,11 @@
       }
     }
 
+    // UPDATED: Removed video.muted = true
     function playDash(streamUrl) {
       const video = document.createElement('video');
       video.controls = true;
       video.autoplay = true;
-      video.muted = true;
       video.setAttribute('playsinline', '');
       container.appendChild(video);
 
@@ -298,18 +292,12 @@
       iframe.setAttribute('allowfullscreen', '');
       container.appendChild(iframe);
 
-      // 'load' fires once the iframe document itself has loaded,
-      // even for cross-origin content (we can't see inside it,
-      // but this is the only signal the parent page ever gets).
       iframe.addEventListener('load', hideLoader);
       iframe.addEventListener('error', () => {
         hideLoader();
         container.innerHTML = `<div class="error-msg"><h2>Failed to load embedded content</h2></div>`;
       });
 
-      // Cross-origin iframes never fire a reliable "error" for blocked
-      // embeds (e.g. YouTube's "embedding disabled" screen renders INSIDE
-      // the iframe, invisible to us). So still arm the fallback timeout.
       armFallbackTimeout(8000);
     }
 
@@ -320,14 +308,13 @@
         return;
       }
 
-      armFallbackTimeout(15000); // universal safety net for ALL types
+      armFallbackTimeout(15000);
 
       if (isHlsUrl(streamUrl)) {
         playHls(streamUrl);
       } else if (isDashUrl(streamUrl)) {
         playDash(streamUrl);
       } else {
-        // YouTube, other embed pages, generic iframe pages, etc.
         playIframe(streamUrl);
       }
     }
@@ -340,6 +327,7 @@
       hideLoader();
       container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2><p>Use ?ch=1 or ?url=https://...</p></div>`;
     }
-  </script>
+</script>
+
 </body>
 </html>

@@ -458,8 +458,9 @@ async function createBrowserHmac(message, secret) {
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
-  if (streamCache[key]) {
-    return streamCache[key];
+  // Check cache AND ensure the cached token hasn't expired
+  if (streamCache[key] && streamCache[key].expiresAt > Date.now()) {
+    return streamCache[key].url;
   }
 
   if (!channel.id) {
@@ -468,26 +469,34 @@ async function getStreamUrl(channel) {
   }
 
   try {
+    const secret = window.SECRET_KEY || "588da2fe1811a0f130f72f68400d0d3a"; // Fallback to worker default
     const expires = Date.now() + (10 * 60 * 1000); // 10 minute token validity
     const formattedId = String(channel.id).padStart(2, '0'); // Formats "1" as "01"
     
     const verificationString = `${formattedId}|${expires}`;
-    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
+    const secureToken = await createBrowserHmac(verificationString, secret);
     
-    // Clean the worker base URL to avoid double slashes
-const workerBaseUrl = getActiveWorkerUrl().replace(/\/+$/, '');
-const endpointType = (channel.type === 'iframe') ? 'iframe' : 'hls';
+    // Clean worker base URL to avoid double slashes
+    const rawWorkerUrl = typeof getActiveWorkerUrl === 'function' ? getActiveWorkerUrl() : "https://mstv.ghubtv1.workers.dev";
+    const workerBaseUrl = rawWorkerUrl.replace(/\/+$/, '');
+    
+    const endpointType = (channel.type === 'iframe') ? 'iframe' : 'hls';
 
-// Now builds: https://mstv.ghubtv1.workers.dev/iframe/02 (single slash)
-const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
-    streamCache[key] = signedPlaybackUrl;
+    // Generates: https://mstv.ghubtv1.workers.dev/iframe/02?token=...&expires=...
+    const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
+
+    // Store in cache with expiration timestamp (refresh token 1 minute before expiry)
+    streamCache[key] = {
+      url: signedPlaybackUrl,
+      expiresAt: expires - (1 * 60 * 1000) 
+    };
+
     return signedPlaybackUrl;
   } catch (e) {
     console.error("Failed to generate secure worker signature token:", e);
     return null;
   }
   }
-
 function attemptOpenInApp(url, onFail) {
   let settled = false;
   const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);

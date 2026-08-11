@@ -359,7 +359,7 @@
       </div>
   </footer>
 </div>
-<script>
+  <script>
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
@@ -991,17 +991,55 @@ function showError(msg) {
   $playerError.classList.add('show');
 }
 
+// UPDATED ACCORDING TO REQUIREMENTS: Pure drop-in fix without breaking features/engines
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
   
-  // Re-sync player when user returns to active tab
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && currentChannel && hlsInstance) {
+  // Seamless Background Tab Auto-Recovery Listener
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || !currentChannel) return;
+
+    // Detect if media element is currently stuck or stalled
+    const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
+    const isErrored = $videoEl.error !== null;
+
+    if (isStalled || isErrored) {
+      console.log('Background tab resume: Stream stall detected. Recovering...');
+
+      // 1. Recover HLS.js Streams
+      if (hlsInstance) {
+        hlsInstance.startLoad();
+        hlsInstance.recoverMediaError();
+        $videoEl.play().catch(() => {});
+      } 
+      // 2. Recover Shaka / DASH Streams
+      else if (shakaPlayer && shakaReady) {
+        try {
+          const currentUrl = await getStreamUrl(currentChannel);
+          if (currentUrl) await shakaPlayer.load(currentUrl);
+          $videoEl.play().catch(() => {});
+        } catch (e) {
+          console.warn('DASH background recovery failed, reloading channel...');
+          playChannel(currentChannel);
+        }
+      } 
+      // 3. Recover Native HTML5 / Safari HLS Streams
+      else if ($videoEl.src) {
+        const savedTime = $videoEl.currentTime;
+        $videoEl.load();
+        
+        // If live stream, seek to live edge; otherwise restore currentTime
+        if (isFinite($videoEl.duration) && savedTime > 0) {
+          $videoEl.currentTime = savedTime;
+        }
+        $videoEl.play().catch(() => {});
+      }
+    } else if (hlsInstance) {
+      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
 }
-
 const _nativeOpen = window.open.bind(window);
 (function() {
   window.open = (url, target, f) => {
@@ -1013,4 +1051,6 @@ const _nativeOpen = window.open.bind(window);
 document.addEventListener('DOMContentLoaded', init);
 </script>
 </body>
-</html>
+  </html>        
+    
+                

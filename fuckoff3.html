@@ -1,0 +1,178 @@
+
+
+
+<script>
+    const channels = {
+      "1":"https://gigabitcdn.net"
+    };
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const channelId = urlParams.get('ch');
+    const directUrl = urlParams.get('url');
+
+    const container = document.getElementById('player-container');
+    const loader = document.getElementById('loading-overlay');
+
+    let loaderHidden = false;
+    function hideLoader() {
+      if (loaderHidden) return;
+      loaderHidden = true;
+      loader.classList.add('hide-loader');
+    }
+    
+    function armFallbackTimeout(ms = 15000) {
+      setTimeout(hideLoader, ms);
+    }
+
+    function isYouTubeUrl(url) {
+      return /(?:youtube\.com|youtu\.be)/i.test(url);
+    }
+
+    // UPDATED: Removed mute=1 so YouTube plays unmuted
+    function toYouTubeEmbed(url) {
+      try {
+        const u = new URL(url);
+        if (u.pathname.startsWith('/embed/')) {
+          u.searchParams.set('autoplay', '1');
+          u.searchParams.delete('mute'); // Remove mute restriction
+          return u.toString();
+        }
+        let videoId = u.searchParams.get('v');
+        if (!videoId && u.hostname.includes('youtu.be')) {
+          videoId = u.pathname.slice(1);
+        }
+        if (videoId) {
+          return `https://youtube.com{videoId}?autoplay=1`;
+        }
+        return url;
+      } catch (e) {
+        return url;
+      }
+    }
+
+    function isDashUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.mpd');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.mpd');
+      }
+    }
+
+    function isHlsUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.m3u8');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.m3u8');
+      }
+    }
+
+    // UPDATED: Removed video.muted = true
+    function playHls(streamUrl) {
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.setAttribute('playsinline', '');
+      container.appendChild(video);
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({ lowLatencyMode: true });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        video.addEventListener('playing', hideLoader);
+        video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+
+        hls.on(Hls.Events.ERROR, function (event, data) {
+          if (data.fatal) {
+            hideLoader();
+            container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamUrl;
+        video.addEventListener('playing', hideLoader);
+        video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+        video.addEventListener('error', () => {
+          hideLoader();
+          container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+        });
+      } else {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>HLS not supported on this browser</h2></div>`;
+      }
+    }
+
+    // UPDATED: Removed video.muted = true
+    function playDash(streamUrl) {
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.setAttribute('playsinline', '');
+      container.appendChild(video);
+
+      video.addEventListener('playing', hideLoader);
+      video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+
+      if (window.dashjs) {
+        const dashPlayer = dashjs.MediaPlayer().create();
+        dashPlayer.initialize(video, streamUrl, true);
+        dashPlayer.on(dashjs.MediaPlayer.events.ERROR, function (e) {
+          hideLoader();
+          container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+        });
+      } else {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>DASH library failed to load</h2></div>`;
+      }
+    }
+
+    function playIframe(streamUrl) {
+      let finalUrl = streamUrl;
+      if (isYouTubeUrl(streamUrl)) {
+        finalUrl = toYouTubeEmbed(streamUrl);
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.src = finalUrl;
+      iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+      iframe.setAttribute('allowfullscreen', '');
+      container.appendChild(iframe);
+
+      iframe.addEventListener('load', hideLoader);
+      iframe.addEventListener('error', () => {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>Failed to load embedded content</h2></div>`;
+      });
+
+      armFallbackTimeout(8000);
+    }
+
+    function resolveStream(streamUrl) {
+      if (!streamUrl) {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>Invalid stream URL</h2></div>`;
+        return;
+      }
+
+      armFallbackTimeout(15000);
+
+      if (isHlsUrl(streamUrl)) {
+        playHls(streamUrl);
+      } else if (isDashUrl(streamUrl)) {
+        playDash(streamUrl);
+      } else {
+        playIframe(streamUrl);
+      }
+    }
+
+    if (channelId && channels[channelId]) {
+      resolveStream(channels[channelId]);
+    } else if (directUrl) {
+      resolveStream(decodeURIComponent(directUrl));
+    } else {
+      hideLoader();
+      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2><p>Use ?ch=1 or ?url=https://...</p></div>`;
+    }
+</script>

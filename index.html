@@ -363,11 +363,25 @@
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Stream URLs are read directly from streamdata.json in this repository.
-// No Cloudflare Worker is used to resolve stream URLs.
+// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
+window.SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
+const SECRET_KEY = window.SECRET_KEY;
+
+// Primary and Backup Workers for Load Balancing / Multi-Account Failover
+const WORKER_ENDPOINTS = [
+  "https://stream-proxy.cabletv.workers.dev",
+  "https://backup.mstvindianetworkusa.workers.dev"
+];
+
+// Select a random worker to distribute request load evenly across accounts
+function getActiveWorkerUrl() {
+  const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
+  return WORKER_ENDPOINTS[randomIndex];
+}
+
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = './channels2.json';
+const JSON_URL      = './streamdata.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -405,7 +419,7 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Strict Mobile Detector (Phone check: Excludes PCs, Laptops, and Tablets)
+// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
@@ -425,26 +439,54 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Gets the stream URL directly from the channel object loaded from streamdata.json.
- * The JSON must contain a "url" field for each playable channel.
+ * Native helper function to calculate SHA-256 HMAC tokens inside browser
+ */
+async function createBrowserHmac(message, secret) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
+  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Generates stream URL using Worker selection and simplified token verification
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
-  // Return cached URL if previously resolved in this session.
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  const streamUrl = typeof channel.url === 'string' ? channel.url.trim() : '';
+  // If the channel has a direct URL (like an iframe embed or external player link), use it directly!
+  if (channel.url && typeof channel.url === 'string') {
+    streamCache[key] = channel.url.trim();
+    return streamCache[key];
+  }
 
-  if (!streamUrl) {
-    console.warn(`No stream URL found in streamdata.json for "${channel.name}".`);
+  if (!channel.id) {
+    console.warn(`No target channel ID found in data structure for "${channel.name}".`);
     return null;
   }
 
-  streamCache[key] = streamUrl;
-  return streamUrl;
+  try {
+    const expires = Date.now() + (10 * 60 * 1000); 
+    const verificationString = `${channel.id}|${expires}`;
+    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
+    
+    const workerBaseUrl = getActiveWorkerUrl();
+    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
+
+    streamCache[key] = signedPlaybackUrl;
+    return signedPlaybackUrl;
+  } catch (e) {
+    console.error("Failed to generate secure worker signature token:", e);
+    return null;
+  }
 }
 
 function attemptOpenInApp(url, onFail) {
@@ -478,7 +520,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.7.6/shaka-player.compiled.min.js');
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -526,9 +568,10 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(JSON_URL + '?t=' + Date.now(), { 
+    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
+    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
-      cache: 'no-store',
+      cache: 'reload',
       headers: {
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
@@ -546,6 +589,10 @@ async function loadChannels(silent) {
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
     
     lastJsonRaw = text;
+
+    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
+    Object.keys(streamCache).forEach(key => delete streamCache[key]);
+
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
@@ -555,8 +602,7 @@ async function loadChannels(silent) {
     if (e.name === 'AbortError') return;
     $updateText.textContent = 'Error';
   }
-}
-
+      }
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
@@ -644,7 +690,7 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
-  const topShift = ch.cropTop || '-72px';
+  const topShift = ch.cropTop || '-42px';
   const leftShift = ch.cropLeft || '35px';
   const zoomLevel = ch.cropZoom || '80%';
   const title = esc(ch.name);
@@ -685,7 +731,6 @@ function openPopUpStream(ch, targetUrl) {
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
     .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
     
-    /* ALIGNER TOOL CONTAINER */
     #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
     #alignerPanel.active { display: block; }
     .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
@@ -790,7 +835,6 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.focus();
 }
 
-
 async function playChannel(ch) {
   if (!ch) return;
   currentChannel = ch;
@@ -806,11 +850,9 @@ async function playChannel(ch) {
 
   const type = (ch.type || '').toLowerCase();
 
-  // STAGE 1: Check mobile enforcement directly from JSON configuration
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
     
-    // Default fallback message if not defined in JSON
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
@@ -821,14 +863,12 @@ async function playChannel(ch) {
     }
   }
 
-  // STAGE 2: Get stream URL directly from streamdata.json
   const streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
     showError("Failed to fetch secure stream URL");
     return;
   }
 
-  // STAGE 3: Launch Pop-up stream if allowed
   if (type === 'popup' || ch.popup === true) {
     showLoader(false);
     $videoEl.style.display = $iframeEl.style.display = 'none';
@@ -883,11 +923,30 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
+// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-    hlsInstance.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) showError('HLS error'); });
+    
+    // Auto-recover from background tab throttling & network errors
+    hlsInstance.on(Hls.Events.ERROR, (e, d) => {
+      if (d.fatal) {
+        switch (d.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hlsInstance.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hlsInstance.recoverMediaError();
+            break;
+          default:
+            if (currentChannel) playChannel(currentChannel);
+            else showError('HLS error');
+            break;
+        }
+      }
+    });
+
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia($videoEl);
@@ -934,6 +993,13 @@ function showError(msg) {
 
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  
+  // Re-sync player when user returns to active tab
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && currentChannel && hlsInstance) {
+      hlsInstance.startLoad();
+    }
+  });
 }
 
 const _nativeOpen = window.open.bind(window);
@@ -945,7 +1011,6 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-  </script>        
-
+</script>
 </body>
 </html>

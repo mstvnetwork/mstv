@@ -911,24 +911,27 @@ async function playChannel(ch) {
     return;
   }
 
-  if (type === 'iframe') {
+if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
     
-    // RESTORED: Dynamic attribute application matching original behavior
-    $iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media');
+    // UPDATED: Explicitly pass feature policy with wildcard allow permissions
+    $iframeEl.setAttribute('allow', 'fullscreen *; autoplay; encrypted-media; picture-in-picture');
     $iframeEl.setAttribute('allowfullscreen', 'true');
+    $iframeEl.setAttribute('webkitallowfullscreen', 'true');
+    $iframeEl.setAttribute('mozallowfullscreen', 'true');
 
     if (ch.sandboxed !== false) {
       $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     } else {
-      $iframeEl.removeAttribute('sandbox');
+      // FIX: Maintain allow-fullscreen even if channel sandbox toggle is set to false
+      $iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen');
     }
 
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
-  } else if (isDashStream(type, streamUrl)) {
+}else if (isDashStream(type, streamUrl)) {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';
     await playDASH(streamUrl);

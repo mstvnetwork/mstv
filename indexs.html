@@ -370,7 +370,6 @@ const SECRET_KEY = window.SECRET_KEY;
 // Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
   "https://mstv.ghubtv1.workers.dev/"
-  
 ];
 
 // Select a random worker to distribute request load evenly across accounts
@@ -480,7 +479,10 @@ async function getStreamUrl(channel) {
     const rawWorkerUrl = typeof getActiveWorkerUrl === 'function' ? getActiveWorkerUrl() : "https://mstv.ghubtv1.workers.dev";
     const workerBaseUrl = rawWorkerUrl.replace(/\/+$/, '');
     
-    const endpointType = (channel.type === 'iframe') ? 'iframe' : 'hls';
+    // Check type OR stream extension to decide route
+    const rawType = String(channel.type || '').toLowerCase();
+    const isIframeRoute = rawType === 'iframe' || channel.popup === true;
+    const endpointType = isIframeRoute ? 'iframe' : 'hls';
 
     // Generates: https://mstv.ghubtv1.workers.dev/iframe/02?token=...&expires=...
     const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
@@ -496,7 +498,8 @@ async function getStreamUrl(channel) {
     console.error("Failed to generate secure worker signature token:", e);
     return null;
   }
-  }
+}
+
 function attemptOpenInApp(url, onFail) {
   let settled = false;
   const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);
@@ -576,10 +579,11 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
-    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
+    // Aggressive Cache Busting: Force immediate network request on every poll
+    const cacheBuster = `nocache=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const res = await fetch(`${JSON_URL}?${cacheBuster}`, { 
       signal: fetchController.signal, 
-      cache: 'reload',
+      cache: 'no-store',
       headers: {
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
@@ -598,19 +602,32 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
 
-    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
+    // Purge local memory cache on JSON change
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
+    // Real-time synchronization: Re-sync active channel if modified in live JSON
+    if (currentChannel) {
+      const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
+      if (updatedChannel) {
+        const urlOrTypeChanged = (updatedChannel.type !== currentChannel.type) || (updatedChannel.id !== currentChannel.id);
+        currentChannel = updatedChannel;
+        if (urlOrTypeChanged) {
+          playChannel(currentChannel);
+        }
+      }
+    }
+
     fullRender();
     updateTimestamp();
   } catch (e) {
     if (e.name === 'AbortError') return;
-    $updateText.textContent = 'Error';
+    $updateText.textContent = 'Sync Error';
   }
-      }
+}
+
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);

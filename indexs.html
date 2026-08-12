@@ -319,7 +319,7 @@
         <div id="playerError" role="alert"><p id="playerErrorMsg">Stream error</p></div>
 
         <video id="videoEl" controls playsinline preload="none"></video>
-        <iframe id="iframeEl" allow="autoplay; fullscreen; encrypted-media" allowfullscreen title="Stream player"></iframe>
+        <iframe id="iframeEl" allowfullscreen="true" allow="fullscreen; autoplay; encrypted-media"></iframe>
       </div>
     </div>
   </main>
@@ -359,30 +359,27 @@
       </div>
   </footer>
 </div>
-   <script>
-const CURRENT_VERSION = "v2.5.1"; 
+<script>
+const CURRENT_VERSION = "v2.5.2"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
 window.SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
 const SECRET_KEY = window.SECRET_KEY;
 
-// Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
   "https://mstv.ghubtv1.workers.dev/"
 ];
 
-// Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
   const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
   return WORKER_ENDPOINTS[randomIndex];
 }
 
-const streamCache = {}; // Local memory cache
-
+const streamCache = {}; 
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
-// Included allow-fullscreen to restore full-screen player controls in iframe embeds
+
+// RESTORED: Explicit allow-fullscreen permission inside sandbox policy string
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen';
 
 const CATEGORY_CONFIG = [];
@@ -419,7 +416,6 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
@@ -438,9 +434,6 @@ const isIOS = (() => {
 
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
-/**
- * Native helper function to calculate SHA-256 HMAC tokens inside browser
- */
 async function createBrowserHmac(message, secret) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -452,13 +445,9 @@ async function createBrowserHmac(message, secret) {
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Generates stream URL using Worker selection and simplified token verification
- */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
-  // Check cache AND ensure the cached token hasn't expired
   if (streamCache[key] && streamCache[key].expiresAt > Date.now()) {
     return streamCache[key].url;
   }
@@ -469,26 +458,22 @@ async function getStreamUrl(channel) {
   }
 
   try {
-    const secret = window.SECRET_KEY || "588da2fe1811a0f130f72f68400d0d3a"; // Fallback to worker default
-    const expires = Date.now() + (10 * 60 * 1000); // 10 minute token validity
-    const formattedId = String(channel.id).padStart(2, '0'); // Formats "1" as "01"
+    const secret = window.SECRET_KEY || "588da2fe1811a0f130f72f68400d0d3a";
+    const expires = Date.now() + (10 * 60 * 1000);
+    const formattedId = String(channel.id).padStart(2, '0');
     
     const verificationString = `${formattedId}|${expires}`;
     const secureToken = await createBrowserHmac(verificationString, secret);
     
-    // Clean worker base URL to avoid double slashes
     const rawWorkerUrl = typeof getActiveWorkerUrl === 'function' ? getActiveWorkerUrl() : "https://mstv.ghubtv1.workers.dev";
     const workerBaseUrl = rawWorkerUrl.replace(/\/+$/, '');
     
-    // Check type OR stream extension to decide route
     const rawType = String(channel.type || '').toLowerCase();
     const isIframeRoute = rawType === 'iframe' || channel.popup === true;
     const endpointType = isIframeRoute ? 'iframe' : 'hls';
 
-    // Generates: https://mstv.ghubtv1.workers.dev/iframe/02?token=...&expires=...
     const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
 
-    // Store in cache with expiration timestamp (refresh token 1 minute before expiry)
     streamCache[key] = {
       url: signedPlaybackUrl,
       expiresAt: expires - (1 * 60 * 1000) 
@@ -580,7 +565,6 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    // Aggressive Cache Busting: Force immediate network request on every poll
     const cacheBuster = `nocache=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const res = await fetch(`${JSON_URL}?${cacheBuster}`, { 
       signal: fetchController.signal, 
@@ -603,13 +587,11 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
 
-    // Purge local memory cache on JSON change
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
-    // Real-time synchronization: Re-sync active channel if modified in live JSON
     if (currentChannel) {
       const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
       if (updatedChannel) {
@@ -775,7 +757,8 @@ function openPopUpStream(ch, targetUrl) {
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+      <!-- RESTORED: Explicit allow fullscreen directives in popup container -->
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allow="fullscreen; autoplay; encrypted-media" allowfullscreen="true"></iframe>
     </div>
     
     ${isPrivate ? `
@@ -932,7 +915,7 @@ async function playChannel(ch) {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
     
-    // Explicitly grant full-screen, autoplay, and encrypted media permissions
+    // RESTORED: Dynamic attribute application matching original behavior
     $iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media');
     $iframeEl.setAttribute('allowfullscreen', 'true');
 
@@ -958,13 +941,11 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
     
-    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -1029,7 +1010,6 @@ function showError(msg) {
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
   
-  // Re-sync player when user returns to active tab
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && currentChannel && hlsInstance) {
       hlsInstance.startLoad();
@@ -1046,7 +1026,6 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-  </script>   
- 
+</script>
 </body>
 </html>

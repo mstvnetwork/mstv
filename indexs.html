@@ -382,7 +382,7 @@ const streamCache = {}; // Local memory cache
 
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
-const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen';
 
 const CATEGORY_CONFIG = [];
 
@@ -927,14 +927,25 @@ async function playChannel(ch) {
     return;
   }
 
-  if (type === 'iframe') {
+if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
-    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
-    else $iframeEl.removeAttribute('sandbox');
+    
+    // Ensure full-screen permissions and sandboxing
+    $iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media');
+    $iframeEl.setAttribute('allowfullscreen', 'true');
+
+    if (ch.sandboxed !== false) {
+      // Added 'allow-fullscreen' to the sandbox permissions list
+      $iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen');
+    } else {
+      $iframeEl.removeAttribute('sandbox');
+    }
+
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
+  }
   } else if (isDashStream(type, streamUrl)) {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';

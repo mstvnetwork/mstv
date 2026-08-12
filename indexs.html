@@ -359,8 +359,8 @@
       </div>
   </footer>
 </div>
-<script>
-const CURRENT_VERSION = "v2.5.0"; 
+   <script>
+const CURRENT_VERSION = "v2.5.1"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
 // Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
@@ -382,8 +382,8 @@ const streamCache = {}; // Local memory cache
 
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
-const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
-
+// Included allow-fullscreen to restore full-screen player controls in iframe embeds
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen';
 
 const CATEGORY_CONFIG = [];
 
@@ -928,13 +928,20 @@ async function playChannel(ch) {
     return;
   }
 
-if (type === 'iframe') {
-    $videoEl.style.display = 'none';
-if (type === 'iframe') {
+  if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
-    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
-    else $iframeEl.removeAttribute('sandbox');
+    
+    // Explicitly grant full-screen, autoplay, and encrypted media permissions
+    $iframeEl.setAttribute('allow', 'fullscreen; autoplay; encrypted-media');
+    $iframeEl.setAttribute('allowfullscreen', 'true');
+
+    if (ch.sandboxed !== false) {
+      $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+    } else {
+      $iframeEl.removeAttribute('sandbox');
+    }
+
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
@@ -1039,6 +1046,7 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-</script>
+  </script>   
+ 
 </body>
 </html>

@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- FIX: Prevents your page from sending a 'Referer' header to CloudFront -->
+  <meta name="referrer" content="no-referrer">
+  <title>Auto-Detect Stream Player</title>
+
+  <style>
+    body, html {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #000;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    #player-container {
+      width: 100%; height: 100%;
+      display: flex; justify-content: center; align-items: center;
+      position: relative;
+    }
+    iframe, video {
+      width: 100%; height: 100%; border: none; background: #000;
+    }
+    .error-msg { color: #fff; text-align: center; padding: 20px; }
+
+    #loading-overlay {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: #000000;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 999;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    .spinner {
+      width: 50px; height: 50px;
+      border: 3px solid rgba(255, 235, 59, 0.1);
+      border-radius: 50%;
+      border-top-color: #FFEB3B;
+      animation: spin 0.8s linear infinite;
+      box-shadow: 0 0 15px rgba(255, 235, 59, 0.2);
+    }
+    .loading-text {
+      color: #FFEB3B; margin-top: 16px; font-size: 14px;
+      font-weight: 500; letter-spacing: 1.5px; text-transform: uppercase;
+    }
+    .hide-loader { opacity: 0; visibility: hidden; pointer-events: none; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
+  <script src="https://cdn.dashjs.org/latest/dash.all.min.js"></script>
+</head>
+<body>
+
+  <div id="player-container">
+    <div id="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Please Wait.....</div>
+    </div>
+  </div>
+
+  <script>
+    const channels = {
+      "103": "https://da86m1sqpm3o0.cloudfront.net/28072023/smil:mtvindia.smil/chunklist_b1928000.m3u8"   
+    };
+    const urlParams = new URLSearchParams(window.location.search);
+    const channelId = urlParams.get('ch');
+    const directUrl = urlParams.get('url');
+
+    const container = document.getElementById('player-container');
+    const loader = document.getElementById('loading-overlay');
+
+    let loaderHidden = false;
+    function hideLoader() {
+      if (loaderHidden) return;
+      loaderHidden = true;
+      loader.classList.add('hide-loader');
+    }
+    
+    function armFallbackTimeout(ms = 15000) {
+      setTimeout(hideLoader, ms);
+    }
+
+    function isYouTubeUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.hostname.includes('youtube.com') || u.hostname.includes('youtu.be');
+      } catch (e) {
+        return url.includes('youtube.com') || url.includes('youtu.be');
+      }
+    }
+
+    function toYouTubeEmbed(url) {
+      try {
+        const u = new URL(url);
+        if (u.pathname.startsWith('/embed/')) {
+          u.searchParams.set('autoplay', '1');
+          u.searchParams.delete('mute'); 
+          return u.toString();
+        }
+        let videoId = u.searchParams.get('v');
+        if (!videoId && u.hostname.includes('youtu.be')) {
+          videoId = u.pathname.slice(1);
+        }
+        if (videoId) {
+          return `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+        }
+        return url;
+      } catch (e) {
+        return url;
+      }
+    }
+
+    function isDashUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.mpd');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.mpd');
+      }
+    }
+
+    function isHlsUrl(url) {
+      try {
+        const u = new URL(url);
+        return u.pathname.toLowerCase().endsWith('.m3u8');
+      } catch (e) {
+        return url.split('?')[0].toLowerCase().endsWith('.m3u8');
+      }
+    }
+
+    function playHls(streamUrl) {
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.setAttribute('playsinline', '');
+      container.appendChild(video);
+
+      if (Hls.isSupported()) {
+        // FIX: Advanced network configuration to bypass CloudFront routing checks
+        const hls = new Hls({ 
+          lowLatencyMode: true,
+          xhrSetup: function(xhr, url) {
+            xhr.withCredentials = false; // Prevents cookie-based site cross-tracking
+          }
+        });
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        video.addEventListener('playing', hideLoader);
+        video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+
+        hls.on(Hls.Events.ERROR, function (event, data) {
+          if (data.fatal) {
+            hideLoader();
+            container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = streamUrl;
+        video.addEventListener('playing', hideLoader);
+        video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+        video.addEventListener('error', () => {
+          hideLoader();
+          container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+        });
+      } else {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>HLS not supported on this browser</h2></div>`;
+      }
+    }
+
+    function playDash(streamUrl) {
+      const video = document.createElement('video');
+      video.controls = true;
+      video.autoplay = true;
+      video.setAttribute('playsinline', '');
+      container.appendChild(video);
+
+      video.addEventListener('playing', hideLoader);
+      video.addEventListener('loadedmetadata', () => setTimeout(hideLoader, 1000));
+
+      if (window.dashjs) {
+        const dashPlayer = dashjs.MediaPlayer().create();
+        dashPlayer.initialize(video, streamUrl, true);
+        dashPlayer.on(dashjs.MediaPlayer.events.ERROR, function (e) {
+          hideLoader();
+          container.innerHTML = `<div class="error-msg"><h2>Playback Failure</h2></div>`;
+        });
+      } else {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>DASH library failed to load</h2></div>`;
+      }
+    }
+
+    function playIframe(streamUrl) {
+      let finalUrl = streamUrl;
+      if (isYouTubeUrl(streamUrl)) {
+        finalUrl = toYouTubeEmbed(streamUrl);
+      }
+
+      const iframe = document.createElement('iframe');
+      iframe.src = finalUrl;
+      // FIX: Clean attributes to prevent sandbox policy collision
+      iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+      iframe.setAttribute('allowfullscreen', 'true');
+      container.appendChild(iframe);
+
+      iframe.addEventListener('load', hideLoader);
+      iframe.addEventListener('error', () => {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>Failed to load embedded content</h2></div>`;
+      });
+
+      armFallbackTimeout(8000);
+    }
+
+    function resolveStream(streamUrl) {
+      if (!streamUrl) {
+        hideLoader();
+        container.innerHTML = `<div class="error-msg"><h2>Invalid stream URL</h2></div>`;
+        return;
+      }
+
+      armFallbackTimeout(15000);
+
+      if (isHlsUrl(streamUrl)) {
+        playHls(streamUrl);
+      } else if (isDashUrl(streamUrl)) {
+        playDash(streamUrl);
+      } else {
+        playIframe(streamUrl);
+      }
+    }
+
+    if (channelId && channels[channelId]) {
+      resolveStream(channels[channelId]);
+    } else if (directUrl) {
+      resolveStream(decodeURIComponent(directUrl));
+    } else {
+      hideLoader();
+      container.innerHTML = `<div class="error-msg"><h2>Invalid Channel ID</h2><p>Use ?ch=1 or ?url=https://...</p></div>`;
+    }
+  </script>
+
+</body>
+</html>

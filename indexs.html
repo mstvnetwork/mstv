@@ -481,7 +481,9 @@ async function getStreamUrl(channel) {
     const workerBaseUrl = rawWorkerUrl.replace(/\/+$/, '');
     
     const rawType = String(channel.type || '').toLowerCase();
-    const isIframeRoute = rawType === 'iframe' || channel.popup === true;
+    
+    // UPDATED: Include DASH channels to request iframe endpoint seamlessly
+    const isIframeRoute = rawType === 'iframe' || rawType === 'dash' || channel.popup === true;
     const endpointType = isIframeRoute ? 'iframe' : 'hls';
 
     const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
@@ -529,7 +531,10 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
+      // UPDATED: Point to official compiled Shaka Player CDN
+      if (typeof shaka === 'undefined') {
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js');
+      }
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -769,7 +774,6 @@ function openPopUpStream(ch, targetUrl) {
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <!-- RESTORED: Explicit allow fullscreen directives in popup container -->
       <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allow="fullscreen; autoplay; encrypted-media" allowfullscreen="true"></iframe>
     </div>
     
@@ -923,11 +927,12 @@ async function playChannel(ch) {
     return;
   }
 
-if (type === 'iframe') {
+  // UPDATED: Route both iframe and external DASH embed streams smoothly to $iframeEl
+  if (type === 'iframe' || type === 'dash') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
     
-    // UPDATED: Explicitly pass feature policy with wildcard allow permissions
+    // Explicit feature policies allowing seamless media execution inside iframe
     $iframeEl.setAttribute('allow', 'fullscreen *; autoplay; encrypted-media; picture-in-picture');
     $iframeEl.setAttribute('allowfullscreen', 'true');
     $iframeEl.setAttribute('webkitallowfullscreen', 'true');
@@ -936,17 +941,12 @@ if (type === 'iframe') {
     if (ch.sandboxed !== false) {
       $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     } else {
-      // FIX: Maintain allow-fullscreen even if channel sandbox toggle is set to false
       $iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen');
     }
 
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
-}else if (isDashStream(type, streamUrl)) {
-    $iframeEl.style.display = 'none';
-    $videoEl.style.display = 'block';
-    await playDASH(streamUrl);
   } else {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';
@@ -998,6 +998,7 @@ async function playDASH(url) {
     showLoader(false);
     $videoEl.play().catch(()=>{});
   } catch (e) {
+    console.error("Shaka DASH Error:", e);
     showError('DASH error: Stream unavailable');
   }
 }
@@ -1042,5 +1043,6 @@ const _nativeOpen = window.open.bind(window);
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
+
 </body>
 </html>

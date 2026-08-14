@@ -102,176 +102,721 @@
 
   <footer id="footer">© 2026 MSTV Network</footer>
 </div>
-
 <script>
-const SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
-const WORKER_BASE = "https://mstv.ghubtv1.workers.dev";
-const JSON_URL = './streamdata2.json';
+const CURRENT_VERSION = "v2.5.0"; 
 
-// Inline fallback SVG to resolve via.placeholder.com ERR_CONNECTION_CLOSED
-const FALLBACK_LOGO = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 36 36'><rect width='36' height='36' fill='%230f1220'/><text x='50%' y='50%' font-size='12' fill='%238790ac' dominant-baseline='middle' text-anchor='middle'>TV</text></svg>";
+// ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
+// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
+window.SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
+const SECRET_KEY = window.SECRET_KEY;
+
+// Primary and Backup Workers for Load Balancing / Multi-Account Failover
+const WORKER_ENDPOINTS = [
+  "https://stream-proxy.cabletv.workers.dev",
+  "https://backup.mstvindianetworkusa.workers.dev"
+];
+
+// Select a random worker to distribute request load evenly across accounts
+function getActiveWorkerUrl() {
+  const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
+  return WORKER_ENDPOINTS[randomIndex];
+}
+
+const streamCache = {}; // Local memory cache
+
+const JSON_URL      = './streamdata2.json';
+const POLL_INTERVAL = 1500;
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
+
+const CATEGORY_CONFIG = [];
 
 let channels = [], filteredChannels = [], currentChannel = null;
-let searchQuery = '', activeCategory = 'All', hlsInstance = null, dashInstance = null;
+let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
+
+let mstvPopupWindow = null;
 
 const $searchInput = document.getElementById('searchInput');
 const $channelList = document.getElementById('channelList');
 const $channelCount = document.getElementById('channelCount');
-const $categoryBar = document.getElementById('categoryBar');
 const $videoEl = document.getElementById('videoEl');
 const $iframeEl = document.getElementById('iframeEl');
 const $playerPlaceholder = document.getElementById('playerPlaceholder');
 const $playerLoader = document.getElementById('playerLoader');
+const $playerError = document.getElementById('playerError');
+const $playerErrorMsg = document.getElementById('playerErrorMsg');
+const $httpNotice = document.getElementById('httpNotice');
+const $httpOpenBtn = document.getElementById('httpOpenBtn');
+const $httpDesc = document.getElementById('httpDesc');
+const $dashNotice = document.getElementById('dashNotice');
+const $dashChName = document.getElementById('dashChName');
+const $dashFallbackBlock = document.getElementById('dashFallbackBlock');
+const $dashRetryBtn = document.getElementById('dashRetryBtn');
+const $dashCopyBtn = document.getElementById('dashCopyBtn');
 const $nowPlayingBar = document.getElementById('nowPlayingBar');
 const $npName = document.getElementById('npName');
+const $updateText = document.getElementById('updateText');
+const $categoryBar = document.getElementById('categoryBar');
 
+const chKey = ch => ch.id || ch.name;
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const isHttp = u => /^http:\/\//i.test((u||'').trim());
+const catOf = ch => (ch.category || 'General').trim();
 
+// Strict Mobile Detector
+const isStrictMobile = () => {
+  const ua = navigator.userAgent || '';
+  const isMobileUA = /Android|iPhone|iPod/i.test(ua);
+  const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
+  const maxDimension = Math.max(window.screen.width, window.screen.height);
+
+  return isMobileUA && !isTabletUA && maxDimension < 1024;
+};
+
+const isIOS = (() => {
+  const ua = navigator.userAgent || '';
+  const isAppleMobile = /iPad|iPhone|iPod/.test(ua);
+  const isiPadOS = (navigator.platform === 'MacIntel' || navigator.platform === 'Macintosh') && navigator.maxTouchPoints > 0;
+  return isAppleMobile || isiPadOS;
+})();
+
+const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
+
+/**
+ * Native helper function to calculate SHA-256 HMAC tokens inside browser
+ */
 async function createBrowserHmac(message, secret) {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const key = await crypto.subtle.importKey(
+    "raw", enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false, ["sign"]
+  );
   const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function getSignedWorkerUrl(id, route = 'iframe') {
-  const expires = Date.now() + (10 * 60 * 1000); 
-  const verificationString = `${id}|${expires}`;
-  const token = await createBrowserHmac(verificationString, SECRET_KEY);
-  return `${WORKER_BASE}/${route}/${id}?token=${token}&expires=${expires}`;
-}
+/**
+ * FEATURE 2 MODIFICATION:
+ * Generates stream URL directly from Worker if no direct "url" field is set in JSON.
+ */
+async function getStreamUrl(channel) {
+  const key = channel.id || channel.name;
 
-async function init() {
+  if (streamCache[key]) {
+    return streamCache[key];
+  }
+
+  // If explicit external stream/iframe URL is defined in JSON, use it
+  if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== "") {
+    streamCache[key] = channel.url.trim();
+    return streamCache[key];
+  }
+
+  // Fallback: Fetch directly from Workers if "url" is absent in streamdata2.json
+  const channelIdentifier = channel.id || channel.name;
+  if (!channelIdentifier) {
+    console.warn(`No target channel ID/Name found in data structure for "${channel.name}".`);
+    return null;
+  }
+
   try {
-    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    channels = await res.json();
-    fullRender();
-    bindEvents();
+    const expires = Date.now() + (10 * 60 * 1000); 
+    const verificationString = `${channelIdentifier}|${expires}`;
+    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
+    
+    const workerBaseUrl = getActiveWorkerUrl();
+    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channelIdentifier}?token=${secureToken}&expires=${expires}`;
+
+    streamCache[key] = signedPlaybackUrl;
+    return signedPlaybackUrl;
   } catch (e) {
-    console.error("Failed to load channels:", e);
+    console.error("Failed to generate secure worker signature token:", e);
+    return null;
   }
 }
 
-function fullRender() {
+function attemptOpenInApp(url, onFail) {
+  let settled = false;
+  const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);
+  const cleanup = () => {
+    document.removeEventListener('visibilitychange', onVis);
+    window.removeEventListener('blur', cleanup);
+  };
+  const onVis = () => { if (document.hidden) { settled = true; cleanup(); } };
+  document.addEventListener('visibilitychange', onVis);
+  window.addEventListener('blur', cleanup);
+  window.location.href = vlcUrl;
+  setTimeout(() => { cleanup(); if (!settled) onFail(); }, 1800);
+}
+
+function waitForHls() {
+  return new Promise(resolve => {
+    if (typeof Hls !== 'undefined') return resolve();
+    const c = setInterval(() => { if (typeof Hls !== 'undefined') { clearInterval(c); resolve(); } }, 50);
+  });
+}
+
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+}
+
+async function ensureShaka() {
+  if (shakaReady) return;
+  if (!shakaLoading) {
+    shakaLoading = (async () => {
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
+      shaka.polyfill.installAll();
+      shakaPlayer = new shaka.Player();
+      shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
+      await shakaPlayer.attach($videoEl);
+      shakaReady = true;
+    })();
+  }
+  return shakaLoading;
+}
+
+function updateChannelStructuredData(list) {
+  let node = document.getElementById('channel-itemlist-schema');
+  if (!node) {
+    node = document.createElement('script');
+    node.type = 'application/ld+json';
+    node.id = 'channel-itemlist-schema';
+    document.head.appendChild(node);
+  }
+
+  const items = (Array.isArray(list) ? list : [])
+    .filter(ch => ch && ch.name)
+    .slice(0, 100)
+    .map((ch, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: String(ch.name)
+    }));
+
+  node.textContent = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'MSTV Network Live TV Channels',
+    numberOfItems: items.length,
+    itemListElement: items
+  });
+}
+
+async function init() {
+  await loadChannels(false);
+  startPolling();
+  bindEvents();
+}
+
+/**
+ * FEATURE 1 MODIFICATION:
+ * Aggressive Cache-Buster logic for instant updates without page refresh.
+ */
+async function loadChannels(silent) {
+  if (fetchController) fetchController.abort();
+  fetchController = new AbortController();
+  try {
+    // Ultra-aggressive multi-tiered cache-busting string
+    const cacheBustQuery = `_cb=${Date.now()}_${Math.floor(Math.random() * 1000000)}_${performance.now()}`;
+    
+    const res = await fetch(`${JSON_URL}?${cacheBustQuery}`, { 
+      signal: fetchController.signal, 
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'If-Modified-Since': '0'
+      }
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+
+    if (text === lastJsonRaw) { 
+      updateTimestamp(); 
+      return; 
+    }
+    
+    let data = JSON.parse(text);
+    if (!Array.isArray(data)) data = data.channels || Object.values(data);
+    
+    lastJsonRaw = text;
+
+    // Flush memory cache on data change
+    Object.keys(streamCache).forEach(key => delete streamCache[key]);
+
+    channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
+    updateChannelStructuredData(channels);
+    
+    fullRender();
+    updateTimestamp();
+
+    // Hot-reload active playback metadata if current playing channel updated
+    if (currentChannel) {
+      const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
+      if (updatedChannel) {
+        currentChannel = updatedChannel;
+        updateNowPlaying(currentChannel);
+      }
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    $updateText.textContent = 'Error';
+  }
+}
+
+function startPolling() {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
+}
+
+function updateTimestamp() {
+  $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+
+function applyFilters() {
   const q = searchQuery.toLowerCase().trim();
   filteredChannels = channels.filter(ch => {
     const nameOk = !q || ch.name.toLowerCase().includes(q);
-    const catOk  = activeCategory === 'All' || (ch.category||'General').toLowerCase() === activeCategory.toLowerCase();
+    const catOk  = !activeCategory || activeCategory === 'All' || catOf(ch).toLowerCase() === activeCategory.toLowerCase();
     return nameOk && catOk;
   });
-  renderCategoryBar();
-  renderList();
-  $channelCount.textContent = filteredChannels.length + ' Channels';
 }
 
 function renderCategoryBar() {
   const counts = { All: channels.length };
-  channels.forEach(ch => { 
-    const c = ch.category || 'General'; 
-    counts[c] = (counts[c]||0) + 1; 
-  });
+  channels.forEach(ch => { const c = catOf(ch); counts[c] = (counts[c]||0) + 1; });
+  
+  const dynamicCats = Object.keys(counts).filter(c => !CATEGORY_CONFIG.some(item => item.id.toLowerCase() === c.toLowerCase()));
+  
+  const allCats = [
+    ...CATEGORY_CONFIG,
+    ...dynamicCats.map(c => ({ id: c, icon: '📺' }))
+  ];
 
-  $categoryBar.innerHTML = Object.keys(counts).map(cat => {
-    const isActive = activeCategory.toLowerCase() === cat.toLowerCase();
+  $categoryBar.innerHTML = allCats.map(item => {
+    const cat = item.id;
+    const count = counts[cat] || 0;
+    if (cat !== 'All' && count === 0) return '';
+    const isActive = activeCategory && activeCategory.toLowerCase() === cat.toLowerCase();
     return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}">
-      <span>📺 ${esc(cat)}</span> <span>(${counts[cat]})</span>
+      <span>${item.icon} ${esc(cat)}</span> <span class="cat-n">(${count})</span>
     </button>`;
   }).join('');
+  
+  $categoryBar.querySelectorAll('.cat-pill').forEach(btn => btn.addEventListener('click', () => {
+    activeCategory = btn.dataset.cat;
+    fullRender();
+  }));
+}
 
-  $categoryBar.querySelectorAll('.cat-pill').forEach(btn => {
-    btn.onclick = () => { activeCategory = btn.dataset.cat; fullRender(); };
-  });
+function fullRender() {
+  applyFilters();
+  renderCategoryBar();
+  renderList();
+  $channelCount.textContent = (filteredChannels.length + ' Channels');
 }
 
 function renderList() {
   if (!filteredChannels.length) {
-    $channelList.innerHTML = `<div style="padding:10px; font-size:12px; color:var(--dim)">No channels found</div>`;
+    $channelList.innerHTML = `<div class="empty-state">No channels found.</div>`;
     return;
   }
 
+  const activeKey = currentChannel ? chKey(currentChannel) : null;
   $channelList.innerHTML = filteredChannels.map((ch, i) => {
-    const isActive = currentChannel && currentChannel.id === ch.id;
+    const isActive = chKey(ch) === activeKey;
+    const instructionText = ch.instructions || ch.instruction || ch.note || '';
+    const instructionHtml = instructionText ? `<div class="row-instruction">${esc(instructionText)}</div>` : '';
+    
     return `<div class="channel-row${isActive?' active':''}" data-idx="${i}">
-      <img class="row-logo" src="${esc(ch.logo)}" onerror="this.onerror=null; this.src='${FALLBACK_LOGO}';">
+      ${logo(ch)}
       <div class="row-info">
-        <div class="row-name">${esc(ch.name)}</div>
-        <div class="row-cat">${esc(ch.category||'General')}</div>
+        <div class="row-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
+        <div class="row-cat">${esc(catOf(ch))}</div>
+        ${instructionHtml}
       </div>
     </div>`;
   }).join('');
 
   $channelList.querySelectorAll('.channel-row').forEach(el => {
-    el.onclick = () => playChannel(filteredChannels[+el.dataset.idx]);
+    el.addEventListener('click', () => playChannel(filteredChannels[+el.dataset.idx]));
   });
 }
 
+function logo(ch) {
+  return ch.logo
+    ? `<img class="row-logo" src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+       <div class="row-logo-fallback" style="display:none">📺</div>`
+    : `<div class="row-logo-fallback">📺</div>`;
+}
+
+function openPopUpStream(ch, targetUrl) {
+  const topShift = ch.cropTop || '-42px';
+  const leftShift = ch.cropLeft || '35px';
+  const zoomLevel = ch.cropZoom || '80%';
+  const title = esc(ch.name);
+  const safeTargetUrl = esc(targetUrl);
+  const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
+
+  const isPrivate = ch.access === 'private';
+  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
+
+  if (mstvPopupWindow && !mstvPopupWindow.closed) {
+    mstvPopupWindow.close();
+  }
+
+  mstvPopupWindow = _nativeOpen('about:blank', 'MSTVPopUpWindow', windowFeatures);
+
+  if (!mstvPopupWindow) {
+    alert('Pop-up was blocked by browser! Please allow pop-ups for this site.');
+    return;
+  }
+
+  const popupHtml = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} - MSTV Stream</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body, html { margin: 0; padding: 0; background: #06070b; color: #f2f4fb; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; width: 100%; height: 100vh; display: flex; flex-direction: column; }
+    .popup-header { height: 38px; background: #0f1220; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
+    .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
+    .align-btn { background: rgba(61, 242, 255, 0.15); color: #3df2ff; border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto; }
+    .align-btn:hover { background: #3df2ff; color: #000; }
+    .ticker-wrap { height: 24px; background: #000; border-bottom: 1px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; flex-shrink: 0; }
+    .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee 22s linear infinite; font-size: 11px; font-weight: 600; color: #3df2ff; }
+    @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+    .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
+    .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
+    .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
+    
+    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
+    #alignerPanel.active { display: block; }
+    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
+    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
+    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
+    .copy-btn:hover { background: #28cb7a; }
+  </style>
+</head>
+<body>
+  <header class="popup-header">
+    <span class="title">📺 ${title}</span>
+    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
+  </header>
+  <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
+  <div class="crop-viewport-wrapper">
+    <div class="crop-viewport">
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+    </div>
+    
+    ${isPrivate ? `
+    <div id="alignerPanel">
+      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
+        <span>Stream Aligner</span>
+        <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
+      </div>
+      <div class="zoom-controls">
+        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
+        <div>
+          <button id="btnZoomOut">-</button>
+          <button id="btnZoomIn">+</button>
+        </div>
+      </div>
+      <div class="align-grid">
+        <div></div><button id="btnUp">▲</button><div></div>
+        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
+        <div></div><button id="btnDown">▼</button><div></div>
+      </div>
+      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
+      <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
+    </div>` : ''}
+  </div>
+
+  <script>
+    (function() {
+      const isPrivate = ${isPrivate};
+      if (!isPrivate) return;
+
+      const iframe = document.getElementById('popFrame');
+      const panel = document.getElementById('alignerPanel');
+      const toggleBtn = document.getElementById('toggleAligner');
+      const closeBtn = document.getElementById('closeAligner');
+
+      let topVal = parseInt("${topShift}") || 0;
+      let leftVal = parseInt("${leftShift}") || 0;
+      let zoomVal = parseInt("${zoomLevel}") || 100;
+
+      function updateStyles() {
+        iframe.style.top = topVal + 'px';
+        iframe.style.left = leftVal + 'px';
+        iframe.style.width = zoomVal + '%';
+        iframe.style.height = zoomVal + '%';
+
+        document.getElementById('valTop').textContent = topVal + 'px';
+        document.getElementById('valLeft').textContent = leftVal + 'px';
+        document.getElementById('valZoom').textContent = zoomVal + '%';
+      }
+
+      if (toggleBtn) {
+        toggleBtn.onclick = () => panel.classList.toggle('active');
+      }
+      if (closeBtn) {
+        closeBtn.onclick = () => panel.classList.remove('active');
+      }
+
+      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
+      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
+      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
+      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
+      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
+
+      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
+      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
+
+      document.getElementById('btnCopyJson').onclick = () => {
+        const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
+        navigator.clipboard.writeText(jsonSnippet).then(() => {
+          const btn = document.getElementById('btnCopyJson');
+          btn.textContent = '✅ Copied!';
+          setTimeout(() => btn.textContent = '📋 Copy JSON', 1500);
+        });
+      };
+    })();
+  <\/script>
+</body>
+</html>`;
+
+  mstvPopupWindow.document.open();
+  mstvPopupWindow.document.write(popupHtml);
+  mstvPopupWindow.document.close();
+  mstvPopupWindow.focus();
+}
+
 async function playChannel(ch) {
+  if (!ch) return;
   currentChannel = ch;
   renderList();
 
   $playerPlaceholder.classList.add('hidden');
-  $playerLoader.classList.add('show');
+  $playerError.classList.remove('show');
+  $httpNotice.classList.remove('show');
+  $dashNotice.classList.remove('show');
+  showLoader(true);
 
-  // Clean up previous video instances
-  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-  if (dashInstance) { dashInstance.reset(); dashInstance = null; }
+  await teardown();
 
-  $videoEl.pause(); $videoEl.style.display = 'none';
-  $iframeEl.src = 'about:blank'; $iframeEl.style.display = 'none';
+  const type = (ch.type || '').toLowerCase();
 
-  const streamType = (ch.type || 'iframe').toLowerCase();
+  if (type === 'popup' || ch.popup === true) {
+    const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
+    
+    const fallbackMessage = ch.popupFallbackMsg || 
+      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
-  if (streamType === 'dash') {
-    // Play DASH streams inside native video element
-    $videoEl.style.display = 'block';
-    const targetUrl = await getSignedWorkerUrl(ch.id, 'dash');
-
-    if (window.dashjs) {
-      dashInstance = dashjs.MediaPlayer().create();
-      dashInstance.initialize($videoEl, targetUrl, true);
-      dashInstance.on(dashjs.MediaPlayer.events.CAN_PLAY, () => {
-        $playerLoader.classList.remove('show');
-      });
-    } else {
-      console.error("DASH library not loaded");
-      $playerLoader.classList.remove('show');
+    if (popupRestriction === 'restricted' && !isStrictMobile()) {
+      showError(fallbackMessage);
+      updateNowPlaying(ch);
+      return;
     }
-  } else if (streamType === 'hls') {
-    // Play HLS streams inside native video element
-    $videoEl.style.display = 'block';
-    const targetUrl = await getSignedWorkerUrl(ch.id, 'hls');
-
-    if (Hls.isSupported()) {
-      hlsInstance = new Hls();
-      hlsInstance.loadSource(targetUrl);
-      hlsInstance.attachMedia($videoEl);
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-        $playerLoader.classList.remove('show');
-        $videoEl.play();
-      });
-    } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-      $videoEl.src = targetUrl;
-      $videoEl.play();
-      $playerLoader.classList.remove('show');
-    }
-  } else {
-    // Fallback: Embed external target iframe
-    $iframeEl.style.display = 'block';
-    const targetUrl = await getSignedWorkerUrl(ch.id, 'iframe');
-    $iframeEl.src = targetUrl;
-    $iframeEl.onload = () => $playerLoader.classList.remove('show');
   }
 
+  const streamUrl = await getStreamUrl(ch);
+  if (!streamUrl) {
+    showError("Failed to fetch secure stream URL");
+    return;
+  }
+
+  if (type === 'popup' || ch.popup === true) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    openPopUpStream(ch, streamUrl);
+    updateNowPlaying(ch);
+    return;
+  }
+
+  if (isHttp(streamUrl)) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    $httpDesc.textContent = `"${ch.name}" is HTTP. HTTPS pages block this media.`;
+    $httpOpenBtn.onclick = () => window.open(streamUrl, '_blank');
+    $httpNotice.classList.add('show');
+    updateNowPlaying(ch);
+    return;
+  }
+
+  if (isIOS && isDashStream(type, streamUrl)) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    $dashChName.textContent = ch.name;
+    $dashFallbackBlock.style.display = 'none';
+    $dashNotice.classList.add('show');
+    updateNowPlaying(ch);
+
+    const revealFallback = () => { $dashFallbackBlock.style.display = 'block'; };
+    $dashRetryBtn.onclick = () => attemptOpenInApp(streamUrl, revealFallback);
+    $dashCopyBtn.onclick = () => navigator.clipboard.writeText(streamUrl);
+    attemptOpenInApp(streamUrl, revealFallback);
+    return;
+  }
+
+  if (type === 'iframe') {
+    $videoEl.style.display = 'none';
+    $iframeEl.style.display = 'block';
+    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+    else $iframeEl.removeAttribute('sandbox');
+    $iframeEl.src = streamUrl;
+    $iframeEl.onload = () => showLoader(false);
+    $iframeEl.onerror = () => showError('iFrame error');
+  } else if (isDashStream(type, streamUrl)) {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playDASH(streamUrl);
+  } else {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playHLS(streamUrl);
+  }
+
+  updateNowPlaying(ch);
+}
+
+// Updated playHLS with background tab recovery
+async function playHLS(url) {
+  await waitForHls();
+  if (Hls.isSupported()) {
+    hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
+    
+    // Auto-recover from background tab throttling & network errors
+    hlsInstance.on(Hls.Events.ERROR, (e, d) => {
+      if (d.fatal) {
+        switch (d.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            hlsInstance.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            hlsInstance.recoverMediaError();
+            break;
+          default:
+            if (currentChannel) playChannel(currentChannel);
+            else showError('HLS error');
+            break;
+        }
+      }
+    });
+
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
+    hlsInstance.loadSource(url);
+    hlsInstance.attachMedia($videoEl);
+  } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+    $videoEl.src = url;
+    $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
+  } else {
+    showError('HLS not supported');
+  }
+}
+
+async function playDASH(url) {
+  try {
+    await ensureShaka();
+    const loadPromise = shakaPlayer.load(url);
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('DASH timeout')), 10000));
+    await Promise.race([loadPromise, timeoutPromise]);
+    showLoader(false);
+    $videoEl.play().catch(()=>{});
+  } catch (e) {
+    showError('DASH error: Stream unavailable');
+  }
+}
+
+async function teardown() {
+  if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
+  if (shakaReady) { try { await shakaPlayer.unload(); } catch {} }
+  $videoEl.pause();
+  $videoEl.removeAttribute('src');
+  $videoEl.load();
+  $iframeEl.src = 'about:blank';
+}
+
+function updateNowPlaying(ch) {
   $nowPlayingBar.classList.add('visible');
   $npName.textContent = ch.name;
 }
-
-function bindEvents() {
-  $searchInput.oninput = (e) => { searchQuery = e.target.value; fullRender(); };
+function showLoader(s) { $playerLoader.classList.toggle('show', s); }
+function showError(msg) {
+  showLoader(false);
+  $playerErrorMsg.textContent = msg || 'Stream error';
+  $playerError.classList.add('show');
 }
 
+// Pure drop-in fix without breaking features/engines
+function bindEvents() {
+  $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  
+  // Seamless Background Tab Auto-Recovery Listener
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || !currentChannel) return;
+
+    // Detect if media element is currently stuck or stalled
+    const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
+    const isErrored = $videoEl.error !== null;
+
+    if (isStalled || isErrored) {
+      console.log('Background tab resume: Stream stall detected. Recovering...');
+
+      // 1. Recover HLS.js Streams
+      if (hlsInstance) {
+        hlsInstance.startLoad();
+        hlsInstance.recoverMediaError();
+        $videoEl.play().catch(() => {});
+      } 
+      // 2. Recover Shaka / DASH Streams
+      else if (shakaPlayer && shakaReady) {
+        try {
+          const currentUrl = await getStreamUrl(currentChannel);
+          if (currentUrl) await shakaPlayer.load(currentUrl);
+          $videoEl.play().catch(() => {});
+        } catch (e) {
+          console.warn('DASH background recovery failed, reloading channel...');
+          playChannel(currentChannel);
+        }
+      } 
+      // 3. Recover Native HTML5 / Safari HLS Streams
+      else if ($videoEl.src) {
+        const savedTime = $videoEl.currentTime;
+        $videoEl.load();
+        
+        // If live stream, seek to live edge; otherwise restore currentTime
+        if (isFinite($videoEl.duration) && savedTime > 0) {
+          $videoEl.currentTime = savedTime;
+        }
+        $videoEl.play().catch(() => {});
+      }
+    } else if (hlsInstance) {
+      // Gentle polling restart if player was healthy but paused receiving chunks
+      hlsInstance.startLoad();
+    }
+  });
+}
+
+const _nativeOpen = window.open.bind(window);
+(function() {
+  window.open = (url, target, f) => {
+    if (target === '_top' || target === '_parent') return null;
+    return _nativeOpen(url, target, f);
+  };
+})();
+
 document.addEventListener('DOMContentLoaded', init);
+                                              </script>
+ 
 </script>
 </body>
 </html>

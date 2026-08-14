@@ -359,24 +359,22 @@
       </div>
   </footer>
 </div>
+
 <script>
-const CURRENT_VERSION = "v2.5.1"; 
+const CURRENT_VERSION = "v2.5.2"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
+// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in Worker dashboard!
 window.SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
 const SECRET_KEY = window.SECRET_KEY;
 
-// Primary and Backup Workers for Load Balancing / Multi-Account Failover
+// Single Active Worker Endpoint for Testing
 const WORKER_ENDPOINTS = [
-  "https://stream-proxy.cabletv.workers.dev",
-  "https://backup.mstvindianetworkusa.workers.dev"
+  "https://mstv.ghubtv1.workers.dev"
 ];
 
-// Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
-  const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
-  return WORKER_ENDPOINTS[randomIndex];
+  return WORKER_ENDPOINTS[0];
 }
 
 const streamCache = {}; // Local memory cache
@@ -453,8 +451,7 @@ async function createBrowserHmac(message, secret) {
 }
 
 /**
- * FIXED FEATURE 2:
- * Generates stream URL directly from Workers without needing "url" in streamdata2.json
+ * Generates stream URL directly from Worker if no "url" field is present in streamdata2.json
  */
 async function getStreamUrl(channel) {
   const key = chKey(channel);
@@ -469,8 +466,7 @@ async function getStreamUrl(channel) {
     return streamCache[key];
   }
 
-  // 2. Otherwise, route directly to Cloudflare Worker
-  // Resolve channel target ID (uses channel.id, or auto-slugifies channel.name)
+  // 2. Otherwise, route directly to the active Cloudflare Worker
   let channelIdentifier = channel.id;
   if (!channelIdentifier && channel.name) {
     channelIdentifier = channel.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -573,7 +569,7 @@ async function init() {
 }
 
 /**
- * FEATURE 1: Aggressive Cache-Busting Logic
+ * Aggressive Cache-Busting Logic
  */
 async function loadChannels(silent) {
   if (fetchController) fetchController.abort();

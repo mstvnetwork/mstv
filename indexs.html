@@ -434,13 +434,6 @@ async function getStreamUrl(channel) {
     return streamCache[key];
   }
 
-  // 2. If url is explicitly provided in streamdata2.json, use it directly
-  if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== '') {
-    streamCache[key] = channel.url.trim();
-    return streamCache[key];
-  }
-
-  // 3. If url is missing in JSON, construct channel ID slug
   let channelIdentifier = channel.id;
   if (!channelIdentifier && channel.name) {
     channelIdentifier = channel.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
@@ -453,14 +446,18 @@ async function getStreamUrl(channel) {
 
   const workerBaseUrl = getActiveWorkerUrl();
   const routeType = (channel.type === 'iframe') ? 'iframe' : 'hls';
-  
-  // 4. Ping worker to resolve 302 Redirect before passing to video player
-  const initialEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}`;
-  
+
   try {
-    const response = await fetch(initialEndpoint, { method: 'GET', redirect: 'follow' });
+    // Fetch ephemeral token from Cloudflare Worker
+    const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, { cache: 'no-store' });
+    if (!tokenRes.ok) throw new Error("Failed token fetch");
+    
+    const { token, expires } = await tokenRes.json();
+    const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
+
+    // Resolve initial 302 redirect
+    const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
     if (response.ok) {
-      // Return final resolved URL with security token attached
       streamCache[key] = response.url;
       return response.url;
     }
@@ -468,9 +465,8 @@ async function getStreamUrl(channel) {
     console.error("Worker stream resolution failed:", err);
   }
 
-  // Fallback to initial endpoint
-  return initialEndpoint;
-  }
+  return null;
+}
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;

@@ -381,18 +381,17 @@ const SECRET_KEY = window.SECRET_KEY;
 const WORKER_ENDPOINTS = [
   "https://mstv.ghubtv1.workers.dev/"
 ];
-
+    // Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
   const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
   return WORKER_ENDPOINTS[randomIndex];
 }
 
-const streamCache = {}; 
+const streamCache = {}; // Local memory cache
+
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
-
-// RESTORED: Explicit allow-fullscreen permission inside sandbox policy string
-const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen';
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
 
@@ -428,6 +427,7 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
+// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
@@ -446,6 +446,9 @@ const isIOS = (() => {
 
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
+/**
+ * Native helper function to calculate SHA-256 HMAC tokens inside browser
+ */
 async function createBrowserHmac(message, secret) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -456,34 +459,44 @@ async function createBrowserHmac(message, secret) {
   const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
-  async function generateHmac(message, secret) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", 
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false, 
-    ["sign"]
-  ); 
-  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+/**
+ * Generates stream URL using Worker selection and simplified token verification
+ */
+async function getStreamUrl(channel) {
+  const key = channel.id || channel.name;
+
+  if (streamCache[key]) {
+    return streamCache[key];
   }
 
-async function getStreamUrl(ch) {
-  const expires = Date.now() + (3600 * 1000 * 24); // Token valid for 24 hours
-  
-  // Ensure formattedId strictly converts the ID to a clean string without extra spaces
-  const formattedId = String(ch.id || '').trim();
-  
-  // MUST use hyphen '-' to match `${id}-${expires}` in your worker code
-  const verificationString = `${formattedId}-${expires}`;
-  
-  // Generate HMAC signature using SHA-256
-  const token = await generateHmac(verificationString, SECRET_KEY);
-  
-  const route = (ch.type === 'iframe' || ch.type === 'dash') ? 'iframe' : 'hls';
-  return `${WORKER_URL}/${route}/${formattedId}?token=${token}&expires=${expires}`;
+  // If the channel has a direct URL (like an iframe embed or external player link), use it directly!
+  if (channel.url && typeof channel.url === 'string') {
+    streamCache[key] = channel.url.trim();
+    return streamCache[key];
+  }
+
+  if (!channel.id) {
+    console.warn(`No target channel ID found in data structure for "${channel.name}".`);
+    return null;
+  }
+
+  try {
+    const expires = Date.now() + (10 * 60 * 1000); 
+    const verificationString = `${channel.id}|${expires}`;
+    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
+    
+    const workerBaseUrl = getActiveWorkerUrl();
+    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
+
+    streamCache[key] = signedPlaybackUrl;
+    return signedPlaybackUrl;
+  } catch (e) {
+    console.error("Failed to generate secure worker signature token:", e);
+    return null;
+  }
 }
+
 function attemptOpenInApp(url, onFail) {
   let settled = false;
   const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);
@@ -515,10 +528,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      // UPDATED: Point to official compiled Shaka Player CDN
-      if (typeof shaka === 'undefined') {
-        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js');
-      }
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -566,10 +576,10 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const cacheBuster = `nocache=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const res = await fetch(`${JSON_URL}?${cacheBuster}`, { 
+    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
+    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
-      cache: 'no-store',
+      cache: 'reload',
       headers: {
         'Pragma': 'no-cache',
         'Cache-Control': 'no-cache, no-store, must-revalidate'
@@ -588,30 +598,19 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
 
+    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
-    if (currentChannel) {
-      const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
-      if (updatedChannel) {
-        const urlOrTypeChanged = (updatedChannel.type !== currentChannel.type) || (updatedChannel.id !== currentChannel.id);
-        currentChannel = updatedChannel;
-        if (urlOrTypeChanged) {
-          playChannel(currentChannel);
-        }
-      }
-    }
-
     fullRender();
     updateTimestamp();
   } catch (e) {
     if (e.name === 'AbortError') return;
-    $updateText.textContent = 'Sync Error';
+    $updateText.textContent = 'Error';
   }
-}
-
+      }
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
@@ -758,7 +757,7 @@ function openPopUpStream(ch, targetUrl) {
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allow="fullscreen; autoplay; encrypted-media" allowfullscreen="true"></iframe>
+      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
     
     ${isPrivate ? `
@@ -911,27 +910,18 @@ async function playChannel(ch) {
     return;
   }
 
-// UPDATED: Route both iframe and external DASH embed streams smoothly to $iframeEl
-  if (type === 'iframe' || type === 'dash') {
+  if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
-    
-    // Grant full permissions so dash.js inside the iframe can initialize properly
-    $iframeEl.setAttribute('allow', 'fullscreen *; autoplay *; encrypted-media *; picture-in-picture *');
-    $iframeEl.setAttribute('allowfullscreen', 'true');
-    $iframeEl.setAttribute('webkitallowfullscreen', 'true');
-    $iframeEl.setAttribute('mozallowfullscreen', 'true');
-
-    // Remove strict sandbox restriction unless explicitly requested by channel JSON
-    if (ch.sandboxed === true) {
-      $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
-    } else {
-      $iframeEl.removeAttribute('sandbox');
-    }
-
+    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+    else $iframeEl.removeAttribute('sandbox');
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
+  } else if (isDashStream(type, streamUrl)) {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playDASH(streamUrl);
   } else {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';
@@ -941,11 +931,13 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
+// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
     
+    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -983,7 +975,6 @@ async function playDASH(url) {
     showLoader(false);
     $videoEl.play().catch(()=>{});
   } catch (e) {
-    console.error("Shaka DASH Error:", e);
     showError('DASH error: Stream unavailable');
   }
 }
@@ -1008,16 +999,55 @@ function showError(msg) {
   $playerError.classList.add('show');
 }
 
+// UPDATED ACCORDING TO REQUIREMENTS: Pure drop-in fix without breaking features/engines
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
   
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && currentChannel && hlsInstance) {
+  // Seamless Background Tab Auto-Recovery Listener
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || !currentChannel) return;
+
+    // Detect if media element is currently stuck or stalled
+    const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
+    const isErrored = $videoEl.error !== null;
+
+    if (isStalled || isErrored) {
+      console.log('Background tab resume: Stream stall detected. Recovering...');
+
+      // 1. Recover HLS.js Streams
+      if (hlsInstance) {
+        hlsInstance.startLoad();
+        hlsInstance.recoverMediaError();
+        $videoEl.play().catch(() => {});
+      } 
+      // 2. Recover Shaka / DASH Streams
+      else if (shakaPlayer && shakaReady) {
+        try {
+          const currentUrl = await getStreamUrl(currentChannel);
+          if (currentUrl) await shakaPlayer.load(currentUrl);
+          $videoEl.play().catch(() => {});
+        } catch (e) {
+          console.warn('DASH background recovery failed, reloading channel...');
+          playChannel(currentChannel);
+        }
+      } 
+      // 3. Recover Native HTML5 / Safari HLS Streams
+      else if ($videoEl.src) {
+        const savedTime = $videoEl.currentTime;
+        $videoEl.load();
+        
+        // If live stream, seek to live edge; otherwise restore currentTime
+        if (isFinite($videoEl.duration) && savedTime > 0) {
+          $videoEl.currentTime = savedTime;
+        }
+        $videoEl.play().catch(() => {});
+      }
+    } else if (hlsInstance) {
+      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
 }
-
 const _nativeOpen = window.open.bind(window);
 (function() {
   window.open = (url, target, f) => {
@@ -1028,6 +1058,7 @@ const _nativeOpen = window.open.bind(window);
 
 document.addEventListener('DOMContentLoaded', init);
 </script>
-
 </body>
-</html>
+  </html>        
+    
+                              

@@ -474,7 +474,7 @@ async function getStreamUrl(channel) {
     const expires = Date.now() + (10 * 60 * 1000);
     const formattedId = String(channel.id).padStart(2, '0');
     
-    const verificationString = `${formattedId}|${expires}`;
+    const verificationString = `${formattedId}-${expires}`;
     const secureToken = await createBrowserHmac(verificationString, secret);
     
     const rawWorkerUrl = typeof getActiveWorkerUrl === 'function' ? getActiveWorkerUrl() : "https://mstv.ghubtv1.workers.dev";
@@ -932,21 +932,23 @@ async function playChannel(ch) {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
     
-    // Explicit feature policies allowing seamless media execution inside iframe
-    $iframeEl.setAttribute('allow', 'fullscreen *; autoplay; encrypted-media; picture-in-picture');
+    // Grant full permissions so dash.js inside the iframe can initialize properly
+    $iframeEl.setAttribute('allow', 'fullscreen *; autoplay *; encrypted-media *; picture-in-picture *');
     $iframeEl.setAttribute('allowfullscreen', 'true');
     $iframeEl.setAttribute('webkitallowfullscreen', 'true');
     $iframeEl.setAttribute('mozallowfullscreen', 'true');
 
-    if (ch.sandboxed !== false) {
+    // Remove strict sandbox restriction unless explicitly requested by channel JSON
+    if (ch.sandboxed === true) {
       $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     } else {
-      $iframeEl.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation allow-forms allow-fullscreen');
+      $iframeEl.removeAttribute('sandbox');
     }
 
     $iframeEl.src = streamUrl;
     $iframeEl.onload = () => showLoader(false);
     $iframeEl.onerror = () => showError('iFrame error');
+}
   } else {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';

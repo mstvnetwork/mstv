@@ -477,6 +477,9 @@ async function createBrowserHmac(message, secret) {
 /**
  * Resolves stream URL by calculating security token and path (/hls/ or /iframe/) matching worker code
  */
+/**
+ * Generates stream URL using Worker selection and matching HMAC verification string
+ */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
@@ -484,8 +487,8 @@ async function getStreamUrl(channel) {
     return streamCache[key];
   }
 
-  // Direct URL override
-  if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== '') {
+  // If the channel has a direct URL, use it directly
+  if (channel.url && typeof channel.url === 'string') {
     streamCache[key] = channel.url.trim();
     return streamCache[key];
   }
@@ -496,15 +499,18 @@ async function getStreamUrl(channel) {
   }
 
   try {
-    const expires = Date.now() + (10 * 60 * 1000); // 10 minutes expiry window
-    const verificationString = `${channel.id}-${expires}`; // Matches `${id}-${expires}` in Worker!
+    const expires = Date.now() + (10 * 60 * 1000); // 10 minutes expiry
+    
+    // FIX 1: Match the dash (-) separator expected by worker.js
+    const verificationString = `${channel.id}-${expires}`;
     const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
     
-    const workerBaseUrl = getActiveWorkerUrl();
-    const isIframe = (channel.type || '').toLowerCase() === 'iframe';
-    const routePrefix = isIframe ? 'iframe' : 'hls';
+    const workerBaseUrl = getActiveWorkerUrl().replace(/\/+$/, ''); // Remove trailing slashes if any
     
-    const signedPlaybackUrl = `${workerBaseUrl}/${routePrefix}/${channel.id}?token=${secureToken}&expires=${expires}`;
+    // FIX 2: Choose /iframe/ or /hls/ route based on channel type
+    const route = (channel.type || '').toLowerCase() === 'iframe' ? 'iframe' : 'hls';
+    
+    const signedPlaybackUrl = `${workerBaseUrl}/${route}/${channel.id}?token=${secureToken}&expires=${expires}`;
 
     streamCache[key] = signedPlaybackUrl;
     return signedPlaybackUrl;
@@ -512,8 +518,7 @@ async function getStreamUrl(channel) {
     console.error("Failed to generate secure worker signature token:", e);
     return null;
   }
-}
-
+    }
 function attemptOpenInApp(url, onFail) {
   let settled = false;
   const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);

@@ -360,7 +360,7 @@
   </footer>
 </div>
 <script>
-const CURRENT_VERSION = "v2.5.0"; 
+const CURRENT_VERSION = "v2.5.1"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
 // Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
@@ -369,8 +369,8 @@ const SECRET_KEY = window.SECRET_KEY;
 
 // Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://mstv.ghubtv1.workers.dev/",
-  
+  "https://stream-proxy.cabletv.workers.dev",
+  "https://backup.mstvindianetworkusa.workers.dev"
 ];
 
 // Select a random worker to distribute request load evenly across accounts
@@ -453,26 +453,31 @@ async function createBrowserHmac(message, secret) {
 }
 
 /**
- * FEATURE 2 MODIFICATION:
- * Generates stream URL directly from Worker if no direct "url" field is set in JSON.
+ * FIXED FEATURE 2:
+ * Generates stream URL directly from Workers without needing "url" in streamdata2.json
  */
 async function getStreamUrl(channel) {
-  const key = channel.id || channel.name;
+  const key = chKey(channel);
 
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  // If explicit external stream/iframe URL is defined in JSON, use it
-  if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== "") {
+  // 1. If explicit external stream/iframe URL is manually defined in JSON, use it
+  if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== '') {
     streamCache[key] = channel.url.trim();
     return streamCache[key];
   }
 
-  // Fallback: Fetch directly from Workers if "url" is absent in streamdata2.json
-  const channelIdentifier = channel.id || channel.name;
+  // 2. Otherwise, route directly to Cloudflare Worker
+  // Resolve channel target ID (uses channel.id, or auto-slugifies channel.name)
+  let channelIdentifier = channel.id;
+  if (!channelIdentifier && channel.name) {
+    channelIdentifier = channel.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  }
+
   if (!channelIdentifier) {
-    console.warn(`No target channel ID/Name found in data structure for "${channel.name}".`);
+    console.warn(`Unable to resolve a valid Worker stream ID for "${channel.name}".`);
     return null;
   }
 
@@ -568,14 +573,12 @@ async function init() {
 }
 
 /**
- * FEATURE 1 MODIFICATION:
- * Aggressive Cache-Buster logic for instant updates without page refresh.
+ * FEATURE 1: Aggressive Cache-Busting Logic
  */
 async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    // Ultra-aggressive multi-tiered cache-busting string
     const cacheBustQuery = `_cb=${Date.now()}_${Math.floor(Math.random() * 1000000)}_${performance.now()}`;
     
     const res = await fetch(`${JSON_URL}?${cacheBustQuery}`, { 
@@ -602,7 +605,7 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
 
-    // Flush memory cache on data change
+    // Clear local memory cache so new streams resolve fresh immediately
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
@@ -611,7 +614,6 @@ async function loadChannels(silent) {
     fullRender();
     updateTimestamp();
 
-    // Hot-reload active playback metadata if current playing channel updated
     if (currentChannel) {
       const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
       if (updatedChannel) {
@@ -951,7 +953,6 @@ async function playHLS(url) {
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
     
-    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -1013,28 +1014,23 @@ function showError(msg) {
   $playerError.classList.add('show');
 }
 
-// Pure drop-in fix without breaking features/engines
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
   
-  // Seamless Background Tab Auto-Recovery Listener
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || !currentChannel) return;
 
-    // Detect if media element is currently stuck or stalled
     const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
     const isErrored = $videoEl.error !== null;
 
     if (isStalled || isErrored) {
       console.log('Background tab resume: Stream stall detected. Recovering...');
 
-      // 1. Recover HLS.js Streams
       if (hlsInstance) {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
       } 
-      // 2. Recover Shaka / DASH Streams
       else if (shakaPlayer && shakaReady) {
         try {
           const currentUrl = await getStreamUrl(currentChannel);
@@ -1045,19 +1041,16 @@ function bindEvents() {
           playChannel(currentChannel);
         }
       } 
-      // 3. Recover Native HTML5 / Safari HLS Streams
       else if ($videoEl.src) {
         const savedTime = $videoEl.currentTime;
         $videoEl.load();
         
-        // If live stream, seek to live edge; otherwise restore currentTime
         if (isFinite($videoEl.duration) && savedTime > 0) {
           $videoEl.currentTime = savedTime;
         }
         $videoEl.play().catch(() => {});
       }
     } else if (hlsInstance) {
-      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
@@ -1073,3 +1066,5 @@ const _nativeOpen = window.open.bind(window);
 
 document.addEventListener('DOMContentLoaded', init);
   </script>
+</body>
+</html>

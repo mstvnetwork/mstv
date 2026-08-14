@@ -360,17 +360,21 @@
       </div>
   </footer>
 </div>
-
 <script>
 const CURRENT_VERSION = "v2.5.2"; 
 
+// List your worker endpoints across different Cloudflare accounts here.
+// When Worker #1 hits its 100k daily request limit (HTTP 429), it will instantly 
+// failover to Worker #2, Worker #3, etc. without causing player buffering or lag.
 const WORKER_ENDPOINTS = [
-  "https://mstv.ghubtv1.workers.dev"
+  "https://mstv.ghubtv1.workers.dev", // Current Active Worker
+  // "https://mstv-backup1.yoursecondaccount.workers.dev", // <-- Add Backup Worker 1 here
+  // "https://mstv-backup2.yourthirdaccount.workers.dev",   // <-- Add Backup Worker 2 here
 ];
 
-function getActiveWorkerUrl() {
-  return WORKER_ENDPOINTS[0];
-}
+// Tracks the current working worker index and blacklists maxed-out workers in memory
+let activeWorkerIndex = 0;
+const rateLimitedWorkers = new Set();
 
 const streamCache = {};
 
@@ -448,25 +452,57 @@ async function getStreamUrl(channel) {
     return null;
   }
 
-  const workerBaseUrl = getActiveWorkerUrl();
   const routeType = (channel.type === 'iframe') ? 'iframe' : 'hls';
 
-  try {
-    // Fetch ephemeral token from Cloudflare Worker
-    const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, { cache: 'no-store' });
-    if (!tokenRes.ok) throw new Error("Failed token fetch");
-    
-    const { token, expires } = await tokenRes.json();
-    const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
+  // Iterate over available workers starting from active index
+  for (let attempt = 0; attempt < WORKER_ENDPOINTS.length; attempt++) {
+    const currentIndex = (activeWorkerIndex + attempt) % WORKER_ENDPOINTS.length;
 
-    // Resolve initial 302 redirect
-    const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
-    if (response.ok) {
-      streamCache[key] = response.url;
-      return response.url;
+    // Skip blacklisted workers that hit their daily limit
+    if (rateLimitedWorkers.has(currentIndex)) continue;
+
+    const workerBaseUrl = WORKER_ENDPOINTS[currentIndex];
+
+    try {
+      // Step A: Fetch ephemeral token from Cloudflare Worker
+      const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, { cache: 'no-store' });
+
+      // Handle 429 Too Many Requests, 503, or Cloudflare limit codes (1015)
+      if (tokenRes.status === 429 || tokenRes.status === 503 || tokenRes.status === 1015) {
+        console.warn(`Worker [${workerBaseUrl}] hit daily rate limit. Rotating to next worker...`);
+        rateLimitedWorkers.add(currentIndex);
+        continue; // Immediately try next worker endpoint
+      }
+
+      if (!tokenRes.ok) throw new Error(`Token fetch failed with status ${tokenRes.status}`);
+      
+      const { token, expires } = await tokenRes.json();
+      const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
+
+      // Step B: Resolve 302 redirect
+      const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
+
+      if (response.status === 429 || response.status === 503 || response.status === 1015) {
+        console.warn(`Worker stream redirect [${workerBaseUrl}] rate-limited.`);
+        rateLimitedWorkers.add(currentIndex);
+        continue;
+      }
+
+      if (response.ok) {
+        // Stick with this working worker for all future clicks
+        activeWorkerIndex = currentIndex;
+        streamCache[key] = response.url;
+        return response.url;
+      }
+    } catch (err) {
+      console.warn(`Worker endpoint [${workerBaseUrl}] unavailable:`, err);
+      rateLimitedWorkers.add(currentIndex);
     }
-  } catch (err) {
-    console.error("Worker stream resolution failed:", err);
+  }
+
+  // Fallback: If all workers failed/rate-limited, clear memory flags to re-attempt from start
+  if (rateLimitedWorkers.size >= WORKER_ENDPOINTS.length) {
+    rateLimitedWorkers.clear();
   }
 
   return null;
@@ -503,7 +539,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.10.0/shaka-player.compiled.min.js');
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -632,7 +668,7 @@ function renderCategoryBar() {
     const count = counts[cat] || 0;
     if (cat !== 'All' && count === 0) return '';
     const isActive = activeCategory && activeCategory.toLowerCase() === cat.toLowerCase();
-    return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}" role="tab" aria-selected="${isActive}">
+    return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}">
       <span>${item.icon} ${esc(cat)}</span> <span class="cat-n">(${count})</span>
     </button>`;
   }).join('');
@@ -662,7 +698,7 @@ function renderList() {
     const instructionText = ch.instructions || ch.instruction || ch.note || '';
     const instructionHtml = instructionText ? `<div class="row-instruction">${esc(instructionText)}</div>` : '';
     
-    return `<div class="channel-row${isActive?' active':''}" data-idx="${i}" role="listitem">
+    return `<div class="channel-row${isActive?' active':''}" data-idx="${i}">
       ${logo(ch)}
       <div class="row-info">
         <div class="row-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
@@ -679,9 +715,9 @@ function renderList() {
 
 function logo(ch) {
   return ch.logo
-    ? `<div class="row-logo-box"><img class="row-logo" src="${esc(ch.logo)}" alt="" width="36" height="36" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
-       <div class="row-logo-fallback" style="display:none">📺</div></div>`
-    : `<div class="row-logo-box"><div class="row-logo-fallback">📺</div></div>`;
+    ? `<img class="row-logo" src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+       <div class="row-logo-fallback" style="display:none">📺</div>`
+    : `<div class="row-logo-fallback">📺</div>`;
 }
 
 function openPopUpStream(ch, targetUrl) {
@@ -1032,6 +1068,7 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-</script>
+  </script>
+                
 </body>
   </html>

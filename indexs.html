@@ -426,38 +426,51 @@ const isIOS = (() => {
 
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
-/**
- * Route direct requests to the backend worker, letting the server authorize based on domain headers.
- */
 async function getStreamUrl(channel) {
   const key = chKey(channel);
 
+  // 1. Check cache first
   if (streamCache[key]) {
     return streamCache[key];
   }
 
+  // 2. If url is explicitly provided in streamdata2.json, use it directly
   if (channel.url && typeof channel.url === 'string' && channel.url.trim() !== '') {
     streamCache[key] = channel.url.trim();
     return streamCache[key];
   }
 
+  // 3. If url is missing in JSON, construct channel ID slug
   let channelIdentifier = channel.id;
   if (!channelIdentifier && channel.name) {
     channelIdentifier = channel.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   }
 
   if (!channelIdentifier) {
-    console.warn(`Unable to resolve a valid Worker stream ID for "${channel.name}".`);
+    console.warn(`Unable to resolve channel ID for "${channel.name}".`);
     return null;
   }
 
   const workerBaseUrl = getActiveWorkerUrl();
   const routeType = (channel.type === 'iframe') ? 'iframe' : 'hls';
-  const playbackUrl = `${workerBaseUrl}/${routeType}/${channelIdentifier}`;
+  
+  // 4. Ping worker to resolve 302 Redirect before passing to video player
+  const initialEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}`;
+  
+  try {
+    const response = await fetch(initialEndpoint, { method: 'GET', redirect: 'follow' });
+    if (response.ok) {
+      // Return final resolved URL with security token attached
+      streamCache[key] = response.url;
+      return response.url;
+    }
+  } catch (err) {
+    console.error("Worker stream resolution failed:", err);
+  }
 
-  streamCache[key] = playbackUrl;
-  return playbackUrl;
-}
+  // Fallback to initial endpoint
+  return initialEndpoint;
+  }
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;

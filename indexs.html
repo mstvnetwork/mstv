@@ -348,10 +348,9 @@ function getActiveWorkerUrl() {
 
 const streamCache = {};
 const POLL_INTERVAL = 2000;
-const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 let channels = [], filteredChannels = [], currentChannel = null;
-let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
+let searchQuery = '', activeCategory = 'All', hlsInstance = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
 
 const $searchInput = document.getElementById('searchInput');
 const $channelList = document.getElementById('channelList');
@@ -371,6 +370,9 @@ const chKey = ch => ch.id || ch.name;
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const catOf = ch => (ch.category || 'General').trim();
 
+/**
+ * Native Web Crypto HMAC Calculation
+ */
 async function createBrowserHmac(message, secret) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -382,6 +384,9 @@ async function createBrowserHmac(message, secret) {
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Generates signed playback URLs using Worker proxy
+ */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
@@ -395,12 +400,12 @@ async function getStreamUrl(channel) {
   }
 
   if (!channel.id) {
-    console.warn(`No channel ID for "${channel.name}".`);
+    console.warn(`No channel ID found for "${channel.name}".`);
     return null;
   }
 
   try {
-    const expires = Date.now() + (10 * 60 * 1000);
+    const expires = Date.now() + (10 * 60 * 1000); // Valid for 10 minutes
     const verificationString = `${channel.id}-${expires}`;
     const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
     
@@ -412,7 +417,7 @@ async function getStreamUrl(channel) {
     streamCache[key] = signedPlaybackUrl;
     return signedPlaybackUrl;
   } catch (e) {
-    console.error("HMAC Error:", e);
+    console.error("HMAC Generation Error:", e);
     return null;
   }
 }
@@ -460,7 +465,7 @@ async function loadChannels(silent) {
     }
   }
 
-  $updateText.textContent = 'Sync Error';
+  if ($updateText) $updateText.textContent = 'Sync Error';
 }
 
 function startPolling() {
@@ -469,7 +474,9 @@ function startPolling() {
 }
 
 function updateTimestamp() {
-  $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  if ($updateText) {
+    $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+  }
 }
 
 function applyFilters() {
@@ -502,7 +509,7 @@ function fullRender() {
   applyFilters();
   renderCategoryBar();
   renderList();
-  $channelCount.textContent = (filteredChannels.length + ' Channels');
+  if ($channelCount) $channelCount.textContent = (filteredChannels.length + ' Channels');
 }
 
 function renderList() {
@@ -555,34 +562,38 @@ async function playChannel(ch) {
 
   const type = (ch.type || '').toLowerCase();
 
-if (type === 'iframe') {
-  $videoEl.style.display = 'none';
-  $iframeEl.style.display = 'block';
-  
-  // Set source
-  $iframeEl.src = streamUrl;
-  
-  $iframeEl.onload = () => showLoader(false);
-  $iframeEl.onerror = () => showError('iFrame error');
-} else {
-  $iframeEl.style.display = 'none';
-  $videoEl.style.display = 'block';
-  await playHLS(streamUrl);
-}
+  if (type === 'iframe') {
+    $videoEl.style.display = 'none';
+    $iframeEl.style.display = 'block';
+    
+    // Set iframe target URL
+    $iframeEl.src = streamUrl;
+    
+    $iframeEl.onload = () => showLoader(false);
+    $iframeEl.onerror = () => showError('iFrame error');
+  } else {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playHLS(streamUrl);
+  }
 
-updateNowPlaying(ch);
+  updateNowPlaying(ch);
+}
 
 async function playHLS(url) {
   if (typeof Hls !== 'undefined' && Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true });
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
+    hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+      if (data.fatal) showError('Stream loading failed');
+    });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia($videoEl);
   } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
     $videoEl.src = url;
     $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
   } else {
-    showError('HLS not supported');
+    showError('HLS not supported on this browser');
   }
 }
 
@@ -607,7 +618,9 @@ function showError(msg) {
 }
 
 function bindEvents() {
-  $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  if ($searchInput) {
+    $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

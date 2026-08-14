@@ -457,49 +457,21 @@ async function createBrowserHmac(message, secret) {
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function getStreamUrl(channel) {
-  const key = channel.id || channel.name;
-
-  if (streamCache[key] && streamCache[key].expiresAt > Date.now()) {
-    return streamCache[key].url;
-  }
-
-  if (!channel.id) {
-    console.warn(`No channel ID found for "${channel.name}".`);
-    return null;
-  }
-
-  try {
-    const secret = window.SECRET_KEY || "588da2fe1811a0f130f72f68400d0d3a";
-    const expires = Date.now() + (10 * 60 * 1000);
-    const formattedId = String(channel.id).padStart(2, '0');
-    
-    const verificationString = `${formattedId}-${expires}`;
-    const secureToken = await createBrowserHmac(verificationString, secret);
-    
-    const rawWorkerUrl = typeof getActiveWorkerUrl === 'function' ? getActiveWorkerUrl() : "https://mstv.ghubtv1.workers.dev";
-    const workerBaseUrl = rawWorkerUrl.replace(/\/+$/, '');
-    
-    const rawType = String(channel.type || '').toLowerCase();
-    
-    // UPDATED: Include DASH channels to request iframe endpoint seamlessly
-    const isIframeRoute = rawType === 'iframe' || rawType === 'dash' || channel.popup === true;
-    const endpointType = isIframeRoute ? 'iframe' : 'hls';
-
-    const signedPlaybackUrl = `${workerBaseUrl}/${endpointType}/${formattedId}?token=${secureToken}&expires=${expires}`;
-
-    streamCache[key] = {
-      url: signedPlaybackUrl,
-      expiresAt: expires - (1 * 60 * 1000) 
-    };
-
-    return signedPlaybackUrl;
-  } catch (e) {
-    console.error("Failed to generate secure worker signature token:", e);
-    return null;
-  }
+async function getStreamUrl(ch) {
+  const expires = Date.now() + (3600 * 1000 * 24); // Token valid for 24 hours
+  
+  // Ensure formattedId strictly converts the ID to a clean string without extra spaces
+  const formattedId = String(ch.id || '').trim();
+  
+  // MUST use hyphen '-' to match `${id}-${expires}` in your worker code
+  const verificationString = `${formattedId}-${expires}`;
+  
+  // Generate HMAC signature using SHA-256
+  const token = await generateHmac(verificationString, SECRET_KEY);
+  
+  const route = (ch.type === 'iframe' || ch.type === 'dash') ? 'iframe' : 'hls';
+  return `${WORKER_URL}/${route}/${formattedId}?token=${token}&expires=${expires}`;
 }
-
 function attemptOpenInApp(url, onFail) {
   let settled = false;
   const vlcUrl = 'vlc-x-callback://x-callback-url/stream?url=' + encodeURIComponent(url);

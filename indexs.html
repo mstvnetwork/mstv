@@ -463,39 +463,19 @@ async function createBrowserHmac(message, secret) {
 /**
  * Generates stream URL using Worker selection and simplified token verification
  */
-async function getStreamUrl(channel) {
-  const key = channel.id || channel.name;
-
-  if (streamCache[key]) {
-    return streamCache[key];
-  }
-
-  // If the channel has a direct URL (like an iframe embed or external player link), use it directly!
-  if (channel.url && typeof channel.url === 'string') {
-    streamCache[key] = channel.url.trim();
-    return streamCache[key];
-  }
-
-  if (!channel.id) {
-    console.warn(`No target channel ID found in data structure for "${channel.name}".`);
-    return null;
-  }
-
-  try {
-    const expires = Date.now() + (10 * 60 * 1000); 
-    const verificationString = `${channel.id}|${expires}`;
-    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
-    
-    const workerBaseUrl = getActiveWorkerUrl();
-    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
-
-    streamCache[key] = signedPlaybackUrl;
-    return signedPlaybackUrl;
-  } catch (e) {
-    console.error("Failed to generate secure worker signature token:", e);
-    return null;
-  }
-}
+async function getStreamUrl(ch) {
+  const expires = Date.now() + (3600 * 1000 * 24);
+  const formattedId = String(ch.id || '').trim();
+  const verificationString = `${formattedId}-${expires}`;
+  
+  const token = await generateHmac(verificationString, SECRET_KEY);
+  
+  // FIX: Explicitly set route to 'iframe' for both 'iframe' AND 'dash' types
+  const type = String(ch.type || '').toLowerCase();
+  const route = (type === 'iframe' || type === 'dash') ? 'iframe' : 'hls';
+  
+  return `${WORKER_URL}/${route}/${formattedId}?token=${token}&expires=${expires}`;
+                                             }
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;

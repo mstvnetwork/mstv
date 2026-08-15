@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>MSTV Live Player Embed</title>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+
+    <!-- Analytics -->
+    <script data-goatcounter="https://mstv.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
+
+    <style>
+      :root {
+        --bg-main: #07090c;
+        --accent-gold: #ffcf3f;
+        --accent-red: #ff4438;
+        --accent-blue: #2f8fff;
+        --text-primary: #f4f6f8;
+        --text-secondary: #b7bfc9;
+        --text-muted: #74808f;
+        --border-color-strong: rgba(255, 255, 255, 0.16);
+        --font-display: 'Archivo Black', 'Archivo', sans-serif;
+        --font-body: 'Archivo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html, body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: var(--bg-main);
+        color: var(--text-primary);
+        font-family: var(--font-body);
+      }
+
+      .player-embed-container {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000;
+      }
+
+      .video-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        aspect-ratio: 16 / 9;
+        background-color: #000;
+        overflow: hidden;
+      }
+
+      .frame-brackets span {
+        position: absolute;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 207, 63, 0.55);
+        z-index: 24;
+        pointer-events: none;
+        opacity: 0.85;
+      }
+      .frame-brackets span:nth-child(1) { top: 8px; left: 8px; border-right: none; border-bottom: none; border-radius: 4px 0 0 0; }
+      .frame-brackets span:nth-child(2) { top: 8px; right: 8px; border-left: none; border-bottom: none; border-radius: 0 4px 0 0; }
+      .frame-brackets span:nth-child(3) { bottom: 8px; left: 8px; border-right: none; border-top: none; border-radius: 0 0 0 4px; }
+      .frame-brackets span:nth-child(4) { bottom: 8px; right: 8px; border-left: none; border-top: none; border-radius: 0 0 4px 0; }
+
+      #videoContainer {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        overflow: hidden;
+      }
+
+      #videoContainer video,
+      #videoContainer iframe {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        border: none;
+        background: #000;
+      }
+
+      .player-placeholder {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 50% 40%, rgba(255,207,63,0.06), transparent 55%),
+          radial-gradient(circle, #12161d 0%, #07090c 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        z-index: 20;
+        text-align: center;
+        padding: 0.8rem;
+      }
+
+      .placeholder-icon-wrap {
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg, rgba(255,207,63,0.14), rgba(255,207,63,0.02));
+        border: 1px solid rgba(255,207,63,0.3);
+        margin-bottom: 4px;
+      }
+
+      .placeholder-icon {
+        font-size: 1.5rem;
+        color: var(--accent-gold);
+      }
+
+      .placeholder-text {
+        font-family: var(--font-display);
+        font-size: 0.95rem;
+        letter-spacing: 0.3px;
+        color: var(--text-primary);
+      }
+
+      .player-controls-overlay {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        display: flex;
+        gap: 7px;
+        z-index: 25;
+      }
+
+      .control-btn {
+        background: rgba(10, 12, 16, 0.6);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 0.78rem;
+        transition: all 0.2s ease;
+      }
+
+      .control-btn:hover {
+        background: rgba(255, 207, 63, 0.18);
+        border-color: rgba(255, 207, 63, 0.45);
+        color: var(--accent-gold);
+        transform: scale(1.06);
+      }
+
+      .loading-spinner-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(7, 9, 12, 0.82);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        z-index: 23;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.25s ease;
+      }
+
+      .loading-spinner-overlay.active {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      .spinner-ring {
+        position: relative;
+        width: 42px;
+        height: 42px;
+      }
+
+      .spinner-ring::before,
+      .spinner-ring::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 3px solid transparent;
+      }
+
+      .spinner-ring::before {
+        border-top-color: var(--accent-gold);
+        border-right-color: var(--accent-gold);
+        animation: spin 0.9s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+      }
+
+      .spinner-ring::after {
+        inset: 7px;
+        border-bottom-color: var(--accent-blue);
+        opacity: 0.7;
+        animation: spin 1.3s linear infinite reverse;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .spinner-text {
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+
+      .spinner-engine-tag {
+        font-family: var(--font-mono);
+        font-size: 0.6rem;
+        letter-spacing: 1px;
+        color: var(--accent-gold);
+        background: rgba(255, 207, 63, 0.1);
+        border: 1px solid rgba(255, 207, 63, 0.25);
+        padding: 2px 8px;
+        border-radius: 10px;
+        text-transform: uppercase;
+      }
+    </style>
+</head>
+<body>
+
+  <div class="player-embed-container">
+    <div class="video-wrapper" id="playerWrapper">
+      <div id="videoContainer"></div>
+
+      <div class="frame-brackets"><span></span><span></span><span></span><span></span></div>
+
+      <div class="player-placeholder" id="playerPlaceholder">
+        <div class="placeholder-icon-wrap"><i class="fa-solid fa-circle-play placeholder-icon"></i></div>
+        <div class="placeholder-text">MSTV Live Sync Player</div>
+      </div>
+
+      <div class="player-controls-overlay">
+        <button class="control-btn" id="muteToggle" title="Toggle Mute">
+          <i class="fa-solid fa-volume-xmark"></i>
+        </button>
+        <button class="control-btn" id="fullscreenToggle" title="Toggle Fullscreen">
+          <i class="fa-solid fa-expand"></i>
+        </button>
+      </div>
+
+      <div class="loading-spinner-overlay" id="loadingSpinner">
+        <div class="spinner-ring"></div>
+        <span class="spinner-text">Buffering Stream</span>
+        <span class="spinner-engine-tag" id="spinnerEngineTag">HLS</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Streaming Media Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
+
+  <script>
+    // DOM Elements
+    const container = document.getElementById('videoContainer');
+    const playerWrapper = document.getElementById('playerWrapper');
+    const playerPlaceholder = document.getElementById('playerPlaceholder');
+    const muteToggle = document.getElementById('muteToggle');
+    const fullscreenToggle = document.getElementById('fullscreenToggle');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const spinnerEngineTag = document.getElementById('spinnerEngineTag');
+
+    // State Variables
+    let rawPlaylists = {};
+    let liveTvData = {};
+    let activeCategory = null;
+    let currentPlaylist = [];
+    let videoDurations = [];
+    let totalDuration = 0;
+
+    let hls = null;
+    let dashPlayer = null;
+    let currentIndex = -1;
+    let isMuted = true;
+    let syncTimer = null;
+
+    // Playback correction & buffering-state tracking
+    let ytPlayer = null;
+    let maxWatchedTime = 0;
+    let ytCheckInterval = null;
+    let isInitialLoading = false;
+    let isCorrectingTime = false;
+    let lastCorrectionAt = 0;
+    const SYNC_DRIFT_TOLERANCE = 8;
+    const SYNC_MIN_INTERVAL_MS = 6000;
+    const SKIP_PREVENTION_TOLERANCE = 6;
+
+    // Load YouTube API script dynamically
+    if (!window.YT) {
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+    }
+
+    function updateMuteButtonUI() {
+      muteToggle.innerHTML = isMuted
+        ? '<i class="fa-solid fa-volume-xmark"></i>'
+        : '<i class="fa-solid fa-volume-high"></i>';
+    }
+
+    function showSpinner(engineLabel) {
+      if (engineLabel) spinnerEngineTag.textContent = engineLabel;
+      loadingSpinner.classList.add('active');
+    }
+    function hideSpinner() { loadingSpinner.classList.remove('active'); }
+
+    muteToggle.addEventListener('click', () => {
+      isMuted = !isMuted;
+      updateMuteButtonUI();
+      const activeVideo = container.querySelector('video');
+      if (activeVideo) activeVideo.muted = isMuted;
+      if (ytPlayer && typeof ytPlayer.mute === 'function') {
+        if (isMuted) ytPlayer.mute(); else ytPlayer.unMute();
+      }
+    });
+
+    fullscreenToggle.addEventListener('click', () => {
+      if (!document.fullscreenElement) {
+        playerWrapper.requestFullscreen().catch(err => console.error(err));
+      } else {
+        document.exitFullscreen();
+      }
+    });
+
+    // Load Stream Configuration Data
+    async function loadData() {
+      try {
+        const response = await fetch('test.json');
+        const data = await response.json();
+        rawPlaylists = data.playlists || {};
+        liveTvData = data.live_tv || {};
+        
+        // Auto-initialize primary live channel if defined in test.json
+        if (data.default_category) {
+          switchCategory(data.default_category);
+        } else if (rawPlaylists.apna_tv) {
+          switchCategory('apna_tv');
+        }
+      } catch (error) {
+        console.error('Failed to load test.json:', error);
+      }
+    }
+
+    function cleanupCurrentEngine() {
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+      if (dashPlayer) {
+        dashPlayer.reset();
+        dashPlayer = null;
+      }
+      if (ytCheckInterval) {
+        clearInterval(ytCheckInterval);
+        ytCheckInterval = null;
+      }
+      ytPlayer = null;
+      container.innerHTML = '';
+    }
+
+    function switchCategory(catKey) {
+      cleanupCurrentEngine();
+      activeCategory = catKey;
+      currentPlaylist = rawPlaylists[catKey] || [];
+      if (!currentPlaylist.length) return;
+
+      if (playerPlaceholder) playerPlaceholder.style.display = 'none';
+      
+      calculateTimelineAndSync();
+      if (syncTimer) clearInterval(syncTimer);
+      syncTimer = setInterval(calculateTimelineAndSync, 5000);
+    }
+
+    function calculateTimelineAndSync() {
+      if (!currentPlaylist.length) return;
+
+      videoDurations = currentPlaylist.map(item => item.duration || 0);
+      totalDuration = videoDurations.reduce((a, b) => a + b, 0);
+
+      if (totalDuration === 0) return;
+
+      const now = new Date();
+      const secondsToday = (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds() + (now.getMilliseconds() / 1000);
+      const currentCycleTime = secondsToday % totalDuration;
+
+      let accumulated = 0;
+      let targetIndex = 0;
+      let targetSeekTime = 0;
+
+      for (let i = 0; i < currentPlaylist.length; i++) {
+        const itemDuration = videoDurations[i];
+        if (currentCycleTime < accumulated + itemDuration) {
+          targetIndex = i;
+          targetSeekTime = currentCycleTime - accumulated;
+          break;
+        }
+        accumulated += itemDuration;
+      }
+
+      if (currentIndex !== targetIndex) {
+        currentIndex = targetIndex;
+        loadMedia(currentPlaylist[currentIndex], targetSeekTime);
+      } else {
+        syncCurrentEngine(targetSeekTime);
+      }
+    }
+
+    function syncCurrentEngine(targetSeekTime) {
+      const video = container.querySelector('video');
+      const nowMs = Date.now();
+
+      if (video && !video.paused && video.readyState >= 2) {
+        const drift = Math.abs(video.currentTime - targetSeekTime);
+        if (drift > SYNC_DRIFT_TOLERANCE && (nowMs - lastCorrectionAt > SYNC_MIN_INTERVAL_MS)) {
+          isCorrectingTime = true;
+          video.currentTime = targetSeekTime;
+          lastCorrectionAt = nowMs;
+          setTimeout(() => { isCorrectingTime = false; }, 1000);
+        }
+      }
+
+      if (ytPlayer && typeof ytPlayer.getCurrentTime === 'function' && typeof ytPlayer.seekTo === 'function') {
+        const currentYtTime = ytPlayer.getCurrentTime();
+        const drift = Math.abs(currentYtTime - targetSeekTime);
+        if (drift > SYNC_DRIFT_TOLERANCE && (nowMs - lastCorrectionAt > SYNC_MIN_INTERVAL_MS)) {
+          isCorrectingTime = true;
+          ytPlayer.seekTo(targetSeekTime, true);
+          lastCorrectionAt = nowMs;
+          setTimeout(() => { isCorrectingTime = false; }, 1000);
+        }
+      }
+    }
+
+    function loadMedia(mediaItem, startTime) {
+      cleanupCurrentEngine();
+      if (!mediaItem) return;
+
+      showSpinner('LOADING');
+
+      const type = (mediaItem.type || '').toLowerCase();
+      const url = mediaItem.url || '';
+
+      if (type === 'youtube' || url.includes('youtube.com') || url.includes('youtu.be')) {
+        loadYouTubeMedia(url, startTime);
+      } else if (type === 'hls' || url.includes('.m3u8')) {
+        loadHlsMedia(url, startTime);
+      } else if (type === 'dash' || url.includes('.mpd')) {
+        loadDashMedia(url, startTime);
+      } else {
+        loadNativeMedia(url, startTime);
+      }
+    }
+
+    function loadHlsMedia(url, startTime) {
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.muted = isMuted;
+      video.playsInline = true;
+      container.appendChild(video);
+
+      if (Hls.isSupported()) {
+        hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.currentTime = startTime;
+          video.play().catch(e => console.log('Autoplay blocked', e));
+          hideSpinner();
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        video.src = url;
+        video.addEventListener('loadedmetadata', () => {
+          video.currentTime = startTime;
+          video.play().catch(e => console.log('Autoplay blocked', e));
+          hideSpinner();
+        });
+      }
+    }
+
+    function loadDashMedia(url, startTime) {
+      const video = document.createElement('video');
+      video.autoplay = true;
+      video.muted = isMuted;
+      video.playsInline = true;
+      container.appendChild(video);
+
+      dashPlayer = dashjs.MediaPlayer().create();
+      dashPlayer.initialize(video, url, true);
+      dashPlayer.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => {
+        dashPlayer.seek(startTime);
+        hideSpinner();
+      });
+    }
+
+    function loadNativeMedia(url, startTime) {
+      const video = document.createElement('video');
+      video.src = url;
+      video.autoplay = true;
+      video.muted = isMuted;
+      video.playsInline = true;
+      video.controls = false;
+      container.appendChild(video);
+
+      video.addEventListener('loadedmetadata', () => {
+        video.currentTime = startTime;
+        video.play().catch(e => console.log('Autoplay blocked', e));
+        hideSpinner();
+      });
+    }
+
+    function extractYouTubeId(url) {
+      const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+      const match = url.match(regExp);
+      return (match && match[2].length === 11) ? match[2] : url;
+    }
+
+    function loadYouTubeMedia(url, startTime) {
+      const videoId = extractYouTubeId(url);
+      const ytDiv = document.createElement('div');
+      ytDiv.id = 'ytPlayerElement';
+      container.appendChild(ytDiv);
+
+      const initPlayer = () => {
+        ytPlayer = new YT.Player('ytPlayerElement', {
+          videoId: videoId,
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            modestbranding: 1,
+            rel: 0,
+            start: Math.floor(startTime)
+          },
+          events: {
+            onReady: (event) => {
+              if (isMuted) event.target.mute(); else event.target.unMute();
+              event.target.playVideo();
+              hideSpinner();
+            },
+            onStateChange: (event) => {
+              if (event.data === YT.PlayerState.PLAYING) {
+                hideSpinner();
+              }
+            }
+          }
+        });
+      };
+
+      if (window.YT && window.YT.Player) {
+        initPlayer();
+      } else {
+        window.onYouTubeIframeAPIReady = initPlayer;
+      }
+    }
+
+    // Initialize layout on load
+    window.addEventListener('DOMContentLoaded', loadData);
+  </script>
+</body>
+</html>

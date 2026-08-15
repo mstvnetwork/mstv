@@ -10,59 +10,60 @@ const PLAYLIST_URL    = './playlist.json';
 const POLL_MS         = 5000;   // playlist change check interval
 const WATCHDOG_MS     = 1000;   // sync ticker
 const RESYNC_DRIFT    = 3;      // seconds drift before snap (video mode)
+const IFRAME_RESYNC   = 8;      // seconds drift before iframe reload
 
 // ── URL type detection ────────────────────────────────────────────
 // Returns 'iframe' if URL is a web player page, 'hls' or 'mp4' otherwise.
 function detectType(item) {
-  if (item.type === 'iframe' || item.type === 'embed') return 'iframe';
+  if (item.type === 'iframe') return 'iframe';
   const url = item.url || '';
-  const lower = url.toLowerCase();
-
-  // 1. Check for player pages/wrappers FIRST (handles ?url=...m3u8 wrappers correctly)
+  // Direct stream indicators
+  if (url.includes('.m3u8')) return 'hls';
+  if (url.includes('.mp4'))  return 'mp4';
+  // Web player page indicators — anything that looks like an HTML page URL
+  // with query params, player paths, or known player domains
   if (
-    lower.includes('/player')   ||
-    lower.includes('?url=')     ||
-    lower.includes('?src=')     ||
-    lower.includes('?stream=')  ||
-    lower.includes('?file=')    ||
-    lower.includes('?link=')    ||
-    lower.includes('?v=')       ||
-    lower.includes('embed')     ||
-    lower.includes('iframe')
-  ) {
-    return 'iframe';
-  }
-
-  // 2. Direct stream indicators
-  if (lower.includes('.m3u8')) return 'hls';
-  if (lower.match(/\.(mp4|webm|ogg|mkv)(\?|$)/i)) return 'mp4';
-
-  // Fallback: default web URLs to iframe
-  return 'iframe';
+    url.includes('/player')   ||
+    url.includes('?url=')     ||
+    url.includes('?src=')     ||
+    url.includes('?stream=')  ||
+    url.includes('?file=')    ||
+    url.includes('?link=')    ||
+    url.includes('?v=')       ||
+    url.includes('embed')     ||
+    url.includes('iframe')    ||
+    item.type === 'embed'
+  ) return 'iframe';
+  // Fallback: if no .m3u8 / .mp4 extension → treat as iframe
+  return url.match(/\.(m3u8|mp4|webm|ogg|mkv)(\?|$)/i) ? 'mp4' : 'iframe';
 }
 
 // ── Seek URL builder ──────────────────────────────────────────────
-// Cleanly appends time parameters without breaking wrapper query parameters
+// For iframe sources that support a time/start param, we inject the
+// seek offset so the embed starts at the right position.
+// Add more patterns here as needed for other player domains.
 function buildIframeSrc(url, seekSec) {
   const t = Math.floor(seekSec);
   try {
     const u = new URL(url);
-
-    // If it's a wrapper player containing another URL query param, pass raw URL
+    // Common seek params used by various players
+    // Try appending #t= first (most universal), then ?t= as fallback
+    // For players that use &t= or &start=
     if (u.searchParams.has('url') || u.searchParams.has('src') || u.searchParams.has('file')) {
-      return url;
-    }
-
-    if (u.searchParams.has('t')) {
+      // These are wrapper players — pass #t= as a fragment so the inner player may pick it up
+      u.hash = `t=${t}`;
+    } else if (u.searchParams.has('t')) {
       u.searchParams.set('t', t);
     } else if (u.searchParams.has('start')) {
       u.searchParams.set('start', t);
     } else {
+      // Append #t= fragment — harmless if ignored, helpful if supported
       u.hash = `t=${t}`;
     }
     return u.toString();
   } catch {
-    return url;
+    // Malformed URL — just append fragment
+    return url + '#t=' + t;
   }
 }
 
@@ -94,7 +95,7 @@ function initPlayer(cfg) {
   let hls              = null;
   let paused           = false;
   let lastPlaylistHash = '';
-  let itemStartTime    = 0;      // Wall-clock start time of current item
+  let iframeLoadTime   = 0;      // wallclock ms when iframe was last loaded
 
   // ── Clock ─────────────────────────────────────────────────────────
   if (cfg.showClock && cfg.clockId) {
@@ -170,7 +171,7 @@ function initPlayer(cfg) {
   // ── Mode switching ────────────────────────────────────────────────
   function showVideo() {
     if (vid)      vid.style.display      = 'block';
-    if (iframeEl) { iframeEl.style.display = 'none'; iframeEl.src = 'about:blank'; }
+    if (iframeEl) iframeEl.style.display = 'none';
     if (volSlider) volSlider.closest && volSlider.closest('.vol-wrap') &&
       (volSlider.closest('.vol-wrap').style.opacity = '1');
     if (volOverlay) volOverlay.style.display = 'none';
@@ -181,6 +182,7 @@ function initPlayer(cfg) {
     if (vid)      { vid.pause(); vid.src = ''; vid.style.display = 'none'; }
     if (iframeEl) iframeEl.style.display = 'block';
     if (hls)      { hls.destroy(); hls = null; }
+    // Volume slider can't control iframe audio — show a note
     if (volSlider) volSlider.closest && volSlider.closest('.vol-wrap') &&
       (volSlider.closest('.vol-wrap').style.opacity = '0.3');
     if (volOverlay) volOverlay.style.display = 'flex';
@@ -193,10 +195,8 @@ function initPlayer(cfg) {
     const type   = detectType(item);
     const isIframe = type === 'iframe';
 
-    currentIndex  = index;
-    currentUrl    = item.url;
-    itemStartTime = Date.now() - (seekTo * 1000); // Tracks real start timestamp
-
+    currentIndex = index;
+    currentUrl   = item.url;
     if (nowTitle) nowTitle.textContent = item.title;
     loader.classList.remove('hidden');
     errorMsg.classList.remove('show');
@@ -211,6 +211,7 @@ function initPlayer(cfg) {
   // ── iframe mode ───────────────────────────────────────────────────
   function loadIframe(item, seekTo) {
     if (!iframeEl) {
+      // No iframe element in DOM — fallback error
       loader.classList.add('hidden');
       errorMsg.classList.add('show');
       return;
@@ -218,7 +219,9 @@ function initPlayer(cfg) {
     showIframe();
     const src = buildIframeSrc(item.url, seekTo);
     iframeEl.src = src;
+    iframeLoadTime = Date.now();
     iframeEl.onload = () => loader.classList.add('hidden');
+    // Fallback: hide loader after 4s even if onload doesn't fire
     setTimeout(() => loader.classList.add('hidden'), 4000);
   }
 
@@ -267,19 +270,29 @@ function initPlayer(cfg) {
   if (btnPlay) {
     btnPlay.addEventListener('click', () => {
       if (currentMode === 'iframe') {
+        // Iframe: pause = mute iframe by reloading at current position
+        // (can't truly pause cross-origin iframe — best we can do)
         if (!paused) {
+          // "Pause" — reload iframe at t=0 of current item to freeze
+          // Actually just stop by blanking src
           iframeEl.src = 'about:blank';
           paused = true;
           btnPlay.textContent = '▶';
         } else {
+          // Resume — reload at current live position
           const pos = computePos(Date.now());
           if (!pos) return;
-          loadItem(pos.index, pos.offset);
+          if (pos.index !== currentIndex) {
+            loadItem(pos.index, pos.offset);
+          } else {
+            loadIframe(playlist[pos.index], pos.offset);
+          }
           paused = false;
           btnPlay.textContent = '⏸';
           showSyncToast();
         }
       } else {
+        // Video mode
         if (vid.paused) {
           const pos = computePos(Date.now());
           if (!pos) return;
@@ -313,11 +326,11 @@ function initPlayer(cfg) {
     const pos = computePos(Date.now());
     if (!pos) return;
 
-    // Progress bar — for iframe mode calculate relative elapsed runtime
+    // Progress bar — for iframe mode use wall-clock elapsed
     if (progressFill) {
       if (currentMode === 'iframe') {
-        const elapsed = (Date.now() - itemStartTime) / 1000;
-        const pct = Math.min((elapsed / playlist[pos.index].duration) * 100, 100);
+        const elapsed = (Date.now() - iframeLoadTime) / 1000;
+        const pct = Math.min(elapsed / playlist[pos.index].duration * 100, 100);
         progressFill.style.width = pct + '%';
       } else if (vid && !vid.paused) {
         progressFill.style.width =
@@ -328,7 +341,7 @@ function initPlayer(cfg) {
     // Status bar
     if (statusText && playlist[pos.index]) {
       const elapsed = currentMode === 'iframe'
-        ? (Date.now() - itemStartTime) / 1000
+        ? (Date.now() - iframeLoadTime) / 1000
         : (vid ? vid.currentTime : 0);
       const rem = playlist[pos.index].duration - elapsed;
       statusText.textContent = `Up next in ${fmt(Math.max(0, rem))}`;
@@ -347,6 +360,17 @@ function initPlayer(cfg) {
       const drift = Math.abs(vid.currentTime - pos.offset);
       if (drift > RESYNC_DRIFT) {
         vid.currentTime = pos.offset;
+        showSyncToast();
+      }
+    }
+
+    // ── Iframe drift correction ───────────────────────────────────
+    // If iframe has been running too long vs expected, reload it
+    if (currentMode === 'iframe' && iframeEl && !paused) {
+      const iframeElapsed = (Date.now() - iframeLoadTime) / 1000;
+      const drift = Math.abs(iframeElapsed - pos.offset);
+      if (drift > IFRAME_RESYNC) {
+        loadIframe(playlist[pos.index], pos.offset);
         showSyncToast();
       }
     }
@@ -375,6 +399,7 @@ function initPlayer(cfg) {
 
       showUpdateToast();
 
+      // Same URL still playing? Just update schedule, no interruption.
       const sameUrl = pos.index === currentIndex &&
         playlist[pos.index] &&
         playlist[pos.index].url === currentUrl;

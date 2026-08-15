@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta http-equiv="X-UA-Compatible" content="ie=edge">
-    <title>MSTV Live Player Embed</title>
+    <title>MSTV Autonomous Live Player</title>
 
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"/>
@@ -25,7 +25,6 @@
         --accent-blue: #2f8fff;
         --text-primary: #f4f6f8;
         --text-secondary: #b7bfc9;
-        --text-muted: #74808f;
         --border-color-strong: rgba(255, 255, 255, 0.16);
         --font-display: 'Archivo Black', 'Archivo', sans-serif;
         --font-body: 'Archivo', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -109,6 +108,7 @@
         z-index: 20;
         text-align: center;
         padding: 0.8rem;
+        transition: opacity 0.3s ease;
       }
 
       .placeholder-icon-wrap {
@@ -252,12 +252,12 @@
       <div class="frame-brackets"><span></span><span></span><span></span><span></span></div>
 
       <div class="player-placeholder" id="playerPlaceholder">
-        <div class="placeholder-icon-wrap"><i class="fa-solid fa-circle-play placeholder-icon"></i></div>
-        <div class="placeholder-text">MSTV Live Sync Player</div>
+        <div class="placeholder-icon-wrap"><i class="fa-solid fa-satellite-dish placeholder-icon"></i></div>
+        <div class="placeholder-text" id="placeholderStatus">Connecting Stream...</div>
       </div>
 
       <div class="player-controls-overlay">
-        <button class="control-btn" id="muteToggle" title="Toggle Mute">
+        <button class="control-btn" id="muteToggle" title="Toggle Sound (Autoplaying Muted)">
           <i class="fa-solid fa-volume-xmark"></i>
         </button>
         <button class="control-btn" id="fullscreenToggle" title="Toggle Fullscreen">
@@ -268,12 +268,12 @@
       <div class="loading-spinner-overlay" id="loadingSpinner">
         <div class="spinner-ring"></div>
         <span class="spinner-text">Buffering Stream</span>
-        <span class="spinner-engine-tag" id="spinnerEngineTag">HLS</span>
+        <span class="spinner-engine-tag" id="spinnerEngineTag">AUTO</span>
       </div>
     </div>
   </div>
 
-  <!-- Streaming Media Libraries -->
+  <!-- Streaming Media Engines -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
 
@@ -282,14 +282,14 @@
     const container = document.getElementById('videoContainer');
     const playerWrapper = document.getElementById('playerWrapper');
     const playerPlaceholder = document.getElementById('playerPlaceholder');
+    const placeholderStatus = document.getElementById('placeholderStatus');
     const muteToggle = document.getElementById('muteToggle');
     const fullscreenToggle = document.getElementById('fullscreenToggle');
     const loadingSpinner = document.getElementById('loadingSpinner');
     const spinnerEngineTag = document.getElementById('spinnerEngineTag');
 
-    // State Variables
+    // Engine & Playback State
     let rawPlaylists = {};
-    let liveTvData = {};
     let activeCategory = null;
     let currentPlaylist = [];
     let videoDurations = [];
@@ -298,21 +298,15 @@
     let hls = null;
     let dashPlayer = null;
     let currentIndex = -1;
-    let isMuted = true;
+    let isMuted = true; // Default muted to ensure zero-interaction browser autoplay success
     let syncTimer = null;
 
-    // Playback correction & buffering-state tracking
     let ytPlayer = null;
-    let maxWatchedTime = 0;
-    let ytCheckInterval = null;
-    let isInitialLoading = false;
-    let isCorrectingTime = false;
     let lastCorrectionAt = 0;
     const SYNC_DRIFT_TOLERANCE = 8;
     const SYNC_MIN_INTERVAL_MS = 6000;
-    const SKIP_PREVENTION_TOLERANCE = 6;
 
-    // Load YouTube API script dynamically
+    // Load YouTube API dynamically
     if (!window.YT) {
       const tag = document.createElement('script');
       tag.src = "https://www.youtube.com/iframe_api";
@@ -330,7 +324,11 @@
       if (engineLabel) spinnerEngineTag.textContent = engineLabel;
       loadingSpinner.classList.add('active');
     }
-    function hideSpinner() { loadingSpinner.classList.remove('active'); }
+    
+    function hideSpinner() { 
+      loadingSpinner.classList.remove('active');
+      if (playerPlaceholder) playerPlaceholder.style.display = 'none';
+    }
 
     muteToggle.addEventListener('click', () => {
       isMuted = !isMuted;
@@ -350,53 +348,50 @@
       }
     });
 
-    // Load Stream Configuration Data
-    async function loadData() {
+    // Auto-fetch data and launch immediate playback
+    async function initAutonomousPlayback() {
       try {
         const response = await fetch('test.json');
         const data = await response.json();
         rawPlaylists = data.playlists || {};
-        liveTvData = data.live_tv || {};
-        
-        // Auto-initialize primary live channel if defined in test.json
-        if (data.default_category) {
-          switchCategory(data.default_category);
-        } else if (rawPlaylists.apna_tv) {
-          switchCategory('apna_tv');
+
+        // Identify target category automatically:
+        // 1. Specified default category in JSON
+        // 2. First key inside playlists object
+        let targetCategory = data.default_category;
+        if (!targetCategory || !rawPlaylists[targetCategory]) {
+          const keys = Object.keys(rawPlaylists);
+          if (keys.length > 0) targetCategory = keys[0];
+        }
+
+        if (targetCategory && rawPlaylists[targetCategory]) {
+          startCategoryStream(targetCategory);
+        } else {
+          placeholderStatus.textContent = "No valid playlist found in test.json";
         }
       } catch (error) {
         console.error('Failed to load test.json:', error);
+        placeholderStatus.textContent = "Error loading test.json stream data";
       }
     }
 
     function cleanupCurrentEngine() {
-      if (hls) {
-        hls.destroy();
-        hls = null;
-      }
-      if (dashPlayer) {
-        dashPlayer.reset();
-        dashPlayer = null;
-      }
-      if (ytCheckInterval) {
-        clearInterval(ytCheckInterval);
-        ytCheckInterval = null;
-      }
+      if (hls) { hls.destroy(); hls = null; }
+      if (dashPlayer) { dashPlayer.reset(); dashPlayer = null; }
       ytPlayer = null;
       container.innerHTML = '';
     }
 
-    function switchCategory(catKey) {
+    function startCategoryStream(catKey) {
       cleanupCurrentEngine();
       activeCategory = catKey;
       currentPlaylist = rawPlaylists[catKey] || [];
       if (!currentPlaylist.length) return;
 
-      if (playerPlaceholder) playerPlaceholder.style.display = 'none';
-      
       calculateTimelineAndSync();
+      
       if (syncTimer) clearInterval(syncTimer);
-      syncTimer = setInterval(calculateTimelineAndSync, 5000);
+      syncTimer = setInterval(calculateTimelineAndSync, 4000);
     }
 
     function calculateTimelineAndSync() {
@@ -427,23 +422,21 @@
 
       if (currentIndex !== targetIndex) {
         currentIndex = targetIndex;
-        loadMedia(currentPlaylist[currentIndex], targetSeekTime);
+        loadMediaEngine(currentPlaylist[currentIndex], targetSeekTime);
       } else {
-        syncCurrentEngine(targetSeekTime);
+        syncEngineDrift(targetSeekTime);
       }
     }
 
-    function syncCurrentEngine(targetSeekTime) {
+    function syncEngineDrift(targetSeekTime) {
       const video = container.querySelector('video');
       const nowMs = Date.now();
 
       if (video && !video.paused && video.readyState >= 2) {
         const drift = Math.abs(video.currentTime - targetSeekTime);
         if (drift > SYNC_DRIFT_TOLERANCE && (nowMs - lastCorrectionAt > SYNC_MIN_INTERVAL_MS)) {
-          isCorrectingTime = true;
           video.currentTime = targetSeekTime;
           lastCorrectionAt = nowMs;
-          setTimeout(() => { isCorrectingTime = false; }, 1000);
         }
       }
 
@@ -451,35 +444,33 @@
         const currentYtTime = ytPlayer.getCurrentTime();
         const drift = Math.abs(currentYtTime - targetSeekTime);
         if (drift > SYNC_DRIFT_TOLERANCE && (nowMs - lastCorrectionAt > SYNC_MIN_INTERVAL_MS)) {
-          isCorrectingTime = true;
           ytPlayer.seekTo(targetSeekTime, true);
           lastCorrectionAt = nowMs;
-          setTimeout(() => { isCorrectingTime = false; }, 1000);
         }
       }
     }
 
-    function loadMedia(mediaItem, startTime) {
+    function loadMediaEngine(mediaItem, startTime) {
       cleanupCurrentEngine();
       if (!mediaItem) return;
 
-      showSpinner('LOADING');
+      showSpinner('SYNCING');
 
       const type = (mediaItem.type || '').toLowerCase();
       const url = mediaItem.url || '';
 
       if (type === 'youtube' || url.includes('youtube.com') || url.includes('youtu.be')) {
-        loadYouTubeMedia(url, startTime);
+        loadYouTube(url, startTime);
       } else if (type === 'hls' || url.includes('.m3u8')) {
-        loadHlsMedia(url, startTime);
+        loadHLS(url, startTime);
       } else if (type === 'dash' || url.includes('.mpd')) {
-        loadDashMedia(url, startTime);
+        loadDASH(url, startTime);
       } else {
-        loadNativeMedia(url, startTime);
+        loadNativeVideo(url, startTime);
       }
     }
 
-    function loadHlsMedia(url, startTime) {
+    function loadHLS(url, startTime) {
       const video = document.createElement('video');
       video.autoplay = true;
       video.muted = isMuted;
@@ -492,20 +483,20 @@
         hls.attachMedia(video);
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.currentTime = startTime;
-          video.play().catch(e => console.log('Autoplay blocked', e));
+          video.play().catch(e => console.warn('Autonomous playback note:', e));
           hideSpinner();
         });
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
         video.addEventListener('loadedmetadata', () => {
           video.currentTime = startTime;
-          video.play().catch(e => console.log('Autoplay blocked', e));
+          video.play().catch(e => console.warn('Autonomous playback note:', e));
           hideSpinner();
         });
       }
     }
 
-    function loadDashMedia(url, startTime) {
+    function loadDASH(url, startTime) {
       const video = document.createElement('video');
       video.autoplay = true;
       video.muted = isMuted;
@@ -520,7 +511,7 @@
       });
     }
 
-    function loadNativeMedia(url, startTime) {
+    function loadNativeVideo(url, startTime) {
       const video = document.createElement('video');
       video.src = url;
       video.autoplay = true;
@@ -531,7 +522,7 @@
 
       video.addEventListener('loadedmetadata', () => {
         video.currentTime = startTime;
-        video.play().catch(e => console.log('Autoplay blocked', e));
+        video.play().catch(e => console.warn('Autonomous playback note:', e));
         hideSpinner();
       });
     }
@@ -542,7 +533,7 @@
       return (match && match[2].length === 11) ? match[2] : url;
     }
 
-    function loadYouTubeMedia(url, startTime) {
+    function loadYouTube(url, startTime) {
       const videoId = extractYouTubeId(url);
       const ytDiv = document.createElement('div');
       ytDiv.id = 'ytPlayerElement';
@@ -582,8 +573,8 @@
       }
     }
 
-    // Initialize layout on load
-    window.addEventListener('DOMContentLoaded', loadData);
+    // Launch immediately on page ready
+    window.addEventListener('DOMContentLoaded', initAutonomousPlayback);
   </script>
 </body>
 </html>

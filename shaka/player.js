@@ -177,6 +177,27 @@ function initPlayer(cfg) {
     if (volOverlay) volOverlay.style.display = 'none';
     currentMode = 'video';
   }
+  // ── Prevent user seeking / video skipping ─────────────────────
+let lastValidTime = 0;
+
+vid.addEventListener('timeupdate', () => {
+  if (currentMode !== 'video' || vid.seeking) return;
+
+  // Allow max 1.5 seconds shift for normal playback; revert if skip detected
+  if (Math.abs(vid.currentTime - lastValidTime) > 1.5) {
+    vid.currentTime = lastValidTime;
+  } else {
+    lastValidTime = vid.currentTime;
+  }
+});
+
+// Reset baseline when new items load
+vid.addEventListener('seeking', () => {
+  const pos = computePos(Date.now());
+  if (pos && Math.abs(vid.currentTime - pos.offset) > RESYNC_DRIFT) {
+    vid.currentTime = lastValidTime;
+  }
+});
 
   function showIframe() {
     if (vid)      { vid.pause(); vid.src = ''; vid.style.display = 'none'; }

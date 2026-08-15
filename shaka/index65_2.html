@@ -65,7 +65,7 @@
 
   .error.show { display: block; }
 
-  /* ===== In-player floating controls ===== */
+  /* ===== In-player floating controls (no background) ===== */
   .controls-overlay {
       position: absolute;
       left: 14px;
@@ -75,20 +75,18 @@
       align-items: center;
       gap: 12px;
       padding: 8px 12px;
-      background: linear-gradient(0deg, rgba(0,0,0,.65), rgba(0,0,0,.15));
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      border-radius: 10px;
+      background: none;
       opacity: 0;
       transform: translateY(6px);
       transition: opacity .25s ease, transform .25s ease;
       z-index: 30;
+      pointer-events: none;
   }
 
-  .video-container:hover .controls-overlay,
   .video-container.show-controls .controls-overlay {
       opacity: 1;
       transform: translateY(0);
+      pointer-events: auto;
   }
 
   #btnPlay {
@@ -125,6 +123,8 @@
       opacity: .85;
       width: 16px;
       text-align: center;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
 
   #volSlider {
@@ -134,7 +134,7 @@
       max-width: 30%;
       height: 4px;
       border-radius: 2px;
-      background: rgba(255,255,255,.25);
+      background: rgba(255,255,255,.35);
       outline: none;
       cursor: pointer;
   }
@@ -147,7 +147,7 @@
       border-radius: 50%;
       background: #fff;
       cursor: pointer;
-      box-shadow: 0 0 4px rgba(0,0,0,.4);
+      box-shadow: 0 0 4px rgba(0,0,0,.6);
   }
 
   #volSlider::-moz-range-thumb {
@@ -169,16 +169,14 @@
       font-weight: 600;
       letter-spacing: .5px;
       color: #fff;
-      background: rgba(220,20,20,.9);
-      padding: 3px 8px 3px 6px;
-      border-radius: 4px;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
 
   .live-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #fff;
+      background: #e33;
       animation: pulse 1.4s infinite;
   }
 
@@ -199,22 +197,10 @@
       color: #fff;
   }
 
+  /* Progress bar hidden per request (no red scrollbar visible) */
   .progress {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: 58px;
-      height: 3px;
-      border-radius: 2px;
-      background: rgba(255,255,255,.2);
-      overflow: hidden;
-      z-index: 29;
-      opacity: 0;
-      transition: opacity .25s ease;
+      display: none;
   }
-
-  .video-container:hover .progress,
-  .video-container.show-controls .progress { opacity: 1; }
 
   .progress-fill {
       height: 100%;
@@ -317,16 +303,24 @@ initPlayer({
     clockDateId: 'clockDate'
 });
 
-// Purely cosmetic: reveal controls briefly on load, then on hover/tap only.
+// Click-to-toggle controls: show on click, auto-hide after a few seconds
 const container = document.getElementById('videoContainer');
-container.classList.add('show-controls');
-setTimeout(() => container.classList.remove('show-controls'), 2000);
+let hideTimer;
 
-container.addEventListener('click', (e) => {
-    // Don't let a tap on the controls bar itself trigger the hide-timer reset twice
+function revealControls() {
     container.classList.add('show-controls');
-    clearTimeout(window.__hideCtrls);
-    window.__hideCtrls = setTimeout(() => container.classList.remove('show-controls'), 3000);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+        container.classList.remove('show-controls');
+    }, 2500);
+}
+
+// Brief initial reveal on load
+revealControls();
+
+// Any click on the player resets/starts the visible window
+container.addEventListener('click', () => {
+    revealControls();
 });
 
 </script>

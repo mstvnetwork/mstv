@@ -65,7 +65,6 @@
 
   .error.show { display: block; }
 
-  /* ===== In-player floating controls (no background) ===== */
   .controls-overlay {
       position: absolute;
       left: 14px;
@@ -89,7 +88,7 @@
       pointer-events: auto;
   }
 
-  #btnPlay {
+  #btnPlay, #btnFullscreen {
       cursor: pointer;
       width: 34px;
       height: 34px;
@@ -105,8 +104,8 @@
       transition: background .2s ease, transform .15s ease;
   }
 
-  #btnPlay:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
-  #btnPlay:active { transform: scale(0.94); }
+  #btnPlay:hover, #btnFullscreen:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
+  #btnPlay:active, #btnFullscreen:active { transform: scale(0.94); }
 
   .vol-wrap {
       display: flex;
@@ -182,7 +181,6 @@
 
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
-  /* Used by player.js: volOverlay for iframe-mode volume note */
   .vol-overlay {
       display: none;
       position: absolute;
@@ -197,10 +195,7 @@
       color: #fff;
   }
 
-  /* Progress bar hidden per request (no red scrollbar visible) */
-  .progress {
-      display: none;
-  }
+  .progress { display: none; }
 
   .progress-fill {
       height: 100%;
@@ -254,6 +249,8 @@
         <div class="live-badge">
             <span class="live-dot"></span>LIVE
         </div>
+
+        <button id="btnFullscreen" title="Fullscreen">⛶</button>
     </div>
 
 </div>
@@ -315,13 +312,36 @@ function revealControls() {
     }, 2500);
 }
 
-// Brief initial reveal on load
 revealControls();
 
-// Any click on the player resets/starts the visible window
 container.addEventListener('click', () => {
     revealControls();
 });
+
+// Fullscreen toggle — independent of player.js, only touches the container element
+const btnFullscreen = document.getElementById('btnFullscreen');
+
+function isFullscreen() {
+    return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function updateFullscreenIcon() {
+    btnFullscreen.textContent = isFullscreen() ? '⤢' : '⛶';
+}
+
+btnFullscreen.addEventListener('click', (e) => {
+    e.stopPropagation(); // don't let this click also trigger the hide-timer twice unexpectedly
+    if (!isFullscreen()) {
+        if (container.requestFullscreen) container.requestFullscreen();
+        else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
+    } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+});
+
+document.addEventListener('fullscreenchange', updateFullscreenIcon);
+document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
 
 </script>
 

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Sync Player - Embed</title>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+  html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+
+  .video-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+      overflow: hidden;
+  }
+
+  video, iframe#iframePlayer {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      object-fit: contain;
+      background: #000;
+  }
+
+  .loader {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,.6);
+      color: #fff;
+      font-size: 14px;
+      letter-spacing: .5px;
+      z-index: 20;
+  }
+
+  .loader.hidden { display: none; }
+
+  .error {
+      display: none;
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      right: 14px;
+      padding: 8px 12px;
+      background: rgba(153,0,0,.85);
+      border-radius: 6px;
+      font-size: 13px;
+      z-index: 25;
+  }
+
+  .error.show { display: block; }
+
+  /* ===== In-player floating controls ===== */
+  .controls-overlay {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 12px;
+      background: linear-gradient(0deg, rgba(0,0,0,.65), rgba(0,0,0,.15));
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border-radius: 10px;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity .25s ease, transform .25s ease;
+      z-index: 30;
+  }
+
+  .video-container:hover .controls-overlay,
+  .video-container.show-controls .controls-overlay {
+      opacity: 1;
+      transform: translateY(0);
+  }
+
+  #btnPlay {
+      cursor: pointer;
+      width: 34px;
+      height: 34px;
+      flex: 0 0 auto;
+      border: none;
+      border-radius: 50%;
+      background: rgba(255,255,255,.12);
+      color: #fff;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .2s ease, transform .15s ease;
+  }
+
+  #btnPlay:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
+  #btnPlay:active { transform: scale(0.94); }
+
+  .vol-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 auto;
+      min-width: 0;
+      transition: opacity .2s ease;
+  }
+
+  .vol-icon {
+      flex: 0 0 auto;
+      font-size: 14px;
+      opacity: .85;
+      width: 16px;
+      text-align: center;
+  }
+
+  #volSlider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 90px;
+      max-width: 30%;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,.25);
+      outline: none;
+      cursor: pointer;
+  }
+
+  #volSlider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 0 4px rgba(0,0,0,.4);
+  }
+
+  #volSlider::-moz-range-thumb {
+      width: 12px;
+      height: 12px;
+      border: none;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+  }
+
+  .live-badge {
+      margin-left: auto;
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .5px;
+      color: #fff;
+      background: rgba(220,20,20,.9);
+      padding: 3px 8px 3px 6px;
+      border-radius: 4px;
+  }
+
+  .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #fff;
+      animation: pulse 1.4s infinite;
+  }
+
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* Used by player.js: volOverlay for iframe-mode volume note */
+  .vol-overlay {
+      display: none;
+      position: absolute;
+      bottom: 66px;
+      left: 14px;
+      padding: 5px 10px;
+      background: rgba(0,0,0,.7);
+      border-radius: 4px;
+      font-size: 11px;
+      z-index: 100;
+      pointer-events: none;
+      color: #fff;
+  }
+
+  .progress {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 58px;
+      height: 3px;
+      border-radius: 2px;
+      background: rgba(255,255,255,.2);
+      overflow: hidden;
+      z-index: 29;
+      opacity: 0;
+      transition: opacity .25s ease;
+  }
+
+  .video-container:hover .progress,
+  .video-container.show-controls .progress { opacity: 1; }
+
+  .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #e33;
+  }
+</style>
+</head>
+<body>
+
+<div class="video-container" id="videoContainer">
+
+    <video
+        id="videoPlayer"
+        playsinline
+        controlslist="nodownload">
+    </video>
+
+    <iframe
+        id="iframePlayer"
+        style="display:none;"
+        allowfullscreen>
+    </iframe>
+
+    <div id="loader" class="loader">Loading...</div>
+
+    <div id="errorMsg" class="error">Playback error. Retrying...</div>
+
+    <div id="volOverlay" class="vol-overlay">
+        Volume controlled by embedded player
+    </div>
+
+    <div class="progress">
+        <div id="progressFill" class="progress-fill"></div>
+    </div>
+
+    <div class="controls-overlay">
+        <button id="btnPlay">⏸</button>
+
+        <div class="vol-wrap">
+            <span class="vol-icon">🔊</span>
+            <input
+                id="volSlider"
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value="0.8">
+        </div>
+
+        <div class="live-badge">
+            <span class="live-dot"></span>LIVE
+        </div>
+    </div>
+
+</div>
+
+<!-- Kept in DOM (hidden) only so player.js's getElementById calls
+     for these IDs don't return null. Not touched functionally. -->
+<div style="display:none;">
+    <h2 id="nowTitle"></h2>
+    <div id="clock"></div>
+    <div id="clockDate"></div>
+    <div id="statusText"></div>
+    <div id="statusOffset"></div>
+    <div id="scheduleList"></div>
+    <div id="syncToast">Synced to live position</div>
+    <div id="updateToast">Playlist updated</div>
+</div>
+
+<script src="./player.js"></script>
+
+<script>
+
+initPlayer({
+    videoId: 'videoPlayer',
+    iframeId: 'iframePlayer',
+
+    loaderId: 'loader',
+    errorId: 'errorMsg',
+
+    btnPlayId: 'btnPlay',
+    volSliderId: 'volSlider',
+
+    progressFillId: 'progressFill',
+    scheduleListId: 'scheduleList',
+
+    syncToastId: 'syncToast',
+    updateToastId: 'updateToast',
+
+    statusTextId: 'statusText',
+    statusOffsetId: 'statusOffset',
+
+    nowTitleId: 'nowTitle',
+
+    volOverlayId: 'volOverlay',
+
+    showClock: false,
+    clockId: 'clock',
+    clockDateId: 'clockDate'
+});
+
+// Purely cosmetic: reveal controls briefly on load, then on hover/tap only.
+const container = document.getElementById('videoContainer');
+container.classList.add('show-controls');
+setTimeout(() => container.classList.remove('show-controls'), 2000);
+
+container.addEventListener('click', (e) => {
+    // Don't let a tap on the controls bar itself trigger the hide-timer reset twice
+    container.classList.add('show-controls');
+    clearTimeout(window.__hideCtrls);
+    window.__hideCtrls = setTimeout(() => container.classList.remove('show-controls'), 3000);
+});
+
+</script>
+
+</body>
+</html>

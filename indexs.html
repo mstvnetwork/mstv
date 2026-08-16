@@ -13,12 +13,16 @@
 <meta property="og:description" content="Browse MSTV Network live Indian, Punjabi, religious, entertainment and sports TV channels by category.">
 <meta property="og:url" content="https://crickethd.pages.dev/">
 <meta property="og:site_name" content="MSTV Network">
+<meta property="og:locale" content="en_US">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="MSTV Network | Free Live TV Channels">
 <meta name="twitter:description" content="Browse live Indian, Punjabi, religious, entertainment and sports TV channels on MSTV Network.">
 <meta name="author" content="MSTV Network">
-<meta name="robots" content="index, follow">
+<meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
 <meta name="theme-color" content="#06070b">
+<meta name="format-detection" content="telephone=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <link rel="canonical" href="https://crickethd.pages.dev/">
 <link rel="icon" href="/favicon.ico" sizes="any">
@@ -169,9 +173,36 @@
   .cat-pill .cat-n { font-family: var(--font-mono); font-size: 10px; opacity: .8; min-width: 24px; text-align: right; display: inline-block; }
 
   #playerWrapper {
-    flex: 0 0 50%; width: 50%; height: 100%; display: flex; align-items: center; justify-content: center; background: #000; position: relative;
+    flex: 0 0 50%; width: 50%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #000; position: relative;
   }
-  #playerArea { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 100%; background: #000; overflow: hidden; }
+  #playerArea { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: calc(100% - 22px); background: #000; overflow: hidden; }
+
+  #playerTicker {
+    width: 100%; height: 22px; min-height: 22px; flex-shrink: 0; overflow: hidden;
+    background: linear-gradient(90deg, rgba(15,18,32,.95), rgba(21,25,51,.95));
+    border-top: 1px solid var(--glass-border); display: flex; align-items: center; position: relative;
+  }
+  #playerTicker::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, var(--void2) 0%, transparent 6%, transparent 94%, var(--void2) 100%);
+    z-index: 1;
+  }
+  #playerTicker .ticker-track {
+    display: inline-flex; white-space: nowrap; padding-left: 100%;
+    animation: mstv-ticker-scroll 26s linear infinite;
+    font-size: 11px; font-weight: 600; letter-spacing: .2px;
+    color: var(--cyan); align-items: center; gap: 48px;
+  }
+  #playerTicker .ticker-track span { display: inline-flex; align-items: center; gap: 6px; }
+  @keyframes mstv-ticker-scroll { 0% { transform: translate3d(0,0,0); } 100% { transform: translate3d(-100%,0,0); } }
+  @media (prefers-reduced-motion: reduce) {
+    #playerTicker .ticker-track { animation: none; padding-left: 12px; }
+  }
+
+  @media(max-width: 650px) {
+    #playerTicker { height: 20px; min-height: 20px; }
+    #playerTicker .ticker-track { font-size: 10px; }
+  }
 
   #playerPlaceholder {
     position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
@@ -322,6 +353,12 @@
         <video id="videoEl" controls playsinline preload="none"></video>
         <iframe id="iframeEl" allow="autoplay; fullscreen; encrypted-media" allowfullscreen title="Stream player"></iframe>
       </div>
+      <div id="playerTicker" aria-hidden="true">
+        <div class="ticker-track">
+          <span>🌐 Some channels are geo-blocked to receive them, please use any free VPN from Google Play Store and choose server USA, UK, AUS.... Thanks for watching MSTV Network!!</span>
+          <span>🌐 Some channels are geo-blocked to receive them, please use any free VPN from Google Play Store and choose server USA, UK, AUS.... Thanks for watching MSTV Network!!</span>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -365,17 +402,67 @@
 const CURRENT_VERSION = "v2.5.2"; 
 
 const WORKER_ENDPOINTS = [
-  "https://mstv.ghubtv1.workers.dev"
+  "https://mstv.ghubtv1.workers.dev",
+  "https://stream-proxy.cabletv.workers.dev",
+  "https://backup.mstvindianetworkusa.workers.dev"
 ];
 
+// Round-robin pointer + per-worker health state, so a dead/slow worker
+// doesn't keep getting picked and viewers spread across all endpoints.
+let workerRRIndex = 0;
+const workerHealth = WORKER_ENDPOINTS.reduce((acc, url) => {
+  acc[url] = { failCount: 0, cooldownUntil: 0 };
+  return acc;
+}, {});
+
+const WORKER_FAIL_THRESHOLD = 2;      // failures before a worker is put in cooldown
+const WORKER_COOLDOWN_MS    = 60000;  // how long a bad worker is skipped for
+
+function isWorkerHealthy(url) {
+  const h = workerHealth[url];
+  return !h || h.cooldownUntil <= Date.now();
+}
+
+function reportWorkerSuccess(url) {
+  const h = workerHealth[url];
+  if (h) { h.failCount = 0; h.cooldownUntil = 0; }
+}
+
+function reportWorkerFailure(url) {
+  const h = workerHealth[url];
+  if (!h) return;
+  h.failCount++;
+  if (h.failCount >= WORKER_FAIL_THRESHOLD) {
+    h.cooldownUntil = Date.now() + WORKER_COOLDOWN_MS;
+  }
+}
+
+// Returns an ordered list of candidate workers for this request:
+// starts at the next round-robin slot (load balancing), skips workers
+// currently in cooldown, and falls back to all workers if everything
+// is unhealthy so playback still gets attempted.
+function getWorkerCandidates() {
+  const n = WORKER_ENDPOINTS.length;
+  const ordered = [];
+  for (let i = 0; i < n; i++) {
+    ordered.push(WORKER_ENDPOINTS[(workerRRIndex + i) % n]);
+  }
+  workerRRIndex = (workerRRIndex + 1) % n;
+
+  const healthy = ordered.filter(isWorkerHealthy);
+  return healthy.length ? healthy : ordered;
+}
+
 function getActiveWorkerUrl() {
-  return WORKER_ENDPOINTS[0];
+  return getWorkerCandidates()[0];
 }
 
 const streamCache = {};
 
-const JSON_URL      = './streamdata2.json';
-const POLL_INTERVAL = 1500;
+const JSON_URL       = './streamdata2.json';
+const VERSION_URL    = './version.json'; // { "version": "v2.5.3" } — bump this on every deploy
+const POLL_INTERVAL  = 1500;
+const VERSION_POLL_INTERVAL = 15000; // checking for a new player build every 15s is enough
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
@@ -448,27 +535,42 @@ async function getStreamUrl(channel) {
     return null;
   }
 
-  const workerBaseUrl = getActiveWorkerUrl();
   const routeType = (channel.type === 'iframe') ? 'iframe' : 'hls';
+  const candidates = getWorkerCandidates();
 
-  try {
-    // Fetch ephemeral token from Cloudflare Worker
-    const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, { cache: 'no-store' });
-    if (!tokenRes.ok) throw new Error("Failed token fetch");
-    
-    const { token, expires } = await tokenRes.json();
-    const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
+  for (const workerBaseUrl of candidates) {
+    try {
+      // Fetch ephemeral token from Cloudflare Worker (with a timeout so a
+      // hung/dead worker doesn't stall failover to the next one)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-    // Resolve initial 302 redirect
-    const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
-    if (response.ok) {
-      streamCache[key] = response.url;
-      return response.url;
+      const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, {
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!tokenRes.ok) throw new Error("Failed token fetch");
+
+      const { token, expires } = await tokenRes.json();
+      const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
+
+      // Resolve initial 302 redirect
+      const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
+      if (response.ok) {
+        reportWorkerSuccess(workerBaseUrl);
+        streamCache[key] = response.url;
+        return response.url;
+      }
+      throw new Error('HTTP ' + response.status);
+    } catch (err) {
+      reportWorkerFailure(workerBaseUrl);
+      console.warn(`Worker ${workerBaseUrl} failed, trying next candidate:`, err);
+      // loop continues to next candidate worker
     }
-  } catch (err) {
-    console.error("Worker stream resolution failed:", err);
   }
 
+  console.error("All worker endpoints failed to resolve stream URL.");
   return null;
 }
 
@@ -601,6 +703,54 @@ async function loadChannels(silent) {
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
+  startVersionPolling();
+}
+
+let versionPollTimer = null;
+let updateBannerShown = false;
+
+function startVersionPolling() {
+  clearInterval(versionPollTimer);
+  versionPollTimer = setInterval(checkForNewVersion, VERSION_POLL_INTERVAL);
+}
+
+async function checkForNewVersion() {
+  if (updateBannerShown) return; // already prompted, no need to keep checking
+  try {
+    const res = await fetch(`${VERSION_URL}?_cb=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return; // file may not exist yet — fail silently, non-critical
+    const data = await res.json();
+    if (data && data.version && data.version !== CURRENT_VERSION) {
+      showUpdateBanner();
+    }
+  } catch (e) {
+    // Silent — version.json is optional; absence should never break playback
+  }
+}
+
+// Non-intrusive banner so an active viewer isn't interrupted mid-stream;
+// they can keep watching and refresh whenever they're ready.
+function showUpdateBanner() {
+  if (updateBannerShown) return;
+  updateBannerShown = true;
+
+  const bar = document.createElement('div');
+  bar.id = 'mstvUpdateBanner';
+  bar.setAttribute('role', 'status');
+  bar.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:9999;'
+    + 'background:rgba(15,18,32,.96);border:1px solid var(--cyan,#3df2ff);color:#f2f4fb;'
+    + 'font-family:var(--font-sans,sans-serif);font-size:12px;font-weight:600;padding:10px 14px;'
+    + 'border-radius:10px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 18px rgba(0,0,0,.5);'
+    + 'max-width:90vw;';
+  bar.innerHTML = '<span>🔄 A new version of MSTV is available.</span>'
+    + '<button id="mstvUpdateBtn" style="background:var(--grad-signal,#3df2ff);color:#000;border:none;'
+    + 'border-radius:6px;padding:5px 12px;font-weight:700;font-size:11px;cursor:pointer;">Refresh</button>'
+    + '<button id="mstvUpdateDismiss" style="background:transparent;color:#a3addd;border:none;'
+    + 'font-size:14px;cursor:pointer;line-height:1;">✕</button>';
+
+  document.body.appendChild(bar);
+  document.getElementById('mstvUpdateBtn').onclick = () => window.location.reload();
+  document.getElementById('mstvUpdateDismiss').onclick = () => bar.remove();
 }
 
 function updateTimestamp() {

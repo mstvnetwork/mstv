@@ -9,199 +9,116 @@
 
 <style>
   html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      overflow: hidden;
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #000; overflow: hidden;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   }
 
   .video-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      overflow: hidden;
+      position: relative; width: 100vw; height: 100vh;
+      background: #000; overflow: hidden;
   }
 
   video, iframe#iframePlayer {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      display: block;
-      object-fit: contain;
-      background: #000;
+      width: 100%; height: 100%; border: 0;
+      display: block; object-fit: contain; background: #000;
   }
+
+  /* Blocks direct interaction with the embedded iframe player's own
+     controls (e.g. its seek bar), so viewers can't skip inside it.
+     Does not touch player.js — purely a UI-layer deterrent. */
+  .iframe-shield {
+      position: absolute; inset: 0;
+      z-index: 15;
+      display: none;
+      background: transparent;
+  }
+  .iframe-shield.active { display: block; }
 
   .loader {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0,0,0,.6);
-      color: #fff;
-      font-size: 14px;
-      letter-spacing: .5px;
-      z-index: 20;
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(0,0,0,.6); color: #fff;
+      font-size: 14px; letter-spacing: .5px; z-index: 20;
   }
-
   .loader.hidden { display: none; }
 
   .error {
-      display: none;
-      position: absolute;
-      top: 14px;
-      left: 14px;
-      right: 14px;
-      padding: 8px 12px;
-      background: rgba(153,0,0,.85);
-      border-radius: 6px;
-      font-size: 13px;
-      z-index: 25;
+      display: none; position: absolute;
+      top: 14px; left: 14px; right: 14px;
+      padding: 8px 12px; background: rgba(153,0,0,.85);
+      border-radius: 6px; font-size: 13px; z-index: 25;
   }
-
   .error.show { display: block; }
 
   .controls-overlay {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: 14px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 8px 12px;
-      background: none;
-      opacity: 0;
-      transform: translateY(6px);
+      position: absolute; left: 14px; right: 14px; bottom: 14px;
+      display: flex; align-items: center; gap: 12px;
+      padding: 8px 12px; background: none;
+      opacity: 0; transform: translateY(6px);
       transition: opacity .25s ease, transform .25s ease;
-      z-index: 30;
-      pointer-events: none;
+      z-index: 30; pointer-events: none;
   }
-
   .video-container.show-controls .controls-overlay {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
+      opacity: 1; transform: translateY(0); pointer-events: auto;
   }
 
   #btnPlay, #btnFullscreen {
-      cursor: pointer;
-      width: 34px;
-      height: 34px;
-      flex: 0 0 auto;
-      border: none;
-      border-radius: 50%;
-      background: rgba(255,255,255,.12);
-      color: #fff;
-      font-size: 15px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      cursor: pointer; width: 34px; height: 34px; flex: 0 0 auto;
+      border: none; border-radius: 50%;
+      background: rgba(255,255,255,.12); color: #fff; font-size: 15px;
+      display: flex; align-items: center; justify-content: center;
       transition: background .2s ease, transform .15s ease;
   }
-
   #btnPlay:hover, #btnFullscreen:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
   #btnPlay:active, #btnFullscreen:active { transform: scale(0.94); }
 
   .vol-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 1 1 auto;
-      min-width: 0;
-      transition: opacity .2s ease;
+      display: flex; align-items: center; gap: 8px;
+      flex: 1 1 auto; min-width: 0; transition: opacity .2s ease;
   }
-
   .vol-icon {
-      flex: 0 0 auto;
-      font-size: 14px;
-      opacity: .85;
-      width: 16px;
-      text-align: center;
-      color: #fff;
+      flex: 0 0 auto; font-size: 14px; opacity: .85;
+      width: 16px; text-align: center; color: #fff;
       text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
 
   #volSlider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 90px;
-      max-width: 30%;
-      height: 4px;
-      border-radius: 2px;
-      background: rgba(255,255,255,.35);
-      outline: none;
-      cursor: pointer;
+      -webkit-appearance: none; appearance: none;
+      width: 90px; max-width: 30%; height: 4px; border-radius: 2px;
+      background: rgba(255,255,255,.35); outline: none; cursor: pointer;
   }
-
   #volSlider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #fff;
-      cursor: pointer;
-      box-shadow: 0 0 4px rgba(0,0,0,.6);
+      -webkit-appearance: none; appearance: none;
+      width: 12px; height: 12px; border-radius: 50%;
+      background: #fff; cursor: pointer; box-shadow: 0 0 4px rgba(0,0,0,.6);
   }
-
   #volSlider::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border: none;
-      border-radius: 50%;
-      background: #fff;
-      cursor: pointer;
+      width: 12px; height: 12px; border: none; border-radius: 50%;
+      background: #fff; cursor: pointer;
   }
 
   .live-badge {
-      margin-left: auto;
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .5px;
-      color: #fff;
-      text-shadow: 0 1px 3px rgba(0,0,0,.8);
+      margin-left: auto; flex: 0 0 auto;
+      display: flex; align-items: center; gap: 5px;
+      font-size: 11px; font-weight: 600; letter-spacing: .5px;
+      color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
-
   .live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #e33;
-      animation: pulse 1.4s infinite;
+      width: 6px; height: 6px; border-radius: 50%;
+      background: #e33; animation: pulse 1.4s infinite;
   }
-
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
   .vol-overlay {
-      display: none;
-      position: absolute;
-      bottom: 66px;
-      left: 14px;
-      padding: 5px 10px;
-      background: rgba(0,0,0,.7);
-      border-radius: 4px;
-      font-size: 11px;
-      z-index: 100;
-      pointer-events: none;
-      color: #fff;
+      display: none; position: absolute; bottom: 66px; left: 14px;
+      padding: 5px 10px; background: rgba(0,0,0,.7);
+      border-radius: 4px; font-size: 11px; z-index: 100;
+      pointer-events: none; color: #fff;
   }
 
   .progress { display: none; }
-
-  .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: #e33;
-  }
+  .progress-fill { height: 100%; width: 0%; background: #e33; }
 </style>
 </head>
 <body>
@@ -220,12 +137,14 @@
         allowfullscreen>
     </iframe>
 
+    <div class="iframe-shield" id="iframeShield"></div>
+
     <div id="loader" class="loader">Loading...</div>
 
-    <div id="errorMsg" class="error"></div>
+    <div id="errorMsg" class="error">Playback error. Retrying...</div>
 
     <div id="volOverlay" class="vol-overlay">
-        
+        Volume controlled by embedded player
     </div>
 
     <div class="progress">
@@ -255,8 +174,6 @@
 
 </div>
 
-<!-- Kept in DOM (hidden) only so player.js's getElementById calls
-     for these IDs don't return null. Not touched functionally. -->
 <div style="display:none;">
     <h2 id="nowTitle"></h2>
     <div id="clock"></div>
@@ -275,62 +192,45 @@
 initPlayer({
     videoId: 'videoPlayer',
     iframeId: 'iframePlayer',
-
     loaderId: 'loader',
     errorId: 'errorMsg',
-
     btnPlayId: 'btnPlay',
     volSliderId: 'volSlider',
-
     progressFillId: 'progressFill',
     scheduleListId: 'scheduleList',
-
     syncToastId: 'syncToast',
     updateToastId: 'updateToast',
-
     statusTextId: 'statusText',
     statusOffsetId: 'statusOffset',
-
     nowTitleId: 'nowTitle',
-
     volOverlayId: 'volOverlay',
-
     showClock: false,
     clockId: 'clock',
     clockDateId: 'clockDate'
 });
 
-// Click-to-toggle controls: show on click, auto-hide after a few seconds
+// Click-to-toggle controls
 const container = document.getElementById('videoContainer');
 let hideTimer;
 
 function revealControls() {
     container.classList.add('show-controls');
     clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-        container.classList.remove('show-controls');
-    }, 2500);
+    hideTimer = setTimeout(() => container.classList.remove('show-controls'), 2500);
 }
-
 revealControls();
+container.addEventListener('click', () => revealControls());
 
-container.addEventListener('click', () => {
-    revealControls();
-});
-
-// Fullscreen toggle — independent of player.js, only touches the container element
+// Fullscreen toggle
 const btnFullscreen = document.getElementById('btnFullscreen');
-
 function isFullscreen() {
     return !!(document.fullscreenElement || document.webkitFullscreenElement);
 }
-
 function updateFullscreenIcon() {
     btnFullscreen.textContent = isFullscreen() ? '⤢' : '⛶';
 }
-
 btnFullscreen.addEventListener('click', (e) => {
-    e.stopPropagation(); // don't let this click also trigger the hide-timer twice unexpectedly
+    e.stopPropagation();
     if (!isFullscreen()) {
         if (container.requestFullscreen) container.requestFullscreen();
         else if (container.webkitRequestFullscreen) container.webkitRequestFullscreen();
@@ -339,9 +239,19 @@ btnFullscreen.addEventListener('click', (e) => {
         else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     }
 });
-
 document.addEventListener('fullscreenchange', updateFullscreenIcon);
 document.addEventListener('webkitfullscreenchange', updateFullscreenIcon);
+
+// Iframe shield: active only while iframe mode is visible, so it never
+// blocks the <video> element or your own controls-overlay.
+const iframeEl = document.getElementById('iframePlayer');
+const shield = document.getElementById('iframeShield');
+
+const iframeVisibility = new MutationObserver(() => {
+    const iframeVisible = iframeEl.style.display !== 'none';
+    shield.classList.toggle('active', iframeVisible);
+});
+iframeVisibility.observe(iframeEl, { attributes: true, attributeFilter: ['style'] });
 
 </script>
 

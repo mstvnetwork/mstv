@@ -18,7 +18,6 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
   }
 
-  /* Fill the iframe entirely with the player */
   .video-container {
       position: relative;
       width: 100vw;
@@ -27,8 +26,7 @@
       overflow: hidden;
   }
 
-  video,
-  iframe#iframePlayer {
+  video, iframe#iframePlayer {
       width: 100%;
       height: 100%;
       border: 0;
@@ -48,12 +46,9 @@
       font-size: 14px;
       letter-spacing: .5px;
       z-index: 20;
-      transition: opacity .25s ease;
   }
 
-  .loader.hidden {
-      display: none;
-  }
+  .loader.hidden { display: none; }
 
   .error {
       display: none;
@@ -68,11 +63,9 @@
       z-index: 25;
   }
 
-  .error.show {
-      display: block;
-  }
+  .error.show { display: block; }
 
-  /* ===== Floating in-player controls ===== */
+  /* ===== In-player floating controls (no background) ===== */
   .controls-overlay {
       position: absolute;
       left: 14px;
@@ -82,21 +75,18 @@
       align-items: center;
       gap: 12px;
       padding: 8px 12px;
-      background: linear-gradient(0deg, rgba(0,0,0,.65), rgba(0,0,0,.15));
-      backdrop-filter: blur(6px);
-      -webkit-backdrop-filter: blur(6px);
-      border-radius: 10px;
+      background: none;
       opacity: 0;
       transform: translateY(6px);
       transition: opacity .25s ease, transform .25s ease;
       z-index: 30;
+      pointer-events: none;
   }
 
-  /* Show controls on hover/touch, and briefly on load */
-  .video-container:hover .controls-overlay,
   .video-container.show-controls .controls-overlay {
       opacity: 1;
       transform: translateY(0);
+      pointer-events: auto;
   }
 
   #btnPlay {
@@ -115,14 +105,8 @@
       transition: background .2s ease, transform .15s ease;
   }
 
-  #btnPlay:hover {
-      background: rgba(255,255,255,.25);
-      transform: scale(1.06);
-  }
-
-  #btnPlay:active {
-      transform: scale(0.94);
-  }
+  #btnPlay:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
+  #btnPlay:active { transform: scale(0.94); }
 
   .vol-wrap {
       display: flex;
@@ -130,6 +114,7 @@
       gap: 8px;
       flex: 1 1 auto;
       min-width: 0;
+      transition: opacity .2s ease;
   }
 
   .vol-icon {
@@ -138,6 +123,8 @@
       opacity: .85;
       width: 16px;
       text-align: center;
+      color: #fff;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
 
   #volSlider {
@@ -147,7 +134,7 @@
       max-width: 30%;
       height: 4px;
       border-radius: 2px;
-      background: rgba(255,255,255,.25);
+      background: rgba(255,255,255,.35);
       outline: none;
       cursor: pointer;
   }
@@ -160,7 +147,7 @@
       border-radius: 50%;
       background: #fff;
       cursor: pointer;
-      box-shadow: 0 0 4px rgba(0,0,0,.4);
+      box-shadow: 0 0 4px rgba(0,0,0,.6);
   }
 
   #volSlider::-moz-range-thumb {
@@ -182,24 +169,20 @@
       font-weight: 600;
       letter-spacing: .5px;
       color: #fff;
-      background: rgba(220,20,20,.9);
-      padding: 3px 8px 3px 6px;
-      border-radius: 4px;
+      text-shadow: 0 1px 3px rgba(0,0,0,.8);
   }
 
   .live-dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: #fff;
+      background: #e33;
       animation: pulse 1.4s infinite;
   }
 
-  @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: .3; }
-  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
+  /* Used by player.js: volOverlay for iframe-mode volume note */
   .vol-overlay {
       display: none;
       position: absolute;
@@ -214,24 +197,9 @@
       color: #fff;
   }
 
-  /* thin progress line just above the controls bar (optional, kept minimal) */
+  /* Progress bar hidden per request (no red scrollbar visible) */
   .progress {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: 58px;
-      height: 3px;
-      border-radius: 2px;
-      background: rgba(255,255,255,.2);
-      overflow: hidden;
-      z-index: 29;
-      opacity: 0;
-      transition: opacity .25s ease;
-  }
-
-  .video-container:hover .progress,
-  .video-container.show-controls .progress {
-      opacity: 1;
+      display: none;
   }
 
   .progress-fill {
@@ -257,13 +225,9 @@
         allowfullscreen>
     </iframe>
 
-    <div id="loader" class="loader">
-        Loading...
-    </div>
+    <div id="loader" class="loader">Loading...</div>
 
-    <div id="errorMsg" class="error">
-        Playback error. Retrying...
-    </div>
+    <div id="errorMsg" class="error">Playback error. Retrying...</div>
 
     <div id="volOverlay" class="vol-overlay">
         Volume controlled by embedded player
@@ -294,8 +258,8 @@
 
 </div>
 
-<!-- Hidden elements kept only because player.js may reference these IDs.
-     They are visually removed from the embed but still functional in the DOM. -->
+<!-- Kept in DOM (hidden) only so player.js's getElementById calls
+     for these IDs don't return null. Not touched functionally. -->
 <div style="display:none;">
     <h2 id="nowTitle"></h2>
     <div id="clock"></div>
@@ -303,8 +267,8 @@
     <div id="statusText"></div>
     <div id="statusOffset"></div>
     <div id="scheduleList"></div>
-    <div id="syncToast"></div>
-    <div id="updateToast"></div>
+    <div id="syncToast">Synced to live position</div>
+    <div id="updateToast">Playlist updated</div>
 </div>
 
 <script src="./player.js"></script>
@@ -312,7 +276,6 @@
 <script>
 
 initPlayer({
-
     videoId: 'videoPlayer',
     iframeId: 'iframePlayer',
 
@@ -338,19 +301,26 @@ initPlayer({
     showClock: false,
     clockId: 'clock',
     clockDateId: 'clockDate'
-
 });
 
-// Briefly reveal controls on load, then let hover/touch handle the rest
+// Click-to-toggle controls: show on click, auto-hide after a few seconds
 const container = document.getElementById('videoContainer');
-container.classList.add('show-controls');
-setTimeout(() => container.classList.remove('show-controls'), 2000);
+let hideTimer;
 
-// Keep controls visible on touch devices after tapping
-container.addEventListener('click', () => {
+function revealControls() {
     container.classList.add('show-controls');
-    clearTimeout(window.__hideCtrls);
-    window.__hideCtrls = setTimeout(() => container.classList.remove('show-controls'), 3000);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+        container.classList.remove('show-controls');
+    }, 2500);
+}
+
+// Brief initial reveal on load
+revealControls();
+
+// Any click on the player resets/starts the visible window
+container.addEventListener('click', () => {
+    revealControls();
 });
 
 </script>

@@ -397,79 +397,31 @@
       </div>
   </footer>
 </div>
-
 <script>
-const CURRENT_VERSION = "v2.5.2"; 
+const CURRENT_VERSION = "v2.5.0"; 
 
+// ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
+// Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://mstv.changetv65.workers.dev",
-  "",
-  ""
+  "https://stream-proxy.cabletv.workers.dev",
+  "https://backup.mstvindianetworkusa.workers.dev"
 ];
 
-// Round-robin pointer + per-worker health state, so a dead/slow worker
-// doesn't keep getting picked and viewers spread across all endpoints.
-let workerRRIndex = 0;
-const workerHealth = WORKER_ENDPOINTS.reduce((acc, url) => {
-  acc[url] = { failCount: 0, cooldownUntil: 0 };
-  return acc;
-}, {});
-
-const WORKER_FAIL_THRESHOLD = 2;      // failures before a worker is put in cooldown
-const WORKER_COOLDOWN_MS    = 60000;  // how long a bad worker is skipped for
-
-function isWorkerHealthy(url) {
-  const h = workerHealth[url];
-  return !h || h.cooldownUntil <= Date.now();
-}
-
-function reportWorkerSuccess(url) {
-  const h = workerHealth[url];
-  if (h) { h.failCount = 0; h.cooldownUntil = 0; }
-}
-
-function reportWorkerFailure(url) {
-  const h = workerHealth[url];
-  if (!h) return;
-  h.failCount++;
-  if (h.failCount >= WORKER_FAIL_THRESHOLD) {
-    h.cooldownUntil = Date.now() + WORKER_COOLDOWN_MS;
-  }
-}
-
-// Returns an ordered list of candidate workers for this request:
-// starts at the next round-robin slot (load balancing), skips workers
-// currently in cooldown, and falls back to all workers if everything
-// is unhealthy so playback still gets attempted.
-function getWorkerCandidates() {
-  const n = WORKER_ENDPOINTS.length;
-  const ordered = [];
-  for (let i = 0; i < n; i++) {
-    ordered.push(WORKER_ENDPOINTS[(workerRRIndex + i) % n]);
-  }
-  workerRRIndex = (workerRRIndex + 1) % n;
-
-  const healthy = ordered.filter(isWorkerHealthy);
-  return healthy.length ? healthy : ordered;
-}
-
+// Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
-  return getWorkerCandidates()[0];
+  const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
+  return WORKER_ENDPOINTS[randomIndex];
 }
 
-const streamCache = {};
+const streamCache = {}; // Local memory cache
 
-const JSON_URL       = './streamdata2.json';
-const VERSION_URL    = './version.json'; // { "version": "v2.5.3" } — bump this on every deploy
-const POLL_INTERVAL  = 1500;
-const VERSION_POLL_INTERVAL = 15000; // checking for a new player build every 15s is enough
+const JSON_URL      = './streamdata2.json';
+const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
-
 let channels = [], filteredChannels = [], currentChannel = null;
 let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
-
 let mstvPopupWindow = null;
 
 const $searchInput = document.getElementById('searchInput');
@@ -499,6 +451,7 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
+// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
@@ -515,63 +468,33 @@ const isIOS = (() => {
   return isAppleMobile || isiPadOS;
 })();
 
-const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
+const isDashStream = (type, url) => 
+(type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
+/**
+ * Generates stream URL using Worker selection (Worker handles key validation & URL mapping hardcoded on server)
+ */
 async function getStreamUrl(channel) {
-  const key = chKey(channel);
+  const key = channel.id || channel.name;
 
-  // 1. Check cache first
   if (streamCache[key]) {
     return streamCache[key];
   }
 
-  let channelIdentifier = channel.id;
-  if (!channelIdentifier && channel.name) {
-    channelIdentifier = channel.name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  }
-
-  if (!channelIdentifier) {
-    console.warn(`Unable to resolve channel ID for "${channel.name}".`);
+  if (!channel.id) {
+    console.warn(`No target channel ID found in data structure for "${channel.name}".`);
     return null;
   }
 
-  const routeType = (channel.type === 'iframe') ? 'iframe' : 'hls';
-  const candidates = getWorkerCandidates();
-
-  for (const workerBaseUrl of candidates) {
-    try {
-      // Fetch ephemeral token from Cloudflare Worker (with a timeout so a
-      // hung/dead worker doesn't stall failover to the next one)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-      const tokenRes = await fetch(`${workerBaseUrl}/token/${channelIdentifier}`, {
-        cache: 'no-store',
-        signal: controller.signal
-      });
-      clearTimeout(timeoutId);
-      if (!tokenRes.ok) throw new Error("Failed token fetch");
-
-      const { token, expires } = await tokenRes.json();
-      const secureEndpoint = `${workerBaseUrl}/${routeType}/${channelIdentifier}?token=${token}&expires=${expires}`;
-
-      // Resolve initial 302 redirect
-      const response = await fetch(secureEndpoint, { method: 'GET', redirect: 'follow' });
-      if (response.ok) {
-        reportWorkerSuccess(workerBaseUrl);
-        streamCache[key] = response.url;
-        return response.url;
-      }
-      throw new Error('HTTP ' + response.status);
-    } catch (err) {
-      reportWorkerFailure(workerBaseUrl);
-      console.warn(`Worker ${workerBaseUrl} failed, trying next candidate:`, err);
-      // loop continues to next candidate worker
-    }
+  try {
+    const workerBaseUrl = getActiveWorkerUrl();
+    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channel.id}`;
+    streamCache[key] = signedPlaybackUrl;
+    return signedPlaybackUrl;
+  } catch (e) {
+    console.error("Failed to generate secure worker playback URL:", e);
+    return null;
   }
-
-  console.error("All worker endpoints failed to resolve stream URL.");
-  return null;
 }
 
 function attemptOpenInApp(url, onFail) {
@@ -605,7 +528,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.10.0/shaka-player.compiled.min.js');
+      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -633,7 +556,6 @@ function updateChannelStructuredData(list) {
       position: index + 1,
       name: String(ch.name)
     }));
-
   node.textContent = JSON.stringify({
     '@context': 'https://schema.org',
     '@type': 'ItemList',
@@ -653,47 +575,33 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const cacheBustQuery = `_cb=${Date.now()}_${Math.floor(Math.random() * 1000000)}_${performance.now()}`;
-    
-    const res = await fetch(`${JSON_URL}?${cacheBustQuery}`, { 
+    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
+    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
-      cache: 'no-store',
+      cache: 'reload',
       headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate, max-age=0',
         'Pragma': 'no-cache',
-        'Expires': '0',
-        'If-Modified-Since': '0'
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
       }
     });
-
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
-
     if (text === lastJsonRaw) { 
       updateTimestamp(); 
-      return; 
+      return;
     }
     
     let data = JSON.parse(text);
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
-    
     lastJsonRaw = text;
 
+    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
-
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
     
     fullRender();
     updateTimestamp();
-
-    if (currentChannel) {
-      const updatedChannel = channels.find(c => chKey(c) === chKey(currentChannel));
-      if (updatedChannel) {
-        currentChannel = updatedChannel;
-        updateNowPlaying(currentChannel);
-      }
-    }
   } catch (e) {
     if (e.name === 'AbortError') return;
     $updateText.textContent = 'Error';
@@ -703,58 +611,10 @@ async function loadChannels(silent) {
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
-  startVersionPolling();
-}
-
-let versionPollTimer = null;
-let updateBannerShown = false;
-
-function startVersionPolling() {
-  clearInterval(versionPollTimer);
-  versionPollTimer = setInterval(checkForNewVersion, VERSION_POLL_INTERVAL);
-}
-
-async function checkForNewVersion() {
-  if (updateBannerShown) return; // already prompted, no need to keep checking
-  try {
-    const res = await fetch(`${VERSION_URL}?_cb=${Date.now()}`, { cache: 'no-store' });
-    if (!res.ok) return; // file may not exist yet — fail silently, non-critical
-    const data = await res.json();
-    if (data && data.version && data.version !== CURRENT_VERSION) {
-      showUpdateBanner();
-    }
-  } catch (e) {
-    // Silent — version.json is optional; absence should never break playback
-  }
-}
-
-// Non-intrusive banner so an active viewer isn't interrupted mid-stream;
-// they can keep watching and refresh whenever they're ready.
-function showUpdateBanner() {
-  if (updateBannerShown) return;
-  updateBannerShown = true;
-
-  const bar = document.createElement('div');
-  bar.id = 'mstvUpdateBanner';
-  bar.setAttribute('role', 'status');
-  bar.style.cssText = 'position:fixed;left:50%;bottom:14px;transform:translateX(-50%);z-index:9999;'
-    + 'background:rgba(15,18,32,.96);border:1px solid var(--cyan,#3df2ff);color:#f2f4fb;'
-    + 'font-family:var(--font-sans,sans-serif);font-size:12px;font-weight:600;padding:10px 14px;'
-    + 'border-radius:10px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 18px rgba(0,0,0,.5);'
-    + 'max-width:90vw;';
-  bar.innerHTML = '<span>🔄 A new version of MSTV is available.</span>'
-    + '<button id="mstvUpdateBtn" style="background:var(--grad-signal,#3df2ff);color:#000;border:none;'
-    + 'border-radius:6px;padding:5px 12px;font-weight:700;font-size:11px;cursor:pointer;">Refresh</button>'
-    + '<button id="mstvUpdateDismiss" style="background:transparent;color:#a3addd;border:none;'
-    + 'font-size:14px;cursor:pointer;line-height:1;">✕</button>';
-
-  document.body.appendChild(bar);
-  document.getElementById('mstvUpdateBtn').onclick = () => window.location.reload();
-  document.getElementById('mstvUpdateDismiss').onclick = () => bar.remove();
 }
 
 function updateTimestamp() {
-  $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  $updateText.textContent = 'Synced ' + new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
 }
 
 function applyFilters() {
@@ -769,24 +629,20 @@ function applyFilters() {
 function renderCategoryBar() {
   const counts = { All: channels.length };
   channels.forEach(ch => { const c = catOf(ch); counts[c] = (counts[c]||0) + 1; });
-  
   const dynamicCats = Object.keys(counts).filter(c => !CATEGORY_CONFIG.some(item => item.id.toLowerCase() === c.toLowerCase()));
-  
   const allCats = [
     ...CATEGORY_CONFIG,
     ...dynamicCats.map(c => ({ id: c, icon: '📺' }))
   ];
-
   $categoryBar.innerHTML = allCats.map(item => {
     const cat = item.id;
     const count = counts[cat] || 0;
     if (cat !== 'All' && count === 0) return '';
     const isActive = activeCategory && activeCategory.toLowerCase() === cat.toLowerCase();
-    return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}" role="tab" aria-selected="${isActive}">
+    return `<button class="cat-pill${isActive?' active':''}" data-cat="${esc(cat)}">
       <span>${item.icon} ${esc(cat)}</span> <span class="cat-n">(${count})</span>
     </button>`;
   }).join('');
-  
   $categoryBar.querySelectorAll('.cat-pill').forEach(btn => btn.addEventListener('click', () => {
     activeCategory = btn.dataset.cat;
     fullRender();
@@ -812,7 +668,7 @@ function renderList() {
     const instructionText = ch.instructions || ch.instruction || ch.note || '';
     const instructionHtml = instructionText ? `<div class="row-instruction">${esc(instructionText)}</div>` : '';
     
-    return `<div class="channel-row${isActive?' active':''}" data-idx="${i}" role="listitem">
+    return `<div class="channel-row${isActive?' active':''}" data-idx="${i}">
       ${logo(ch)}
       <div class="row-info">
         <div class="row-name" title="${esc(ch.name)}">${esc(ch.name)}</div>
@@ -829,9 +685,9 @@ function renderList() {
 
 function logo(ch) {
   return ch.logo
-    ? `<div class="row-logo-box"><img class="row-logo" src="${esc(ch.logo)}" alt="" width="36" height="36" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
-       <div class="row-logo-fallback" style="display:none">📺</div></div>`
-    : `<div class="row-logo-box"><div class="row-logo-fallback">📺</div></div>`;
+    ? `<img class="row-logo" src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+       <div class="row-logo-fallback" style="display:none">📺</div>`
+    : `<div class="row-logo-fallback">📺</div>`;
 }
 
 function openPopUpStream(ch, targetUrl) {
@@ -841,7 +697,6 @@ function openPopUpStream(ch, targetUrl) {
   const title = esc(ch.name);
   const safeTargetUrl = esc(targetUrl);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
-
   const isPrivate = ch.access === 'private';
   const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
@@ -960,7 +815,6 @@ function openPopUpStream(ch, targetUrl) {
 
       document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
       document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
-
       document.getElementById('btnCopyJson').onclick = () => {
         const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
         navigator.clipboard.writeText(jsonSnippet).then(() => {
@@ -994,13 +848,10 @@ async function playChannel(ch) {
   await teardown();
 
   const type = (ch.type || '').toLowerCase();
-
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
-
     if (popupRestriction === 'restricted' && !isStrictMobile()) {
       showError(fallbackMessage);
       updateNowPlaying(ch);
@@ -1039,7 +890,6 @@ async function playChannel(ch) {
     $dashFallbackBlock.style.display = 'none';
     $dashNotice.classList.add('show');
     updateNowPlaying(ch);
-
     const revealFallback = () => { $dashFallbackBlock.style.display = 'block'; };
     $dashRetryBtn.onclick = () => attemptOpenInApp(streamUrl, revealFallback);
     $dashCopyBtn.onclick = () => navigator.clipboard.writeText(streamUrl);
@@ -1068,11 +918,12 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
+// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-    
+    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -1089,7 +940,6 @@ async function playHLS(url) {
         }
       }
     });
-
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
     hlsInstance.loadSource(url);
     hlsInstance.attachMedia($videoEl);
@@ -1136,43 +986,51 @@ function showError(msg) {
 
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
-  
+  // Seamless Background Tab Auto-Recovery Listener
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || !currentChannel) return;
 
+    // Detect if media element is currently stuck or stalled
     const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
     const isErrored = $videoEl.error !== null;
 
     if (isStalled || isErrored) {
+      console.log('Background tab resume: Stream stall detected. Recovering...');
+
+      // 1. Recover HLS.js Streams
       if (hlsInstance) {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
       } 
+      // 2. Recover Shaka / DASH Streams
       else if (shakaPlayer && shakaReady) {
         try {
           const currentUrl = await getStreamUrl(currentChannel);
           if (currentUrl) await shakaPlayer.load(currentUrl);
           $videoEl.play().catch(() => {});
         } catch (e) {
+          console.warn('DASH background recovery failed, reloading channel...');
           playChannel(currentChannel);
         }
       } 
+      // 3. Recover Native HTML5 / Safari HLS Streams
       else if ($videoEl.src) {
         const savedTime = $videoEl.currentTime;
         $videoEl.load();
         
+        // If live stream, seek to live edge; otherwise restore currentTime
         if (isFinite($videoEl.duration) && savedTime > 0) {
           $videoEl.currentTime = savedTime;
         }
         $videoEl.play().catch(() => {});
       }
     } else if (hlsInstance) {
+      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
 }
-
 const _nativeOpen = window.open.bind(window);
 (function() {
   window.open = (url, target, f) => {
@@ -1180,8 +1038,7 @@ const _nativeOpen = window.open.bind(window);
     return _nativeOpen(url, target, f);
   };
 })();
-
 document.addEventListener('DOMContentLoaded', init);
-</script>
+  </script>
 </body>
   </html>

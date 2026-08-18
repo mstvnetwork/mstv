@@ -365,7 +365,9 @@ const CURRENT_VERSION = "v2.6.0";
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
 // Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://mstv.changetv65.workers.dev",
+
+"https://main.ghubtv1.workers.dev",
+"https://backup1.cabletv.workers.dev"
  
 ];
 
@@ -382,6 +384,9 @@ const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
+// Place this at the top of your script near your other global "let" declarations
+let streamRetryCount = 0;
+const MAX_STREAM_RETRIES = 3; 
 
 let channels = [], filteredChannels = [], currentChannel = null;
 let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
@@ -441,6 +446,7 @@ async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
   if (streamCache[key]) {
+    console.log(`[Local Cache Hit] Serving channel link locally for: ${channel.name}`);
     return streamCache[key];
   }
 
@@ -451,15 +457,14 @@ async function getStreamUrl(channel) {
 
   try {
     const workerBaseUrl = getActiveWorkerUrl();
-    const cacheBuster = `_cb=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     
-    // Request channel stream resolution directly from Worker
-    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}?${cacheBuster}`, {
+    // Clean URL without any cache buster query strings
+    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json'
       },
-      cache: 'no-store'
+      cache: 'default' // Allows standard HTTP caching rules to apply
     });
 
     if (!res.ok) {
@@ -477,6 +482,7 @@ async function getStreamUrl(channel) {
     return null;
   }
 }
+
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;
@@ -826,8 +832,16 @@ function openPopUpStream(ch, targetUrl) {
 
 async function playChannel(ch) {
   if (!ch) return;
+  
+  // If switching to a completely new channel selection, reset the crash counter
+  if (!currentChannel || (ch.id !== currentChannel.id)) {
+    streamRetryCount = 0; 
+  }
+  
   currentChannel = ch;
   renderList();
+  // ... (keep the rest of your loading visual changes the same)
+
 
   $playerPlaceholder.classList.add('hidden');
   $playerError.classList.remove('show');
@@ -911,7 +925,7 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-async function playHLS(url) {
+async function playHLS(streamUrl) { // <--- Make sure this is streamUrl
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
@@ -926,6 +940,13 @@ async function playHLS(url) {
             hlsInstance.recoverMediaError();
             break;
           default:
+            if (streamRetryCount >= MAX_STREAM_RETRIES) {
+              console.error("Max stream recovery attempts reached. Halting requests.");
+              showError("Stream is currently offline. Please try again later.");
+              teardown();
+              break;
+            }
+            streamRetryCount++;
             if (currentChannel) playChannel(currentChannel);
             else showError('HLS error');
             break;
@@ -934,15 +955,17 @@ async function playHLS(url) {
     });
 
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
-    hlsInstance.loadSource(url);
+    hlsInstance.loadSource(streamUrl); // <--- Updated to match parameter
     hlsInstance.attachMedia($videoEl);
   } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    $videoEl.src = url;
+    $videoEl.src = streamUrl; // <--- CHANGED FROM 'url' TO 'streamUrl' (Fixes the crash!)
     $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
   } else {
     showError('HLS not supported');
   }
 }
+
+
 
 async function playDASH(url) {
   try {
@@ -992,23 +1015,26 @@ function bindEvents() {
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
       } 
-      else if (shakaPlayer && shakaReady) {
+            else if (shakaPlayer && shakaReady) {
         try {
-          const currentUrl = await getStreamUrl(currentChannel);
-          if (currentUrl) await shakaPlayer.load(currentUrl);
+          // If the player stalls on wake, rely on browser memory, do not ping the network
+          if (streamCache[currentChannel.id || currentChannel.name]) {
+            await shakaPlayer.load(streamCache[currentChannel.id || currentChannel.name]);
+          } else {
+            const currentUrl = await getStreamUrl(currentChannel);
+            if (currentUrl) await shakaPlayer.load(currentUrl);
+          }
           $videoEl.play().catch(() => {});
         } catch (e) {
-          playChannel(currentChannel);
+          if (streamRetryCount < MAX_STREAM_RETRIES) {
+            streamRetryCount++;
+            playChannel(currentChannel);
+          } else {
+            showError("Stream playback stalled.");
+          }
         }
-      } 
-      else if ($videoEl.src) {
-        const savedTime = $videoEl.currentTime;
-        $videoEl.load();
-        if (isFinite($videoEl.duration) && savedTime > 0) {
-          $videoEl.currentTime = savedTime;
-        }
-        $videoEl.play().catch(() => {});
       }
+
     } else if (hlsInstance) {
       hlsInstance.startLoad();
     }

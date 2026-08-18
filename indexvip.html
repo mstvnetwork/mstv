@@ -401,23 +401,22 @@
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://mstv.changetv65.workers.dev",
-  
+  "https://mstv.changetv65.workers.dev"
 ];
 
-// Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
   const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
-  return WORKER_ENDPOINTS[randomIndex];
+  return WORKER_ENDPOINTS[randomIndex].replace(/\/+$/, '');
 }
 
-const streamCache = {}; // Local memory cache
+const streamCache = {}; 
 
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
-const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
+const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-popups';
+// Added explicit permissions policy for iframe
+const IFRAME_ALLOW  = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 
 const CATEGORY_CONFIG = [];
 let channels = [], filteredChannels = [], currentChannel = null;
@@ -451,13 +450,11 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
   const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
   const maxDimension = Math.max(window.screen.width, window.screen.height);
-
   return isMobileUA && !isTabletUA && maxDimension < 1024;
 };
 
@@ -469,11 +466,8 @@ const isIOS = (() => {
 })();
 
 const isDashStream = (type, url) => 
-(type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
+  (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
-/**
- * Generates stream URL using Worker selection (Worker handles key validation & URL mapping hardcoded on server)
- */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
@@ -528,7 +522,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
+      if (typeof shaka === 'undefined') await loadScript('https://cdn.jsdelivr.net/npm/shaka-player@4.7.11/dist/shaka-player.compiled.js');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -575,7 +569,6 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
     const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
       cache: 'reload',
@@ -595,7 +588,6 @@ async function loadChannels(silent) {
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
     lastJsonRaw = text;
 
-    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
     updateChannelStructuredData(channels);
@@ -689,7 +681,7 @@ function logo(ch) {
        <div class="row-logo-fallback" style="display:none">📺</div>`;
   }
   return `<div class="row-logo-fallback">📺</div>`;
-      }
+}
 
 function openPopUpStream(ch, targetUrl) {
   const topShift = ch.cropTop || '-42px';
@@ -750,7 +742,7 @@ function openPopUpStream(ch, targetUrl) {
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+      <iframe id="popFrame" src="${safeTargetUrl}" allow="${IFRAME_ALLOW}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
     
     ${isPrivate ? `
@@ -901,6 +893,8 @@ async function playChannel(ch) {
   if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
+    // Ensure iframe gets allow attribute for DRM/encrypted media
+    $iframeEl.setAttribute('allow', IFRAME_ALLOW);
     if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     else $iframeEl.removeAttribute('sandbox');
     $iframeEl.src = streamUrl;
@@ -919,12 +913,10 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -987,47 +979,34 @@ function showError(msg) {
 
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
-  // Seamless Background Tab Auto-Recovery Listener
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || !currentChannel) return;
 
-    // Detect if media element is currently stuck or stalled
     const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
     const isErrored = $videoEl.error !== null;
 
     if (isStalled || isErrored) {
-      console.log('Background tab resume: Stream stall detected. Recovering...');
-
-      // 1. Recover HLS.js Streams
       if (hlsInstance) {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
-      } 
-      // 2. Recover Shaka / DASH Streams
-      else if (shakaPlayer && shakaReady) {
+      } else if (shakaPlayer && shakaReady) {
         try {
           const currentUrl = await getStreamUrl(currentChannel);
           if (currentUrl) await shakaPlayer.load(currentUrl);
           $videoEl.play().catch(() => {});
         } catch (e) {
-          console.warn('DASH background recovery failed, reloading channel...');
           playChannel(currentChannel);
         }
-      } 
-      // 3. Recover Native HTML5 / Safari HLS Streams
-      else if ($videoEl.src) {
+      } else if ($videoEl.src) {
         const savedTime = $videoEl.currentTime;
         $videoEl.load();
-        
-        // If live stream, seek to live edge; otherwise restore currentTime
         if (isFinite($videoEl.duration) && savedTime > 0) {
           $videoEl.currentTime = savedTime;
         }
         $videoEl.play().catch(() => {});
       }
     } else if (hlsInstance) {
-      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
@@ -1041,5 +1020,7 @@ const _nativeOpen = window.open.bind(window);
 })();
 document.addEventListener('DOMContentLoaded', init);
   </script>
+      
+          
 </body>
   </html>

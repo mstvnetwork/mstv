@@ -360,17 +360,13 @@
   </footer>
 </div>
   <script>
-const CURRENT_VERSION = "v2.5.0"; 
+const CURRENT_VERSION = "v2.6.0"; 
 
-// ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
-window.SECRET_KEY = "588da2fe1811a0f130f72f68400d0d3a";
-const SECRET_KEY = window.SECRET_KEY;
-
-// Primary and Backup Workers for Load Balancing / Multi-Account Failover
+// ── WORKER CONFIGURATION ──────────────────────────────────────────────────
+// Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://stream-proxy.cabletv.workers.dev",
-  "https://backup.mstvindianetworkusa.workers.dev"
+  "https://mstv.changetv65.workers.dev",
+ 
 ];
 
 // Select a random worker to distribute request load evenly across accounts
@@ -381,7 +377,7 @@ function getActiveWorkerUrl() {
 
 const streamCache = {}; // Local memory cache
 
-const JSON_URL      = './streamdata.json';
+const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
@@ -439,32 +435,12 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Native helper function to calculate SHA-256 HMAC tokens inside browser
- */
-async function createBrowserHmac(message, secret) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false, ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-/**
- * Generates stream URL using Worker selection and simplified token verification
+ * Fetches stream URL dynamically from Worker by Channel ID (No client secret key needed)
  */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
   if (streamCache[key]) {
-    return streamCache[key];
-  }
-
-  // If the channel has a direct URL (like an iframe embed or external player link), use it directly!
-  if (channel.url && typeof channel.url === 'string') {
-    streamCache[key] = channel.url.trim();
     return streamCache[key];
   }
 
@@ -474,17 +450,30 @@ async function getStreamUrl(channel) {
   }
 
   try {
-    const expires = Date.now() + (10 * 60 * 1000); 
-    const verificationString = `${channel.id}|${expires}`;
-    const secureToken = await createBrowserHmac(verificationString, SECRET_KEY);
-    
     const workerBaseUrl = getActiveWorkerUrl();
-    const signedPlaybackUrl = `${workerBaseUrl}/hls/${channel.id}?token=${secureToken}&expires=${expires}`;
+    const cacheBuster = `_cb=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    
+    // Request channel stream resolution directly from Worker
+    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}?${cacheBuster}`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      },
+      cache: 'no-store'
+    });
 
-    streamCache[key] = signedPlaybackUrl;
-    return signedPlaybackUrl;
+    if (!res.ok) {
+      throw new Error(`Worker status ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (data && data.url) {
+      streamCache[key] = data.url;
+      return data.url;
+    }
+    return null;
   } catch (e) {
-    console.error("Failed to generate secure worker signature token:", e);
+    console.error("Failed to fetch stream URL from worker:", e);
     return null;
   }
 }
@@ -520,7 +509,7 @@ async function ensureShaka() {
   if (shakaReady) return;
   if (!shakaLoading) {
     shakaLoading = (async () => {
-      if (typeof shaka === 'undefined') await loadScript('https://cloudflare.com');
+      if (typeof shaka === 'undefined') await loadScript('https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.6/shaka-player.compiled.js');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
       shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
@@ -568,7 +557,6 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    // 1. Force network fetch by adding a unique random token and using cache: 'reload'
     const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
       signal: fetchController.signal, 
       cache: 'reload',
@@ -590,7 +578,7 @@ async function loadChannels(silent) {
     
     lastJsonRaw = text;
 
-    // 2. Clear local memory cache so updated stream URLs/types are immediately re-resolved
+    // Clear local memory cache on list reload
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
@@ -602,7 +590,8 @@ async function loadChannels(silent) {
     if (e.name === 'AbortError') return;
     $updateText.textContent = 'Error';
   }
-      }
+}
+
 function startPolling() {
   clearInterval(pollTimer);
   pollTimer = setInterval(() => { loadChannels(true); }, POLL_INTERVAL);
@@ -852,7 +841,6 @@ async function playChannel(ch) {
 
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
@@ -865,7 +853,7 @@ async function playChannel(ch) {
 
   const streamUrl = await getStreamUrl(ch);
   if (!streamUrl) {
-    showError("Failed to fetch secure stream URL");
+    showError("Failed to fetch stream URL from worker");
     return;
   }
 
@@ -923,13 +911,11 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
     
-    // Auto-recover from background tab throttling & network errors
     hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
@@ -991,55 +977,44 @@ function showError(msg) {
   $playerError.classList.add('show');
 }
 
-// UPDATED ACCORDING TO REQUIREMENTS: Pure drop-in fix without breaking features/engines
 function bindEvents() {
   $searchInput.addEventListener('input', e => { searchQuery = e.target.value; fullRender(); });
   
-  // Seamless Background Tab Auto-Recovery Listener
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || !currentChannel) return;
 
-    // Detect if media element is currently stuck or stalled
     const isStalled = !$videoEl.paused && $videoEl.readyState < 3;
     const isErrored = $videoEl.error !== null;
 
     if (isStalled || isErrored) {
-      console.log('Background tab resume: Stream stall detected. Recovering...');
-
-      // 1. Recover HLS.js Streams
       if (hlsInstance) {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
       } 
-      // 2. Recover Shaka / DASH Streams
       else if (shakaPlayer && shakaReady) {
         try {
           const currentUrl = await getStreamUrl(currentChannel);
           if (currentUrl) await shakaPlayer.load(currentUrl);
           $videoEl.play().catch(() => {});
         } catch (e) {
-          console.warn('DASH background recovery failed, reloading channel...');
           playChannel(currentChannel);
         }
       } 
-      // 3. Recover Native HTML5 / Safari HLS Streams
       else if ($videoEl.src) {
         const savedTime = $videoEl.currentTime;
         $videoEl.load();
-        
-        // If live stream, seek to live edge; otherwise restore currentTime
         if (isFinite($videoEl.duration) && savedTime > 0) {
           $videoEl.currentTime = savedTime;
         }
         $videoEl.play().catch(() => {});
       }
     } else if (hlsInstance) {
-      // Gentle polling restart if player was healthy but paused receiving chunks
       hlsInstance.startLoad();
     }
   });
 }
+
 const _nativeOpen = window.open.bind(window);
 (function() {
   window.open = (url, target, f) => {
@@ -1049,8 +1024,6 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-</script>
+  </script>
 </body>
-  </html>        
-    
-                
+</html>

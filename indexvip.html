@@ -365,7 +365,7 @@ const CURRENT_VERSION = "v2.6.0";
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
 // Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
-"https://backup2.ghubtv1.workers.dev"
+"https://backup1.cabletv.workers.dev"
  
 ];
 
@@ -382,6 +382,9 @@ const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
+// Place this at the top of your script near your other global "let" declarations
+let streamRetryCount = 0;
+const MAX_STREAM_RETRIES = 3; 
 
 let channels = [], filteredChannels = [], currentChannel = null;
 let searchQuery = '', activeCategory = 'All', hlsInstance = null, shakaPlayer = null, shakaReady = false, shakaLoading = null, pollTimer = null, lastJsonRaw = '', fetchController = null;
@@ -826,8 +829,16 @@ function openPopUpStream(ch, targetUrl) {
 
 async function playChannel(ch) {
   if (!ch) return;
+  
+  // If switching to a completely new channel selection, reset the crash counter
+  if (!currentChannel || (ch.id !== currentChannel.id)) {
+    streamRetryCount = 0; 
+  }
+  
   currentChannel = ch;
   renderList();
+  // ... (keep the rest of your loading visual changes the same)
+
 
   $playerPlaceholder.classList.add('hidden');
   $playerError.classList.remove('show');
@@ -912,11 +923,7 @@ async function playChannel(ch) {
 }
 
 async function playHLS(url) {
-  await waitForHls();
-  if (Hls.isSupported()) {
-    hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-    
-    hlsInstance.on(Hls.Events.ERROR, (e, d) => {
+      hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
@@ -926,6 +933,14 @@ async function playHLS(url) {
             hlsInstance.recoverMediaError();
             break;
           default:
+            // CRASH SHIELD: Stop trying if the stream is totally dead
+            if (streamRetryCount >= MAX_STREAM_RETRIES) {
+              console.error("Max stream recovery attempts reached. Halting requests.");
+              showError("Stream is currently offline. Please try again later.");
+              teardown();
+              break;
+            }
+            streamRetryCount++;
             if (currentChannel) playChannel(currentChannel);
             else showError('HLS error');
             break;
@@ -992,23 +1007,26 @@ function bindEvents() {
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
       } 
-      else if (shakaPlayer && shakaReady) {
+            else if (shakaPlayer && shakaReady) {
         try {
-          const currentUrl = await getStreamUrl(currentChannel);
-          if (currentUrl) await shakaPlayer.load(currentUrl);
+          // If the player stalls on wake, rely on browser memory, do not ping the network
+          if (streamCache[currentChannel.id || currentChannel.name]) {
+            await shakaPlayer.load(streamCache[currentChannel.id || currentChannel.name]);
+          } else {
+            const currentUrl = await getStreamUrl(currentChannel);
+            if (currentUrl) await shakaPlayer.load(currentUrl);
+          }
           $videoEl.play().catch(() => {});
         } catch (e) {
-          playChannel(currentChannel);
+          if (streamRetryCount < MAX_STREAM_RETRIES) {
+            streamRetryCount++;
+            playChannel(currentChannel);
+          } else {
+            showError("Stream playback stalled.");
+          }
         }
-      } 
-      else if ($videoEl.src) {
-        const savedTime = $videoEl.currentTime;
-        $videoEl.load();
-        if (isFinite($videoEl.duration) && savedTime > 0) {
-          $videoEl.currentTime = savedTime;
-        }
-        $videoEl.play().catch(() => {});
       }
+
     } else if (hlsInstance) {
       hlsInstance.startLoad();
     }

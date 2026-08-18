@@ -397,7 +397,8 @@
       </div>
   </footer>
 </div>
-<script>
+
+  <script>
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
@@ -713,8 +714,6 @@ function openPopUpStream(ch, targetUrl) {
     body, html { margin: 0; padding: 0; background: #06070b; color: #f2f4fb; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; width: 100%; height: 100vh; display: flex; flex-direction: column; }
     .popup-header { height: 38px; background: #0f1220; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
     .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
-    .align-btn { background: rgba(61, 242, 255, 0.15); color: #3df2ff; border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto; }
-    .align-btn:hover { background: #3df2ff; color: #000; }
     .ticker-wrap { height: 24px; background: #000; border-bottom: 1px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; flex-shrink: 0; }
     .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee 22s linear infinite; font-size: 11px; font-weight: 600; color: #3df2ff; }
     @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
@@ -724,10 +723,7 @@ function openPopUpStream(ch, targetUrl) {
   </style>
 </head>
 <body>
-  <header class="popup-header">
-    <span class="title">📺 ${title}</span>
-    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
-  </header>
+  <header class="popup-header"><span class="title">📺 ${title}</span></header>
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
@@ -806,8 +802,8 @@ async function playChannel(ch) {
     return;
   }
 
-  // Handle embedded iframe player pages
-  if (type === 'iframe') {
+  // FORCE IFRAME EMBEDS TO RENDER IN IFRAME ELEMENT
+  if (type === 'iframe' || (!isDashStream(type, streamUrl) && !streamUrl.includes('.m3u8'))) {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
     $iframeEl.setAttribute('allow', IFRAME_ALLOW);
@@ -860,19 +856,19 @@ async function playHLS(url) {
   }
 }
 
-// Updated playDASH function with DRM ClearKey Support
 async function playDASH(url, ch) {
   try {
     await ensureShaka();
 
-    // 1. Configure DRM ClearKey / License Servers if specified in channel data
-    const drmConfig = { streaming: { bufferingGoal: 10, rebufferingGoal: 2 }, drm: {} };
+    // Reset DRM configuration before each load
+    const drmConfig = { 
+      streaming: { bufferingGoal: 10, rebufferingGoal: 2 }, 
+      drm: { clearKeys: {} } 
+    };
 
     const clearKeys = ch?.clearKeys || ch?.keys || ch?.clearkey;
     if (clearKeys && typeof clearKeys === 'object') {
       drmConfig.drm.clearKeys = clearKeys;
-    } else if (ch?.licenseServer) {
-      drmConfig.drm.servers = { 'com.widevine.alpha': ch.licenseServer };
     }
 
     shakaPlayer.configure(drmConfig);
@@ -884,7 +880,7 @@ async function playDASH(url, ch) {
     showLoader(false);
     $videoEl.play().catch(()=>{});
   } catch (e) {
-    showError('DASH DRM/Stream error: ' + (e.message || 'Stream unavailable'));
+    showError('DASH error: ' + (e.message || 'Stream unavailable'));
   }
 }
 
@@ -950,8 +946,10 @@ const _nativeOpen = window.open.bind(window);
   };
 })();
 document.addEventListener('DOMContentLoaded', init);
-      </script>
+  </script>
+ 
+      </script
 
           
 </body>
-  </html>
+ script

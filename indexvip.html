@@ -397,28 +397,24 @@
       </div>
   </footer>
 </div>
-
-   <script>
+<script>
 const CURRENT_VERSION = "v2.5.0"; 
 
 // ── STREAM DATA CONFIGURATION ───────────────────────────────────────────────
-// Cloudflare Worker Configurations - Ensure SECRET_KEY is set in both Worker dashboards!
 window.SECRET_KEY = "xxxxxxxxxxxxxxxxxxx";
 const SECRET_KEY = window.SECRET_KEY;
 
-// Primary and Backup Workers for Load Balancing / Multi-Account Failover
 const WORKER_ENDPOINTS = [
   "https://stream-proxy.cabletv.workers.dev",
   "https://backup.mstvindianetworkusa.workers.dev"
 ];
 
-// Select a random worker to distribute request load evenly across accounts
 function getActiveWorkerUrl() {
   const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
   return WORKER_ENDPOINTS[randomIndex];
 }
 
-const streamCache = {}; // Local memory cache
+const streamCache = {}; 
 
 const JSON_URL      = './streamdata.json';
 const POLL_INTERVAL = 1500;
@@ -456,13 +452,11 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
   const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
   const maxDimension = Math.max(window.screen.width, window.screen.height);
-
   return isMobileUA && !isTabletUA && maxDimension < 1024;
 };
 
@@ -476,9 +470,6 @@ const isIOS = (() => {
 const isDashStream = (type, url) => 
   (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
-/**
- * Native helper function to calculate SHA-256 HMAC tokens inside browser
- */
 async function createBrowserHmac(message, secret) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -490,9 +481,6 @@ async function createBrowserHmac(message, secret) {
   return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-/**
- * Generates stream URL using Worker selection and simplified token verification
- */
 async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
@@ -500,7 +488,6 @@ async function getStreamUrl(channel) {
     return streamCache[key];
   }
 
-  // If the channel has a direct URL (like an iframe embed or external player link), use it directly!
   if (channel.url && typeof channel.url === 'string') {
     streamCache[key] = channel.url.trim();
     return streamCache[key];
@@ -684,6 +671,7 @@ function fullRender() {
   $channelCount.textContent = (filteredChannels.length + ' Channels');
 }
 
+// ── ORIGINAL CHANNEL CARD RENDER LOGIC ─────────────────────────────────────
 function renderList() {
   if (!filteredChannels.length) {
     $channelList.innerHTML = `<div class="empty-state">No channels found.</div>`;
@@ -711,6 +699,7 @@ function renderList() {
   });
 }
 
+// ── ORIGINAL LOGO RENDER LOGIC ──────────────────────────────────────────────
 function logo(ch) {
   return ch.logo
     ? `<img class="row-logo" src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
@@ -921,7 +910,6 @@ async function playChannel(ch) {
     return;
   }
 
-  // Ensure iframe embeds are correctly loaded into iframe element
   const isEmbedPage = type === 'iframe' || (!streamUrl.endsWith('.mpd') && !streamUrl.endsWith('.m3u8') && type !== 'dash');
 
   if (isEmbedPage) {
@@ -945,7 +933,6 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-// Updated playHLS with background tab recovery
 async function playHLS(url) {
   await waitForHls();
   if (Hls.isSupported()) {
@@ -981,7 +968,6 @@ async function playDASH(url, ch) {
   try {
     await ensureShaka();
 
-    // Configure ClearKey DRM if keys are passed inside channel configuration
     const drmConfig = {
       streaming: { bufferingGoal: 10, rebufferingGoal: 2 },
       drm: { clearKeys: {} }
@@ -1037,8 +1023,6 @@ function bindEvents() {
     const isErrored = $videoEl.error !== null;
 
     if (isStalled || isErrored) {
-      console.log('Background tab resume: Stream stall detected. Recovering...');
-
       if (hlsInstance) {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
@@ -1050,7 +1034,6 @@ function bindEvents() {
           if (currentUrl) await shakaPlayer.load(currentUrl);
           $videoEl.play().catch(() => {});
         } catch (e) {
-          console.warn('DASH background recovery failed, reloading channel...');
           playChannel(currentChannel);
         }
       } 
@@ -1077,7 +1060,9 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-  </script> 
+</script>
+
+
 
 
  </body>

@@ -415,7 +415,6 @@ const streamCache = {};
 const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 1500;
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms allow-popups';
-// Added explicit permissions policy for iframe
 const IFRAME_ALLOW  = 'autoplay; encrypted-media; fullscreen; picture-in-picture';
 
 const CATEGORY_CONFIG = [];
@@ -525,7 +524,6 @@ async function ensureShaka() {
       if (typeof shaka === 'undefined') await loadScript('https://cdn.jsdelivr.net/npm/shaka-player@4.7.11/dist/shaka-player.compiled.js');
       shaka.polyfill.installAll();
       shakaPlayer = new shaka.Player();
-      shakaPlayer.configure({ streaming: { bufferingGoal: 10, rebufferingGoal: 2 } });
       await shakaPlayer.attach($videoEl);
       shakaReady = true;
     })();
@@ -723,15 +721,6 @@ function openPopUpStream(ch, targetUrl) {
     .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
     .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
-    
-    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
-    #alignerPanel.active { display: block; }
-    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
-    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
-    .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
 <body>
@@ -744,80 +733,7 @@ function openPopUpStream(ch, targetUrl) {
     <div class="crop-viewport">
       <iframe id="popFrame" src="${safeTargetUrl}" allow="${IFRAME_ALLOW}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
-    
-    ${isPrivate ? `
-    <div id="alignerPanel">
-      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
-        <span>Stream Aligner</span>
-        <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
-      </div>
-      <div class="zoom-controls">
-        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
-        <div>
-          <button id="btnZoomOut">-</button>
-          <button id="btnZoomIn">+</button>
-        </div>
-      </div>
-      <div class="align-grid">
-        <div></div><button id="btnUp">▲</button><div></div>
-        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
-        <div></div><button id="btnDown">▼</button><div></div>
-      </div>
-      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
-      <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
-    </div>` : ''}
   </div>
-
-  <script>
-    (function() {
-      const isPrivate = ${isPrivate};
-      if (!isPrivate) return;
-
-      const iframe = document.getElementById('popFrame');
-      const panel = document.getElementById('alignerPanel');
-      const toggleBtn = document.getElementById('toggleAligner');
-      const closeBtn = document.getElementById('closeAligner');
-
-      let topVal = parseInt("${topShift}") || 0;
-      let leftVal = parseInt("${leftShift}") || 0;
-      let zoomVal = parseInt("${zoomLevel}") || 100;
-
-      function updateStyles() {
-        iframe.style.top = topVal + 'px';
-        iframe.style.left = leftVal + 'px';
-        iframe.style.width = zoomVal + '%';
-        iframe.style.height = zoomVal + '%';
-
-        document.getElementById('valTop').textContent = topVal + 'px';
-        document.getElementById('valLeft').textContent = leftVal + 'px';
-        document.getElementById('valZoom').textContent = zoomVal + '%';
-      }
-
-      if (toggleBtn) {
-        toggleBtn.onclick = () => panel.classList.toggle('active');
-      }
-      if (closeBtn) {
-        closeBtn.onclick = () => panel.classList.remove('active');
-      }
-
-      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
-      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
-      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
-      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
-      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
-
-      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
-      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
-      document.getElementById('btnCopyJson').onclick = () => {
-        const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
-        navigator.clipboard.writeText(jsonSnippet).then(() => {
-          const btn = document.getElementById('btnCopyJson');
-          btn.textContent = '✅ Copied!';
-          setTimeout(() => btn.textContent = '📋 Copy JSON', 1500);
-        });
-      };
-    })();
-  <\/script>
 </body>
 </html>`;
 
@@ -890,10 +806,10 @@ async function playChannel(ch) {
     return;
   }
 
+  // Handle embedded iframe player pages
   if (type === 'iframe') {
     $videoEl.style.display = 'none';
     $iframeEl.style.display = 'block';
-    // Ensure iframe gets allow attribute for DRM/encrypted media
     $iframeEl.setAttribute('allow', IFRAME_ALLOW);
     if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
     else $iframeEl.removeAttribute('sandbox');
@@ -903,7 +819,7 @@ async function playChannel(ch) {
   } else if (isDashStream(type, streamUrl)) {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';
-    await playDASH(streamUrl);
+    await playDASH(streamUrl, ch);
   } else {
     $iframeEl.style.display = 'none';
     $videoEl.style.display = 'block';
@@ -944,16 +860,31 @@ async function playHLS(url) {
   }
 }
 
-async function playDASH(url) {
+// Updated playDASH function with DRM ClearKey Support
+async function playDASH(url, ch) {
   try {
     await ensureShaka();
+
+    // 1. Configure DRM ClearKey / License Servers if specified in channel data
+    const drmConfig = { streaming: { bufferingGoal: 10, rebufferingGoal: 2 }, drm: {} };
+
+    const clearKeys = ch?.clearKeys || ch?.keys || ch?.clearkey;
+    if (clearKeys && typeof clearKeys === 'object') {
+      drmConfig.drm.clearKeys = clearKeys;
+    } else if (ch?.licenseServer) {
+      drmConfig.drm.servers = { 'com.widevine.alpha': ch.licenseServer };
+    }
+
+    shakaPlayer.configure(drmConfig);
+
     const loadPromise = shakaPlayer.load(url);
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('DASH timeout')), 10000));
     await Promise.race([loadPromise, timeoutPromise]);
+
     showLoader(false);
     $videoEl.play().catch(()=>{});
   } catch (e) {
-    showError('DASH error: Stream unavailable');
+    showError('DASH DRM/Stream error: ' + (e.message || 'Stream unavailable'));
   }
 }
 
@@ -1019,8 +950,8 @@ const _nativeOpen = window.open.bind(window);
   };
 })();
 document.addEventListener('DOMContentLoaded', init);
-  </script>
-      
+      </script>
+
           
 </body>
   </html>

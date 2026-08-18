@@ -444,6 +444,7 @@ async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
   if (streamCache[key]) {
+    console.log(`[Local Cache Hit] Serving channel link locally for: ${channel.name}`);
     return streamCache[key];
   }
 
@@ -454,15 +455,14 @@ async function getStreamUrl(channel) {
 
   try {
     const workerBaseUrl = getActiveWorkerUrl();
-    const cacheBuster = `_cb=${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     
-    // Request channel stream resolution directly from Worker
-    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}?${cacheBuster}`, {
+    // Clean URL without any cache buster query strings
+    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
       method: 'GET',
       headers: {
         'Accept': 'application/json'
       },
-      cache: 'no-store'
+      cache: 'default' // Allows standard HTTP caching rules to apply
     });
 
     if (!res.ok) {
@@ -480,6 +480,7 @@ async function getStreamUrl(channel) {
     return null;
   }
 }
+
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;

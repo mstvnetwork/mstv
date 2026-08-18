@@ -922,8 +922,12 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-async function playHLS(url) {
-      hlsInstance.on(Hls.Events.ERROR, (e, d) => {
+async function playHLS(streamUrl) { // <--- Make sure this is streamUrl
+  await waitForHls();
+  if (Hls.isSupported()) {
+    hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
+    
+    hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
@@ -933,7 +937,6 @@ async function playHLS(url) {
             hlsInstance.recoverMediaError();
             break;
           default:
-            // CRASH SHIELD: Stop trying if the stream is totally dead
             if (streamRetryCount >= MAX_STREAM_RETRIES) {
               console.error("Max stream recovery attempts reached. Halting requests.");
               showError("Stream is currently offline. Please try again later.");
@@ -949,14 +952,16 @@ async function playHLS(url) {
     });
 
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
-    hlsInstance.loadSource(url);
-    hlsInstance.attachMedia($videoEl);} 
-   if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    $videoEl.src = url;
+    hlsInstance.loadSource(streamUrl); // <--- Updated to match parameter
+    hlsInstance.attachMedia($videoEl);
+  } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+    $videoEl.src = streamUrl; // <--- CHANGED FROM 'url' TO 'streamUrl' (Fixes the crash!)
     $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
   } else {
     showError('HLS not supported');
   }
+}
+
 
 
 async function playDASH(url) {

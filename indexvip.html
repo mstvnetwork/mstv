@@ -197,6 +197,56 @@
 
   #videoEl, #iframeEl { width: 100%; height: 100%; border: none; display: none; position: absolute; inset: 0; z-index: 1; background: #000; }
 
+  /* ── GEO NOTICE MARQUEE ── */
+  #geoNotice {
+    width: 100%;
+    height: 26px;
+    min-height: 26px;
+    flex-shrink: 0;
+    overflow: hidden;
+    position: relative;
+    background: linear-gradient(90deg, rgba(61,242,255,.07), rgba(141,92,255,.07));
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+  }
+  #geoNotice::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, var(--void) 0%, transparent 4%, transparent 96%, var(--void) 100%);
+    z-index: 2; pointer-events: none;
+  }
+  .geo-track {
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    animation: geo-scroll 26s linear infinite;
+    padding-left: 100%;
+    will-change: transform;
+  }
+  #geoNotice:hover .geo-track { animation-play-state: paused; }
+  .geo-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    color: var(--ink);
+    padding: 0 28px;
+  }
+  .geo-item .geo-ic { font-size: 12px; flex-shrink: 0; }
+  .geo-item .geo-accent { color: var(--cyan); font-weight: 700; }
+  .geo-item .geo-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--dim2); margin: 0 2px; flex-shrink: 0; }
+  @keyframes geo-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  @media (max-width: 640px) {
+    .geo-item { font-size: 10px; padding: 0 18px; }
+    .geo-track { animation-duration: 20s; }
+  }
+
   #nowPlayingBar {
     height: 28px; min-height: 28px; background: var(--void2); border-top: 1px solid var(--line);
     display: none; align-items: center; padding: 0 12px; gap: 8px; font-size: 11px; flex-shrink: 0; width: 100%;
@@ -323,6 +373,12 @@
       </div>
     </div>
   </main>
+
+  <div id="geoNotice" role="note" aria-label="Geo-restriction notice">
+    <div class="geo-track" id="geoTrack">
+      <!-- duplicated content block for seamless loop; populated x2 below -->
+    </div>
+  </div>
 
   <div id="nowPlayingBar">
     <div id="npLogoWrap"></div>
@@ -460,6 +516,24 @@ const $nowPlayingBar = document.getElementById('nowPlayingBar');
 const $npName = document.getElementById('npName');
 const $updateText = document.getElementById('updateText');
 const $categoryBar = document.getElementById('categoryBar');
+const $geoTrack = document.getElementById('geoTrack');
+
+// ── GEO NOTICE MARQUEE ────────────────────────────────────────────────────
+// Purely informational scrolling ticker beneath the player. Duplicated once
+// so the CSS translateX(-50%) loop is seamless with no visible seam/jump.
+function initGeoNotice() {
+  if (!$geoTrack) return;
+  const items = [
+    { ic: '🌐', html: 'Some channels are <span class="geo-accent">geo-restricted</span> in your region' },
+    { ic: '🛡️', html: 'Use a <span class="geo-accent">free or paid VPN</span> from the Google Play Store to unlock them' },
+    { ic: '📡', html: 'Switching your VPN server location can help load blocked channels' },
+    { ic: '✅', html: 'Not a bug — it\'s a broadcaster licensing restriction' },
+  ];
+  const renderSet = () => items.map(i =>
+    `<span class="geo-item"><span class="geo-ic">${i.ic}</span>${i.html}</span><span class="geo-dot"></span>`
+  ).join('');
+  $geoTrack.innerHTML = renderSet() + renderSet(); // duplicate for seamless loop
+}
 
 const chKey = ch => ch.id || ch.name;
 const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -619,6 +693,7 @@ function updateChannelStructuredData(list) {
 }
 
 async function init() {
+  initGeoNotice();
   await loadChannels(false);
   startPolling();
   bindEvents();

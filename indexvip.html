@@ -367,14 +367,60 @@ const CURRENT_VERSION = "v2.6.0";
 const WORKER_ENDPOINTS = [
 
 "https://main.ghubtv1.workers.dev",
-"https://backup1.cabletv.workers.dev"
+"https://backup1.cabletv.workers.dev",
+"https://backup2.changetv65.workers.dev"
  
 ];
 
-// Select a random worker to distribute request load evenly across accounts
+// ── DEAD-ACCOUNT SKIPPER ─────────────────────────────────────────────────
+// Tracks which worker endpoints are currently failing (e.g. free-tier quota
+// exhausted, account suspended, etc.) and automatically routes around them.
+// A "dead" endpoint is skipped for COOLDOWN_MS, then given another chance
+// in case the quota reset (daily reset, temporary block lifted, etc.).
+
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes before retrying a dead endpoint
+const FAIL_THRESHOLD = 2;          // consecutive failures before marking dead
+
+const workerHealth = WORKER_ENDPOINTS.map(() => ({
+  fails: 0,
+  deadUntil: 0 // timestamp (ms) until which this endpoint is skipped
+}));
+
+function isEndpointAlive(idx) {
+  return Date.now() >= workerHealth[idx].deadUntil;
+}
+
+function markEndpointSuccess(idx) {
+  workerHealth[idx].fails = 0;
+  workerHealth[idx].deadUntil = 0;
+}
+
+function markEndpointFailure(idx) {
+  const h = workerHealth[idx];
+  h.fails++;
+  if (h.fails >= FAIL_THRESHOLD) {
+    h.deadUntil = Date.now() + COOLDOWN_MS;
+    console.warn(`[Worker Skipper] Marking endpoint dead for ${COOLDOWN_MS / 1000}s: ${WORKER_ENDPOINTS[idx]}`);
+  }
+}
+
+// Returns an ordered list of endpoint indices to try: alive ones first
+// (random order among themselves so load still balances), then dead ones
+// last as a final fallback (better to try a "dead" endpoint than show nothing).
+function getWorkerTryOrder() {
+  const indices = WORKER_ENDPOINTS.map((_, i) => i);
+  const alive = indices.filter(isEndpointAlive);
+  const dead = indices.filter(i => !isEndpointAlive(i));
+
+  // Shuffle each group independently to keep load balanced across accounts
+  const shuffle = arr => arr.sort(() => Math.random() - 0.5);
+  return [...shuffle(alive), ...shuffle(dead)];
+}
+
+// Kept for any external callers, now returns the top pick from the skipper.
 function getActiveWorkerUrl() {
-  const randomIndex = Math.floor(Math.random() * WORKER_ENDPOINTS.length);
-  return WORKER_ENDPOINTS[randomIndex];
+  const order = getWorkerTryOrder();
+  return WORKER_ENDPOINTS[order[0]];
 }
 
 const streamCache = {}; // Local memory cache
@@ -455,32 +501,51 @@ async function getStreamUrl(channel) {
     return null;
   }
 
-  try {
-    const workerBaseUrl = getActiveWorkerUrl();
-    
-    // Clean URL without any cache buster query strings
-    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json'
-      },
-      cache: 'default' // Allows standard HTTP caching rules to apply
-    });
+  const tryOrder = getWorkerTryOrder();
+  let lastError = null;
 
-    if (!res.ok) {
-      throw new Error(`Worker status ${res.status}`);
-    }
+  for (const idx of tryOrder) {
+    const workerBaseUrl = WORKER_ENDPOINTS[idx];
+    try {
+      // Clean URL without any cache buster query strings
+      const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        },
+        cache: 'default' // Allows standard HTTP caching rules to apply
+      });
 
-    const data = await res.json();
-    if (data && data.url) {
-      streamCache[key] = data.url;
-      return data.url;
+      // 5xx/429/1xxx-style responses usually mean the account behind this
+      // worker is out of quota or otherwise unhealthy — treat as a failure
+      // and let the loop skip to the next account instead of giving up.
+      if (!res.ok) {
+        markEndpointFailure(idx);
+        lastError = new Error(`Worker status ${res.status}`);
+        continue;
+      }
+
+      const data = await res.json();
+      if (data && data.url) {
+        markEndpointSuccess(idx);
+        streamCache[key] = data.url;
+        return data.url;
+      }
+
+      // Worker responded OK but with no usable payload — still a failure
+      // for routing purposes, try the next account.
+      markEndpointFailure(idx);
+      lastError = new Error('Worker returned no stream url');
+    } catch (e) {
+      // Network-level failure (timeout, DNS, CORS, worker down entirely)
+      markEndpointFailure(idx);
+      lastError = e;
+      console.warn(`[Worker Skipper] ${workerBaseUrl} failed, trying next endpoint...`, e);
     }
-    return null;
-  } catch (e) {
-    console.error("Failed to fetch stream URL from worker:", e);
-    return null;
   }
+
+  console.error("Failed to fetch stream URL from any worker endpoint:", lastError);
+  return null;
 }
 
 

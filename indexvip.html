@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
 <meta name="google-site-verification" content="Yynm4uIFXwlxEdH2SfRrk6bNJnQaHIArOqV-XxrlQzI" />
-<meta name="google-site-verification" content="Y1hEvT4w92Qa9BGvDwkBL7gdCxEVtBNZcHafXCA6u7g" />
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta http-equiv="x-dns-prefetch-control" content="on">
@@ -28,10 +27,13 @@
 <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 <link rel="dns-prefetch" href="https://gc.zgo.at">
 
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap">
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap"></noscript>
 
-<script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<link rel="preload" as="script" href="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js">
 <script defer src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script data-goatcounter="https://mstv.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
   
   <style>
   :root{
@@ -422,9 +424,8 @@ const CURRENT_VERSION = "v2.6.0";
 // Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
 
-"https://backup3.mstvindianetworkusa.workers.dev",
+"https://backup5.tonycameron059.workers.dev"
 
- 
 ];
 
 // ── DEAD-ACCOUNT SKIPPER ─────────────────────────────────────────────────
@@ -481,7 +482,7 @@ function getActiveWorkerUrl() {
 const streamCache = {}; // Local memory cache
 
 const JSON_URL      = './streamdata2.json';
-const POLL_INTERVAL = 1500;
+const POLL_INTERVAL = 30000; // was 1500ms — 1.5s polling was the #1 cause of quota exhaustion
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
@@ -526,7 +527,7 @@ function initGeoNotice() {
     { ic: '🌐', html: 'Some channels are <span class="geo-accent">geo-restricted</span> in your region' },
     { ic: '🛡️', html: 'Use a <span class="geo-accent">free or paid VPN</span> from the Google Play Store to unlock them' },
     { ic: '📡', html: 'Switching your VPN server location can help load blocked channels' },
-    { ic: '✅', html: 'Not a bug — it\'s a broadcaster licensing restriction' },
+    { ic: '✅', html: 'Refresh Webpage — To see newly added channels refresh webpage 3-4 times ' },
   ];
   const renderSet = () => items.map(i =>
     `<span class="geo-item"><span class="geo-ic">${i.ic}</span>${i.html}</span><span class="geo-dot"></span>`
@@ -575,45 +576,45 @@ async function getStreamUrl(channel) {
   }
 
   const tryOrder = getWorkerTryOrder();
-  let lastError = null;
+  const aliveFirst = tryOrder.filter(isEndpointAlive);
+  const racePool = aliveFirst.slice(0, 2); // race top 2 alive endpoints in parallel
+  const remainder = tryOrder.filter(i => !racePool.includes(i));
 
-  for (const idx of tryOrder) {
+  const fetchOne = async (idx) => {
     const workerBaseUrl = WORKER_ENDPOINTS[idx];
+    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      cache: 'default' // allows the Worker's own edge-cached response to be reused
+    });
+    if (!res.ok) { markEndpointFailure(idx); throw new Error(`Worker status ${res.status}`); }
+    const data = await res.json();
+    if (!data || !data.url) { markEndpointFailure(idx); throw new Error('Worker returned no stream url'); }
+    markEndpointSuccess(idx);
+    streamCache[key] = data.url;
+    return data.url;
+  };
+
+  // Race the fastest alive endpoints first — if the "primary" is slow or
+  // dead, a healthy backup wins instantly instead of waiting out a timeout.
+  if (racePool.length) {
     try {
-      // Clean URL without any cache buster query strings
-      const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        },
-        cache: 'default' // Allows standard HTTP caching rules to apply
-      });
-
-      // 5xx/429/1xxx-style responses usually mean the account behind this
-      // worker is out of quota or otherwise unhealthy — treat as a failure
-      // and let the loop skip to the next account instead of giving up.
-      if (!res.ok) {
-        markEndpointFailure(idx);
-        lastError = new Error(`Worker status ${res.status}`);
-        continue;
-      }
-
-      const data = await res.json();
-      if (data && data.url) {
-        markEndpointSuccess(idx);
-        streamCache[key] = data.url;
-        return data.url;
-      }
-
-      // Worker responded OK but with no usable payload — still a failure
-      // for routing purposes, try the next account.
-      markEndpointFailure(idx);
-      lastError = new Error('Worker returned no stream url');
+      return await Promise.any(racePool.map(idx =>
+        fetchOne(idx).catch(e => { console.warn(`[Worker Skipper] ${WORKER_ENDPOINTS[idx]} failed`, e); throw e; })
+      ));
     } catch (e) {
-      // Network-level failure (timeout, DNS, CORS, worker down entirely)
-      markEndpointFailure(idx);
+      // AggregateError from Promise.any — both racers failed, fall through
+    }
+  }
+
+  // Serial fallback: remaining alive endpoints, then dead ones as last resort
+  let lastError = null;
+  for (const idx of remainder) {
+    try {
+      return await fetchOne(idx);
+    } catch (e) {
       lastError = e;
-      console.warn(`[Worker Skipper] ${workerBaseUrl} failed, trying next endpoint...`, e);
+      console.warn(`[Worker Skipper] ${WORKER_ENDPOINTS[idx]} failed, trying next endpoint...`, e);
     }
   }
 
@@ -702,13 +703,12 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(`${JSON_URL}?nocache=${Date.now()}_${Math.random()}`, { 
-      signal: fetchController.signal, 
-      cache: 'reload',
-      headers: {
-        'Pragma': 'no-cache',
-        'Cache-Control': 'no-cache, no-store, must-revalidate'
-      }
+    // No cache-buster, no no-store headers — this lets Cloudflare's edge
+    // cache serve this file (see _headers: max-age=10, s-maxage=30) instead
+    // of every visitor hitting origin on every poll.
+    const res = await fetch(JSON_URL, {
+      signal: fetchController.signal,
+      cache: 'default'
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
@@ -818,7 +818,7 @@ function renderList() {
 
 function logo(ch) {
   return ch.logo
-    ? `<img class="row-logo" src="${esc(ch.logo)}" alt="" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
+    ? `<img class="row-logo" src="${esc(ch.logo)}" alt="${esc(ch.name)} logo" width="36" height="36" loading="lazy" decoding="async" onerror="this.style.display='none';this.nextElementSibling.style.display='grid'">
        <div class="row-logo-fallback" style="display:none">📺</div>`
     : `<div class="row-logo-fallback">📺</div>`;
 }

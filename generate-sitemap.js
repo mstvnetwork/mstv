@@ -12,7 +12,7 @@ const path = require('path');
 
 // ── SETTINGS ─────────────────────────────────────────────────────────────────
 const CANONICAL_DOMAIN = 'https://crickethd.pages.dev';
-const CHANNELS_FILE    = './streamdata.json';
+const CHANNELS_FILE    = './streamdata2.json';
 const PAGES_DIR        = path.join(__dirname, 'channels_pages');
 
 // ── LOAD CHANNELS ─────────────────────────────────────────────────────────────

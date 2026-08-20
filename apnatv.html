@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Apna Tv — Ghar Jaisa</title>
+<style>
+  :root{
+    --bg: #07080a;
+    --panel: #0f1114;
+    --accent: #ff7a30;
+    --accent-soft: #ffb87a;
+    --text: #f4efe8;
+    --muted: #8b8f96;
+    --live-red: #ff3b3b;
+  }
+  *{ box-sizing: border-box; }
+  html, body{
+    margin:0; padding:0; height:100%; width:100%;
+    background: var(--bg);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+  }
+
+  .player-container{
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    background: #000;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+  }
+
+  /* iframe stage — two layers cross-fade */
+  .stage{
+    position:absolute;
+    inset:0;
+  }
+  .stage iframe{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    border:0;
+    opacity:0;
+    transition: opacity 700ms ease-in-out;
+    pointer-events:none; /* block seeking/clicks on embedded controls */
+  }
+  .stage iframe.active{
+    opacity:1;
+  }
+
+  /* invisible interaction blocker so viewers can't reach native player chrome */
+  .click-shield{
+    position:absolute;
+    inset:0;
+    z-index: 5;
+    background: transparent;
+    cursor: default;
+  }
+
+  /* ---------- Logo ---------- */
+  .brand{
+    position:absolute;
+    top: 18px;
+    right: 22px;
+    z-index: 20;
+    text-align: right;
+    user-select:none;
+    pointer-events:none;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    filter: drop-shadow(0 2px 10px rgba(0,0,0,0.55));
+  }
+  .brand .logo-name{
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    background: linear-gradient(90deg, var(--accent-soft), var(--accent) 60%, #ff5b1f);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    line-height:1;
+  }
+  .brand .logo-name::before{
+    content: '';
+  }
+  .brand .logo-sub{
+    margin-top: 3px;
+    font-size: 10.5px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .brand .dot{
+    display:inline-block;
+    width:7px; height:7px;
+    border-radius:50%;
+    background: var(--live-red);
+    margin-right:6px;
+    box-shadow: 0 0 8px var(--live-red);
+    animation: pulse 1.6s infinite ease-in-out;
+    vertical-align:middle;
+  }
+  @keyframes pulse{
+    0%,100%{ opacity:1; transform: scale(1); }
+    50%{ opacity:0.4; transform: scale(0.75); }
+  }
+
+  /* ---------- Live badge / status ---------- */
+  .status-bar{
+    position:absolute;
+    top:18px;
+    left:22px;
+    z-index:20;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    pointer-events:none;
+  }
+  .live-badge{
+    display:flex;
+    align-items:center;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(6px);
+    padding: 6px 12px 6px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight:700;
+    letter-spacing:1px;
+    color: var(--text);
+  }
+  .now-title{
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.06);
+    backdrop-filter: blur(6px);
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    color: var(--muted);
+    max-width: 40vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* progress sliver for current segment (non-interactive, cosmetic) */
+  .segment-progress{
+    position:absolute;
+    left:0; bottom:0;
+    height:3px;
+    width:0%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-soft));
+    z-index:20;
+    pointer-events:none;
+    transition: width 0.25s linear;
+  }
+
+  /* ---------- Lock overlay ---------- */
+  .lock-overlay{
+    position:absolute;
+    inset:0;
+    z-index: 50;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    background: rgba(5,6,8,0.6);
+    backdrop-filter: blur(3px);
+    text-align:center;
+    color: var(--text);
+    pointer-events:auto;
+  }
+  .lock-overlay.show{ display:flex; }
+  .lock-icon{
+    font-size: 30px;
+    margin-bottom: 10px;
+    opacity:0.9;
+  }
+  .lock-overlay h2{
+    margin:0 0 6px;
+    font-size: 16px;
+    font-weight:700;
+    letter-spacing:0.4px;
+  }
+  .lock-overlay p{
+    margin:0;
+    font-size: 12.5px;
+    color: var(--muted);
+    max-width: 280px;
+  }
+
+  /* ---------- Buffering / reconnect indicator ---------- */
+  .reconnect{
+    position:absolute;
+    z-index: 40;
+    inset:0;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background: rgba(0,0,0,0.55);
+    color: var(--text);
+    font-size: 13px;
+    letter-spacing:0.5px;
+    pointer-events:none;
+  }
+  .reconnect.show{ display:flex; }
+  .spinner{
+    width:16px; height:16px;
+    border-radius:50%;
+    border: 2px solid rgba(255,255,255,0.25);
+    border-top-color: var(--accent);
+    margin-right:10px;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+
+  /* unmute hint if autoplay-with-sound is blocked by browser */
+  .tap-hint{
+    position:absolute;
+    inset:0;
+    z-index: 45;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    background: rgba(0,0,0,0.35);
+    cursor:pointer;
+  }
+  .tap-hint.show{ display:flex; }
+  .tap-hint .pill{
+    background: rgba(20,20,22,0.85);
+    border:1px solid rgba(255,255,255,0.12);
+    padding: 12px 20px;
+    border-radius: 30px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+</style>
+</head>
+<body>
+
+<div class="player-container" id="playerContainer">
+
+  <div class="stage" id="stage">
+    <!-- iframes injected here -->
+  </div>
+
+  <div class="click-shield" id="clickShield"></div>
+
+  <div class="segment-progress" id="segmentProgress"></div>
+
+  <div class="status-bar">
+    <div class="live-badge"><span class="dot"></span>LIVE</div>
+    <div class="now-title" id="nowTitle">Loading Apna Tv…</div>
+  </div>
+
+  <div class="brand">
+    <div class="logo-name">Apna Tv</div>
+    <div class="logo-sub">Ghar Jaisa</div>
+  </div>
+
+  <div class="reconnect" id="reconnect"><span class="spinner"></span>Reconnecting…</div>
+
+  <div class="tap-hint" id="tapHint">
+    <div class="pill">🔊 Tap anywhere to enable sound</div>
+  </div>
+
+  <div class="lock-overlay" id="lockOverlay">
+    <div class="lock-icon">🔒</div>
+    <h2>Apna Tv is playing live</h2>
+    <p>This is a live broadcast — playback controls are locked so everyone stays in sync, ghar jaisa.</p>
+  </div>
+
+</div>
+
+<script>
+(function(){
+
+  // =========================================================
+  // CONFIG
+  // =========================================================
+  const PLAYLIST_URL = "playlist.json";      // JSON source, poll for live edits
+  const POLL_INTERVAL_MS = 4000;              // how often we check for playlist changes
+  const LOCK_AFTER_MS = 60 * 1000;            // 1 minute -> lock screen from interaction
+  const SWITCH_FADE_MS = 700;                 // crossfade duration between segments
+  const PRELOAD_LEAD_MS = 2500;               // preload next iframe this many ms before switch
+
+  // =========================================================
+  // STATE
+  // =========================================================
+  let playlist = [];
+  let currentIndex = -1;
+  let segmentStartAt = 0;
+  let segmentTimer = null;
+  let progressRAF = null;
+  let lastPlaylistHash = "";
+  let preloadedNextIndex = -1;
+  let locked = false;
+  let userInteracted = false;
+
+  const stage = document.getElementById('stage');
+  const nowTitle = document.getElementById('nowTitle');
+  const segmentProgress = document.getElementById('segmentProgress');
+  const lockOverlay = document.getElementById('lockOverlay');
+  const reconnectEl = document.getElementById('reconnect');
+  const tapHint = document.getElementById('tapHint');
+  const clickShield = document.getElementById('clickShield');
+  const playerContainer = document.getElementById('playerContainer');
+
+  // =========================================================
+  // AUTOPLAY BYPASS LOGIC
+  // Browsers block autoplay-with-sound. Strategy:
+  // 1. Always launch iframes muted+autoplay (universally allowed).
+  // 2. Detect first genuine user gesture (click/touch/key) anywhere
+  //    on the document and use it to "unlock" audio context style
+  //    permission, then re-inject current iframe with sound enabled.
+  // 3. Show a subtle tap-to-enable-sound hint until that happens.
+  // =========================================================
+  function attachAutoplayBypass(){
+    const unlock = () => {
+      if (userInteracted) return;
+      userInteracted = true;
+      tapHint.classList.remove('show');
+      // Re-render current segment with sound now that a gesture occurred
+      if (currentIndex > -1) renderSegment(currentIndex, true);
+      window.removeEventListener('click', unlock);
+      window.removeEventListener('touchstart', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+    window.addEventListener('click', unlock, { passive:true });
+    window.addEventListener('touchstart', unlock, { passive:true });
+    window.addEventListener('keydown', unlock, { passive:true });
+
+    // Show hint after a short delay if still muted
+    setTimeout(() => {
+      if (!userInteracted) tapHint.classList.add('show');
+    }, 1200);
+  }
+
+  // =========================================================
+  // SCREEN LOCK — after 1 minute, block interaction so the
+  // viewer can't fiddle with / skip the embedded video chrome.
+  // The click-shield is already always-on to prevent seeking;
+  // this overlay additionally communicates the locked state.
+  // =========================================================
+  function armScreenLock(){
+    setTimeout(() => {
+      locked = true;
+      lockOverlay.classList.add('show');
+      // auto-fade the message but keep the shield logic active
+      setTimeout(() => {
+        lockOverlay.classList.remove('show');
+      }, 3200);
+    }, LOCK_AFTER_MS);
+  }
+
+  // click-shield always intercepts clicks so viewers cannot reach
+  // native iframe scrub bars / skip / pause controls at any point,
+  // even before the 1-minute mark.
+  clickShield.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (locked) {
+      lockOverlay.classList.add('show');
+      setTimeout(() => lockOverlay.classList.remove('show'), 1800);
+    }
+  });
+  clickShield.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // =========================================================
+  // BUILD IFRAME URL — force autoplay/mute/no-controls params
+  // where the embed provider supports them, without breaking
+  // arbitrary embed URLs that already have query strings.
+  // =========================================================
+  function buildIframeSrc(baseUrl, withSound){
+    try{
+      const u = new URL(baseUrl, window.location.href);
+      u.searchParams.set('autoplay', '1');
+      u.searchParams.set('mute', withSound ? '0' : '1');
+      u.searchParams.set('controls', '0');
+      u.searchParams.set('rel', '0');
+      u.searchParams.set('modestbranding', '1');
+      u.searchParams.set('playsinline', '1');
+      return u.toString();
+    }catch(e){
+      return baseUrl;
+    }
+  }
+
+  function makeIframe(item, withSound){
+    const f = document.createElement('iframe');
+    f.src = buildIframeSrc(item.url, withSound);
+    f.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+    f.setAttribute('allowfullscreen', 'true');
+    f.setAttribute('frameborder', '0');
+    f.setAttribute('scrolling', 'no');
+    f.dataset.itemId = item.id;
+    return f;
+  }
+
+  // =========================================================
+  // RENDER / CROSSFADE SEGMENT
+  // =========================================================
+  function renderSegment(index, forceResound){
+    const item = playlist[index];
+    if (!item) return;
+
+    reconnectEl.classList.remove('show');
+
+    const withSound = userInteracted;
+    const incoming = makeIframe(item, withSound);
+    stage.appendChild(incoming);
+
+    // force layout then fade in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        incoming.classList.add('active');
+      });
+    });
+
+    // remove old iframes after fade completes (keep only the new one)
+    const olds = Array.from(stage.querySelectorAll('iframe')).filter(f => f !== incoming);
+    setTimeout(() => {
+      olds.forEach(f => f.remove());
+    }, SWITCH_FADE_MS + 50);
+
+    nowTitle.textContent = item.title || 'Apna Tv';
+    currentIndex = index;
+    segmentStartAt = Date.now();
+    preloadedNextIndex = -1;
+
+    scheduleAdvance(item.duration);
+    animateProgress(item.duration);
+  }
+
+  function scheduleAdvance(durationSec){
+    if (segmentTimer) clearTimeout(segmentTimer);
+    const ms = Math.max(1000, durationSec * 1000);
+    segmentTimer = setTimeout(advanceToNext, ms);
+
+    // Optional: preload next iframe slightly ahead for a seamless
+    // switch (kept in DOM off-screen opacity 0 so it's warmed up).
+    const preloadDelay = Math.max(500, ms - PRELOAD_LEAD_MS);
+    setTimeout(() => {
+      preloadNext();
+    }, preloadDelay);
+  }
+
+  function preloadNext(){
+    if (playlist.length < 2) return;
+    const nextIndex = (currentIndex + 1) % playlist.length;
+    if (nextIndex === preloadedNextIndex) return;
+    preloadedNextIndex = nextIndex;
+    const item = playlist[nextIndex];
+    const pre = makeIframe(item, userInteracted);
+    pre.dataset.preload = "true";
+    pre.style.opacity = "0";
+    stage.appendChild(pre);
+  }
+
+  function advanceToNext(){
+    if (!playlist.length) return;
+    const nextIndex = (currentIndex + 1) % playlist.length;
+
+    // If we already preloaded this exact segment, just activate it
+    const preloaded = stage.querySelector(`iframe[data-preload="true"]`);
+    if (preloaded && playlist[nextIndex].id === preloaded.dataset.itemId){
+      preloaded.removeAttribute('data-preload');
+      const olds = Array.from(stage.querySelectorAll('iframe')).filter(f => f !== preloaded);
+      requestAnimationFrame(() => preloaded.classList.add('active'));
+      setTimeout(() => olds.forEach(f => f.remove()), SWITCH_FADE_MS + 50);
+
+      nowTitle.textContent = playlist[nextIndex].title || 'Apna Tv';
+      currentIndex = nextIndex;
+      segmentStartAt = Date.now();
+      preloadedNextIndex = -1;
+      scheduleAdvance(playlist[nextIndex].duration);
+      animateProgress(playlist[nextIndex].duration);
+      return;
+    }
+
+    renderSegment(nextIndex);
+  }
+
+  function animateProgress(durationSec){
+    if (progressRAF) cancelAnimationFrame(progressRAF);
+    const total = durationSec * 1000;
+    const start = Date.now();
+    function tick(){
+      const elapsed = Date.now() - start;
+      const pct = Math.min(100, (elapsed / total) * 100);
+      segmentProgress.style.width = pct + '%';
+      if (pct < 100){
+        progressRAF = requestAnimationFrame(tick);
+      }
+    }
+    tick();
+  }
+
+  // =========================================================
+  // LIVE SYNC — poll JSON, detect changes, reflect instantly
+  // without any page refresh. Handles:
+  //  - playlist content changes (URLs/durations/order)
+  //  - keeps current playback position stable if unaffected
+  //  - re-syncs smoothly if the active segment was removed/changed
+  // =========================================================
+  async function fetchPlaylist(){
+    try{
+      const res = await fetch(PLAYLIST_URL + '?_=' + Date.now(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('bad status ' + res.status);
+      const data = await res.json();
+      const hash = JSON.stringify(data.items) + data.updated;
+
+      if (hash === lastPlaylistHash){
+        reconnectEl.classList.remove('show');
+        return; // no changes, nothing to do
+      }
+
+      const isFirstLoad = lastPlaylistHash === "";
+      lastPlaylistHash = hash;
+
+      const previousItem = playlist[currentIndex];
+      playlist = Array.isArray(data.items) ? data.items : [];
+
+      if (!playlist.length) return;
+
+      if (isFirstLoad){
+        renderSegment(0);
+        attachAutoplayBypass();
+        armScreenLock();
+        return;
+      }
+
+      // Try to keep playing the same item if it still exists in new list
+      const stillExistsIndex = previousItem
+        ? playlist.findIndex(p => p.id === previousItem.id)
+        : -1;
+
+      if (stillExistsIndex > -1){
+        // same content still airing — just update index reference,
+        // don't interrupt playback
+        currentIndex = stillExistsIndex;
+      } else {
+        // current segment was removed/changed upstream — switch smoothly now
+        const fallbackIndex = Math.min(currentIndex > -1 ? currentIndex : 0, playlist.length - 1);
+        renderSegment(fallbackIndex);
+      }
+
+      reconnectEl.classList.remove('show');
+    }catch(err){
+      // network hiccup — show subtle reconnect state, keep last frame playing
+      reconnectEl.classList.add('show');
+      console.warn('Apna Tv: playlist fetch failed, retrying…', err);
+    }
+  }
+
+  function startPolling(){
+    fetchPlaylist();
+    setInterval(fetchPlaylist, POLL_INTERVAL_MS);
+  }
+
+  // =========================================================
+  // VISIBILITY / RESUME HANDLING
+  // If tab was backgrounded, re-check playlist immediately on
+  // return so the viewer instantly re-syncs to "live" position.
+  // =========================================================
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible'){
+      fetchPlaylist();
+    }
+  });
+
+  // =========================================================
+  // Prevent common skip/dev shortcuts at the page level
+  // (best-effort UX deterrent, not a security boundary)
+  // =========================================================
+  document.addEventListener('keydown', (e) => {
+    const blocked = ['ArrowRight','ArrowLeft','MediaTrackNext','MediaTrackPrevious'];
+    if (blocked.includes(e.key)) e.preventDefault();
+  });
+
+  // Kick things off
+  startPolling();
+
+})();
+</script>
+
+</body>
+  </html>

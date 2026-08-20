@@ -29,27 +29,47 @@
       display: none;
     }
 
-    /* Dynamic Guard Overlay: Unlocked initially for ads/play buttons, locks automatically after */
-    #iframe-guard {
+    /* Target Strip Overlay Container */
+    #iframe-blockers {
       position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
       z-index: 5;
       display: none;
-      pointer-events: none; /* Default: allows clicks to pass through to ads/play buttons */
-      background: rgba(0, 0, 0, 0.001);
+      pointer-events: none; /* Let clicks pass through the center video area */
     }
 
-    /* Lock Mode CSS: Enforces unskippable video state */
-    #iframe-guard.locked {
-      pointer-events: auto !important; /* Blocks clicks, drags, and timeline scrubbing */
-      cursor: default;
+    /* Precise Bottom Scrub-Bar Blocker Strip */
+    .scrubber-blocker-bottom {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      height: 48px; /* Targets native timeline / seek bar height precisely */
+      pointer-events: auto; /* Intercepts and destroys scrubbing clicks/drags */
+      backdrop-filter: blur(8px);
+      background: rgba(0, 0, 0, 0.25);
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+      cursor: not-allowed;
+    }
+
+    /* Optional Top Control Blocker Strip (Prevents seeking via top header bars if present) */
+    .scrubber-blocker-top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 35px;
+      pointer-events: auto;
+      backdrop-filter: blur(4px);
+      background: rgba(0, 0, 0, 0.15);
+      cursor: not-allowed;
     }
 
     /* Custom Toolbar */
     #controls-overlay {
       position: absolute;
-      bottom: 20px;
+      bottom: 12px;
       right: 20px;
       z-index: 10;
       display: flex;
@@ -60,7 +80,7 @@
       background: rgba(0, 0, 0, 0.6);
       border: 1px solid rgba(255, 255, 255, 0.2);
       color: #fff;
-      padding: 10px 14px;
+      padding: 8px 12px;
       border-radius: 8px;
       cursor: pointer;
       backdrop-filter: blur(5px);
@@ -70,7 +90,7 @@
       justify-content: center;
     }
     .btn:hover { background: rgba(255, 255, 255, 0.2); }
-    .btn svg { width: 20px; height: 20px; fill: #fff; }
+    .btn svg { width: 18px; height: 18px; fill: #fff; }
 
     /* Autoplay Unmute Screen Overlay */
     #unmute-overlay {
@@ -103,8 +123,11 @@
   <div id="yt-player" class="media-element"></div>
   <iframe id="iframe-player" class="media-element" allow="autoplay; encrypted-media; picture-in-picture"></iframe>
   
-  <!-- Dynamic Guard Shield Overlay -->
-  <div id="iframe-guard"></div>
+  <!-- Targeted Blocker Strips for Iframe Scrubbers -->
+  <div id="iframe-blockers">
+    <div class="scrubber-blocker-top"></div>
+    <div class="scrubber-blocker-bottom"></div>
+  </div>
 
   <!-- Unmute Overlay -->
   <div id="unmute-overlay">
@@ -129,7 +152,6 @@
 <script>
   const PLAYLIST_URL = 'playlist.json';
   const FETCH_INTERVAL = 10000;
-  const ALLOW_INTERACTION_SECONDS = 10; // Time window allowed for clicking "Skip Ad" / "Play"
 
   let playlist = [];
   let isMuted = true;
@@ -137,11 +159,10 @@
   let hlsInstance = null;
   let ytPlayer = null;
   let ytReady = false;
-  let guardTimeout = null;
 
   const html5Player = document.getElementById('html5-player');
   const iframePlayer = document.getElementById('iframe-player');
-  const iframeGuard = document.getElementById('iframe-guard');
+  const iframeBlockers = document.getElementById('iframe-blockers');
   const unmuteOverlay = document.getElementById('unmute-overlay');
   const muteBtn = document.getElementById('mute-btn');
   const iconMuted = document.getElementById('icon-muted');
@@ -190,23 +211,13 @@
   function hideAllEngines() {
     html5Player.style.display = 'none';
     iframePlayer.style.display = 'none';
-    iframeGuard.style.display = 'none';
-    iframeGuard.classList.remove('locked');
-    if (guardTimeout) clearTimeout(guardTimeout);
+    iframeBlockers.style.display = 'none';
     document.getElementById('yt-player').style.display = 'none';
     
     html5Player.pause();
     if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
     if (ytReady && ytPlayer.pauseVideo) ytPlayer.pauseVideo();
     iframePlayer.src = 'about:blank';
-  }
-
-  function sendIframeMessage(cmd) {
-    if (iframePlayer.contentWindow) {
-      // Send postMessage API commands to common iframe player engines
-      iframePlayer.contentWindow.postMessage(JSON.stringify({ event: 'command', func: cmd }), '*');
-      iframePlayer.contentWindow.postMessage(cmd, '*');
-    }
   }
 
   function playMedia(item, offset) {
@@ -260,17 +271,8 @@
 
       case 'iframe':
         iframePlayer.style.display = 'block';
-        iframeGuard.style.display = 'block';
-        
-        // Start Unlocked: User can click initial Ad/Play buttons
-        iframeGuard.classList.remove('locked');
+        iframeBlockers.style.display = 'block'; // Displays targeted blur strips over scrollbar/timeline area
         iframePlayer.src = item.url;
-
-        // Auto-lock scrubber after allowed interaction time window
-        const remainingInteractionTime = Math.max(0, (ALLOW_INTERACTION_SECONDS - offset) * 1000);
-        guardTimeout = setTimeout(() => {
-          iframeGuard.classList.add('locked');
-        }, remainingInteractionTime);
         break;
     }
   }
@@ -281,9 +283,6 @@
     if (ytReady && ytPlayer.mute) {
       isMuted ? ytPlayer.mute() : ytPlayer.unMute();
     }
-    // Attempt to pass Mute/Unmute state via postMessage to iframe
-    sendIframeMessage(isMuted ? 'mute' : 'unmute');
-
     iconMuted.style.display = isMuted ? 'block' : 'none';
     iconUnmuted.style.display = isMuted ? 'none' : 'block';
   }
@@ -291,7 +290,6 @@
   unmuteOverlay.addEventListener('click', () => {
     setMuteState(false);
     unmuteOverlay.style.display = 'none';
-    sendIframeMessage('play');
   });
 
   muteBtn.addEventListener('click', () => setMuteState(!isMuted));

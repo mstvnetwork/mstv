@@ -159,38 +159,21 @@
     transition: width 0.25s linear;
   }
 
-  /* ---------- Lock overlay ---------- */
+  /* ---------- Lock overlay ----------
+     Fully transparent, invisible interaction blocker.
+     No text/icon — just sits on top and swallows all
+     pointer events once the lock time has elapsed. */
   .lock-overlay{
     position:absolute;
     inset:0;
     z-index: 50;
     display:none;
-    align-items:center;
-    justify-content:center;
-    flex-direction:column;
-    background: rgba(5,6,8,0.6);
-    backdrop-filter: blur(3px);
-    text-align:center;
-    color: var(--text);
+    background: transparent;
+    pointer-events:none;
+  }
+  .lock-overlay.active{
+    display:block;
     pointer-events:auto;
-  }
-  .lock-overlay.show{ display:flex; }
-  .lock-icon{
-    font-size: 30px;
-    margin-bottom: 10px;
-    opacity:0.9;
-  }
-  .lock-overlay h2{
-    margin:0 0 6px;
-    font-size: 16px;
-    font-weight:700;
-    letter-spacing:0.4px;
-  }
-  .lock-overlay p{
-    margin:0;
-    font-size: 12.5px;
-    color: var(--muted);
-    max-width: 280px;
   }
 
   /* ---------- Buffering / reconnect indicator ---------- */
@@ -242,9 +225,74 @@
     align-items:center;
     gap:8px;
   }
+
+  /* ---------- Browser restriction gate ---------- */
+  .browser-gate{
+    position:fixed;
+    inset:0;
+    z-index: 999;
+    display:none;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    background: var(--bg);
+    color: var(--text);
+    text-align:center;
+    padding: 30px;
+  }
+  .browser-gate.show{ display:flex; }
+  .browser-gate .gate-logo{
+    font-size: 22px;
+    font-weight:800;
+    background: linear-gradient(90deg, var(--accent-soft), var(--accent) 60%, #ff5b1f);
+    -webkit-background-clip:text;
+    background-clip:text;
+    color:transparent;
+    margin-bottom: 4px;
+  }
+  .browser-gate .gate-sub{
+    font-size: 10.5px;
+    letter-spacing:3px;
+    text-transform:uppercase;
+    color: var(--muted);
+    font-weight:600;
+    margin-bottom: 28px;
+  }
+  .browser-gate h1{
+    font-size: 18px;
+    margin: 0 0 10px;
+    font-weight:700;
+  }
+  .browser-gate p{
+    font-size: 13.5px;
+    color: var(--muted);
+    max-width: 360px;
+    line-height:1.6;
+    margin: 0 0 22px;
+  }
+  .browser-gate a.chrome-link{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    background: var(--accent);
+    color:#100a05;
+    font-weight:700;
+    font-size:13px;
+    text-decoration:none;
+    padding: 11px 22px;
+    border-radius: 30px;
+  }
 </style>
 </head>
 <body>
+
+<div class="browser-gate" id="browserGate">
+  <div class="gate-logo">Apna Tv</div>
+  <div class="gate-sub">Ghar Jaisa</div>
+  <h1>Please open this channel in Google Chrome</h1>
+  <p>Apna Tv is optimized for a smooth, uninterrupted live broadcast and currently only supports Google Chrome. Please switch browsers to continue watching.</p>
+  <a class="chrome-link" href="https://www.google.com/chrome/" target="_blank" rel="noopener">Get Google Chrome →</a>
+</div>
 
 <div class="player-container" id="playerContainer">
 
@@ -272,11 +320,7 @@
     <div class="pill">🔊 Tap anywhere to enable sound</div>
   </div>
 
-  <div class="lock-overlay" id="lockOverlay">
-    <div class="lock-icon">🔒</div>
-    <h2>Apna Tv is playing live</h2>
-    <p>This is a live broadcast — playback controls are locked so everyone stays in sync, ghar jaisa.</p>
-  </div>
+  <div class="lock-overlay" id="lockOverlay"></div>
 
 </div>
 
@@ -291,6 +335,33 @@
   const LOCK_AFTER_MS = 60 * 1000;            // 1 minute -> lock screen from interaction
   const SWITCH_FADE_MS = 700;                 // crossfade duration between segments
   const PRELOAD_LEAD_MS = 2500;               // preload next iframe this many ms before switch
+  const CHROME_ONLY = true;                   // set false to allow all browsers (recommended — see notes)
+
+  // =========================================================
+  // BROWSER GATE
+  // Detects desktop/mobile Chrome via UA sniffing. NOTE: this is
+  // a presentation/UX choice, not a real anti-skip mechanism —
+  // UA strings are trivially spoofable by anyone determined to
+  // bypass it, and it will also block legitimate Edge/Brave/Opera
+  // users (all Chromium-based, but report a different UA) and all
+  // Safari/Firefox users. It does not add any actual protection
+  // against seeking/skipping — that protection comes entirely from
+  // the click-shield + lock-overlay below, which work identically
+  // in every browser.
+  // =========================================================
+  function isChrome(){
+    const ua = navigator.userAgent;
+    const vendor = navigator.vendor || "";
+    const isChromium = /Chrome\/|CriOS\//.test(ua);
+    const isRealChrome = isChromium && /Google Inc/.test(vendor) && !/Edg\/|OPR\/|Brave|SamsungBrowser/.test(ua);
+    return isRealChrome;
+  }
+
+  if (CHROME_ONLY && !isChrome()){
+    document.getElementById('browserGate').classList.add('show');
+    // Stop here — do not initialize player for non-Chrome browsers
+    throw new Error('Apna Tv: Chrome-only mode active, halting init for non-Chrome browser.');
+  }
 
   // =========================================================
   // STATE
@@ -353,24 +424,17 @@
   function armScreenLock(){
     setTimeout(() => {
       locked = true;
-      lockOverlay.classList.add('show');
-      // auto-fade the message but keep the shield logic active
-      setTimeout(() => {
-        lockOverlay.classList.remove('show');
-      }, 3200);
+      // Permanently active, fully transparent — no message, no fade out.
+      // From this point on it silently absorbs all clicks/taps.
+      lockOverlay.classList.add('active');
     }, LOCK_AFTER_MS);
   }
 
   // click-shield always intercepts clicks so viewers cannot reach
   // native iframe scrub bars / skip / pause controls at any point,
-  // even before the 1-minute mark.
-  clickShield.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (locked) {
-      lockOverlay.classList.add('show');
-      setTimeout(() => lockOverlay.classList.remove('show'), 1800);
-    }
-  });
+  // even before the lock time — it's just not click-through until
+  // armScreenLock() flips it to fully block (see .active class).
+  clickShield.addEventListener('click', (e) => e.preventDefault());
   clickShield.addEventListener('contextmenu', (e) => e.preventDefault());
 
   // =========================================================
@@ -592,4 +656,4 @@
 </script>
 
 </body>
-  </html>
+</html>

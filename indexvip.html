@@ -417,26 +417,33 @@
       </div>
   </footer>
 </div>
-<script>
+
+  <script>
 const CURRENT_VERSION = "v2.6.0"; 
 
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
+// Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
-  "https://main.ghubtv1.workers.dev",
-  "https://backup1.cabletv.workers.dev",
-  "https://backup2.changetv65.workers.dev",
-  "https://backup3.mstvindianetworkusa.workers.dev",
-  "https://backup4.choudhrym840.workers.dev",
-  "https://backup5.tonycameron059.workers.dev"
+"https://main.ghubtv1.workers.dev",
+"https://backup1.cabletv.workers.dev",
+"https://backup2.changetv65.workers.dev",
+"https://backup3.mstvindianetworkusa.workers.dev",
+"https://backup4.choudhrym840.workers.dev",
+"https://backup5.tonycameron059.workers.dev"
 ];
 
 // ── DEAD-ACCOUNT SKIPPER ─────────────────────────────────────────────────
+// Tracks which worker endpoints are currently failing (e.g. free-tier quota
+// exhausted, account suspended, etc.) and automatically routes around them.
+// A "dead" endpoint is skipped for COOLDOWN_MS, then given another chance
+// in case the quota reset (daily reset, temporary block lifted, etc.).
+
 const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes before retrying a dead endpoint
 const FAIL_THRESHOLD = 2;          // consecutive failures before marking dead
 
 const workerHealth = WORKER_ENDPOINTS.map(() => ({
   fails: 0,
-  deadUntil: 0
+  deadUntil: 0 // timestamp (ms) until which this endpoint is skipped
 }));
 
 function isEndpointAlive(idx) {
@@ -457,14 +464,20 @@ function markEndpointFailure(idx) {
   }
 }
 
+// Returns an ordered list of endpoint indices to try: alive ones first
+// (random order among themselves so load still balances), then dead ones
+// last as a final fallback (better to try a "dead" endpoint than show nothing).
 function getWorkerTryOrder() {
   const indices = WORKER_ENDPOINTS.map((_, i) => i);
   const alive = indices.filter(isEndpointAlive);
   const dead = indices.filter(i => !isEndpointAlive(i));
+
+  // Shuffle each group independently to keep load balanced across accounts
   const shuffle = arr => arr.sort(() => Math.random() - 0.5);
   return [...shuffle(alive), ...shuffle(dead)];
 }
 
+// Kept for any external callers, now returns the top pick from the skipper.
 function getActiveWorkerUrl() {
   const order = getWorkerTryOrder();
   return WORKER_ENDPOINTS[order[0]];
@@ -473,10 +486,11 @@ function getActiveWorkerUrl() {
 const streamCache = {}; // Local memory cache
 
 const JSON_URL      = './streamdata2.json';
-const POLL_INTERVAL = 30000; 
+const POLL_INTERVAL = 30000; // was 1500ms — 1.5s polling was the #1 cause of quota exhaustion
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
 const CATEGORY_CONFIG = [];
+// Place this at the top of your script near your other global "let" declarations
 let streamRetryCount = 0;
 const MAX_STREAM_RETRIES = 3; 
 
@@ -508,6 +522,9 @@ const $updateText = document.getElementById('updateText');
 const $categoryBar = document.getElementById('categoryBar');
 const $geoTrack = document.getElementById('geoTrack');
 
+// ── GEO NOTICE MARQUEE ────────────────────────────────────────────────────
+// Purely informational scrolling ticker beneath the player. Duplicated once
+// so the CSS translateX(-50%) loop is seamless with no visible seam/jump.
 function initGeoNotice() {
   if (!$geoTrack) return;
   const items = [
@@ -519,7 +536,7 @@ function initGeoNotice() {
   const renderSet = () => items.map(i =>
     `<span class="geo-item"><span class="geo-ic">${i.ic}</span>${i.html}</span><span class="geo-dot"></span>`
   ).join('');
-  $geoTrack.innerHTML = renderSet() + renderSet();
+  $geoTrack.innerHTML = renderSet() + renderSet(); // duplicate for seamless loop
 }
 
 const chKey = ch => ch.id || ch.name;
@@ -527,11 +544,13 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
+// Strict Mobile Detector
 const isStrictMobile = () => {
   const ua = navigator.userAgent || '';
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
   const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
   const maxDimension = Math.max(window.screen.width, window.screen.height);
+
   return isMobileUA && !isTabletUA && maxDimension < 1024;
 };
 
@@ -545,15 +564,12 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Fetches stream URL dynamically from Worker by Channel ID.
- * Supports forceFresh parameter for real-time recovery on URL changes.
+ * Fetches stream URL dynamically from Worker by Channel ID (No client secret key needed)
  */
-async function getStreamUrl(channel, forceFresh = false) {
+async function getStreamUrl(channel) {
   const key = channel.id || channel.name;
 
-  if (forceFresh) {
-    delete streamCache[key];
-  } else if (streamCache[key]) {
+  if (streamCache[key]) {
     console.log(`[Local Cache Hit] Serving channel link locally for: ${channel.name}`);
     return streamCache[key];
   }
@@ -565,16 +581,15 @@ async function getStreamUrl(channel, forceFresh = false) {
 
   const tryOrder = getWorkerTryOrder();
   const aliveFirst = tryOrder.filter(isEndpointAlive);
-  const racePool = aliveFirst.slice(0, 2);
+  const racePool = aliveFirst.slice(0, 2); // race top 2 alive endpoints in parallel
   const remainder = tryOrder.filter(i => !racePool.includes(i));
 
   const fetchOne = async (idx) => {
     const workerBaseUrl = WORKER_ENDPOINTS[idx];
-    const queryParam = forceFresh ? '?nocache=true' : '';
-    const res = await fetch(`${workerBaseUrl}/channel/${channel.id}${queryParam}`, {
+    const res = await fetch(`${workerBaseUrl}/hls/${channel.id}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
-      cache: forceFresh ? 'no-cache' : 'default'
+      cache: 'default' // allows the Worker's own edge-cached response to be reused
     });
     if (!res.ok) { markEndpointFailure(idx); throw new Error(`Worker status ${res.status}`); }
     const data = await res.json();
@@ -584,14 +599,19 @@ async function getStreamUrl(channel, forceFresh = false) {
     return data.url;
   };
 
+  // Race the fastest alive endpoints first — if the "primary" is slow or
+  // dead, a healthy backup wins instantly instead of waiting out a timeout.
   if (racePool.length) {
     try {
       return await Promise.any(racePool.map(idx =>
         fetchOne(idx).catch(e => { console.warn(`[Worker Skipper] ${WORKER_ENDPOINTS[idx]} failed`, e); throw e; })
       ));
-    } catch (e) {}
+    } catch (e) {
+      // AggregateError from Promise.any — both racers failed, fall through
+    }
   }
 
+  // Serial fallback: remaining alive endpoints, then dead ones as last resort
   let lastError = null;
   for (const idx of remainder) {
     try {
@@ -605,6 +625,7 @@ async function getStreamUrl(channel, forceFresh = false) {
   console.error("Failed to fetch stream URL from any worker endpoint:", lastError);
   return null;
 }
+
 
 function attemptOpenInApp(url, onFail) {
   let settled = false;
@@ -686,17 +707,27 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(JSON_URL, { signal: fetchController.signal, cache: 'default' });
+    // No cache-buster, no no-store headers — this lets Cloudflare's edge
+    // cache serve this file (see _headers: max-age=10, s-maxage=30) instead
+    // of every visitor hitting origin on every poll.
+    const res = await fetch(JSON_URL, {
+      signal: fetchController.signal,
+      cache: 'default'
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
 
-    if (text === lastJsonRaw) { updateTimestamp(); return; }
+    if (text === lastJsonRaw) { 
+      updateTimestamp(); 
+      return; 
+    }
     
     let data = JSON.parse(text);
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
     
     lastJsonRaw = text;
 
+    // Clear local memory cache on list reload
     Object.keys(streamCache).forEach(key => delete streamCache[key]);
 
     channels = data.filter(c => c && c.name).map(c => ({ ...c, category: catOf(c) }));
@@ -731,9 +762,13 @@ function applyFilters() {
 function renderCategoryBar() {
   const counts = { All: channels.length };
   channels.forEach(ch => { const c = catOf(ch); counts[c] = (counts[c]||0) + 1; });
+  
   const dynamicCats = Object.keys(counts).filter(c => !CATEGORY_CONFIG.some(item => item.id.toLowerCase() === c.toLowerCase()));
   
-  const allCats = [ ...CATEGORY_CONFIG, ...dynamicCats.map(c => ({ id: c, icon: '📺' })) ];
+  const allCats = [
+    ...CATEGORY_CONFIG,
+    ...dynamicCats.map(c => ({ id: c, icon: '📺' }))
+  ];
 
   $categoryBar.innerHTML = allCats.map(item => {
     const cat = item.id;
@@ -833,18 +868,102 @@ function openPopUpStream(ch, targetUrl) {
     .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
     .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
+    
+    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
+    #alignerPanel.active { display: block; }
+    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
+    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
+    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
+    .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
 <body>
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
+    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
   </header>
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
       <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
+    
+    ${isPrivate ? `
+    <div id="alignerPanel">
+      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
+        <span>Stream Aligner</span>
+        <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
+      </div>
+      <div class="zoom-controls">
+        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
+        <div>
+          <button id="btnZoomOut">-</button>
+          <button id="btnZoomIn">+</button>
+        </div>
+      </div>
+      <div class="align-grid">
+        <div></div><button id="btnUp">▲</button><div></div>
+        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
+        <div></div><button id="btnDown">▼</button><div></div>
+      </div>
+      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
+      <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
+    </div>` : ''}
   </div>
+
+  <script>
+    (function() {
+      const isPrivate = ${isPrivate};
+      if (!isPrivate) return;
+
+      const iframe = document.getElementById('popFrame');
+      const panel = document.getElementById('alignerPanel');
+      const toggleBtn = document.getElementById('toggleAligner');
+      const closeBtn = document.getElementById('closeAligner');
+
+      let topVal = parseInt("${topShift}") || 0;
+      let leftVal = parseInt("${leftShift}") || 0;
+      let zoomVal = parseInt("${zoomLevel}") || 100;
+
+      function updateStyles() {
+        iframe.style.top = topVal + 'px';
+        iframe.style.left = leftVal + 'px';
+        iframe.style.width = zoomVal + '%';
+        iframe.style.height = zoomVal + '%';
+
+        document.getElementById('valTop').textContent = topVal + 'px';
+        document.getElementById('valLeft').textContent = leftVal + 'px';
+        document.getElementById('valZoom').textContent = zoomVal + '%';
+      }
+
+      if (toggleBtn) {
+        toggleBtn.onclick = () => panel.classList.toggle('active');
+      }
+      if (closeBtn) {
+        closeBtn.onclick = () => panel.classList.remove('active');
+      }
+
+      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
+      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
+      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
+      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
+      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
+
+      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
+      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
+
+      document.getElementById('btnCopyJson').onclick = () => {
+        const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
+        navigator.clipboard.writeText(jsonSnippet).then(() => {
+          const btn = document.getElementById('btnCopyJson');
+          btn.textContent = '✅ Copied!';
+          setTimeout(() => btn.textContent = '📋 Copy JSON', 1500);
+        });
+      };
+    })();
+  <\/script>
 </body>
 </html>`;
 
@@ -857,12 +976,15 @@ function openPopUpStream(ch, targetUrl) {
 async function playChannel(ch) {
   if (!ch) return;
   
+  // If switching to a completely new channel selection, reset the crash counter
   if (!currentChannel || (ch.id !== currentChannel.id)) {
     streamRetryCount = 0; 
   }
   
   currentChannel = ch;
   renderList();
+  // ... (keep the rest of your loading visual changes the same)
+
 
   $playerPlaceholder.classList.add('hidden');
   $playerError.classList.remove('show');
@@ -876,7 +998,8 @@ async function playChannel(ch) {
 
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    const fallbackMessage = ch.popupFallbackMsg || "📱 Mobile Access Only: This stream is optimized for mobile viewing.";
+    const fallbackMessage = ch.popupFallbackMsg || 
+      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
     if (popupRestriction === 'restricted' && !isStrictMobile()) {
       showError(fallbackMessage);
@@ -945,45 +1068,24 @@ async function playChannel(ch) {
   updateNowPlaying(ch);
 }
 
-/**
- * Enhanced HLS Playback with Real-time Endpoint Hot-Swapping
- */
-async function playHLS(streamUrl) {
+async function playHLS(streamUrl) { // <--- Make sure this is streamUrl
   await waitForHls();
   if (Hls.isSupported()) {
     hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
     
-    hlsInstance.on(Hls.Events.ERROR, async (e, d) => {
+    hlsInstance.on(Hls.Events.ERROR, (e, d) => {
       if (d.fatal) {
         switch (d.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            console.warn("[Stream Recovery] Fatal network error detected. Fetching updated URL...");
-            if (streamRetryCount >= MAX_STREAM_RETRIES) {
-              showError("Stream is currently offline. Please try again later.");
-              teardown();
-              break;
-            }
-            streamRetryCount++;
-            
-            // Bypass edge cache to grab newly deployed worker URL
-            const updatedUrl = await getStreamUrl(currentChannel, true);
-            if (updatedUrl && updatedUrl !== streamUrl) {
-              console.log("[Stream Recovery] Hot-swapping to new stream URL:", updatedUrl);
-              hlsInstance.loadSource(updatedUrl);
-              hlsInstance.startLoad();
-              $videoEl.play().catch(() => {});
-            } else {
-              hlsInstance.startLoad();
-            }
+            hlsInstance.startLoad();
             break;
-
           case Hls.ErrorTypes.MEDIA_ERROR:
             hlsInstance.recoverMediaError();
             break;
-
           default:
             if (streamRetryCount >= MAX_STREAM_RETRIES) {
-              showError("Stream is currently offline.");
+              console.error("Max stream recovery attempts reached. Halting requests.");
+              showError("Stream is currently offline. Please try again later.");
               teardown();
               break;
             }
@@ -996,15 +1098,17 @@ async function playHLS(streamUrl) {
     });
 
     hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => { showLoader(false); $videoEl.play().catch(()=>{}); });
-    hlsInstance.loadSource(streamUrl);
+    hlsInstance.loadSource(streamUrl); // <--- Updated to match parameter
     hlsInstance.attachMedia($videoEl);
   } else if ($videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-    $videoEl.src = streamUrl;
+    $videoEl.src = streamUrl; // <--- CHANGED FROM 'url' TO 'streamUrl' (Fixes the crash!)
     $videoEl.addEventListener('loadedmetadata', () => { showLoader(false); $videoEl.play().catch(()=>{}); }, { once: true });
   } else {
     showError('HLS not supported');
   }
 }
+
+
 
 async function playDASH(url) {
   try {
@@ -1053,8 +1157,10 @@ function bindEvents() {
         hlsInstance.startLoad();
         hlsInstance.recoverMediaError();
         $videoEl.play().catch(() => {});
-      } else if (shakaPlayer && shakaReady) {
+      } 
+            else if (shakaPlayer && shakaReady) {
         try {
+          // If the player stalls on wake, rely on browser memory, do not ping the network
           if (streamCache[currentChannel.id || currentChannel.name]) {
             await shakaPlayer.load(streamCache[currentChannel.id || currentChannel.name]);
           } else {
@@ -1071,6 +1177,7 @@ function bindEvents() {
           }
         }
       }
+
     } else if (hlsInstance) {
       hlsInstance.startLoad();
     }
@@ -1087,7 +1194,9 @@ const _nativeOpen = window.open.bind(window);
 
 document.addEventListener('DOMContentLoaded', init);
   </script>
-                  
+</body>
+</html>
+               
 
 </body>
 </html>

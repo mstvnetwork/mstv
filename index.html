@@ -417,10 +417,11 @@
       </div>
   </footer>
 </div>
-<script>
+          <script>
 const CURRENT_VERSION = "v2.6.0"; 
 
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
+// Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
   "https://main.ghubtv1.workers.dev",
   "https://backup1.cabletv.workers.dev",
@@ -436,7 +437,7 @@ const FAIL_THRESHOLD = 2;          // consecutive failures before marking dead
 
 const workerHealth = WORKER_ENDPOINTS.map(() => ({
   fails: 0,
-  deadUntil: 0
+  deadUntil: 0 
 }));
 
 function isEndpointAlive(idx) {
@@ -461,6 +462,7 @@ function getWorkerTryOrder() {
   const indices = WORKER_ENDPOINTS.map((_, i) => i);
   const alive = indices.filter(isEndpointAlive);
   const dead = indices.filter(i => !isEndpointAlive(i));
+
   const shuffle = arr => arr.sort(() => Math.random() - 0.5);
   return [...shuffle(alive), ...shuffle(dead)];
 }
@@ -508,6 +510,7 @@ const $updateText = document.getElementById('updateText');
 const $categoryBar = document.getElementById('categoryBar');
 const $geoTrack = document.getElementById('geoTrack');
 
+// ── GEO NOTICE MARQUEE ────────────────────────────────────────────────────
 function initGeoNotice() {
   if (!$geoTrack) return;
   const items = [
@@ -532,6 +535,7 @@ const isStrictMobile = () => {
   const isMobileUA = /Android|iPhone|iPod/i.test(ua);
   const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
   const maxDimension = Math.max(window.screen.width, window.screen.height);
+
   return isMobileUA && !isTabletUA && maxDimension < 1024;
 };
 
@@ -545,17 +549,21 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Fetches stream URL dynamically from Worker by Channel ID.
- * Supports forceFresh parameter for real-time recovery on URL changes.
+ * Fast Stream Fetcher:
+ * - Normal clicks: Instant 0ms response from local memory or browser cache.
+ * - Recovery mode (forceFresh = true): Bypasses cache ONLY on stream drops.
  */
 async function getStreamUrl(channel, forceFresh = false) {
   const key = channel.id || channel.name;
 
+  // 1. INSTANT PLAYBACK: Return local memory link immediately if available
+  if (!forceFresh && streamCache[key]) {
+    return streamCache[key];
+  }
+
+  // Clear stale memory cache entry only on network recovery
   if (forceFresh) {
     delete streamCache[key];
-  } else if (streamCache[key]) {
-    console.log(`[Local Cache Hit] Serving channel link locally for: ${channel.name}`);
-    return streamCache[key];
   }
 
   if (!channel.id) {
@@ -571,24 +579,26 @@ async function getStreamUrl(channel, forceFresh = false) {
   const fetchOne = async (idx) => {
     const workerBaseUrl = WORKER_ENDPOINTS[idx];
     const queryParam = forceFresh ? '?nocache=true' : '';
+    
+    // Standard browser caching for fast loads; 'reload' only on stream errors
     const res = await fetch(`${workerBaseUrl}/channel/${channel.id}${queryParam}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
-      cache: forceFresh ? 'no-cache' : 'default'
+      cache: forceFresh ? 'reload' : 'default'
     });
+
     if (!res.ok) { markEndpointFailure(idx); throw new Error(`Worker status ${res.status}`); }
     const data = await res.json();
     if (!data || !data.url) { markEndpointFailure(idx); throw new Error('Worker returned no stream url'); }
+    
     markEndpointSuccess(idx);
-    streamCache[key] = data.url;
+    streamCache[key] = data.url; // Save to local memory for instant sub-second clicks
     return data.url;
   };
 
   if (racePool.length) {
     try {
-      return await Promise.any(racePool.map(idx =>
-        fetchOne(idx).catch(e => { console.warn(`[Worker Skipper] ${WORKER_ENDPOINTS[idx]} failed`, e); throw e; })
-      ));
+      return await Promise.any(racePool.map(idx => fetchOne(idx)));
     } catch (e) {}
   }
 
@@ -686,11 +696,17 @@ async function loadChannels(silent) {
   if (fetchController) fetchController.abort();
   fetchController = new AbortController();
   try {
-    const res = await fetch(JSON_URL, { signal: fetchController.signal, cache: 'default' });
+    const res = await fetch(JSON_URL, {
+      signal: fetchController.signal,
+      cache: 'default'
+    });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const text = await res.text();
 
-    if (text === lastJsonRaw) { updateTimestamp(); return; }
+    if (text === lastJsonRaw) { 
+      updateTimestamp(); 
+      return; 
+    }
     
     let data = JSON.parse(text);
     if (!Array.isArray(data)) data = data.channels || Object.values(data);
@@ -731,9 +747,13 @@ function applyFilters() {
 function renderCategoryBar() {
   const counts = { All: channels.length };
   channels.forEach(ch => { const c = catOf(ch); counts[c] = (counts[c]||0) + 1; });
+  
   const dynamicCats = Object.keys(counts).filter(c => !CATEGORY_CONFIG.some(item => item.id.toLowerCase() === c.toLowerCase()));
   
-  const allCats = [ ...CATEGORY_CONFIG, ...dynamicCats.map(c => ({ id: c, icon: '📺' })) ];
+  const allCats = [
+    ...CATEGORY_CONFIG,
+    ...dynamicCats.map(c => ({ id: c, icon: '📺' }))
+  ];
 
   $categoryBar.innerHTML = allCats.map(item => {
     const cat = item.id;
@@ -833,18 +853,102 @@ function openPopUpStream(ch, targetUrl) {
     .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
     .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
+    
+    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
+    #alignerPanel.active { display: block; }
+    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
+    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
+    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
+    .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
 <body>
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
+    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
   </header>
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
       <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
     </div>
+    
+    ${isPrivate ? `
+    <div id="alignerPanel">
+      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
+        <span>Stream Aligner</span>
+        <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
+      </div>
+      <div class="zoom-controls">
+        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
+        <div>
+          <button id="btnZoomOut">-</button>
+          <button id="btnZoomIn">+</button>
+        </div>
+      </div>
+      <div class="align-grid">
+        <div></div><button id="btnUp">▲</button><div></div>
+        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
+        <div></div><button id="btnDown">▼</button><div></div>
+      </div>
+      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
+      <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
+    </div>` : ''}
   </div>
+
+  <script>
+    (function() {
+      const isPrivate = ${isPrivate};
+      if (!isPrivate) return;
+
+      const iframe = document.getElementById('popFrame');
+      const panel = document.getElementById('alignerPanel');
+      const toggleBtn = document.getElementById('toggleAligner');
+      const closeBtn = document.getElementById('closeAligner');
+
+      let topVal = parseInt("${topShift}") || 0;
+      let leftVal = parseInt("${leftShift}") || 0;
+      let zoomVal = parseInt("${zoomLevel}") || 100;
+
+      function updateStyles() {
+        iframe.style.top = topVal + 'px';
+        iframe.style.left = leftVal + 'px';
+        iframe.style.width = zoomVal + '%';
+        iframe.style.height = zoomVal + '%';
+
+        document.getElementById('valTop').textContent = topVal + 'px';
+        document.getElementById('valLeft').textContent = leftVal + 'px';
+        document.getElementById('valZoom').textContent = zoomVal + '%';
+      }
+
+      if (toggleBtn) {
+        toggleBtn.onclick = () => panel.classList.toggle('active');
+      }
+      if (closeBtn) {
+        closeBtn.onclick = () => panel.classList.remove('active');
+      }
+
+      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
+      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
+      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
+      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
+      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
+
+      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
+      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
+
+      document.getElementById('btnCopyJson').onclick = () => {
+        const jsonSnippet = \`"cropTop": "\${topVal}px",\\n"cropLeft": "\${leftVal}px",\\n"cropZoom": "\${zoomVal}%"\`;
+        navigator.clipboard.writeText(jsonSnippet).then(() => {
+          const btn = document.getElementById('btnCopyJson');
+          btn.textContent = '✅ Copied!';
+          setTimeout(() => btn.textContent = '📋 Copy JSON', 1500);
+        });
+      };
+    })();
+  <\/script>
 </body>
 </html>`;
 
@@ -876,7 +980,8 @@ async function playChannel(ch) {
 
   if (type === 'popup' || ch.popup === true) {
     const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    const fallbackMessage = ch.popupFallbackMsg || "📱 Mobile Access Only: This stream is optimized for mobile viewing.";
+    const fallbackMessage = ch.popupFallbackMsg || 
+      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
     if (popupRestriction === 'restricted' && !isStrictMobile()) {
       showError(fallbackMessage);
@@ -946,7 +1051,7 @@ async function playChannel(ch) {
 }
 
 /**
- * Enhanced HLS Playback with Real-time Endpoint Hot-Swapping
+ * Enhanced HLS Playback with Real-time Background Hot-Swapping
  */
 async function playHLS(streamUrl) {
   await waitForHls();
@@ -965,7 +1070,7 @@ async function playHLS(streamUrl) {
             }
             streamRetryCount++;
             
-            // Bypass edge cache to grab newly deployed worker URL
+            // Bypass edge cache to grab newly deployed worker URL on stream drop
             const updatedUrl = await getStreamUrl(currentChannel, true);
             if (updatedUrl && updatedUrl !== streamUrl) {
               console.log("[Stream Recovery] Hot-swapping to new stream URL:", updatedUrl);

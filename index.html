@@ -418,10 +418,9 @@
   </footer>
 </div>
 <script>
-const CURRENT_VERSION = "v2.6.0"; 
+const CURRENT_VERSION = "v2.7.0"; 
 
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
-// Primary and Backup Workers for Load Balancing & Multi-Account Failover
 const WORKER_ENDPOINTS = [
   "https://main.ghubtv1.workers.dev",
   "https://backup1.cabletv.workers.dev",
@@ -432,7 +431,7 @@ const WORKER_ENDPOINTS = [
 ];
 
 // ── DEAD-ACCOUNT SKIPPER ─────────────────────────────────────────────────
-const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes before retrying a dead endpoint
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes cooldown
 const FAIL_THRESHOLD = 2;          // consecutive failures before marking dead
 
 const workerHealth = WORKER_ENDPOINTS.map(() => ({
@@ -549,19 +548,17 @@ const isIOS = (() => {
 const isDashStream = (type, url) => (type||'').toLowerCase() === 'dash' || /\.mpd(\?|$)/i.test(url||'');
 
 /**
- * Fast Stream Fetcher:
- * - Normal clicks: Instant 0ms response from local memory or browser cache.
- * - Recovery mode (forceFresh = true): Bypasses cache ONLY on stream drops.
+ * Real-Time Stream Fetcher:
+ * - Normal clicks: Returns fast response from memory or edge cache.
+ * - Recovery mode (forceFresh = true): Bypasses local & edge cache instantly.
  */
 async function getStreamUrl(channel, forceFresh = false) {
   const key = channel.id || channel.name;
 
-  // 1. INSTANT PLAYBACK: Return local memory link immediately if available
   if (!forceFresh && streamCache[key]) {
     return streamCache[key];
   }
 
-  // Clear stale memory cache entry only on network recovery
   if (forceFresh) {
     delete streamCache[key];
   }
@@ -580,7 +577,6 @@ async function getStreamUrl(channel, forceFresh = false) {
     const workerBaseUrl = WORKER_ENDPOINTS[idx];
     const queryParam = forceFresh ? '?nocache=true' : '';
     
-    // Standard browser caching for fast loads; 'reload' only on stream errors
     const res = await fetch(`${workerBaseUrl}/channel/${channel.id}${queryParam}`, {
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -592,7 +588,7 @@ async function getStreamUrl(channel, forceFresh = false) {
     if (!data || !data.url) { markEndpointFailure(idx); throw new Error('Worker returned no stream url'); }
     
     markEndpointSuccess(idx);
-    streamCache[key] = data.url; // Save to local memory for instant sub-second clicks
+    streamCache[key] = data.url; 
     return data.url;
   };
 
@@ -961,6 +957,10 @@ function openPopUpStream(ch, targetUrl) {
 async function playChannel(ch) {
   if (!ch) return;
   
+  // Clear local cache on user click to ensure fresh link fetch
+  const key = ch.id || ch.name;
+  delete streamCache[key];
+
   if (!currentChannel || (ch.id !== currentChannel.id)) {
     streamRetryCount = 0; 
   }
@@ -1051,7 +1051,7 @@ async function playChannel(ch) {
 }
 
 /**
- * Enhanced HLS Playback with Real-time Background Hot-Swapping
+ * Enhanced HLS Playback with Real-Time Background Hot-Swapping
  */
 async function playHLS(streamUrl) {
   await waitForHls();
@@ -1062,7 +1062,7 @@ async function playHLS(streamUrl) {
       if (d.fatal) {
         switch (d.type) {
           case Hls.ErrorTypes.NETWORK_ERROR:
-            console.warn("[Stream Recovery] Fatal network error detected. Fetching updated URL...");
+            console.warn("[Stream Recovery] Fatal network error detected. Fetching fresh URL...");
             if (streamRetryCount >= MAX_STREAM_RETRIES) {
               showError("Stream is currently offline. Please try again later.");
               teardown();
@@ -1070,7 +1070,7 @@ async function playHLS(streamUrl) {
             }
             streamRetryCount++;
             
-            // Bypass edge cache to grab newly deployed worker URL on stream drop
+            // Force-fetch fresh URL bypassing all caches
             const updatedUrl = await getStreamUrl(currentChannel, true);
             if (updatedUrl && updatedUrl !== streamUrl) {
               console.log("[Stream Recovery] Hot-swapping to new stream URL:", updatedUrl);
@@ -1191,7 +1191,7 @@ const _nativeOpen = window.open.bind(window);
 })();
 
 document.addEventListener('DOMContentLoaded', init);
-  </script>        
-    
+  </script>
+                            
 </body>
 </html>

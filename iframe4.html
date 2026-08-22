@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cropped Frame Player</title>
+  <style>
+    :root {
+      --primary-color: #3b82f6;
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-color: #f8fafc;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    /* Launcher Card */
+    .player-card {
+      background: var(--card-bg);
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+      text-align: center;
+      max-width: 400px;
+      width: 100%;
+    }
+
+    .open-btn {
+      background-color: var(--primary-color);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.2s, transform 0.1s;
+    }
+
+    .open-btn:hover {
+      background-color: #2563eb;
+    }
+
+    .open-btn:active {
+      transform: scale(0.98);
+    }
+
+    /* Modal Overlay */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+      z-index: 1000;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    /* Cropped Frame Container */
+    .modal-content {
+      position: relative;
+      /* Adjust width and aspect ratio to set your desired viewport size */
+      width: 800px;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden; /* Clips non-video frame elements */
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
+      transform: scale(0.95);
+      transition: transform 0.3s ease;
+    }
+
+    .modal-overlay.active .modal-content {
+      transform: scale(1);
+    }
+
+    /* Cropped Embedded Iframe */
+    .modal-content iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: block;
+    }
+
+    /* Close Button */
+    .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      border: none;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 18px;
+      line-height: 1;
+      cursor: pointer;
+      z-index: 10;
+      transition: background 0.2s;
+    }
+
+    .close-btn:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="player-card">
+    <h2>Video Player</h2>
+    <p>Click below to open the cropped video stream window.</p>
+    <!-- Set your iframe embed URL in the data-url attribute -->
+    <button 
+      class="open-btn" 
+      data-url="https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1">
+      Open Player
+    </button>
+  </div>
+
+  <!-- Modal Popup Window Structure -->
+  <div class="modal-overlay" id="playerModal">
+    <div class="modal-content">
+      <button class="close-btn" id="closeBtn">&times;</button>
+      <iframe 
+        id="modalFrame" 
+        src="" 
+        allow="autoplay; encrypted-media; picture-in-picture" 
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <script>
+    const openBtn = document.querySelector('.open-btn');
+    const closeBtn = document.getElementById('closeBtn');
+    const modal = document.getElementById('playerModal');
+    const iframe = document.getElementById('modalFrame');
+
+    // Open Modal
+    openBtn.addEventListener('click', () => {
+      const embedUrl = openBtn.getAttribute('data-url');
+      iframe.src = embedUrl;
+      modal.classList.add('active');
+    });
+
+    // Close Modal Function
+    const closeModal = () => {
+      modal.classList.remove('active');
+      iframe.src = ''; // Stops playback on close
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+
+    // Close when clicking the dark background overlay
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        closeModal();
+      }
+    });
+
+    // Close on Escape Key
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modal.classList.contains('active')) {
+        closeModal();
+      }
+    });
+  </script>
+</body>
+</html>

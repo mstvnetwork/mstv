@@ -3,13 +3,21 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cropped Frame Player</title>
+  <title>Cropped Embed Player</title>
   <style>
     :root {
-      --primary-color: #3b82f6;
       --bg-color: #0f172a;
       --card-bg: #1e293b;
       --text-color: #f8fafc;
+      
+      /* --- CROP SETTINGS (Adjust these to fit your site target) --- */
+      --header-crop: 80px;  /* Pixels to cut off top */
+      --footer-crop: 60px;  /* Pixels to cut off bottom */
+      --left-crop: 0px;     /* Pixels to cut off left side */
+      --right-crop: 0px;    /* Pixels to cut off right side */
+      
+      --player-width: 800px;
+      --player-height: 450px;
     }
 
     body {
@@ -23,38 +31,23 @@
       margin: 0;
     }
 
-    /* Launcher Card */
-    .player-card {
-      background: var(--card-bg);
-      padding: 2rem;
-      border-radius: 12px;
-      box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-      text-align: center;
-      max-width: 400px;
-      width: 100%;
-    }
-
     .open-btn {
-      background-color: var(--primary-color);
+      background-color: #3b82f6;
       color: white;
       border: none;
-      padding: 12px 24px;
+      padding: 14px 28px;
       font-size: 1rem;
       font-weight: 600;
-      border-radius: 6px;
+      border-radius: 8px;
       cursor: pointer;
-      transition: background-color 0.2s, transform 0.1s;
+      transition: background-color 0.2s;
     }
 
     .open-btn:hover {
       background-color: #2563eb;
     }
 
-    .open-btn:active {
-      transform: scale(0.98);
-    }
-
-    /* Modal Overlay */
+    /* Modal Overlay Background */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -77,78 +70,65 @@
       pointer-events: auto;
     }
 
-    /* Cropped Frame Container */
-    .modal-content {
+    /* 1. THE VIEWPORT WINDOW (Masks everything outside) */
+    .crop-viewport {
       position: relative;
-      /* Adjust width and aspect ratio to set your desired viewport size */
-      width: 800px;
-      aspect-ratio: 16 / 9;
+      width: var(--player-width);
+      height: var(--player-height);
       background: #000;
       border-radius: 12px;
-      overflow: hidden; /* Clips non-video frame elements */
+      overflow: hidden; /* Important: Cuts off the overflowing header/footer */
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
-      transform: scale(0.95);
-      transition: transform 0.3s ease;
     }
 
-    .modal-overlay.active .modal-content {
-      transform: scale(1);
-    }
-
-    /* Cropped Embedded Iframe */
-    .modal-content iframe {
-      width: 100%;
-      height: 100%;
+    /* 2. THE EXPANDED & SHIFTED IFRAME */
+    .crop-viewport iframe {
+      position: absolute;
+      
+      /* Offsets push the headers/footers outside the visible viewport */
+      top: calc(-1 * var(--header-crop));
+      left: calc(-1 * var(--left-crop));
+      
+      /* Frame size expands to account for hidden cropped pixels */
+      width: calc(var(--player-width) + var(--left-crop) + var(--right-crop));
+      height: calc(var(--player-height) + var(--header-crop) + var(--footer-crop));
+      
       border: none;
-      display: block;
     }
 
-    /* Close Button */
+    /* Floating Close Button */
     .close-btn {
       position: absolute;
       top: 12px;
       right: 12px;
-      background: rgba(0, 0, 0, 0.6);
+      background: rgba(0, 0, 0, 0.7);
       color: #fff;
-      border: none;
+      border: 1px solid rgba(255, 255, 255, 0.2);
       width: 32px;
       height: 32px;
       border-radius: 50%;
       font-size: 18px;
-      line-height: 1;
       cursor: pointer;
       z-index: 10;
-      transition: background 0.2s;
     }
 
     .close-btn:hover {
-      background: rgba(255, 255, 255, 0.3);
+      background: rgba(255, 0, 0, 0.8);
     }
   </style>
 </head>
 <body>
 
-  <div class="player-card">
-    <h2>Video Player</h2>
-    <p>Click below to open the cropped video stream window.</p>
-    <!-- Set your iframe embed URL in the data-url attribute -->
-    <button 
-      class="open-btn" 
-      data-url="https://bhoomtv.me/live/epic-music/#">
-      Open Player
-    </button>
-  </div>
+  <button 
+    class="open-btn" 
+    data-url="https://stmify.com/live-tv/bbc-alba/#respond">
+    Open Cropped Stream
+  </button>
 
-  <!-- Modal Popup Window Structure -->
   <div class="modal-overlay" id="playerModal">
-    <div class="modal-content">
+    <div class="crop-viewport">
       <button class="close-btn" id="closeBtn">&times;</button>
-      <iframe 
-        id="modalFrame" 
-        src="" 
-        allow="autoplay; encrypted-media; picture-in-picture" 
-        allowfullscreen>
-      </iframe>
+      <iframe id="modalFrame" src="" allow="autoplay; encrypted-media"></iframe>
     </div>
   </div>
 
@@ -158,34 +138,19 @@
     const modal = document.getElementById('playerModal');
     const iframe = document.getElementById('modalFrame');
 
-    // Open Modal
     openBtn.addEventListener('click', () => {
-      const embedUrl = openBtn.getAttribute('data-url');
-      iframe.src = embedUrl;
+      iframe.src = openBtn.getAttribute('data-url');
       modal.classList.add('active');
     });
 
-    // Close Modal Function
     const closeModal = () => {
       modal.classList.remove('active');
-      iframe.src = ''; // Stops playback on close
+      iframe.src = '';
     };
 
     closeBtn.addEventListener('click', closeModal);
-
-    // Close when clicking the dark background overlay
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) {
-        closeModal();
-      }
-    });
-
-    // Close on Escape Key
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && modal.classList.contains('active')) {
-        closeModal();
-      }
-    });
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
   </script>
 </body>
 </html>

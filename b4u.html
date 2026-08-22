@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Custom Web Media Player</title>
+  <!-- Video.js CSS -->
+  <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #121212;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 800px;
+      flex-wrap: wrap;
+    }
+    input[type="text"], select {
+      flex: 1;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #333;
+      background: #222;
+      color: #fff;
+      min-width: 200px;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover { background-color: #0056b3; }
+    .player-container {
+      width: 100%;
+      max-width: 800px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Web Stream Player</h2>
+
+  <div class="controls">
+    <!-- Channel Dropdown -->
+    <select id="channelSelect" onchange="playSelectedChannel()">
+      <option value="">Loading channels...</option>
+    </select>
+
+    <!-- Manual URL Input -->
+    <input type="text" id="streamUrl" placeholder="Enter .m3u8 or .mp4 video URL here...">
+    <button onclick="loadStream()">Play Custom URL</button>
+  </div>
+
+  <div class="player-container">
+    <video
+      id="my-video"
+      class="video-js vjs-default-skin vjs-big-play-centered"
+      controls
+      preload="auto"
+      width="800"
+      height="450"
+      data-setup="{}">
+    </video>
+  </div>
+
+  <!-- Video.js Script -->
+  <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+
+  <script>
+    const player = videojs('my-video');
+
+    // Fetch and populate channels on load
+    document.addEventListener('DOMContentLoaded', fetchChannels);
+
+    async function fetchChannels() {
+      const selectElement = document.getElementById('channelSelect');
+      try {
+        const response = await fetch('channels2.json');
+        if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+        
+        const channels = await response.json();
+        selectElement.innerHTML = '<option value="">-- Select a Channel --</option>';
+
+        // Handles Array format: [{"name": "Channel 1", "url": "https://..."}, ...]
+        if (Array.isArray(channels)) {
+          channels.forEach(ch => {
+            const option = document.createElement('option');
+            option.value = ch.url || ch.src || ch.link;
+            option.textContent = ch.name || ch.title || ch.label || option.value;
+            selectElement.appendChild(option);
+          });
+        } 
+        // Handles Object/Map format: {"Channel 1": "https://...", "Channel 2": "https://..."}
+        else if (typeof channels === 'object') {
+          Object.entries(channels).forEach(([name, url]) => {
+            const option = document.createElement('option');
+            option.value = url;
+            option.textContent = name;
+            selectElement.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to load channels:', error);
+        selectElement.innerHTML = '<option value="">Error loading channels2.json</option>';
+      }
+    }
+
+    function playSelectedChannel() {
+      const selectElement = document.getElementById('channelSelect');
+      const selectedUrl = selectElement.value;
+      if (selectedUrl) {
+        document.getElementById('streamUrl').value = selectedUrl;
+        playUrl(selectedUrl);
+      }
+    }
+
+    function loadStream() {
+      const url = document.getElementById('streamUrl').value.trim();
+      if (!url) {
+        alert('Please enter a valid video stream URL.');
+        return;
+      }
+      playUrl(url);
+    }
+
+    function playUrl(url) {
+      let type = 'video/mp4';
+
+      if (url.includes('.m3u8')) {
+        type = 'application/x-mpegURL';
+      } else if (url.includes('.mpd')) {
+        type = 'application/dash+xml';
+      }
+
+      player.src({ src: url, type: type });
+      player.play().catch(err => console.log('Autoplay prevented:', err));
+    }
+  </script>
+</body>
+</html>

@@ -18,7 +18,7 @@
       font-family: system-ui, -apple-system, sans-serif;
     }
 
-    /* Outer viewport box */
+    /* Outer viewport box (clips anything outside) */
     .crop-viewport {
       position: relative;
       width: 100%;
@@ -35,19 +35,19 @@
       top: -150px;       
       left: -10px;        
       width: calc(100% + 20px); 
-      height: calc(100% + -25px); 
+      height: 700px; /* Extended height so sticky footer is pushed out */
       border: 0;
       transform-origin: top left;
-      transition: top 0.1s, left 0.1s, transform 0.1s;
+      transition: top 0.1s, left 0.1s, transform 0.1s, height 0.1s;
     }
 
-    /* Draggable Aligner Toolbox (Hidden by default) */
+    /* Draggable Aligner Toolbox */
     .aligner-toolbox {
       display: none; /* Controlled by JavaScript private mode detection */
       position: fixed;
       top: 20px;
       right: 20px;
-      background: rgba(20, 20, 20, 0.9);
+      background: rgba(20, 20, 20, 0.95);
       border: 1px solid #333;
       border-radius: 10px;
       padding: 12px;
@@ -56,7 +56,7 @@
       z-index: 9999;
       color: #fff;
       user-select: none;
-      width: 180px;
+      width: 210px;
     }
 
     .aligner-header {
@@ -103,13 +103,37 @@
       background: #007acc;
     }
 
-    .zoom-controls {
-      display: flex;
-      gap: 5px;
+    .btn-action {
+      background: #007acc;
+      border-color: #0099ff;
+      font-weight: bold;
     }
 
-    .zoom-controls .aligner-btn {
+    .btn-action:hover {
+      background: #005999;
+    }
+
+    .btn-locked {
+      background: #28a745 !important;
+      border-color: #34ce57 !important;
+    }
+
+    .controls-row {
+      display: flex;
+      gap: 5px;
+      margin-bottom: 8px;
+    }
+
+    .controls-row .aligner-btn {
       flex: 1;
+    }
+
+    .label-title {
+      font-size: 10px;
+      color: #888;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+      margin-top: 6px;
     }
 
     .status-readout {
@@ -117,7 +141,8 @@
       color: #888;
       margin-top: 8px;
       text-align: center;
-      font-mono: monospace;
+      font-family: monospace;
+      word-break: break-all;
     }
   </style>
 </head>
@@ -140,68 +165,145 @@
       <span style="font-size: 10px; color: #00ff88;">🔒 Private</span>
     </div>
     
-    <!-- Directional Alignment Buttons -->
+    <!-- Pop Window Launch Button -->
+    <div class="controls-row">
+      <button class="aligner-btn btn-action" onclick="openPopUp()">Pop Open Stream ↗</button>
+    </div>
+
+    <!-- Directional Alignment Controls -->
+    <div class="label-title">Position Alignment</div>
     <div class="aligner-grid">
       <div></div>
-      <button class="aligner-btn" onclick="adjustPosition(0, -10)">▲</button>
+      <button class="aligner-btn" title="Shift Up" onclick="adjustPosition(0, -10)">▲</button>
       <div></div>
-      <button class="aligner-btn" onclick="adjustPosition(-10, 0)">◄</button>
-      <button class="aligner-btn" onclick="resetPosition()">⟲</button>
-      <button class="aligner-btn" onclick="adjustPosition(10, 0)">►</button>
+      <button class="aligner-btn" title="Shift Left" onclick="adjustPosition(-10, 0)">◄</button>
+      <button class="aligner-btn" title="Reset" onclick="resetPosition()">⟲</button>
+      <button class="aligner-btn" title="Shift Right" onclick="adjustPosition(10, 0)">►</button>
       <div></div>
-      <button class="aligner-btn" onclick="adjustPosition(0, 10)">▼</button>
+      <button class="aligner-btn" title="Shift Down" onclick="adjustPosition(0, 10)">▼</button>
       <div></div>
     </div>
 
+    <!-- Hide Sticky Footer / Bottom Crop Controls -->
+    <div class="label-title">Hide Sticky Footer (Bottom Cut)</div>
+    <div class="controls-row">
+      <button class="aligner-btn" title="Show More Bottom" onclick="adjustBottomCut(-20)">Cut -</button>
+      <button class="aligner-btn" title="Hide Sticky Footer" onclick="adjustBottomCut(20)">Cut +</button>
+    </div>
+
     <!-- Zoom Controls -->
-    <div class="zoom-controls">
+    <div class="label-title">Zoom Controls</div>
+    <div class="controls-row">
       <button class="aligner-btn" onclick="adjustZoom(-0.05)">Zoom -</button>
       <button class="aligner-btn" onclick="adjustZoom(0.05)">Zoom +</button>
     </div>
 
+    <!-- Lock & Save Controls -->
+    <div class="controls-row" style="margin-top: 10px;">
+      <button id="lock-btn" class="aligner-btn btn-action" onclick="toggleLock()">Lock & Save Settings</button>
+    </div>
+
     <!-- Live Values Display -->
-    <div id="readout" class="status-readout">Top: -150px | Left: -10px | Zoom: 1.00x</div>
+    <div id="readout" class="status-readout">Top: -150px | Left: -10px | Height: 700px</div>
   </div>
 
   <script>
+    const TARGET_URL = "https://stmify.com/live-tv/bbc-alba/#";
     const iframe = document.getElementById('stream-frame');
     const toolbox = document.getElementById('toolbox');
     const readout = document.getElementById('readout');
+    const lockBtn = document.getElementById('lock-btn');
 
-    // Current transformation state
-    let currentTop = -150;
-    let currentLeft = -10;
-    let currentZoom = 1.0;
+    let popWindow = null;
+    let isLocked = false;
 
-    // Adjust Iframe Alignment Position
+    // Alignment state
+    let state = {
+      top: -150,
+      left: -10,
+      height: 700, // Controls bottom crop / pushing sticky footer out
+      zoom: 1.0
+    };
+
+    // Load saved settings from LocalStorage
+    function loadSavedSettings() {
+      const saved = localStorage.getItem('aligner_settings');
+      if (saved) {
+        try {
+          state = JSON.parse(saved);
+          isLocked = true;
+          lockBtn.classList.add('btn-locked');
+          lockBtn.textContent = '🔒 Settings Saved';
+          updateTransform();
+        } catch (e) {
+          console.error("Could not load saved settings", e);
+        }
+      }
+    }
+
+    // Toggle Lock & Save state
+    function toggleLock() {
+      isLocked = !isLocked;
+      if (isLocked) {
+        localStorage.setItem('aligner_settings', JSON.stringify(state));
+        lockBtn.classList.add('btn-locked');
+        lockBtn.textContent = '🔒 Settings Saved';
+      } else {
+        localStorage.removeItem('aligner_settings');
+        lockBtn.classList.remove('btn-locked');
+        lockBtn.textContent = 'Lock & Save Settings';
+      }
+    }
+
+    // Open popup window
+    function openPopUp() {
+      popWindow = window.open(
+        TARGET_URL, 
+        'StreamPopup', 
+        'width=900,height=506,resizable=yes,scrollbars=yes'
+      );
+    }
+
+    // Adjust position
     function adjustPosition(x, y) {
-      currentLeft += x;
-      currentTop += y;
+      state.left += x;
+      state.top += y;
       updateTransform();
     }
 
-    // Adjust Iframe Zoom
+    // Adjust bottom crop height (pushes sticky footer out of view)
+    function adjustBottomCut(delta) {
+      state.height = Math.max(300, state.height + delta);
+      updateTransform();
+    }
+
+    // Adjust Zoom
     function adjustZoom(delta) {
-      currentZoom = Math.max(0.2, currentZoom + delta);
+      state.zoom = Math.max(0.2, state.zoom + delta);
       updateTransform();
     }
 
-    // Reset to defaults
+    // Reset settings
     function resetPosition() {
-      currentTop = -150;
-      currentLeft = -10;
-      currentZoom = 1.0;
+      state = { top: -150, left: -10, height: 700, zoom: 1.0 };
+      if (isLocked) toggleLock();
       updateTransform();
     }
 
     function updateTransform() {
-      iframe.style.top = `${currentTop}px`;
-      iframe.style.left = `${currentLeft}px`;
-      iframe.style.transform = `scale(${currentZoom})`;
-      readout.textContent = `Top: ${currentTop}px | Left: ${currentLeft}px | Zoom: ${currentZoom.toFixed(2)}x`;
+      iframe.style.top = `${state.top}px`;
+      iframe.style.left = `${state.left}px`;
+      iframe.style.height = `${state.height}px`;
+      iframe.style.transform = `scale(${state.zoom})`;
+      
+      readout.textContent = `T: ${state.top}px | L: ${state.left}px | H: ${state.height}px | Z: ${state.zoom.toFixed(2)}x`;
+      
+      if (isLocked) {
+        localStorage.setItem('aligner_settings', JSON.stringify(state));
+      }
     }
 
-    // Make Toolbox Draggable
+    // Draggable Toolbox Logic
     dragElement(toolbox);
 
     function dragElement(elmnt) {
@@ -230,7 +332,7 @@
         pos4 = e.clientY;
         elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
         elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
-        elmnt.style.right = 'auto'; // Disable right anchoring once dragged
+        elmnt.style.right = 'auto';
       }
 
       function closeDragElement() {
@@ -243,22 +345,22 @@
     async function checkPrivateMode() {
       let isPrivate = false;
 
-      // Safari Private Mode
+      // Safari check
       try {
         window.openDatabase(null, null, null, null);
       } catch (e) {
         isPrivate = true;
       }
 
-      // Chrome / Firefox / Opera Storage Quota Detection
+      // Storage Quota Detection (Chrome / Opera)
       if (navigator.storage && navigator.storage.estimate) {
         const { quota } = await navigator.storage.estimate();
-        if (quota < 120000000) { // Incognito usually caps storage quota low (~100MB)
+        if (quota < 120000000) {
           isPrivate = true;
         }
       }
 
-      // Firefox Private Browsing (IndexedDB restriction check)
+      // Firefox IndexedDB check
       try {
         const db = indexedDB.open("test");
         db.onerror = () => { isPrivate = true; };
@@ -268,6 +370,7 @@
 
       if (isPrivate) {
         toolbox.style.display = "block";
+        loadSavedSettings();
       }
     }
 

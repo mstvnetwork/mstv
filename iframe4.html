@@ -3,384 +3,276 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cropped 16:9 Embed Player</title>
+  <title>Cropped Stream View</title>
   <style>
-    :root {
-      --bg-color: #0f172a;
-      --card-bg: #1e293b;
-      --text-color: #f8fafc;
-      
-      /* --- Default Dynamic Offsets --- */
-      --crop-top: 80px;
-      --crop-bottom: 60px;
-      --crop-left: 0px;
-      --crop-right: 0px;
-      --zoom-level: 1;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: var(--bg-color);
-      color: var(--text-color);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
+    body, html {
       margin: 0;
-    }
-
-    .open-btn {
-      background-color: #3b82f6;
-      color: white;
-      border: none;
-      padding: 14px 28px;
-      font-size: 1rem;
-      font-weight: 600;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-
-    .open-btn:hover { background-color: #2563eb; }
-
-    /* Modal Overlay Background */
-    .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
+      padding: 0;
+      background: #000;
+      overflow: hidden;
+      width: 100%;
       height: 100vh;
-      background: rgba(0, 0, 0, 0.85);
-      backdrop-filter: blur(4px);
       display: flex;
       justify-content: center;
       align-items: center;
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 0.3s ease;
-      z-index: 1000;
+      font-family: system-ui, -apple-system, sans-serif;
     }
 
-    .modal-overlay.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-
-
-        /* 1. Outer viewport box (determines what is visible on your site) */
+    /* Outer viewport box */
     .crop-viewport {
       position: relative;
       width: 100%;
-      max-width: 900px;  /* Adjust width to fit your site design */
-      height: 506px;     /* Set to a standard 16:9 ratio height */
-      overflow: hidden;  /* Cuts off everything outside this box */
+      max-width: 900px;
+      height: 506px;
+      overflow: hidden;
       background: #000;
       border-radius: 8px;
     }
 
-    /* Close Button */
-    .close-btn {
+    /* Scaled iframe */
+    .crop-viewport iframe {
       position: absolute;
-      top: 12px;
-      right: 12px;
-      background: rgba(0, 0, 0, 0.7);
-      color: #fff;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
-      font-size: 18px;
-      cursor: pointer;
-      z-index: 100;
+      top: -150px;       
+      left: -10px;        
+      width: calc(100% + 20px); 
+      height: calc(100% + -25px); 
+      border: 0;
+      transform-origin: top left;
+      transition: top 0.1s, left 0.1s, transform 0.1s;
     }
 
-    .close-btn:hover { background: rgba(255, 0, 0, 0.8); }
-
-    /* FLOATING & DRAGGABLE ALIGNMENT TOOLBOX */
-    .admin-toolbox {
-      display: none; /* Hidden in public mode */
+    /* Draggable Aligner Toolbox (Hidden by default) */
+    .aligner-toolbox {
+      display: none; /* Controlled by JavaScript private mode detection */
       position: fixed;
-      top: 30px;
-      left: 30px;
-      background: rgba(30, 41, 59, 0.95);
-      border: 1px solid #475569;
-      padding: 0;
+      top: 20px;
+      right: 20px;
+      background: rgba(20, 20, 20, 0.9);
+      border: 1px solid #333;
       border-radius: 10px;
-      width: 280px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.8);
-      z-index: 2000; /* Floating above stream */
+      padding: 12px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(8px);
+      z-index: 9999;
+      color: #fff;
       user-select: none;
+      width: 180px;
     }
 
-    .admin-toolbox.visible {
-      display: block;
-    }
-
-    /* Draggable Header Bar */
-    .toolbox-header {
-      background: #334155;
-      padding: 10px 15px;
-      font-size: 0.85rem;
+    .aligner-header {
+      font-size: 12px;
       font-weight: bold;
-      color: #f8fafc;
-      border-top-left-radius: 9px;
-      border-top-right-radius: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #aaa;
+      margin-bottom: 10px;
       cursor: move;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      padding-bottom: 6px;
+      border-bottom: 1px solid #333;
     }
 
-    .toolbox-content {
-      padding: 15px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
+    .aligner-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+      margin-bottom: 10px;
     }
 
-    .control-group {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 0.8rem;
-      color: #94a3b8;
-    }
-
-    .control-group label {
-      font-weight: 600;
-      width: 50px;
-    }
-
-    .control-group input[type="range"] {
-      flex: 1;
-      margin: 0 8px;
-    }
-
-    .control-group span {
-      min-width: 38px;
-      text-align: right;
-      color: #f8fafc;
-    }
-
-    .btn-row {
-      display: flex;
-      gap: 8px;
-      margin-top: 5px;
-    }
-
-    .tool-btn {
-      flex: 1;
-      background: #334155;
-      color: white;
-      border: none;
-      padding: 8px;
-      font-size: 0.75rem;
+    .aligner-btn {
+      background: #2a2a2a;
+      border: 1px solid #444;
+      color: #fff;
       border-radius: 4px;
+      padding: 6px 0;
+      font-size: 12px;
       cursor: pointer;
-      font-weight: 600;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      transition: background 0.2s;
     }
 
-    .tool-btn:hover { background: #475569; }
-    .tool-btn.save-btn { background: #16a34a; }
-    .tool-btn.save-btn:hover { background: #15803d; }
+    .aligner-btn:hover {
+      background: #444;
+    }
+
+    .aligner-btn:active {
+      background: #007acc;
+    }
+
+    .zoom-controls {
+      display: flex;
+      gap: 5px;
+    }
+
+    .zoom-controls .aligner-btn {
+      flex: 1;
+    }
+
+    .status-readout {
+      font-size: 10px;
+      color: #888;
+      margin-top: 8px;
+      text-align: center;
+      font-mono: monospace;
+    }
   </style>
 </head>
 <body>
 
-  <button class="open-btn" data-url="https://stmify.com/live-tv/bbc-alba/#respond">
-    Open Stream
-  </button>
-
-  <!-- Player Modal -->
-  <div class="modal-overlay" id="playerModal">
-    <div class="crop-viewport">
-      <button class="close-btn" id="closeBtn">&times;</button>
-      <iframe id="modalFrame" src="" allow="autoplay; encrypted-media"></iframe>
-    </div>
+  <div class="crop-viewport">
+    <iframe 
+      id="stream-frame"
+      src="https://stmify.com/live-tv/bbc-alba/#" 
+      referrerpolicy="no-referrer"
+      scrolling="no" 
+      allowfullscreen>
+    </iframe>
   </div>
 
-  <!-- Floating & Draggable Alignment Toolbox (Only visible in private mode) -->
-  <div class="admin-toolbox" id="adminToolbox">
-    <div class="toolbox-header" id="toolboxHeader">
-      <span>⚙️ Alignment Controls</span>
-      <small style="opacity: 0.6;">(Drag me)</small>
+  <!-- Floating Aligner Toolbox -->
+  <div id="toolbox" class="aligner-toolbox">
+    <div id="toolbox-header" class="aligner-header">
+      <span>Aligner</span>
+      <span style="font-size: 10px; color: #00ff88;">🔒 Private</span>
     </div>
-    <div class="toolbox-content">
-      <div class="control-group">
-        <label>Top:</label>
-        <input type="range" id="cropTop" min="0" max="300" value="80">
-        <span id="cropTopVal">80px</span>
-      </div>
-
-      <div class="control-group">
-        <label>Bottom:</label>
-        <input type="range" id="cropBottom" min="0" max="300" value="60">
-        <span id="cropBottomVal">60px</span>
-      </div>
-
-      <div class="control-group">
-        <label>Left:</label>
-        <input type="range" id="cropLeft" min="0" max="300" value="0">
-        <span id="cropLeftVal">0px</span>
-      </div>
-
-      <div class="control-group">
-        <label>Right:</label>
-        <input type="range" id="cropRight" min="0" max="300" value="0">
-        <span id="cropRightVal">0px</span>
-      </div>
-
-      <div class="control-group">
-        <label>Zoom:</label>
-        <input type="range" id="zoomLevel" min="1" max="2" step="0.05" value="1">
-        <span id="zoomVal">1.0x</span>
-      </div>
-
-      <div class="btn-row">
-        <button class="tool-btn save-btn" id="saveBtn">Save</button>
-        <button class="tool-btn" id="copyBtn">Copy CSS</button>
-      </div>
+    
+    <!-- Directional Alignment Buttons -->
+    <div class="aligner-grid">
+      <div></div>
+      <button class="aligner-btn" onclick="adjustPosition(0, -10)">▲</button>
+      <div></div>
+      <button class="aligner-btn" onclick="adjustPosition(-10, 0)">◄</button>
+      <button class="aligner-btn" onclick="resetPosition()">⟲</button>
+      <button class="aligner-btn" onclick="adjustPosition(10, 0)">►</button>
+      <div></div>
+      <button class="aligner-btn" onclick="adjustPosition(0, 10)">▼</button>
+      <div></div>
     </div>
+
+    <!-- Zoom Controls -->
+    <div class="zoom-controls">
+      <button class="aligner-btn" onclick="adjustZoom(-0.05)">Zoom -</button>
+      <button class="aligner-btn" onclick="adjustZoom(0.05)">Zoom +</button>
+    </div>
+
+    <!-- Live Values Display -->
+    <div id="readout" class="status-readout">Top: -150px | Left: -10px | Zoom: 1.00x</div>
   </div>
 
   <script>
-    const openBtn = document.querySelector('.open-btn');
-    const closeBtn = document.getElementById('closeBtn');
-    const modal = document.getElementById('playerModal');
-    const iframe = document.getElementById('modalFrame');
-    const adminToolbox = document.getElementById('adminToolbox');
+    const iframe = document.getElementById('stream-frame');
+    const toolbox = document.getElementById('toolbox');
+    const readout = document.getElementById('readout');
 
-    const inputs = {
-      top: document.getElementById('cropTop'),
-      bottom: document.getElementById('cropBottom'),
-      left: document.getElementById('cropLeft'),
-      right: document.getElementById('cropRight'),
-      zoom: document.getElementById('zoomLevel')
-    };
+    // Current transformation state
+    let currentTop = -150;
+    let currentLeft = -10;
+    let currentZoom = 1.0;
 
-    const displays = {
-      top: document.getElementById('cropTopVal'),
-      bottom: document.getElementById('cropBottomVal'),
-      left: document.getElementById('cropLeftVal'),
-      right: document.getElementById('cropRightVal'),
-      zoom: document.getElementById('zoomVal')
-    };
-
-    // 1. Private Mode Check (?mode=admin or ?private=true)
-    const urlParams = new URLSearchParams(window.location.search);
-    const isPrivateMode = urlParams.get('mode') === 'admin' || urlParams.get('private') === 'true';
-
-    if (isPrivateMode) {
-      adminToolbox.classList.add('visible');
+    // Adjust Iframe Alignment Position
+    function adjustPosition(x, y) {
+      currentLeft += x;
+      currentTop += y;
+      updateTransform();
     }
 
-    // 2. Load Saved Alignment Config
-    function loadSavedAlignment() {
-      const saved = localStorage.getItem('player_crop_config');
-      if (saved) {
-        const config = JSON.parse(saved);
-        inputs.top.value = config.top;
-        inputs.bottom.value = config.bottom;
-        inputs.left.value = config.left;
-        inputs.right.value = config.right;
-        inputs.zoom.value = config.zoom;
+    // Adjust Iframe Zoom
+    function adjustZoom(delta) {
+      currentZoom = Math.max(0.2, currentZoom + delta);
+      updateTransform();
+    }
+
+    // Reset to defaults
+    function resetPosition() {
+      currentTop = -150;
+      currentLeft = -10;
+      currentZoom = 1.0;
+      updateTransform();
+    }
+
+    function updateTransform() {
+      iframe.style.top = `${currentTop}px`;
+      iframe.style.left = `${currentLeft}px`;
+      iframe.style.transform = `scale(${currentZoom})`;
+      readout.textContent = `Top: ${currentTop}px | Left: ${currentLeft}px | Zoom: ${currentZoom.toFixed(2)}x`;
+    }
+
+    // Make Toolbox Draggable
+    dragElement(toolbox);
+
+    function dragElement(elmnt) {
+      let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+      const header = document.getElementById("toolbox-header");
+      
+      if (header) {
+        header.onmousedown = dragMouseDown;
+      } else {
+        elmnt.onmousedown = dragMouseDown;
       }
-      applyCrop();
-    }
 
-    // 3. Live Apply Crop & Zoom
-    function applyCrop() {
-      document.documentElement.style.setProperty('--crop-top', `${inputs.top.value}px`);
-      document.documentElement.style.setProperty('--crop-bottom', `${inputs.bottom.value}px`);
-      document.documentElement.style.setProperty('--crop-left', `${inputs.left.value}px`);
-      document.documentElement.style.setProperty('--crop-right', `${inputs.right.value}px`);
-      document.documentElement.style.setProperty('--zoom-level', inputs.zoom.value);
-
-      displays.top.textContent = `${inputs.top.value}px`;
-      displays.bottom.textContent = `${inputs.bottom.value}px`;
-      displays.left.textContent = `${inputs.left.value}px`;
-      displays.right.textContent = `${inputs.right.value}px`;
-      displays.zoom.textContent = `${inputs.zoom.value}x`;
-    }
-
-    Object.values(inputs).forEach(input => input.addEventListener('input', applyCrop));
-
-    // 4. Save & Copy Action Handlers
-    document.getElementById('saveBtn').addEventListener('click', () => {
-      const config = {
-        top: inputs.top.value,
-        bottom: inputs.bottom.value,
-        left: inputs.left.value,
-        right: inputs.right.value,
-        zoom: inputs.zoom.value
-      };
-      localStorage.setItem('player_crop_config', JSON.stringify(config));
-      alert('Alignment settings saved!');
-    });
-
-    document.getElementById('copyBtn').addEventListener('click', () => {
-      const cssSnippet = 
-`:root {
-  --crop-top: ${inputs.top.value}px;
-  --crop-bottom: ${inputs.bottom.value}px;
-  --crop-left: ${inputs.left.value}px;
-  --crop-right: ${inputs.right.value}px;
-  --zoom-level: ${inputs.zoom.value};
-}`;
-      navigator.clipboard.writeText(cssSnippet);
-      alert('CSS copied to clipboard!\n\n' + cssSnippet);
-    });
-
-    // 5. Draggable Floating Toolbox Logic
-    const header = document.getElementById('toolboxHeader');
-    let isDragging = false, currentX, currentY, initialX, initialY, xOffset = 0, yOffset = 0;
-
-    header.addEventListener('mousedown', dragStart);
-    document.addEventListener('mouseup', dragEnd);
-    document.addEventListener('mousemove', drag);
-
-    function dragStart(e) {
-      initialX = e.clientX - xOffset;
-      initialY = e.clientY - yOffset;
-      if (e.target === header || header.contains(e.target)) {
-        isDragging = true;
-      }
-    }
-
-    function dragEnd() {
-      initialX = currentX;
-      initialY = currentY;
-      isDragging = false;
-    }
-
-    function drag(e) {
-      if (isDragging) {
+      function dragMouseDown(e) {
         e.preventDefault();
-        currentX = e.clientX - initialX;
-        currentY = e.clientY - initialY;
-        xOffset = currentX;
-        yOffset = currentY;
-        adminToolbox.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        document.onmouseup = closeDragElement;
+        document.onmousemove = elementDrag;
+      }
+
+      function elementDrag(e) {
+        e.preventDefault();
+        pos1 = pos3 - e.clientX;
+        pos2 = pos4 - e.clientY;
+        pos3 = e.clientX;
+        pos4 = e.clientY;
+        elmnt.style.top = (elmnt.offsetTop - pos2) + "px";
+        elmnt.style.left = (elmnt.offsetLeft - pos1) + "px";
+        elmnt.style.right = 'auto'; // Disable right anchoring once dragged
+      }
+
+      function closeDragElement() {
+        document.onmouseup = null;
+        document.onmousemove = null;
       }
     }
 
-    // Modal Control Handlers
-    openBtn.addEventListener('click', () => {
-      iframe.src = openBtn.getAttribute('data-url');
-      modal.classList.add('active');
-    });
+    // Private Mode Detection Engine
+    async function checkPrivateMode() {
+      let isPrivate = false;
 
-    const closeModal = () => {
-      modal.classList.remove('active');
-      iframe.src = '';
-    };
+      // Safari Private Mode
+      try {
+        window.openDatabase(null, null, null, null);
+      } catch (e) {
+        isPrivate = true;
+      }
 
-    closeBtn.addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+      // Chrome / Firefox / Opera Storage Quota Detection
+      if (navigator.storage && navigator.storage.estimate) {
+        const { quota } = await navigator.storage.estimate();
+        if (quota < 120000000) { // Incognito usually caps storage quota low (~100MB)
+          isPrivate = true;
+        }
+      }
 
-    loadSavedAlignment();
+      // Firefox Private Browsing (IndexedDB restriction check)
+      try {
+        const db = indexedDB.open("test");
+        db.onerror = () => { isPrivate = true; };
+      } catch (e) {
+        isPrivate = true;
+      }
+
+      if (isPrivate) {
+        toolbox.style.display = "block";
+      }
+    }
+
+    checkPrivateMode();
   </script>
+
 </body>
 </html>

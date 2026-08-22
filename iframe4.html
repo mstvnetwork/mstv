@@ -3,21 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Cropped Embed Player</title>
+  <title>Cropped Embed Player with Calibrator</title>
   <style>
     :root {
       --bg-color: #0f172a;
       --card-bg: #1e293b;
       --text-color: #f8fafc;
       
-      /* --- CROP SETTINGS (Adjust these to fit your site target) --- */
-      --header-crop: 80px;  /* Pixels to cut off top */
-      --footer-crop: 60px;  /* Pixels to cut off bottom */
-      --left-crop: 0px;     /* Pixels to cut off left side */
-      --right-crop: 0px;    /* Pixels to cut off right side */
-      
-      --player-width: 800px;
-      --player-height: 450px;
+      /* --- Default Dynamic Offsets --- */
+      --crop-top: 80px;
+      --crop-bottom: 60px;
+      --crop-left: 0px;
+      --crop-right: 0px;
+      --zoom-level: 1;
+
+      --viewport-width: 800px;
+      --viewport-height: 450px;
     }
 
     body {
@@ -25,6 +26,7 @@
       background-color: var(--bg-color);
       color: var(--text-color);
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       min-height: 100vh;
@@ -43,11 +45,9 @@
       transition: background-color 0.2s;
     }
 
-    .open-btn:hover {
-      background-color: #2563eb;
-    }
+    .open-btn:hover { background-color: #2563eb; }
 
-    /* Modal Overlay Background */
+    /* Modal Overlay */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -57,6 +57,7 @@
       background: rgba(0, 0, 0, 0.85);
       backdrop-filter: blur(4px);
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
       opacity: 0;
@@ -70,33 +71,39 @@
       pointer-events: auto;
     }
 
-    /* 1. THE VIEWPORT WINDOW (Masks everything outside) */
+    /* Outer Wrapper for Modal Components */
+    .modal-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 15px;
+    }
+
+    /* The Viewport Container */
     .crop-viewport {
       position: relative;
-      width: var(--player-width);
-      height: var(--player-height);
+      width: var(--viewport-width);
+      height: var(--viewport-height);
       background: #000;
       border-radius: 12px;
-      overflow: hidden; /* Important: Cuts off the overflowing header/footer */
+      overflow: hidden;
       box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
     }
 
-    /* 2. THE EXPANDED & SHIFTED IFRAME */
+    /* Expanded and Scaled iFrame */
     .crop-viewport iframe {
       position: absolute;
+      top: calc(-1 * var(--crop-top));
+      left: calc(-1 * var(--crop-left));
       
-      /* Offsets push the headers/footers outside the visible viewport */
-      top: calc(-1 * var(--header-crop));
-      left: calc(-1 * var(--left-crop));
-      
-      /* Frame size expands to account for hidden cropped pixels */
-      width: calc(var(--player-width) + var(--left-crop) + var(--right-crop));
-      height: calc(var(--player-height) + var(--header-crop) + var(--footer-crop));
+      width: calc((var(--viewport-width) + var(--crop-left) + var(--crop-right)) * var(--zoom-level));
+      height: calc((var(--viewport-height) + var(--crop-top) + var(--crop-bottom)) * var(--zoom-level));
       
       border: none;
+      transform-origin: top left;
     }
 
-    /* Floating Close Button */
+    /* Close Button */
     .close-btn {
       position: absolute;
       top: 12px;
@@ -112,23 +119,115 @@
       z-index: 10;
     }
 
-    .close-btn:hover {
-      background: rgba(255, 0, 0, 0.8);
+    .close-btn:hover { background: rgba(255, 0, 0, 0.8); }
+
+    /* Admin Calibration Toolbar (Hidden in Public Mode) */
+    .admin-toolbox {
+      display: none; /* Hidden by default */
+      background: var(--card-bg);
+      border: 1px solid #334155;
+      padding: 15px 20px;
+      border-radius: 10px;
+      gap: 15px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+      max-width: 800px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
+
+    .admin-toolbox.visible {
+      display: flex;
+    }
+
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+
+    .control-group label {
+      font-weight: 600;
+    }
+
+    .control-group input[type="range"] {
+      width: 90px;
+    }
+
+    .control-group span {
+      min-width: 38px;
+      color: #f8fafc;
+    }
+
+    .tool-btn {
+      background: #334155;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      font-size: 0.8rem;
+      border-radius: 4px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .tool-btn:hover { background: #475569; }
+    .tool-btn.save-btn { background: #16a34a; }
+    .tool-btn.save-btn:hover { background: #15803d; }
   </style>
 </head>
 <body>
 
-  <button 
-    class="open-btn" 
-    data-url="https://stmify.com/live-tv/bbc-alba/#respond">
-    Open Cropped Stream
+  <button class="open-btn" data-url="https://example.com">
+    Open Stream
   </button>
 
   <div class="modal-overlay" id="playerModal">
-    <div class="crop-viewport">
-      <button class="close-btn" id="closeBtn">&times;</button>
-      <iframe id="modalFrame" src="" allow="autoplay; encrypted-media"></iframe>
+    <div class="modal-container">
+      
+      <!-- Viewport Frame -->
+      <div class="crop-viewport">
+        <button class="close-btn" id="closeBtn">&times;</button>
+        <iframe id="modalFrame" src="https://stmify.com/live-tv/bbc-alba/#respond" allow="autoplay; encrypted-media"></iframe>
+      </div>
+
+      <!-- Private Mode Alignment Toolbox -->
+      <div class="admin-toolbox" id="adminToolbox">
+        <div class="control-group">
+          <label>Top:</label>
+          <input type="range" id="cropTop" min="0" max="300" value="80">
+          <span id="cropTopVal">80px</span>
+        </div>
+
+        <div class="control-group">
+          <label>Bottom:</label>
+          <input type="range" id="cropBottom" min="0" max="300" value="60">
+          <span id="cropBottomVal">60px</span>
+        </div>
+
+        <div class="control-group">
+          <label>Left:</label>
+          <input type="range" id="cropLeft" min="0" max="300" value="0">
+          <span id="cropLeftVal">0px</span>
+        </div>
+
+        <div class="control-group">
+          <label>Right:</label>
+          <input type="range" id="cropRight" min="0" max="300" value="0">
+          <span id="cropRightVal">0px</span>
+        </div>
+
+        <div class="control-group">
+          <label>Zoom:</label>
+          <input type="range" id="zoomLevel" min="1" max="2" step="0.05" value="1">
+          <span id="zoomVal">1.0x</span>
+        </div>
+
+        <button class="tool-btn save-btn" id="saveBtn">Save</button>
+        <button class="tool-btn" id="copyBtn">Copy CSS</button>
+      </div>
+
     </div>
   </div>
 
@@ -137,7 +236,93 @@
     const closeBtn = document.getElementById('closeBtn');
     const modal = document.getElementById('playerModal');
     const iframe = document.getElementById('modalFrame');
+    const adminToolbox = document.getElementById('adminToolbox');
 
+    // Controls
+    const inputs = {
+      top: document.getElementById('cropTop'),
+      bottom: document.getElementById('cropBottom'),
+      left: document.getElementById('cropLeft'),
+      right: document.getElementById('cropRight'),
+      zoom: document.getElementById('zoomLevel')
+    };
+
+    const displays = {
+      top: document.getElementById('cropTopVal'),
+      bottom: document.getElementById('cropBottomVal'),
+      left: document.getElementById('cropLeftVal'),
+      right: document.getElementById('cropRightVal'),
+      zoom: document.getElementById('zoomVal')
+    };
+
+    // 1. Private/Admin Mode Check (Activated via ?mode=admin or ?private=true)
+    const urlParams = new URLSearchParams(window.location.search);
+    const isPrivateMode = urlParams.get('mode') === 'admin' || urlParams.get('private') === 'true';
+
+    if (isPrivateMode) {
+      adminToolbox.classList.add('visible');
+    }
+
+    // 2. Load Saved Alignment (LocalStorage)
+    function loadSavedAlignment() {
+      const saved = localStorage.getItem('player_crop_config');
+      if (saved) {
+        const config = JSON.parse(saved);
+        inputs.top.value = config.top;
+        inputs.bottom.value = config.bottom;
+        inputs.left.value = config.left;
+        inputs.right.value = config.right;
+        inputs.zoom.value = config.zoom;
+      }
+      applyCrop();
+    }
+
+    // 3. Live Apply Crop & Zoom Styles
+    function applyCrop() {
+      document.documentElement.style.setProperty('--crop-top', `${inputs.top.value}px`);
+      document.documentElement.style.setProperty('--crop-bottom', `${inputs.bottom.value}px`);
+      document.documentElement.style.setProperty('--crop-left', `${inputs.left.value}px`);
+      document.documentElement.style.setProperty('--crop-right', `${inputs.right.value}px`);
+      document.documentElement.style.setProperty('--zoom-level', inputs.zoom.value);
+
+      displays.top.textContent = `${inputs.top.value}px`;
+      displays.bottom.textContent = `${inputs.bottom.value}px`;
+      displays.left.textContent = `${inputs.left.value}px`;
+      displays.right.textContent = `${inputs.right.value}px`;
+      displays.zoom.textContent = `${inputs.zoom.value}x`;
+    }
+
+    // Event Listeners for Live Adjustments
+    Object.values(inputs).forEach(input => input.addEventListener('input', applyCrop));
+
+    // 4. Save Alignment to LocalStorage
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      const config = {
+        top: inputs.top.value,
+        bottom: inputs.bottom.value,
+        left: inputs.left.value,
+        right: inputs.right.value,
+        zoom: inputs.zoom.value
+      };
+      localStorage.setItem('player_crop_config', JSON.stringify(config));
+      alert('Alignment settings saved locally!');
+    });
+
+    // 5. Copy CSS Variables to Clipboard
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const cssSnippet = 
+`:root {
+  --crop-top: ${inputs.top.value}px;
+  --crop-bottom: ${inputs.bottom.value}px;
+  --crop-left: ${inputs.left.value}px;
+  --crop-right: ${inputs.right.value}px;
+  --zoom-level: ${inputs.zoom.value};
+}`;
+      navigator.clipboard.writeText(cssSnippet);
+      alert('CSS config copied to clipboard!\n\n' + cssSnippet);
+    });
+
+    // Modal Triggers
     openBtn.addEventListener('click', () => {
       iframe.src = openBtn.getAttribute('data-url');
       modal.classList.add('active');
@@ -151,6 +336,9 @@
     closeBtn.addEventListener('click', closeModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+    // Initialize configuration
+    loadSavedAlignment();
   </script>
 </body>
 </html>

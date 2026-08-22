@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Custom Web Media Player</title>
+  <title>Unified Media Player</title>
   
   <!-- Video.js CSS -->
   <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
@@ -45,29 +45,29 @@
     }
     button:hover { background-color: #0056b3; }
     
-    .player-container {
+    /* Single Unified Shell */
+    #media-shell {
       width: 100%;
       max-width: 800px;
       height: 450px;
       background: #000;
       position: relative;
+      overflow: hidden;
+      border-radius: 4px;
     }
 
-    /* Standardize Video.js and iframe layout */
-    #my-video, #iframe-player {
+    /* Force child node to fill container strictly */
+    #media-shell > * {
       width: 100% !important;
       height: 100% !important;
       border: none;
-    }
-
-    .hidden {
-      display: none !important;
+      display: block;
     }
   </style>
 </head>
 <body>
 
-  <h2>Web Stream & Embed Player</h2>
+  <h2>Unified Media Player</h2>
 
   <div class="controls">
     <select id="channelSelect" onchange="playSelectedChannel()">
@@ -78,23 +78,8 @@
     <button onclick="loadStream()">Play Custom URL</button>
   </div>
 
-  <div class="player-container">
-    <!-- Native Video.js Player -->
-    <video
-      id="my-video"
-      class="video-js vjs-default-skin vjs-big-play-centered"
-      controls
-      preload="auto">
-    </video>
-
-    <!-- Fallback iframe Player -->
-    <iframe
-      id="iframe-player"
-      class="hidden"
-      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-      allowfullscreen>
-    </iframe>
-  </div>
+  <!-- Single Container Shell -->
+  <div id="media-shell"></div>
 
   <!-- Dash.js Core library -->
   <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
@@ -104,9 +89,8 @@
   <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-dash@latest/dist/videojs-contrib-dash.min.js"></script>
 
   <script>
-    const videoElement = document.getElementById('my-video');
-    const iframeElement = document.getElementById('iframe-player');
-    const player = videojs('my-video');
+    const shell = document.getElementById('media-shell');
+    let vjsPlayer = null;
 
     document.addEventListener('DOMContentLoaded', fetchChannels);
 
@@ -124,7 +108,6 @@
             const option = document.createElement('option');
             option.value = ch.url || ch.src || ch.link || ch.iframe;
             option.textContent = ch.name || ch.title || ch.label || option.value;
-            // Store explicitly marked stream types if defined in JSON
             if (ch.type) option.dataset.type = ch.type;
             selectElement.appendChild(option);
           });
@@ -158,13 +141,25 @@
     function loadStream() {
       const url = document.getElementById('streamUrl').value.trim();
       if (!url) {
-        alert('Please enter a valid video or embed URL.');
+        alert('Please enter a valid URL.');
         return;
       }
       playUrl(url);
     }
 
+    function resetContainer() {
+      // Completely destroy Video.js player instance to free memory and stop streams
+      if (vjsPlayer) {
+        vjsPlayer.dispose();
+        vjsPlayer = null;
+      }
+      // Wipe the parent shell clean of any residual DOM nodes or audio streams
+      shell.innerHTML = '';
+    }
+
     function playUrl(url, explicitType = '') {
+      resetContainer();
+
       const isIframe = explicitType === 'iframe' || 
                        url.includes('/embed/') || 
                        url.includes('player.vimeo.com') || 
@@ -172,27 +167,31 @@
                        (!url.includes('.m3u8') && !url.includes('.mpd') && !url.includes('.mp4') && url.startsWith('http') && !url.match(/\.(jpg|png|gif)$/i) && !url.match(/manifest/i));
 
       if (isIframe) {
-        // Switch view to Iframe
-        player.pause();
-        videoElement.classList.add('hidden');
-        iframeElement.classList.remove('hidden');
-        iframeElement.src = url;
+        // Mount native iframe into the single shell
+        const iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+        iframe.setAttribute('allowfullscreen', 'true');
+        shell.appendChild(iframe);
       } else {
-        // Switch view to Video.js
-        iframeElement.classList.add('hidden');
-        iframeElement.src = '';
-        videoElement.classList.remove('hidden');
+        // Dynamically insert video element and instantiate Video.js
+        const video = document.createElement('video');
+        video.className = 'video-js vjs-default-skin vjs-big-play-centered';
+        video.controls = true;
+        video.preload = 'auto';
+        shell.appendChild(video);
 
         let mimeType = 'video/mp4';
-
         if (explicitType === 'hls' || url.includes('.m3u8')) {
           mimeType = 'application/x-mpegURL';
         } else if (explicitType === 'dash' || url.includes('.mpd')) {
           mimeType = 'application/dash+xml';
         }
 
-        player.src({ src: url, type: mimeType });
-        player.play().catch(err => console.log('Autoplay prevented:', err));
+        vjsPlayer = videojs(video, {}, function() {
+          this.src({ src: url, type: mimeType });
+          this.play().catch(err => console.log('Autoplay prevented:', err));
+        });
       }
     }
   </script>

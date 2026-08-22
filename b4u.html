@@ -4,8 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Custom Web Media Player</title>
+  
   <!-- Video.js CSS -->
   <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+  
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -42,46 +44,70 @@
       cursor: pointer;
     }
     button:hover { background-color: #0056b3; }
+    
     .player-container {
       width: 100%;
       max-width: 800px;
+      height: 450px;
+      background: #000;
+      position: relative;
+    }
+
+    /* Standardize Video.js and iframe layout */
+    #my-video, #iframe-player {
+      width: 100% !important;
+      height: 100% !important;
+      border: none;
+    }
+
+    .hidden {
+      display: none !important;
     }
   </style>
 </head>
 <body>
 
-  <h2>Web Stream Player</h2>
+  <h2>Web Stream & Embed Player</h2>
 
   <div class="controls">
-    <!-- Channel Dropdown -->
     <select id="channelSelect" onchange="playSelectedChannel()">
       <option value="">Loading channels...</option>
     </select>
 
-    <!-- Manual URL Input -->
-    <input type="text" id="streamUrl" placeholder="Enter .m3u8 or .mp4 video URL here...">
+    <input type="text" id="streamUrl" placeholder="Enter .m3u8, .mpd, .mp4, or iframe embed URL...">
     <button onclick="loadStream()">Play Custom URL</button>
   </div>
 
   <div class="player-container">
+    <!-- Native Video.js Player -->
     <video
       id="my-video"
       class="video-js vjs-default-skin vjs-big-play-centered"
       controls
-      preload="auto"
-      width="800"
-      height="450"
-      data-setup="{}">
+      preload="auto">
     </video>
+
+    <!-- Fallback iframe Player -->
+    <iframe
+      id="iframe-player"
+      class="hidden"
+      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      allowfullscreen>
+    </iframe>
   </div>
 
+  <!-- Dash.js Core library -->
+  <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
   <!-- Video.js Script -->
   <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
+  <!-- Video.js DASH Plugin -->
+  <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-dash@latest/dist/videojs-contrib-dash.min.js"></script>
 
   <script>
+    const videoElement = document.getElementById('my-video');
+    const iframeElement = document.getElementById('iframe-player');
     const player = videojs('my-video');
 
-    // Fetch and populate channels on load
     document.addEventListener('DOMContentLoaded', fetchChannels);
 
     async function fetchChannels() {
@@ -93,21 +119,21 @@
         const channels = await response.json();
         selectElement.innerHTML = '<option value="">-- Select a Channel --</option>';
 
-        // Handles Array format: [{"name": "Channel 1", "url": "https://..."}, ...]
         if (Array.isArray(channels)) {
           channels.forEach(ch => {
             const option = document.createElement('option');
-            option.value = ch.url || ch.src || ch.link;
+            option.value = ch.url || ch.src || ch.link || ch.iframe;
             option.textContent = ch.name || ch.title || ch.label || option.value;
+            // Store explicitly marked stream types if defined in JSON
+            if (ch.type) option.dataset.type = ch.type;
             selectElement.appendChild(option);
           });
-        } 
-        // Handles Object/Map format: {"Channel 1": "https://...", "Channel 2": "https://..."}
-        else if (typeof channels === 'object') {
+        } else if (typeof channels === 'object') {
           Object.entries(channels).forEach(([name, url]) => {
             const option = document.createElement('option');
-            option.value = url;
+            option.value = typeof url === 'string' ? url : (url.url || url.iframe);
             option.textContent = name;
+            if (url.type) option.dataset.type = url.type;
             selectElement.appendChild(option);
           });
         }
@@ -119,33 +145,55 @@
 
     function playSelectedChannel() {
       const selectElement = document.getElementById('channelSelect');
-      const selectedUrl = selectElement.value;
+      const selectedOption = selectElement.options[selectElement.selectedIndex];
+      const selectedUrl = selectedOption.value;
+      const explicitType = selectedOption.dataset.type;
+
       if (selectedUrl) {
         document.getElementById('streamUrl').value = selectedUrl;
-        playUrl(selectedUrl);
+        playUrl(selectedUrl, explicitType);
       }
     }
 
     function loadStream() {
       const url = document.getElementById('streamUrl').value.trim();
       if (!url) {
-        alert('Please enter a valid video stream URL.');
+        alert('Please enter a valid video or embed URL.');
         return;
       }
       playUrl(url);
     }
 
-    function playUrl(url) {
-      let type = 'video/mp4';
+    function playUrl(url, explicitType = '') {
+      const isIframe = explicitType === 'iframe' || 
+                       url.includes('/embed/') || 
+                       url.includes('player.vimeo.com') || 
+                       url.includes('youtube.com/embed') ||
+                       (!url.includes('.m3u8') && !url.includes('.mpd') && !url.includes('.mp4') && url.startsWith('http') && !url.match(/\.(jpg|png|gif)$/i) && !url.match(/manifest/i));
 
-      if (url.includes('.m3u8')) {
-        type = 'application/x-mpegURL';
-      } else if (url.includes('.mpd')) {
-        type = 'application/dash+xml';
+      if (isIframe) {
+        // Switch view to Iframe
+        player.pause();
+        videoElement.classList.add('hidden');
+        iframeElement.classList.remove('hidden');
+        iframeElement.src = url;
+      } else {
+        // Switch view to Video.js
+        iframeElement.classList.add('hidden');
+        iframeElement.src = '';
+        videoElement.classList.remove('hidden');
+
+        let mimeType = 'video/mp4';
+
+        if (explicitType === 'hls' || url.includes('.m3u8')) {
+          mimeType = 'application/x-mpegURL';
+        } else if (explicitType === 'dash' || url.includes('.mpd')) {
+          mimeType = 'application/dash+xml';
+        }
+
+        player.src({ src: url, type: mimeType });
+        player.play().catch(err => console.log('Autoplay prevented:', err));
       }
-
-      player.src({ src: url, type: type });
-      player.play().catch(err => console.log('Autoplay prevented:', err));
     }
   </script>
 </body>

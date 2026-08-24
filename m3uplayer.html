@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>M3U Web Player</title>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <style>
+    * { box-sizing: border-box; font-family: sans-serif; }
+    body { background-color: #121212; color: #fff; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 15px; }
+    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+    input[type="text"], input[type="file"], select { padding: 10px; border-radius: 6px; border: 1px solid #333; background: #222; color: #fff; flex: 1; }
+    button { padding: 10px 15px; border-radius: 6px; border: none; background: #007bff; color: #fff; cursor: pointer; }
+    button:hover { background: #0056b3; }
+    video { width: 100%; height: auto; background: #000; border-radius: 8px; aspect-ratio: 16/9; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>M3U Web Player</h2>
+  
+  <div class="controls">
+    <input type="file" id="fileInput" accept=".m3u,.m3u8">
+    <input type="text" id="urlInput" placeholder="Or enter M3U URL...">
+    <button onclick="loadFromUrl()">Load URL</button>
+  </div>
+
+  <select id="channelList" size="8" style="display:none;" onchange="playChannel(this.value)">
+    <option value="">Select a Channel</option>
+  </select>
+
+  <video id="video" controls></video>
+</div>
+
+<script>
+  const video = document.getElementById('video');
+  const channelList = document.getElementById('channelList');
+  let hls;
+
+  document.getElementById('fileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) { parseM3U(e.target.result); };
+    reader.readAsText(file);
+  });
+
+  function loadFromUrl() {
+    const url = document.getElementById('urlInput').value.trim();
+    if (!url) return;
+    fetch(url)
+      .then(res => res.text())
+      .then(text => parseM3U(text))
+      .catch(err => alert('Failed to fetch M3U playlist. Check CORS policies.'));
+  }
+
+  function parseM3U(content) {
+    const lines = content.split('\n');
+    channelList.innerHTML = '';
+    let currentTitle = '';
+
+    lines.forEach(line => {
+      line = line.trim();
+      if (line.startsWith('#EXTINF:')) {
+        const parts = line.split(',');
+        currentTitle = parts[1] ? parts[1].trim() : 'Unnamed Stream';
+      } else if (line && !line.startsWith('#')) {
+        const option = document.createElement('option');
+        option.value = line;
+        option.textContent = currentTitle || line;
+        channelList.appendChild(option);
+        currentTitle = '';
+      }
+    });
+
+    if (channelList.options.length > 0) {
+      channelList.style.display = 'block';
+    } else {
+      alert('No valid streams found in file.');
+    }
+  }
+
+  function playChannel(url) {
+    if (!url) return;
+    if (Hls.isSupported()) {
+      if (hls) hls.destroy();
+      hls = new Hls();
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play();
+    } else {
+      alert('HLS streaming is not supported in this browser.');
+    }
+  }
+</script>
+
+</body>
+</html>

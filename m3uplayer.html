@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Smart IPTV Extractor & Player</title>
+    <!-- Engine Dependencies: Resilient CDN HLS & DASH -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
     <style>
@@ -15,7 +16,7 @@
         button.danger { background: var(--danger); }
         input[type="file"] { display: none; }
         .main-container { display: flex; flex: 1; overflow: hidden; }
-        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; }
+        .sidebar { width: 320px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; }
         .sidebar-header { padding: 12px; border-bottom: 1px solid #334155; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .channel-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
         .channel-item { padding: 10px 12px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; background: #0f172a; margin-bottom: 1px; }
@@ -23,16 +24,20 @@
         .channel-info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
         .channel-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: #334155; margin-left: 6px; }
         .player-container { flex: 1; background: #000; display: flex; justify-content: center; align-items: center; }
-        video { width: 100%; height: 100%; }
+        video { width: 100%; height: 100%; max-height: 100vh; aspect-ratio: 16/9; }
+        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-left: 4px; }
     </style>
 </head>
 <body>
 
 <header>
-    <input type="text" id="urlInput" placeholder="Paste stream URL (e.g. http://38.96.178.205/SONYHD/index.m3u8)...">
+    <input type="text" id="urlInput" placeholder="Paste HTTP/HTTPS stream link or M3U URL...">
     <button onclick="loadFromUrl()">Load Source</button>
     <label class="btn"><input type="file" id="fileInput" accept=".m3u,.m3u8" onchange="loadFromFile(event)">Upload M3U</label>
     <button onclick="refreshCurrentSource()">Refresh</button>
+    <label class="checkbox-label">
+        <input type="checkbox" id="useProxyToggle" checked> Proxy Stream
+    </label>
 </header>
 
 <div class="main-container">
@@ -45,7 +50,8 @@
     </div>
     
     <div class="player-container">
-        <video id="videoPlayer" controls autoplay></video>
+        <!-- Main HTML5 Video Object Element matching reference code -->
+        <video id="video" controls autoplay playsinline></video>
     </div>
 </div>
 
@@ -54,13 +60,32 @@
     let currentSource = null;
     let hlsEngine = null;
     let dashEngine = null;
-    const videoElement = document.getElementById('videoPlayer');
 
-    // Smart link extractor: Preserves strict query parameters and full folder routes
-    function cleanStreamUrl(rawUrl) {
+    const videoElement = document.getElementById('video');
+
+    // Builds the robust Xtremplay API Proxy route based on your reference script
+    function formatProxyUrl(rawUrl) {
+        const useProxy = document.getElementById('useProxyToggle').checked;
+        if (!useProxy) return rawUrl;
+
+        // If it's already a proxied URL, avoid double-encoding
+        if (rawUrl.includes('xtremplay.com/api/proxy')) return rawUrl;
+
+        const encodedTarget = encodeURIComponent(rawUrl);
+        // Default referer matches root index stream logic
+        let refUrl = rawUrl;
+        if (rawUrl.includes('/tracks-v1a1/')) {
+            refUrl = rawUrl.replace(/\/tracks-v1a1\/.*$/, '/index.m3u8');
+        }
+        const encodedRef = encodeURIComponent(refUrl);
+
+        return `https://xtremplay.com/api/proxy?url=${encodedTarget}&ref=${encodedRef}`;
+    }
+
+    // Auto-Extractor Engine
+    function extractDirectStream(rawUrl) {
         if (!rawUrl) return '';
         let url = rawUrl.trim();
-        // Regex extracts full protocol endpoints including dynamic tokens
         const match = url.match(/(https?:\/\/[^\s"]+)/i);
         return match ? match[1] : url;
     }
@@ -76,7 +101,7 @@
                 const parts = line.split(',');
                 currentName = parts.length > 1 ? parts[parts.length - 1].trim() : "Live Stream";
             } else if (line && !line.startsWith('#')) {
-                const streamUrl = cleanStreamUrl(line);
+                const streamUrl = extractDirectStream(line);
                 let type = 'HLS';
                 if (streamUrl.includes('.mpd')) type = 'DASH';
                 else if (streamUrl.endsWith('.mp4') || streamUrl.endsWith('.ts')) type = 'DIRECT';
@@ -92,37 +117,66 @@
         return channels;
     }
 
-    // Direct, unproxied HLS/DASH playback core
-    function playStream(url, type) {
+    // Integrated Playback Core using your exact HLS & recovery parameters
+    function playStream(rawUrl, type) {
         if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
         if (dashEngine) { dashEngine.reset(); dashEngine = null; }
 
-        url = cleanStreamUrl(url);
-        console.log(`[Engine] Attaching stream: ${url}`);
+        const streamUrl = formatProxyUrl(extractDirectStream(rawUrl));
+        console.log(`[Playback Engine] Attaching: ${streamUrl}`);
 
-        if (type === 'HLS' || url.includes('.m3u8')) {
-            if (Hls.isSupported()) {
+        if (type === 'HLS' || rawUrl.includes('.m3u8')) {
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                console.log("Hls.js framework loaded successfully. Initializing stream...");
+
                 hlsEngine = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
-                    manifestLoadingTimeOut: 10000
+                    defaultAudioCodec: 'mp4a.40.2'
                 });
-                hlsEngine.loadSource(url);
+
+                hlsEngine.loadSource(streamUrl);
                 hlsEngine.attachMedia(videoElement);
-                hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => videoElement.play());
-                hlsEngine.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) console.error("[HLS Error]", data);
+
+                hlsEngine.on(Hls.Events.MANIFEST_PARSED, function() {
+                    videoElement.play().catch(function(e) {
+                        console.log("Autoplay blocked by browser. User interaction required.");
+                    });
+                });
+
+                // Your reference error recovery rules
+                hlsEngine.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log("Network error caught, retrying source stream context...");
+                                hlsEngine.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log("Media decode error caught, skipping stalled frames...");
+                                hlsEngine.recoverMediaError();
+                                break;
+                            default:
+                                console.log("Unrecoverable playback exception triggered.");
+                                break;
+                        }
+                    }
                 });
             } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-                videoElement.src = url;
-                videoElement.play();
+                console.log("Using native browser engine fallback streaming.");
+                videoElement.src = streamUrl;
+                videoElement.addEventListener('loadedmetadata', function() {
+                    videoElement.play();
+                });
+            } else {
+                console.log("Error: Browser environment does not support HLS streaming.");
             }
-        } else if (type === 'DASH' || url.includes('.mpd')) {
+        } else if (type === 'DASH' || rawUrl.includes('.mpd')) {
             dashEngine = dashjs.MediaPlayer().create();
-            dashEngine.initialize(videoElement, url, true);
+            dashEngine.initialize(videoElement, streamUrl, true);
         } else {
-            videoElement.src = url;
-            videoElement.play();
+            videoElement.src = streamUrl;
+            videoElement.play().catch(e => console.log("Playback interaction required."));
         }
     }
 
@@ -150,9 +204,9 @@
         if (!input) return alert("Enter a stream or M3U link");
 
         currentSource = { type: 'url', val: input };
-        const cleanUrl = cleanStreamUrl(input);
+        const cleanUrl = extractDirectStream(input);
 
-        // Direct Stream Detection (.m3u8 / .mpd / live ip index streams)
+        // Direct stream detection
         if (cleanUrl.includes('.m3u8') || cleanUrl.includes('.mpd')) {
             const type = cleanUrl.includes('.mpd') ? 'DASH' : 'HLS';
             playlist = [{ name: cleanUrl.split('/')[3] || "Direct Stream", url: cleanUrl, type: type }];
@@ -161,15 +215,16 @@
             return;
         }
 
-        // Playlist Fetching
+        // Playlist fetching via proxy
         try {
-            const response = await fetch(cleanUrl);
+            const target = formatProxyUrl(cleanUrl);
+            const response = await fetch(target);
             const content = await response.text();
             playlist = parseM3U(content);
             renderPlaylist();
             if (playlist.length > 0) playStream(playlist[0].url, playlist[0].type);
         } catch (err) {
-            alert("Could not fetch M3U playlist. Check connection or URL validity.");
+            alert("Could not fetch playlist. Try toggling 'Proxy Stream'.");
         }
     }
 

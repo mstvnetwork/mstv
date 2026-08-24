@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Smart IPTV Extractor & Player</title>
-    <!-- Engine Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
     <style>
@@ -23,9 +22,11 @@
         .channel-item:hover { background: #334155; }
         .channel-info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
         .channel-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: #334155; margin-left: 6px; }
-        .player-container { flex: 1; background: #000; display: flex; justify-content: center; align-items: center; }
-        video { width: 100%; height: 100%; max-height: 100vh; aspect-ratio: 16/9; }
-        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-left: 4px; }
+        .player-container { flex: 1; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
+        video { width: 100%; height: 100%; max-height: 85vh; aspect-ratio: 16/9; }
+        
+        .extractor-bar { width: 100%; background: #020617; padding: 8px 12px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; border-top: 1px solid #334155; font-size: 12px; }
+        .extracted-url { flex: 1; background: #1e293b; padding: 6px 10px; border-radius: 4px; color: #38bdf8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -35,9 +36,6 @@
     <button onclick="loadFromUrl()">Load Source</button>
     <label class="btn"><input type="file" id="fileInput" accept=".m3u,.m3u8" onchange="loadFromFile(event)">Upload M3U</label>
     <button onclick="refreshCurrentSource()">Refresh</button>
-    <label class="checkbox-label">
-        <input type="checkbox" id="useProxyToggle" checked> Proxy Stream
-    </label>
 </header>
 
 <div class="main-container">
@@ -50,8 +48,12 @@
     </div>
     
     <div class="player-container">
-        <!-- Main HTML5 Video Object Element -->
         <video id="video" controls autoplay playsinline></video>
+        <div class="extractor-bar">
+            <span>Extracted Target M3U8:</span>
+            <div class="extracted-url" id="extractedUrlDisplay">Waiting for stream initialization...</div>
+            <button style="padding: 4px 8px; font-size: 11px;" onclick="copyExtractedUrl()">Copy Link</button>
+        </div>
     </div>
 </div>
 
@@ -60,15 +62,16 @@
     let currentSource = null;
     let hlsEngine = null;
     let dashEngine = null;
+    let realExtractedUrl = "";
+    let baseRawUrl = "";
 
     const videoElement = document.getElementById('video');
+    const displayEl = document.getElementById('extractedUrlDisplay');
 
-    // Builds dynamic Xtremplay API Proxy URLs matching your reference pattern
     function buildProxyUrl(targetUrl) {
         if (!targetUrl) return '';
         if (targetUrl.includes('xtremplay.com/api/proxy')) return targetUrl;
 
-        // Extract base folder to construct proper referral path
         let refUrl = targetUrl;
         if (targetUrl.includes('/tracks-v1a1/')) {
             refUrl = targetUrl.replace(/\/tracks-v1a1\/.*$/, '/index.m3u8');
@@ -77,6 +80,29 @@
         const encodedTarget = encodeURIComponent(targetUrl);
         const encodedRef = encodeURIComponent(refUrl);
         return `https://xtremplay.com/api/proxy?url=${encodedTarget}&ref=${encodedRef}`;
+    }
+
+    // UNWRAPS PROXY ENCODING TO GET THE TRUE TARGET URL
+    function extractRealUrl(rawOrProxiedUrl) {
+        if (!rawOrProxiedUrl) return '';
+        
+        // If it's wrapped in proxy, extract the 'url=' query parameter
+        if (rawOrProxiedUrl.includes('xtremplay.com/api/proxy')) {
+            try {
+                const parsed = new URL(rawOrProxiedUrl);
+                const targetParam = parsed.searchParams.get('url');
+                if (targetParam) return decodeURIComponent(targetParam);
+            } catch (e) {}
+        }
+
+        // If it's a relative sub-manifest link, resolve against base URL
+        if (!rawOrProxiedUrl.startsWith('http') && baseRawUrl) {
+            try {
+                return new URL(rawOrProxiedUrl, baseRawUrl).href;
+            } catch (e) {}
+        }
+
+        return rawOrProxiedUrl;
     }
 
     function extractDirectStream(rawUrl) {
@@ -113,30 +139,34 @@
         return channels;
     }
 
+    function updateExtractedDisplay(url) {
+        const cleanTarget = extractRealUrl(url);
+        if (cleanTarget && cleanTarget.startsWith('http')) {
+            realExtractedUrl = cleanTarget;
+            displayEl.innerText = realExtractedUrl;
+            console.log("[Extractor] True M3U8 resolved:", realExtractedUrl);
+        }
+    }
+
     function playStream(rawUrl, type) {
         if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
         if (dashEngine) { dashEngine.reset(); dashEngine = null; }
 
-        const cleanUrl = extractDirectStream(rawUrl);
-        const useProxy = document.getElementById('useProxyToggle').checked;
-        const initialStreamUrl = useProxy ? buildProxyUrl(cleanUrl) : cleanUrl;
+        baseRawUrl = extractDirectStream(rawUrl);
+        const initialStreamUrl = buildProxyUrl(baseRawUrl);
 
-        console.log(`[Playback Engine] Attaching: ${initialStreamUrl}`);
+        displayEl.innerText = "Extracting live stream endpoint...";
+        updateExtractedDisplay(baseRawUrl);
 
-        if (type === 'HLS' || cleanUrl.includes('.m3u8')) {
+        if (type === 'HLS' || baseRawUrl.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                console.log("Hls.js framework loaded successfully. Initializing stream...");
-
                 hlsEngine = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
                     defaultAudioCodec: 'mp4a.40.2',
-                    // KEY FIX: Intercept ALL network requests (including TS chunk segments)
-                    // and route them through the proxy dynamically so playback never freezes after 15s.
                     xhrSetup: function(xhr, url) {
-                        if (useProxy && !url.includes('xtremplay.com/api/proxy')) {
-                            const proxiedChunkUrl = buildProxyUrl(url);
-                            xhr.open('GET', proxiedChunkUrl, true);
+                        if (!url.includes('xtremplay.com/api/proxy')) {
+                            xhr.open('GET', buildProxyUrl(url), true);
                         }
                     }
                 });
@@ -144,45 +174,56 @@
                 hlsEngine.loadSource(initialStreamUrl);
                 hlsEngine.attachMedia(videoElement);
 
-                hlsEngine.on(Hls.Events.MANIFEST_PARSED, function() {
-                    videoElement.play().catch(function(e) {
-                        console.log("Autoplay blocked by browser. User interaction required.");
-                    });
+                // HOOK: Capture level & manifest changes, then unwrap proxy wrapper
+                hlsEngine.on(Hls.Events.LEVEL_LOADED, function(event, data) {
+                    if (data && data.details && data.details.url) {
+                        updateExtractedDisplay(data.details.url);
+                    }
                 });
 
-                // Error monitoring recovery rules matching your reference code
+                hlsEngine.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
+                    if (data.levels && data.levels[0] && data.levels[0].url) {
+                        updateExtractedDisplay(data.levels[0].url);
+                    }
+                    videoElement.play().catch(e => console.log("Autoplay blocked. Tap video to play."));
+                });
+
                 hlsEngine.on(Hls.Events.ERROR, function (event, data) {
                     if (data.fatal) {
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.log("Network error caught, retrying source stream context...");
                                 hlsEngine.startLoad();
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.log("Media decode error caught, skipping stalled frames...");
                                 hlsEngine.recoverMediaError();
                                 break;
                             default:
-                                console.log("Unrecoverable playback exception triggered.");
                                 break;
                         }
                     }
                 });
             } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-                console.log("Using native browser engine fallback streaming.");
                 videoElement.src = initialStreamUrl;
-                videoElement.addEventListener('loadedmetadata', function() {
-                    videoElement.play();
-                });
-            } else {
-                console.log("Error: Browser environment does not support HLS streaming.");
+                updateExtractedDisplay(baseRawUrl);
+                videoElement.play();
             }
-        } else if (type === 'DASH' || cleanUrl.includes('.mpd')) {
+        } else if (type === 'DASH' || baseRawUrl.includes('.mpd')) {
             dashEngine = dashjs.MediaPlayer().create();
             dashEngine.initialize(videoElement, initialStreamUrl, true);
+            updateExtractedDisplay(baseRawUrl);
         } else {
             videoElement.src = initialStreamUrl;
-            videoElement.play().catch(e => console.log("Playback interaction required."));
+            updateExtractedDisplay(baseRawUrl);
+            videoElement.play();
+        }
+    }
+
+    function copyExtractedUrl() {
+        if (realExtractedUrl) {
+            navigator.clipboard.writeText(realExtractedUrl);
+            alert("Copied clean stream URL to clipboard:\n" + realExtractedUrl);
+        } else {
+            alert("No URL extracted yet.");
         }
     }
 
@@ -212,7 +253,6 @@
         currentSource = { type: 'url', val: input };
         const cleanUrl = extractDirectStream(input);
 
-        // Direct stream detection
         if (cleanUrl.includes('.m3u8') || cleanUrl.includes('.mpd')) {
             const type = cleanUrl.includes('.mpd') ? 'DASH' : 'HLS';
             playlist = [{ name: cleanUrl.split('/')[3] || "Direct Stream", url: cleanUrl, type: type }];
@@ -221,17 +261,14 @@
             return;
         }
 
-        // Playlist fetching via proxy
         try {
-            const useProxy = document.getElementById('useProxyToggle').checked;
-            const target = useProxy ? buildProxyUrl(cleanUrl) : cleanUrl;
-            const response = await fetch(target);
+            const response = await fetch(buildProxyUrl(cleanUrl));
             const content = await response.text();
             playlist = parseM3U(content);
             renderPlaylist();
             if (playlist.length > 0) playStream(playlist[0].url, playlist[0].type);
         } catch (err) {
-            alert("Could not fetch playlist. Try toggling 'Proxy Stream'.");
+            alert("Could not fetch playlist via proxy.");
         }
     }
 
@@ -259,6 +296,8 @@
         renderPlaylist();
         videoElement.pause();
         videoElement.src = "";
+        displayEl.innerText = "Waiting for stream initialization...";
+        realExtractedUrl = "";
     }
 
     function refreshCurrentSource() {

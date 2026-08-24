@@ -4,47 +4,42 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Smart IPTV Extractor & Player</title>
-    <!-- Engine Dependencies: Hls.js for M3U8 & Dash.js for MPD -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
     <style>
-        :root { --bg: #0f172a; --panel: #1e293b; --accent: #3b82f6; --danger: #ef4444; --text: #f8fafc; }
-        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
-        header { padding: 10px 20px; background: var(--panel); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-        input[type="text"] { flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; min-width: 200px; }
-        button, label.btn { background: var(--accent); color: white; padding: 8px 14px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; display: inline-flex; align-items: center; }
+        :root { --bg: #0f172a; --panel: #1e293b; --accent: #2563eb; --danger: #dc2626; --text: #f8fafc; }
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+        header { padding: 10px 16px; background: var(--panel); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        input[type="text"] { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; min-width: 200px; }
+        button, label.btn { background: var(--accent); color: white; padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
         button.danger { background: var(--danger); }
         input[type="file"] { display: none; }
         .main-container { display: flex; flex: 1; overflow: hidden; }
-        .sidebar { width: 320px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; }
-        .sidebar-header { padding: 10px 15px; border-bottom: 1px solid #334155; font-size: 14px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar { width: 300px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 12px; border-bottom: 1px solid #334155; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
         .channel-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
-        .channel-item { padding: 10px 15px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .channel-item { padding: 10px 12px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; background: #0f172a; margin-bottom: 1px; }
         .channel-item:hover { background: #334155; }
-        .channel-info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
-        .channel-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: #334155; margin-left: 5px; }
-        .player-container { flex: 1; background: #000; display: flex; justify-content: center; align-items: center; position: relative; }
-        video { width: 100%; height: 100%; max-height: 100vh; }
-        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .channel-info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+        .channel-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: #334155; margin-left: 6px; }
+        .player-container { flex: 1; background: #000; display: flex; justify-content: center; align-items: center; }
+        video { width: 100%; height: 100%; }
     </style>
 </head>
 <body>
 
 <header>
-    <input type="text" id="urlInput" placeholder="Enter HTTP/HTTPS M3U URL or stream link...">
-    <button onclick="loadFromUrl()">Load URL</button>
+    <input type="text" id="urlInput" placeholder="Paste stream URL (e.g. http://38.96.178.205/SONYHD/index.m3u8)...">
+    <button onclick="loadFromUrl()">Load Source</button>
     <label class="btn"><input type="file" id="fileInput" accept=".m3u,.m3u8" onchange="loadFromFile(event)">Upload M3U</label>
     <button onclick="refreshCurrentSource()">Refresh</button>
-    <label class="checkbox-label">
-        <input type="checkbox" id="corsToggle" checked> Use CORS Proxy
-    </label>
 </header>
 
 <div class="main-container">
     <div class="sidebar">
         <div class="sidebar-header">
-            <span>Extracted Channels (<span id="count">0</span>)</span>
-            <button class="danger" style="padding: 4px 8px; font-size: 12px;" onclick="clearPlaylist()">Clear All</button>
+            <span>Channels (<span id="count">0</span>)</span>
+            <button class="danger" style="padding: 4px 8px;" onclick="clearPlaylist()">Clear All</button>
         </div>
         <ul class="channel-list" id="channelList"></ul>
     </div>
@@ -56,68 +51,69 @@
 
 <script>
     let playlist = [];
-    let currentSource = null; // Stores last loaded URL or file context
+    let currentSource = null;
     let hlsEngine = null;
     let dashEngine = null;
-
     const videoElement = document.getElementById('videoPlayer');
-    const CORS_PROXY = "https://api.allorigins.win/raw?url=";
 
-    // --- AUTOMATIC SOURCE EXTRACTOR ENGINE ---
-    function extractDirectStream(url) {
-        if (!url) return '';
-        url = url.trim();
-        // Dynamic regex pattern to pull direct .m3u8, .mpd, or .ts payloads hidden inside query parameters
-        const match = url.match(/(https?:\/\/[^\s"]+\.(?:m3u8|mpd|ts|mp4)(?:\?[^\s"]*)?)/i);
+    // Smart link extractor: Preserves strict query parameters and full folder routes
+    function cleanStreamUrl(rawUrl) {
+        if (!rawUrl) return '';
+        let url = rawUrl.trim();
+        // Regex extracts full protocol endpoints including dynamic tokens
+        const match = url.match(/(https?:\/\/[^\s"]+)/i);
         return match ? match[1] : url;
     }
 
     function parseM3U(content) {
         const lines = content.split('\n');
         const channels = [];
-        let currentChannel = null;
+        let currentName = "";
 
         for (let line of lines) {
-            line = line.strip ? line.strip() : line.trim();
+            line = line.trim();
             if (line.startsWith('#EXTINF:')) {
-                const nameMatch = line.match(/,([^,]+)$/);
-                const name = nameMatch ? nameMatch[1].trim() : "Unknown Stream";
-                currentChannel = { name: name };
+                const parts = line.split(',');
+                currentName = parts.length > 1 ? parts[parts.length - 1].trim() : "Live Stream";
             } else if (line && !line.startsWith('#')) {
-                const streamUrl = extractDirectStream(line);
+                const streamUrl = cleanStreamUrl(line);
                 let type = 'HLS';
                 if (streamUrl.includes('.mpd')) type = 'DASH';
-                else if (streamUrl.includes('.mp4') || streamUrl.includes('.ts')) type = 'DIRECT';
+                else if (streamUrl.endsWith('.mp4') || streamUrl.endsWith('.ts')) type = 'DIRECT';
 
-                if (currentChannel) {
-                    currentChannel.url = streamUrl;
-                    currentChannel.type = type;
-                    channels.push(currentChannel);
-                    currentChannel = null;
-                } else {
-                    channels.push({ name: streamUrl.split('/').pop() || "Direct Stream", url: streamUrl, type: type });
-                }
+                channels.push({
+                    name: currentName || streamUrl.split('/').pop() || "Channel",
+                    url: streamUrl,
+                    type: type
+                });
+                currentName = "";
             }
         }
         return channels;
     }
 
-    // --- PLAYBACK ENGINE ROUTER ---
+    // Direct, unproxied HLS/DASH playback core
     function playStream(url, type) {
-        // Destroy existing engine instances
         if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
         if (dashEngine) { dashEngine.reset(); dashEngine = null; }
 
-        console.log(`[Playback Engine] Playing: ${url} via${type}`);
+        url = cleanStreamUrl(url);
+        console.log(`[Engine] Attaching stream: ${url}`);
 
         if (type === 'HLS' || url.includes('.m3u8')) {
             if (Hls.isSupported()) {
-                hlsEngine = new Hls({ enableWorker: true });
+                hlsEngine = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    manifestLoadingTimeOut: 10000
+                });
                 hlsEngine.loadSource(url);
                 hlsEngine.attachMedia(videoElement);
                 hlsEngine.on(Hls.Events.MANIFEST_PARSED, () => videoElement.play());
+                hlsEngine.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) console.error("[HLS Error]", data);
+                });
             } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native Safari support
                 videoElement.src = url;
                 videoElement.play();
             }
@@ -125,13 +121,11 @@
             dashEngine = dashjs.MediaPlayer().create();
             dashEngine.initialize(videoElement, url, true);
         } else {
-            // Direct HTML5 supported files (.mp4, raw .ts via browser codecs)
             videoElement.src = url;
             videoElement.play();
         }
     }
 
-    // --- PLAYLIST & UI MANAGEMENT ---
     function renderPlaylist() {
         const listEl = document.getElementById('channelList');
         document.getElementById('count').innerText = playlist.length;
@@ -145,44 +139,37 @@
                     <span>${item.name}</span>
                     <span class="channel-tag">${item.type}</span>
                 </div>
-                <button class="danger" style="padding: 2px 6px; font-size: 11px;" onclick="deleteChannel(${index})">✕</button>
+                <button class="danger" style="padding: 2px 6px;" onclick="deleteChannel(${index})">✕</button>
             `;
             listEl.appendChild(li);
         });
     }
 
-    async function fetchPlaylistData(targetUrl) {
-        const useProxy = document.getElementById('corsToggle').checked;
-        const finalUrl = useProxy ? `${CORS_PROXY}${encodeURIComponent(targetUrl)}` : targetUrl;
-        
-        const response = await fetch(finalUrl);
-        if (!response.ok) throw new Error("Network request failed");
-        return await response.text();
-    }
-
     async function loadFromUrl() {
         const input = document.getElementById('urlInput').value.trim();
-        if (!input) return alert("Please enter a valid HTTP/HTTPS URL");
+        if (!input) return alert("Enter a stream or M3U link");
 
         currentSource = { type: 'url', val: input };
-        
-        // Single stream vs M3U detection
-        if (input.endsWith('.m3u8') || input.endsWith('.mpd')) {
-            const extracted = extractDirectStream(input);
-            const type = extracted.includes('.mpd') ? 'DASH' : 'HLS';
-            playlist = [{ name: "Direct Link", url: extracted, type: type }];
+        const cleanUrl = cleanStreamUrl(input);
+
+        // Direct Stream Detection (.m3u8 / .mpd / live ip index streams)
+        if (cleanUrl.includes('.m3u8') || cleanUrl.includes('.mpd')) {
+            const type = cleanUrl.includes('.mpd') ? 'DASH' : 'HLS';
+            playlist = [{ name: cleanUrl.split('/')[3] || "Direct Stream", url: cleanUrl, type: type }];
             renderPlaylist();
-            playStream(extracted, type);
+            playStream(cleanUrl, type);
             return;
         }
 
+        // Playlist Fetching
         try {
-            const content = await fetchPlaylistData(input);
+            const response = await fetch(cleanUrl);
+            const content = await response.text();
             playlist = parseM3U(content);
             renderPlaylist();
             if (playlist.length > 0) playStream(playlist[0].url, playlist[0].type);
         } catch (err) {
-            alert(`Error loading playlist: ${err.message}. Try toggling the CORS Proxy.`);
+            alert("Could not fetch M3U playlist. Check connection or URL validity.");
         }
     }
 
@@ -213,9 +200,8 @@
     }
 
     function refreshCurrentSource() {
-        if (!currentSource) return alert("No active source to refresh.");
+        if (!currentSource) return;
         if (currentSource.type === 'url') loadFromUrl();
-        else alert("Re-select the file using 'Upload M3U' to refresh local contents.");
     }
 </script>
 </body>

@@ -1,103 +1,119 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>M3U Web Player</title>
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-  <style>
-    * { box-sizing: border-box; font-family: sans-serif; }
-    body { background-color: #121212; color: #fff; margin: 0; padding: 20px; display: flex; justify-content: center; }
-    .container { width: 100%; max-width: 900px; display: flex; flex-direction: column; gap: 15px; }
-    .controls { display: flex; gap: 10px; flex-wrap: wrap; }
-    input[type="text"], input[type="file"], select { padding: 10px; border-radius: 6px; border: 1px solid #333; background: #222; color: #fff; flex: 1; }
-    button { padding: 10px 15px; border-radius: 6px; border: none; background: #007bff; color: #fff; cursor: pointer; }
-    button:hover { background: #0056b3; }
-    video { width: 100%; height: auto; background: #000; border-radius: 8px; aspect-ratio: 16/9; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web IPTV Player</title>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/clappr@latest/dist/clappr.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #121212; color: #fff; display: flex; height: 100vh; }
+        #sidebar { width: 320px; background: #1e1e1e; display: flex; flex-direction: column; border-right: 1px solid #333; }
+        .input-group { padding: 15px; border-bottom: 1px solid #333; }
+        input, button { width: 100%; padding: 10px; margin-top: 8px; border-radius: 4px; border: none; font-size: 14px; }
+        input[type="text"] { background: #2a2a2a; color: #fff; border: 1px solid #444; }
+        button { background: #007bff; color: white; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        #playlist { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+        #playlist li { padding: 12px 15px; border-bottom: 1px solid #2a2a2a; cursor: pointer; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; }
+        #playlist li:hover { background: #2a2a2a; }
+        #playlist li.active { background: #007bff; color: #fff; }
+        #main { flex: 1; display: flex; flex-direction: column; background: #000; justify-content: center; align-items: center; }
+        #player { width: 100%; height: 100%; }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h2>M3U Web Player</h2>
-  
-  <div class="controls">
-    <input type="file" id="fileInput" accept=".m3u,.m3u8">
-    <input type="text" id="urlInput" placeholder="Or enter M3U URL...">
-    <button onclick="loadFromUrl()">Load URL</button>
-  </div>
+    <div id="sidebar">
+        <div class="input-group">
+            <label for="m3u-url">Load M3U Playlist URL:</label>
+            <input type="text" id="m3u-url" placeholder="https://example.com/playlist.m3u">
+            <button onclick="loadPlaylist()">Load Playlist</button>
+        </div>
+        <div class="input-group">
+            <label for="stream-url">Play Direct Stream (HLS/HTTP):</label>
+            <input type="text" id="stream-url" placeholder="https://example.com/stream.m3u8">
+            <button onclick="playDirectStream()">Play Stream</button>
+        </div>
+        <ul id="playlist"></ul>
+    </div>
 
-  <select id="channelList" size="8" style="display:none;" onchange="playChannel(this.value)">
-    <option value="">Select a Channel</option>
-  </select>
+    <div id="main">
+        <div id="player"></div>
+    </div>
 
-  <video id="video" controls></video>
-</div>
+    <script>
+        let player = new Clappr.Player({
+            parentId: "#player",
+            width: "100%",
+            height: "100%",
+            autoPlay: true
+        });
 
-<script>
-  const video = document.getElementById('video');
-  const channelList = document.getElementById('channelList');
-  let hls;
+        function playStream(url) {
+            player.load(url);
+            player.play();
+        }
 
-  document.getElementById('fileInput').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function(e) { parseM3U(e.target.result); };
-    reader.readAsText(file);
-  });
+        function playDirectStream() {
+            const url = document.getElementById('stream-url').value.trim();
+            if (url) playStream(url);
+        }
 
-  function loadFromUrl() {
-    const url = document.getElementById('urlInput').value.trim();
-    if (!url) return;
-    fetch(url)
-      .then(res => res.text())
-      .then(text => parseM3U(text))
-      .catch(err => alert('Failed to fetch M3U playlist. Check CORS policies.'));
-  }
+        async function loadPlaylist() {
+            const url = document.getElementById('m3u-url').value.trim();
+            const playlistElement = document.getElementById('playlist');
+            playlistElement.innerHTML = '<li style="text-align:center;">Loading...</li>';
 
-  function parseM3U(content) {
-    const lines = content.split('\n');
-    channelList.innerHTML = '';
-    let currentTitle = '';
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Failed to fetch playlist');
+                const text = await response.text();
+                
+                const channels = parseM3U(text);
+                playlistElement.innerHTML = '';
 
-    lines.forEach(line => {
-      line = line.trim();
-      if (line.startsWith('#EXTINF:')) {
-        const parts = line.split(',');
-        currentTitle = parts[1] ? parts[1].trim() : 'Unnamed Stream';
-      } else if (line && !line.startsWith('#')) {
-        const option = document.createElement('option');
-        option.value = line;
-        option.textContent = currentTitle || line;
-        channelList.appendChild(option);
-        currentTitle = '';
-      }
-    });
+                if (channels.length === 0) {
+                    playlistElement.innerHTML = '<li>No playable channels found.</li>';
+                    return;
+                }
 
-    if (channelList.options.length > 0) {
-      channelList.style.display = 'block';
-    } else {
-      alert('No valid streams found in file.');
-    }
-  }
+                channels.forEach(channel => {
+                    const li = document.createElement('li');
+                    li.textContent = channel.name;
+                    li.onclick = () => {
+                        document.querySelectorAll('#playlist li').forEach(el => el.classList.remove('active'));
+                        li.classList.add('active');
+                        playStream(channel.url);
+                    };
+                    playlistElement.appendChild(li);
+                });
+            } catch (err) {
+                alert('Error loading playlist: ' + err.message + '\n\nNote: Ensure the source allows CORS (Cross-Origin Resource Sharing).');
+                playlistElement.innerHTML = '';
+            }
+        }
 
-  function playChannel(url) {
-    if (!url) return;
-    if (Hls.isSupported()) {
-      if (hls) hls.destroy();
-      hls = new Hls();
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => video.play());
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url;
-      video.play();
-    } else {
-      alert('HLS streaming is not supported in this browser.');
-    }
-  }
-</script>
+        function parseM3U(content) {
+            const lines = content.split('\n');
+            const channels = [];
+            let currentName = '';
 
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (line.startsWith('#EXTINF:')) {
+                    const nameMatch = line.split(',');
+                    currentName = nameMatch.length > 1 ? nameMatch.slice(1).join(',').trim() : 'Unnamed Channel';
+                } else if (line.startsWith('http://') || line.startsWith('https://')) {
+                    channels.push({
+                        name: currentName || line,
+                        url: line
+                    });
+                    currentName = '';
+                }
+            }
+            return channels;
+        }
+    </script>
 </body>
 </html>

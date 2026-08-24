@@ -25,6 +25,7 @@
         .player-container { flex: 1; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; position: relative; }
         video { width: 100%; height: 100%; max-height: 85vh; aspect-ratio: 16/9; }
         
+        /* Auto-Extractor Status Panel */
         .extractor-bar { width: 100%; background: #020617; padding: 8px 12px; box-sizing: border-box; display: flex; align-items: center; gap: 10px; border-top: 1px solid #334155; font-size: 12px; }
         .extracted-url { flex: 1; background: #1e293b; padding: 6px 10px; border-radius: 4px; color: #38bdf8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
     </style>
@@ -49,8 +50,9 @@
     
     <div class="player-container">
         <video id="video" controls autoplay playsinline></video>
+        <!-- Real-Time Stream Link Extractor Display -->
         <div class="extractor-bar">
-            <span>Extracted Target M3U8:</span>
+            <span>Extracted M3U8:</span>
             <div class="extracted-url" id="extractedUrlDisplay">Waiting for stream initialization...</div>
             <button style="padding: 4px 8px; font-size: 11px;" onclick="copyExtractedUrl()">Copy Link</button>
         </div>
@@ -62,8 +64,7 @@
     let currentSource = null;
     let hlsEngine = null;
     let dashEngine = null;
-    let realExtractedUrl = "";
-    let baseRawUrl = "";
+    let activeStreamUrl = "";
 
     const videoElement = document.getElementById('video');
     const displayEl = document.getElementById('extractedUrlDisplay');
@@ -80,29 +81,6 @@
         const encodedTarget = encodeURIComponent(targetUrl);
         const encodedRef = encodeURIComponent(refUrl);
         return `https://xtremplay.com/api/proxy?url=${encodedTarget}&ref=${encodedRef}`;
-    }
-
-    // UNWRAPS PROXY ENCODING TO GET THE TRUE TARGET URL
-    function extractRealUrl(rawOrProxiedUrl) {
-        if (!rawOrProxiedUrl) return '';
-        
-        // If it's wrapped in proxy, extract the 'url=' query parameter
-        if (rawOrProxiedUrl.includes('xtremplay.com/api/proxy')) {
-            try {
-                const parsed = new URL(rawOrProxiedUrl);
-                const targetParam = parsed.searchParams.get('url');
-                if (targetParam) return decodeURIComponent(targetParam);
-            } catch (e) {}
-        }
-
-        // If it's a relative sub-manifest link, resolve against base URL
-        if (!rawOrProxiedUrl.startsWith('http') && baseRawUrl) {
-            try {
-                return new URL(rawOrProxiedUrl, baseRawUrl).href;
-            } catch (e) {}
-        }
-
-        return rawOrProxiedUrl;
     }
 
     function extractDirectStream(rawUrl) {
@@ -139,32 +117,23 @@
         return channels;
     }
 
-    function updateExtractedDisplay(url) {
-        const cleanTarget = extractRealUrl(url);
-        if (cleanTarget && cleanTarget.startsWith('http')) {
-            realExtractedUrl = cleanTarget;
-            displayEl.innerText = realExtractedUrl;
-            console.log("[Extractor] True M3U8 resolved:", realExtractedUrl);
-        }
-    }
-
     function playStream(rawUrl, type) {
         if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
         if (dashEngine) { dashEngine.reset(); dashEngine = null; }
 
-        baseRawUrl = extractDirectStream(rawUrl);
-        const initialStreamUrl = buildProxyUrl(baseRawUrl);
+        const cleanUrl = extractDirectStream(rawUrl);
+        const initialStreamUrl = buildProxyUrl(cleanUrl);
 
         displayEl.innerText = "Extracting live stream endpoint...";
-        updateExtractedDisplay(baseRawUrl);
 
-        if (type === 'HLS' || baseRawUrl.includes('.m3u8')) {
+        if (type === 'HLS' || cleanUrl.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                 hlsEngine = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
                     defaultAudioCodec: 'mp4a.40.2',
                     xhrSetup: function(xhr, url) {
+                        // Route sub-manifests and video chunks through proxy
                         if (!url.includes('xtremplay.com/api/proxy')) {
                             xhr.open('GET', buildProxyUrl(url), true);
                         }
@@ -174,16 +143,19 @@
                 hlsEngine.loadSource(initialStreamUrl);
                 hlsEngine.attachMedia(videoElement);
 
-                // HOOK: Capture level & manifest changes, then unwrap proxy wrapper
+                // AUTOMATIC SUB-MANIFEST LINK EXTRACTOR HOOK
                 hlsEngine.on(Hls.Events.LEVEL_LOADED, function(event, data) {
                     if (data && data.details && data.details.url) {
-                        updateExtractedDisplay(data.details.url);
+                        activeStreamUrl = data.details.url;
+                        displayEl.innerText = activeStreamUrl;
+                        console.log("[Auto-Extractor] Sub-manifest extracted:", activeStreamUrl);
                     }
                 });
 
                 hlsEngine.on(Hls.Events.MANIFEST_PARSED, function(event, data) {
                     if (data.levels && data.levels[0] && data.levels[0].url) {
-                        updateExtractedDisplay(data.levels[0].url);
+                        activeStreamUrl = data.levels[0].url;
+                        displayEl.innerText = activeStreamUrl;
                     }
                     videoElement.play().catch(e => console.log("Autoplay blocked. Tap video to play."));
                 });
@@ -204,24 +176,27 @@
                 });
             } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
                 videoElement.src = initialStreamUrl;
-                updateExtractedDisplay(baseRawUrl);
+                displayEl.innerText = cleanUrl;
                 videoElement.play();
             }
-        } else if (type === 'DASH' || baseRawUrl.includes('.mpd')) {
+        } else if (type === 'DASH' || cleanUrl.includes('.mpd')) {
             dashEngine = dashjs.MediaPlayer().create();
             dashEngine.initialize(videoElement, initialStreamUrl, true);
-            updateExtractedDisplay(baseRawUrl);
+            displayEl.innerText = cleanUrl;
         } else {
             videoElement.src = initialStreamUrl;
-            updateExtractedDisplay(baseRawUrl);
+            displayEl.innerText = cleanUrl;
             videoElement.play();
         }
     }
 
     function copyExtractedUrl() {
-        if (realExtractedUrl) {
-            navigator.clipboard.writeText(realExtractedUrl);
-            alert("Copied clean stream URL to clipboard:\n" + realExtractedUrl);
+        if (!activeStreamUrl && displayEl.innerText.startsWith("http")) {
+            activeStreamUrl = displayEl.innerText;
+        }
+        if (activeStreamUrl) {
+            navigator.clipboard.writeText(activeStreamUrl);
+            alert("Extracted M3U8 copied to clipboard!");
         } else {
             alert("No URL extracted yet.");
         }
@@ -297,7 +272,6 @@
         videoElement.pause();
         videoElement.src = "";
         displayEl.innerText = "Waiting for stream initialization...";
-        realExtractedUrl = "";
     }
 
     function refreshCurrentSource() {

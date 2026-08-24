@@ -3,78 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sony HD Embedded Stream</title>
-    
-    <!-- Include Video.js Styles -->
-      <link href="https://vjs.zencdn.net/8.10.0/video-js.css" rel="stylesheet" />
+    <title>Sony HD Live Stream</title>
+    <style>
+        body { 
+            margin: 0; 
+            background: #111; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            font-family: sans-serif; 
+        }
+        .player-container { 
+            width: 100%; 
+            max-width: 800px; 
+            padding: 10px; 
+        }
+        video { 
+            width: 100%; 
+            aspect-ratio: 16/9; 
+            background: #000; 
+            border-radius: 8px; 
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); 
+        }
+    </style>
+
+    <!-- Load Hls.js via highly resilient jsDelivr CDN Network -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 
-    <div style="max-width: 800px; margin: 20px auto;">
-        <!-- The Video Player Element -->
-        <video 
-            id="sony-hd-player" 
-            class="video-js vjs-default-skin vjs-16-9 vjs-big-play-centered" 
-            controls 
-            preload="auto" 
-            data-setup='{}'>
-        </video>
+    <div class="player-container">
+        <!-- Main HTML5 Video Object Element -->
+        <video id="video" controls autoplay playsinline></video>
     </div>
 
-    <!-- Include Video.js Library -->
-    <script src="https://vjs.zencdn.net/8.10.0/video.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js"></script>
-
     <script>
-        var video = document.getElementById('video');
-        var streamUrl = 'https://xtremplay.com/api/proxy?url=http%3A%2F%2F38.96.178.205%2FSONYHD%2Ftracks-v1a1%2Fmono.m3u8&ref=http%3A%2F%2F38.96.178.205%2FSONYHD%2Findex.m3u8';
+        // Use window.onload to guarantee the Hls.js script is completely loaded and defined first
+        window.onload = function() {
+            var video = document.getElementById('video');
+            var streamUrl = 'https://xtremplay.com/api/proxy?url=http%3A%2F%2F38.96.178.205%2FSONYHD%2Ftracks-v1a1%2Fmono.m3u8&ref=http%3A%2F%2F38.96.178.205%2FSONYHD%2Findex.m3u8';
 
-        if (Hls.isSupported()) {
-            var hls = new Hls({
-                // Configures the engine to strictly sync video tracks alongside audio
-                enableWorker: true,
-                lowLatencyMode: true,
-                defaultAudioCodec: 'mp4a.40.2'
-            });
-            
-            hls.loadSource(streamUrl);
-            hls.attachMedia(video);
-            
-            hls.on(Hls.Events.MANIFEST_PARSED, function() {
-                video.play().catch(function(e) {
-                    console.log("Autoplay blocked by browser, user action required to start.");
+            // Double check if Hls asset engine interface safely initialized
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                console.log("Hls.js framework loaded successfully. Initializing stream...");
+                
+                var hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    defaultAudioCodec: 'mp4a.40.2'
                 });
-            });
+                
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play().catch(function(e) {
+                        console.log("Autoplay blocked by browser. User interaction required.");
+                    });
+                });
 
-            hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log("Network problem, trying to recover...");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log("Media stall, trying to skip over broken video frames...");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.log("Unrecoverable playback error.");
-                            break;
+                // Error monitoring recovery rules
+                hls.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.log("Network error caught, retrying source stream context...");
+                                hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.log("Media decode error caught, skipping stalled frames...");
+                                hls.recoverMediaError();
+                                break;
+                            default:
+                                console.log("Unrecoverable playback exception triggered.");
+                                break;
+                        }
                     }
-                }
-            });
-        } 
-        // Fallback for Safari/iOS devices which decode HLS natively without a library
-        else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = streamUrl;
-            video.addEventListener('loadedmetadata', function() {
-                video.play();
-            });
-        }
+                });
+            } 
+            // Fallback rule processing for native Safari environments (macOS/iOS)
+            else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                console.log("Using native browser engine fallback streaming.");
+                video.src = streamUrl;
+                video.addEventListener('loadedmetadata', function() {
+                    video.play();
+                });
+            } else {
+                console.log("Error: This web browser environment does not support HLS streaming.");
+            }
+        };
     </script>
-
-</body>
-</html>
 
 </body>
 </html>

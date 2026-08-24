@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Smart IPTV Extractor & Player</title>
-    <!-- Engine Dependencies: Resilient CDN HLS & DASH -->
+    <!-- Engine Dependencies -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
     <style>
@@ -50,7 +50,7 @@
     </div>
     
     <div class="player-container">
-        <!-- Main HTML5 Video Object Element matching reference code -->
+        <!-- Main HTML5 Video Object Element -->
         <video id="video" controls autoplay playsinline></video>
     </div>
 </div>
@@ -63,26 +63,22 @@
 
     const videoElement = document.getElementById('video');
 
-    // Builds the robust Xtremplay API Proxy route based on your reference script
-    function formatProxyUrl(rawUrl) {
-        const useProxy = document.getElementById('useProxyToggle').checked;
-        if (!useProxy) return rawUrl;
+    // Builds dynamic Xtremplay API Proxy URLs matching your reference pattern
+    function buildProxyUrl(targetUrl) {
+        if (!targetUrl) return '';
+        if (targetUrl.includes('xtremplay.com/api/proxy')) return targetUrl;
 
-        // If it's already a proxied URL, avoid double-encoding
-        if (rawUrl.includes('xtremplay.com/api/proxy')) return rawUrl;
-
-        const encodedTarget = encodeURIComponent(rawUrl);
-        // Default referer matches root index stream logic
-        let refUrl = rawUrl;
-        if (rawUrl.includes('/tracks-v1a1/')) {
-            refUrl = rawUrl.replace(/\/tracks-v1a1\/.*$/, '/index.m3u8');
+        // Extract base folder to construct proper referral path
+        let refUrl = targetUrl;
+        if (targetUrl.includes('/tracks-v1a1/')) {
+            refUrl = targetUrl.replace(/\/tracks-v1a1\/.*$/, '/index.m3u8');
         }
-        const encodedRef = encodeURIComponent(refUrl);
 
+        const encodedTarget = encodeURIComponent(targetUrl);
+        const encodedRef = encodeURIComponent(refUrl);
         return `https://xtremplay.com/api/proxy?url=${encodedTarget}&ref=${encodedRef}`;
     }
 
-    // Auto-Extractor Engine
     function extractDirectStream(rawUrl) {
         if (!rawUrl) return '';
         let url = rawUrl.trim();
@@ -117,25 +113,35 @@
         return channels;
     }
 
-    // Integrated Playback Core using your exact HLS & recovery parameters
     function playStream(rawUrl, type) {
         if (hlsEngine) { hlsEngine.destroy(); hlsEngine = null; }
         if (dashEngine) { dashEngine.reset(); dashEngine = null; }
 
-        const streamUrl = formatProxyUrl(extractDirectStream(rawUrl));
-        console.log(`[Playback Engine] Attaching: ${streamUrl}`);
+        const cleanUrl = extractDirectStream(rawUrl);
+        const useProxy = document.getElementById('useProxyToggle').checked;
+        const initialStreamUrl = useProxy ? buildProxyUrl(cleanUrl) : cleanUrl;
 
-        if (type === 'HLS' || rawUrl.includes('.m3u8')) {
+        console.log(`[Playback Engine] Attaching: ${initialStreamUrl}`);
+
+        if (type === 'HLS' || cleanUrl.includes('.m3u8')) {
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                 console.log("Hls.js framework loaded successfully. Initializing stream...");
 
                 hlsEngine = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
-                    defaultAudioCodec: 'mp4a.40.2'
+                    defaultAudioCodec: 'mp4a.40.2',
+                    // KEY FIX: Intercept ALL network requests (including TS chunk segments)
+                    // and route them through the proxy dynamically so playback never freezes after 15s.
+                    xhrSetup: function(xhr, url) {
+                        if (useProxy && !url.includes('xtremplay.com/api/proxy')) {
+                            const proxiedChunkUrl = buildProxyUrl(url);
+                            xhr.open('GET', proxiedChunkUrl, true);
+                        }
+                    }
                 });
 
-                hlsEngine.loadSource(streamUrl);
+                hlsEngine.loadSource(initialStreamUrl);
                 hlsEngine.attachMedia(videoElement);
 
                 hlsEngine.on(Hls.Events.MANIFEST_PARSED, function() {
@@ -144,7 +150,7 @@
                     });
                 });
 
-                // Your reference error recovery rules
+                // Error monitoring recovery rules matching your reference code
                 hlsEngine.on(Hls.Events.ERROR, function (event, data) {
                     if (data.fatal) {
                         switch (data.type) {
@@ -164,18 +170,18 @@
                 });
             } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
                 console.log("Using native browser engine fallback streaming.");
-                videoElement.src = streamUrl;
+                videoElement.src = initialStreamUrl;
                 videoElement.addEventListener('loadedmetadata', function() {
                     videoElement.play();
                 });
             } else {
                 console.log("Error: Browser environment does not support HLS streaming.");
             }
-        } else if (type === 'DASH' || rawUrl.includes('.mpd')) {
+        } else if (type === 'DASH' || cleanUrl.includes('.mpd')) {
             dashEngine = dashjs.MediaPlayer().create();
-            dashEngine.initialize(videoElement, streamUrl, true);
+            dashEngine.initialize(videoElement, initialStreamUrl, true);
         } else {
-            videoElement.src = streamUrl;
+            videoElement.src = initialStreamUrl;
             videoElement.play().catch(e => console.log("Playback interaction required."));
         }
     }
@@ -217,7 +223,8 @@
 
         // Playlist fetching via proxy
         try {
-            const target = formatProxyUrl(cleanUrl);
+            const useProxy = document.getElementById('useProxyToggle').checked;
+            const target = useProxy ? buildProxyUrl(cleanUrl) : cleanUrl;
             const response = await fetch(target);
             const content = await response.text();
             playlist = parseM3U(content);

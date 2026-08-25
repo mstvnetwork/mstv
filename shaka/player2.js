@@ -406,14 +406,14 @@ function initPlayer(config) {
                 title: 'Tears of Steel (HLS Demo Stream)',
                 startTime: now - 60,
                 endTime: now + 300,
-                url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
+                url: 'https://cdn30091.slast430did.com/stream2/i-arch-400/197086d4d00b13651b3225b28401ead8/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT21kaBVzTEJFaadlRp5UbRRjTUVFePR1Zx0ERklWWU1EeZpmSr1kMNBTTEdWP:1787676469:155.254.30.178:d42a98f4520c84c7294490ab2906d97552a7c9472c04716c837dc0e22ac002b0:=0EVVFDTqlUMONEN610Q0gnT6dWP/index.m3u8'
             },
             {
                 id: 'ch2',
                 title: 'Big Buck Bunny (Live Feed)',
                 startTime: now + 300,
                 endTime: now + 900,
-                url: 'https://test-streams.mux.dev/x36xhzz/url_0/1920x1080/2000/index.m3u8'
+                url: 'https://cdn30092.slast430did.com/stream2/i-arch-400/197086d4d00b13651b3225b28401ead8/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT21kaBVzTEJFaadlRp5UbRRjTUVFePR1Zx0ERklWWU1EeZpmSr1kMNBTTEdWP:1787676469:155.254.30.178:d42a98f4520c84c7294490ab2906d97552a7c9472c04716c837dc0e22ac002b0:=0EVVFDTqlUMONEN610Q0gnT6dWP/1080/index.m3u8'
             }
         ];
     }

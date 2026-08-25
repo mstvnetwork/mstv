@@ -9,9 +9,12 @@ function initPlayer(config) {
     const elements = {
         video: document.getElementById(config.videoId),
         iframe: document.getElementById(config.iframeId),
+        container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
         error: document.getElementById(config.errorId),
         btnPlay: document.getElementById(config.btnPlayId),
+        btnMute: document.getElementById(config.btnMuteId),
+        btnFullscreen: document.getElementById(config.btnFullscreenId),
         volSlider: document.getElementById(config.volSliderId),
         progressFill: document.getElementById(config.progressFillId),
         scheduleList: document.getElementById(config.scheduleListId),
@@ -72,6 +75,15 @@ function initPlayer(config) {
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
+    function updateMuteButtonState() {
+        if (!elements.btnMute) return;
+        if (elements.video.muted || elements.video.volume === 0) {
+            elements.btnMute.textContent = '🔇';
+        } else {
+            elements.btnMute.textContent = '🔊';
+        }
+    }
+
     // -------------------------------------------------------------------------
     // 4. Live Clock & EPG Sync Logic
     // -------------------------------------------------------------------------
@@ -92,16 +104,11 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
-    /**
-     * Finds what program should be playing based on system time relative to item start/end
-     */
     function getCurrentProgram() {
         if (!schedule.length) return null;
         const nowSec = Math.floor(Date.now() / 1000);
-
-        // Find match in provided linear schedule array
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
-        return match || schedule[schedule.length - 1]; // Fallback to last item if past schedule
+        return match || schedule[schedule.length - 1];
     }
 
     function evaluateScheduleSync() {
@@ -110,7 +117,6 @@ function initPlayer(config) {
         const targetProgram = getCurrentProgram();
         if (!targetProgram) return;
 
-        // Swapped to a new channel/program
         if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
             currentScheduleItem = targetProgram;
             if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
@@ -119,12 +125,10 @@ function initPlayer(config) {
             playMedia(targetProgram);
             showToast(elements.updateToast);
         } else if (!isLiveStream && !isIframe) {
-            // Check drift for static files simulating live schedule offset
             const nowSec = Math.floor(Date.now() / 1000);
             const expectedOffset = nowSec - currentScheduleItem.startTime;
             const actualOffset = elements.video.currentTime;
 
-            // If drift > 4 seconds, seek to live edge of scheduled item
             if (Math.abs(actualOffset - expectedOffset) > 4) {
                 elements.video.currentTime = expectedOffset;
                 showToast(elements.syncToast);
@@ -170,6 +174,8 @@ function initPlayer(config) {
         elements.iframe.src = url;
 
         if (elements.volOverlay) elements.volOverlay.style.display = 'block';
+        if (elements.btnMute) elements.btnMute.style.display = 'none';
+        if (elements.volSlider) elements.volSlider.style.display = 'none';
         showLoader(false);
     }
 
@@ -179,18 +185,19 @@ function initPlayer(config) {
         elements.iframe.src = '';
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+        if (elements.volSlider) elements.volSlider.style.display = 'inline-block';
 
         destroyPlayer();
 
         if (Hls.isSupported()) {
             hls = new Hls({
-                // Config tuned for ultra-smooth Live Sync & Low-Latency Playback
-                liveSyncDurationCount: 3,        // Keep 3 segments buffered to avoid stalls
-                liveMaxLatencyDurationCount: 10, // Catch up if falling too far behind
-                liveDurationInfinity: true,      // Treat live stream manifests correctly
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                liveDurationInfinity: true,
                 enableWorker: true,
                 lowLatencyMode: true,
-                backBufferLength: 60,            // Garbage collection buffer management
+                backBufferLength: 60,
                 maxBufferLength: 30,
                 maxMaxBufferLength: 60
             });
@@ -201,7 +208,6 @@ function initPlayer(config) {
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
 
-                // Sync static VOD item simulating a TV program to calculated target timestamp
                 if (!isLiveStream && program.startTime) {
                     const nowSec = Math.floor(Date.now() / 1000);
                     const targetOffset = nowSec - program.startTime;
@@ -210,14 +216,15 @@ function initPlayer(config) {
                     }
                 }
 
+                // Attempt playback with unmuted audio first
                 elements.video.play().catch(() => {
-                    // Autoplay blocked handling: start muted
+                    // Browser blocked unmuted autoplay -> fall back to muted autoplay
                     elements.video.muted = true;
+                    updateMuteButtonState();
                     elements.video.play();
                 });
             });
 
-            // Resilient Stalling & Network Error Auto-Recovery Engine
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     switch (data.type) {
@@ -245,10 +252,13 @@ function initPlayer(config) {
             });
 
         } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari Native HLS Support
             elements.video.src = program.url;
             elements.video.addEventListener('loadedmetadata', () => {
-                elements.video.play();
+                elements.video.play().catch(() => {
+                    elements.video.muted = true;
+                    updateMuteButtonState();
+                    elements.video.play();
+                });
             });
         } else {
             showError('HLS Playback is not supported on this browser.');
@@ -262,10 +272,16 @@ function initPlayer(config) {
         elements.iframe.src = '';
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+        if (elements.volSlider) elements.volSlider.style.display = 'inline-block';
 
         destroyPlayer();
         elements.video.src = program.url;
-        elements.video.play();
+        elements.video.play().catch(() => {
+            elements.video.muted = true;
+            updateMuteButtonState();
+            elements.video.play();
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -327,12 +343,46 @@ function initPlayer(config) {
             });
         }
 
-        if (elements.volSlider) {
-            elements.volSlider.addEventListener('input', (e) => {
-                elements.video.volume = parseFloat(e.target.value);
-                elements.video.muted = elements.video.volume === 0;
+        if (elements.btnMute) {
+            elements.btnMute.addEventListener('click', () => {
+                elements.video.muted = !elements.video.muted;
+                if (!elements.video.muted && elements.video.volume === 0) {
+                    elements.video.volume = 0.8;
+                    if (elements.volSlider) elements.volSlider.value = 0.8;
+                }
+                updateMuteButtonState();
             });
         }
+
+        if (elements.volSlider) {
+            elements.volSlider.addEventListener('input', (e) => {
+                const val = parseFloat(e.target.value);
+                elements.video.volume = val;
+                elements.video.muted = val === 0;
+                updateMuteButtonState();
+            });
+        }
+
+        if (elements.btnFullscreen) {
+            elements.btnFullscreen.addEventListener('click', () => {
+                const targetEl = elements.container || elements.video;
+                if (!document.fullscreenElement) {
+                    if (targetEl.requestFullscreen) {
+                        targetEl.requestFullscreen();
+                    } else if (targetEl.webkitRequestFullscreen) {
+                        targetEl.webkitRequestFullscreen();
+                    } else if (targetEl.msRequestFullscreen) {
+                        targetEl.msRequestFullscreen();
+                    }
+                } else {
+                    if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    }
+                }
+            });
+        }
+
+        elements.video.addEventListener('volumechange', updateMuteButtonState);
 
         elements.video.addEventListener('waiting', () => showLoader(true));
         elements.video.addEventListener('playing', () => {
@@ -356,27 +406,23 @@ function initPlayer(config) {
                 title: 'Tears of Steel (HLS Demo Stream)',
                 startTime: now - 60,
                 endTime: now + 300,
-                url: 'https://cdn30091.slast430did.com/stream2/i-arch-400/197086d4d00b13651b3225b28401ead8/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT21kaBVzTEJFaadlRp5UbRRjTUVFePR1Zx0ERklWWU1EeZpmSr1kMNBTTEdWP:1787676469:155.254.30.178:d42a98f4520c84c7294490ab2906d97552a7c9472c04716c837dc0e22ac002b0:=0EVVFDTqlUMONEN610Q0gnT6dWP/index.m3u8'
+                url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
             },
             {
                 id: 'ch2',
                 title: 'Big Buck Bunny (Live Feed)',
                 startTime: now + 300,
                 endTime: now + 900,
-                url: 'https://cdn30091.slast430did.com/stream2/i-arch-400/197086d4d00b13651b3225b28401ead8/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT21kaBVzTEJFaadlRp5UbRRjTUVFePR1Zx0ERklWWU1EeZpmSr1kMNBTTEdWP:1787676469:155.254.30.178:d42a98f4520c84c7294490ab2906d97552a7c9472c04716c837dc0e22ac002b0:=0EVVFDTqlUMONEN610Q0gnT6dWP/index.m3u8'
+                url: 'https://test-streams.mux.dev/x36xhzz/url_0/1920x1080/2000/index.m3u8'
             }
         ];
     }
 
-    // Startup Execution
     schedule = generateMockSchedule();
     bindEvents();
     startClock();
     evaluateScheduleSync();
 
-    // Check Live Schedule alignment every 3 seconds
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
-    
-    // Update Progress Bars every 500ms
     progressTimer = setInterval(updateProgress, 500);
-          }
+}

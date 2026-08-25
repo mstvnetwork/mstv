@@ -3,286 +3,230 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Live Sync Player - Embed</title>
+<title>Linear TV Test</title>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <style>
-  html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      background: #000;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-  }
+body {
+    margin: 0;
+    background: #111;
+    color: #fff;
+    font-family: Arial, sans-serif;
+}
 
-  .video-container {
-      position: relative;
-      width: 100vw;
-      height: 100vh;
-      background: #000;
-      overflow: hidden;
-  }
+.player-wrap {
+    max-width: 1200px;
+    margin: auto;
+    padding: 20px;
+}
 
-  video, iframe#iframePlayer {
-      width: 100%;
-      height: 100%;
-      border: 0;
-      display: block;
-      object-fit: contain;
-      background: #000;
-  }
+.video-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    overflow: hidden;
+}
 
-  .loader {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0,0,0,.6);
-      color: #fff;
-      font-size: 14px;
-      letter-spacing: .5px;
-      z-index: 20;
-  }
+video,
+iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
 
-  .loader.hidden { display: none; }
+.loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,.6);
+    z-index: 10;
+}
 
-  .error {
-      display: none;
-      position: absolute;
-      top: 14px;
-      left: 14px;
-      right: 14px;
-      padding: 8px 12px;
-      background: rgba(153,0,0,.85);
-      border-radius: 6px;
-      font-size: 13px;
-      z-index: 25;
-  }
+.loader.hidden {
+    display: none;
+}
 
-  .error.show { display: block; }
+.error {
+    display: none;
+    padding: 10px;
+    background: #900;
+    margin-top: 10px;
+}
 
-  /* ===== In-player floating controls (no background) ===== */
-  .controls-overlay {
-      position: absolute;
-      left: 14px;
-      right: 14px;
-      bottom: 14px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 8px 12px;
-      background: none;
-      opacity: 0;
-      transform: translateY(6px);
-      transition: opacity .25s ease, transform .25s ease;
-      z-index: 30;
-      pointer-events: none;
-  }
+.error.show {
+    display: block;
+}
 
-  .video-container.show-controls .controls-overlay {
-      opacity: 1;
-      transform: translateY(0);
-      pointer-events: auto;
-  }
+.controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 12px 0;
+}
 
-  #btnPlay {
-      cursor: pointer;
-      width: 34px;
-      height: 34px;
-      flex: 0 0 auto;
-      border: none;
-      border-radius: 50%;
-      background: rgba(255,255,255,.12);
-      color: #fff;
-      font-size: 15px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: background .2s ease, transform .15s ease;
-  }
+button {
+    cursor: pointer;
+    padding: 8px 14px;
+    background: #333;
+    color: #fff;
+    border: 1px solid #555;
+    border-radius: 4px;
+}
 
-  #btnPlay:hover { background: rgba(255,255,255,.25); transform: scale(1.06); }
-  #btnPlay:active { transform: scale(0.94); }
+button:hover {
+    background: #444;
+}
 
-  .vol-wrap {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex: 1 1 auto;
-      min-width: 0;
-      transition: opacity .2s ease;
-  }
+.progress {
+    height: 6px;
+    background: #333;
+    margin: 10px 0;
+}
 
-  .vol-icon {
-      flex: 0 0 auto;
-      font-size: 14px;
-      opacity: .85;
-      width: 16px;
-      text-align: center;
-      color: #fff;
-      text-shadow: 0 1px 3px rgba(0,0,0,.8);
-  }
+.progress-fill {
+    height: 100%;
+    width: 0%;
+    background: #0f0;
+}
 
-  #volSlider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 90px;
-      max-width: 30%;
-      height: 4px;
-      border-radius: 2px;
-      background: rgba(255,255,255,.35);
-      outline: none;
-      cursor: pointer;
-  }
+.schedule {
+    margin-top: 20px;
+    max-height: 300px;
+    overflow: auto;
+    border: 1px solid #333;
+}
 
-  #volSlider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #fff;
-      cursor: pointer;
-      box-shadow: 0 0 4px rgba(0,0,0,.6);
-  }
+.schedule-item {
+    padding: 10px;
+    border-bottom: 1px solid #222;
+}
 
-  #volSlider::-moz-range-thumb {
-      width: 12px;
-      height: 12px;
-      border: none;
-      border-radius: 50%;
-      background: #fff;
-      cursor: pointer;
-  }
+.schedule-item.active {
+    background: #222;
+}
 
-  .live-badge {
-      margin-left: auto;
-      flex: 0 0 auto;
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: .5px;
-      color: #fff;
-      text-shadow: 0 1px 3px rgba(0,0,0,.8);
-  }
+.toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: #222;
+    padding: 10px 15px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: .3s;
+    z-index: 999;
+}
 
-  .live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #e33;
-      animation: pulse 1.4s infinite;
-  }
+.toast.show {
+    opacity: 1;
+}
 
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
-
-  /* Used by player.js: volOverlay for iframe-mode volume note */
-  .vol-overlay {
-      display: none;
-      position: absolute;
-      bottom: 66px;
-      left: 14px;
-      padding: 5px 10px;
-      background: rgba(0,0,0,.7);
-      border-radius: 4px;
-      font-size: 11px;
-      z-index: 100;
-      pointer-events: none;
-      color: #fff;
-  }
-
-  /* Progress bar hidden per request (no red scrollbar visible) */
-  .progress {
-      display: none;
-  }
-
-  .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: #e33;
-  }
+.vol-overlay {
+    display: none;
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    padding: 6px 10px;
+    background: rgba(0,0,0,.7);
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 100;
+    pointer-events: none;
+}
 </style>
 </head>
 <body>
 
-<div class="video-container" id="videoContainer">
+<div class="player-wrap" id="playerWrap">
 
-    <video
-        id="videoPlayer"
-        playsinline
-        controlslist="nodownload">
-    </video>
+    <h2 id="nowTitle">Loading...</h2>
 
-    <iframe
-        id="iframePlayer"
-        style="display:none;"
-        allowfullscreen>
-    </iframe>
+    <div id="clock"></div>
+    <div id="clockDate"></div>
 
-    <div id="loader" class="loader">Loading...</div>
+    <div class="video-container" id="videoContainer">
 
-    <div id="errorMsg" class="error">Playback error. Retrying...</div>
+        <video
+            id="videoPlayer"
+            playsinline
+            controlslist="nodownload">
+        </video>
 
-    <div id="volOverlay" class="vol-overlay">
-        Volume controlled by embedded player
+        <iframe
+            id="iframePlayer"
+            style="display:none;"
+            allowfullscreen>
+        </iframe>
+
+        <div id="loader" class="loader">
+            Loading...
+        </div>
+
+        <div id="volOverlay" class="vol-overlay">
+            Volume controlled by embedded player
+        </div>
+
+    </div>
+
+    <div id="errorMsg" class="error">
+        Playback error. Retrying...
+    </div>
+
+    <div class="controls">
+
+        <button id="btnPlay" title="Play/Pause">⏸</button>
+        <button id="btnMute" title="Mute/Unmute">🔇</button>
+
+        <input
+            id="volSlider"
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            value="0.8">
+
+        <button id="btnFullscreen" title="Toggle Fullscreen">⛶</button>
+
     </div>
 
     <div class="progress">
         <div id="progressFill" class="progress-fill"></div>
     </div>
 
-    <div class="controls-overlay">
-        <button id="btnPlay">⏸</button>
+    <div id="statusText"></div>
+    <div id="statusOffset"></div>
 
-        <div class="vol-wrap">
-            <span class="vol-icon">🔊</span>
-            <input
-                id="volSlider"
-                type="range"
-                min="0"
-                max="1"
-                step="0.01"
-                value="0.8">
-        </div>
-
-        <div class="live-badge">
-            <span class="live-dot"></span>LIVE
-        </div>
-    </div>
+    <h3>Schedule</h3>
+    <div id="scheduleList" class="schedule"></div>
 
 </div>
 
-<!-- Kept in DOM (hidden) only so player.js's getElementById calls
-     for these IDs don't return null. Not touched functionally. -->
-<div style="display:none;">
-    <h2 id="nowTitle"></h2>
-    <div id="clock"></div>
-    <div id="clockDate"></div>
-    <div id="statusText"></div>
-    <div id="statusOffset"></div>
-    <div id="scheduleList"></div>
-    <div id="syncToast">Synced to live position</div>
-    <div id="updateToast">Playlist updated</div>
+<div id="syncToast" class="toast">
+    Synced to live position
+</div>
+
+<div id="updateToast" class="toast">
+    Playlist updated
 </div>
 
 <script src="./player2.js"></script>
 
 <script>
-
 initPlayer({
     videoId: 'videoPlayer',
     iframeId: 'iframePlayer',
+    containerId: 'videoContainer',
 
     loaderId: 'loader',
     errorId: 'errorMsg',
 
     btnPlayId: 'btnPlay',
+    btnMuteId: 'btnMute',
+    btnFullscreenId: 'btnFullscreen',
     volSliderId: 'volSlider',
 
     progressFillId: 'progressFill',
@@ -295,34 +239,12 @@ initPlayer({
     statusOffsetId: 'statusOffset',
 
     nowTitleId: 'nowTitle',
-
     volOverlayId: 'volOverlay',
 
-    showClock: false,
+    showClock: true,
     clockId: 'clock',
     clockDateId: 'clockDate'
 });
-
-// Click-to-toggle controls: show on click, auto-hide after a few seconds
-const container = document.getElementById('videoContainer');
-let hideTimer;
-
-function revealControls() {
-    container.classList.add('show-controls');
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-        container.classList.remove('show-controls');
-    }, 2500);
-}
-
-// Brief initial reveal on load
-revealControls();
-
-// Any click on the player resets/starts the visible window
-container.addEventListener('click', () => {
-    revealControls();
-});
-
 </script>
 
 </body>

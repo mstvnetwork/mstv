@@ -1,1 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linear TV Test</title>
 
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #111;
+    color: #fff;
+    font-family: Arial, sans-serif;
+}
+
+.player-wrap {
+    max-width: 1200px;
+    margin: auto;
+    padding: 20px;
+}
+
+.video-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    overflow: hidden;
+    cursor: default;
+}
+
+video,
+iframe {
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+
+.loader {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,.6);
+    z-index: 10;
+}
+
+.loader.hidden {
+    display: none;
+}
+
+.error {
+    display: none;
+    padding: 10px;
+    background: #900;
+    margin-top: 10px;
+}
+
+.error.show {
+    display: block;
+}
+
+/* --- AUTO-HIDING CONTROLS WRAPPER --- */
+.video-controls-wrapper {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
+    padding: 25px 15px 12px 15px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
+}
+
+.video-container.controls-hidden .video-controls-wrapper {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+button {
+    cursor: pointer;
+    padding: 6px 12px;
+    background: rgba(40, 40, 40, 0.7);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    font-size: 14px;
+    backdrop-filter: blur(4px);
+    transition: background 0.2s;
+}
+
+button:hover {
+    background: rgba(70, 70, 70, 0.9);
+}
+
+/* --- TRANSPARENT & COMPACT TV CHANNEL WATERMARK LOGO --- */
+.tv-logo {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 4px 8px;
+    border-radius: 6px;
+    z-index: 25;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    opacity: 0.6;
+    transition: opacity 0.3s ease;
+}
+
+.video-container:hover .tv-logo {
+    opacity: 0.9;
+}
+
+.tv-logo .brand-main {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    color: #fff;
+    text-transform: uppercase;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.tv-logo .brand-main span {
+    color: #ff3333;
+    font-size: 8px;
+}
+
+.tv-logo .brand-sub {
+    font-size: 7px;
+    font-weight: 400;
+    letter-spacing: 1.2px;
+    color: #bbb;
+    text-transform: uppercase;
+}
+
+.schedule {
+    margin-top: 20px;
+    max-height: 300px;
+    overflow: auto;
+    border: 1px solid #333;
+}
+
+.schedule-item {
+    padding: 10px;
+    border-bottom: 1px solid #222;
+}
+
+.schedule-item.active {
+    background: #222;
+}
+
+.toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: #222;
+    padding: 10px 15px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: .3s;
+    z-index: 999;
+}
+
+.toast.show {
+    opacity: 1;
+}
+
+.vol-overlay {
+    display: none;
+    position: absolute;
+    bottom: 50px;
+    left: 10px;
+    padding: 6px 10px;
+    background: rgba(0,0,0,.7);
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 100;
+    pointer-events: none;
+}
+
+/* --- EMBED MODE CONFIGURATION --- */
+body.embed-mode {
+    background: transparent;
+    padding: 0;
+}
+
+body.embed-mode .player-wrap {
+    max-width: 100%;
+    padding: 0;
+}
+
+body.embed-mode #nowTitle,
+body.embed-mode #clock,
+body.embed-mode #clockDate,
+body.embed-mode #errorMsg,
+body.embed-mode #statusText,
+body.embed-mode #statusOffset,
+body.embed-mode h3,
+body.embed-mode #scheduleList,
+body.embed-mode #updateToast {
+    display: none !important;
+}
+
+body.embed-mode .video-container {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: unset;
+}
+</style>
+</head>
+<body>
+
+<div class="player-wrap" id="playerWrap">
+
+    <h2 id="nowTitle">Loading...</h2>
+
+    <div id="clock"></div>
+    <div id="clockDate"></div>
+
+    <div class="video-container" id="videoContainer">
+
+        <div class="tv-logo">
+            <div class="brand-main"><span>●</span> Apna Tv</div>
+            <div class="brand-sub">Ghar Jaisa</div>
+        </div>
+
+        <!-- Primary Active Video Element -->
+        <video
+            id="videoPlayer"
+            playsinline
+            controlslist="nodownload">
+        </video>
+
+        <!-- Secondary Preload Video Element (Hidden) -->
+        <video
+            id="videoPlayerNext"
+            playsinline
+            controlslist="nodownload"
+            style="display: none;">
+        </video>
+
+        <iframe
+            id="iframePlayer"
+            style="display:none;"
+            allowfullscreen>
+        </iframe>
+
+        <div id="loader" class="loader">
+            Loading...
+        </div>
+
+        <div id="volOverlay" class="vol-overlay">
+            Volume controlled by embedded player
+        </div>
+
+        <div class="video-controls-wrapper">
+            <div class="controls">
+                <button id="btnPlay" title="Play/Pause">⏸</button>
+                <button id="btnMute" title="Mute/Unmute">🔇</button>
+                <button id="btnFullscreen" title="Toggle Fullscreen">⛶</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="errorMsg" class="error">
+        Playback error. Retrying...
+    </div>
+
+    <div id="statusText"></div>
+    <div id="statusOffset"></div>
+
+</div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('mode') === 'embed') {
+    document.body.classList.add('embed-mode');
+}
+</script>
+
+<script src="./player2.js"></script>
+
+<script>
+initPlayer({
+    videoId: 'videoPlayer',
+    iframeId: 'iframePlayer',
+    containerId: 'videoContainer',
+    loaderId: 'loader',
+    errorId: 'errorMsg',
+    btnPlayId: 'btnPlay',
+    btnMuteId: 'btnMute',
+    btnFullscreenId: 'btnFullscreen',
+    scheduleListId: 'scheduleList',
+    syncToastId: 'syncToast',
+    updateToastId: 'updateToast',
+    statusTextId: 'statusText',
+    statusOffsetId: 'statusOffset',
+    nowTitleId: 'nowTitle',
+    volOverlayId: 'volOverlay',
+    showClock: true,
+    clockId: 'clock',
+    clockDateId: 'clockDate'
+});
+</script>
+
+</body>
+</html>

@@ -3,9 +3,6 @@
  */
 
 function initPlayer(config) {
-    // -------------------------------------------------------------------------
-    // 1. DOM Elements Reference
-    // -------------------------------------------------------------------------
     const elements = {
         video: document.getElementById(config.videoId),
         iframe: document.getElementById(config.iframeId),
@@ -28,9 +25,6 @@ function initPlayer(config) {
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
 
-    // -------------------------------------------------------------------------
-    // 2. State Management
-    // -------------------------------------------------------------------------
     let hls = null;
     let currentScheduleItem = null;
     let schedule = [];
@@ -42,9 +36,6 @@ function initPlayer(config) {
     let retryCount = 0;
     const MAX_RETRIES = 3;
 
-    // -------------------------------------------------------------------------
-    // 3. UI Helpers
-    // -------------------------------------------------------------------------
     function showLoader(show) {
         if (elements.loader) {
             elements.loader.classList.toggle('hidden', !show);
@@ -84,22 +75,13 @@ function initPlayer(config) {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 4. Live Clock & EPG Sync Logic
-    // -------------------------------------------------------------------------
     function startClock() {
         if (!config.showClock) return;
-
         function updateClock() {
             const now = new Date();
-            if (elements.clock) {
-                elements.clock.textContent = now.toLocaleTimeString();
-            }
-            if (elements.clockDate) {
-                elements.clockDate.textContent = now.toLocaleDateString();
-            }
+            if (elements.clock) elements.clock.textContent = now.toLocaleTimeString();
+            if (elements.clockDate) elements.clockDate.textContent = now.toLocaleDateString();
         }
-
         updateClock();
         clockTimer = setInterval(updateClock, 1000);
     }
@@ -108,19 +90,17 @@ function initPlayer(config) {
         if (!schedule.length) return null;
         const nowSec = Math.floor(Date.now() / 1000);
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
-        return match || schedule[schedule.length - 1];
+        return match || schedule[0]; // Fallback to first program if out of bounds
     }
 
     function evaluateScheduleSync() {
         if (!schedule.length) return;
-
         const targetProgram = getCurrentProgram();
         if (!targetProgram) return;
 
         if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
             currentScheduleItem = targetProgram;
             if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
-
             renderScheduleUI();
             playMedia(targetProgram);
             showToast(elements.updateToast);
@@ -136,9 +116,6 @@ function initPlayer(config) {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 5. HLS.js Player Initialization & Error Handling
-    // -------------------------------------------------------------------------
     function destroyPlayer() {
         if (hls) {
             hls.destroy();
@@ -155,7 +132,6 @@ function initPlayer(config) {
         retryCount = 0;
 
         const isEmbed = program.url.includes('iframe') || program.isIframe;
-
         if (isEmbed) {
             setupIframePlayer(program.url);
         } else if (program.url.includes('.m3u8')) {
@@ -168,7 +144,6 @@ function initPlayer(config) {
     function setupIframePlayer(url) {
         isIframe = true;
         destroyPlayer();
-
         elements.video.style.display = 'none';
         elements.iframe.style.display = 'block';
         elements.iframe.src = url;
@@ -177,6 +152,17 @@ function initPlayer(config) {
         if (elements.btnMute) elements.btnMute.style.display = 'none';
         if (elements.volSlider) elements.volSlider.style.display = 'none';
         showLoader(false);
+    }
+
+    // Force application of the exact lapsed time since program start
+    function applyLinearSeek(program) {
+        if (program && program.startTime) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const targetOffset = nowSec - program.startTime;
+            if (targetOffset > 0) {
+                elements.video.currentTime = targetOffset;
+            }
+        }
     }
 
     function setupHlsPlayer(program) {
@@ -207,23 +193,21 @@ function initPlayer(config) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
+                
+                // Apply seek right after metadata/manifest parses
+                applyLinearSeek(program);
 
-                if (!isLiveStream && program.startTime) {
-                    const nowSec = Math.floor(Date.now() / 1000);
-                    const targetOffset = nowSec - program.startTime;
-                    if (targetOffset > 0) {
-                        elements.video.currentTime = targetOffset;
-                    }
-                }
-
-                // Attempt playback with unmuted audio first
                 elements.video.play().catch(() => {
-                    // Browser blocked unmuted autoplay -> fall back to muted autoplay
                     elements.video.muted = true;
                     updateMuteButtonState();
                     elements.video.play();
                 });
             });
+
+            // Fallback seek trigger on loadedmetadata in case manifest parsed event fires early
+            elements.video.addEventListener('loadedmetadata', () => {
+                applyLinearSeek(program);
+            }, { once: true });
 
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
@@ -254,6 +238,7 @@ function initPlayer(config) {
         } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
             elements.video.src = program.url;
             elements.video.addEventListener('loadedmetadata', () => {
+                applyLinearSeek(program);
                 elements.video.play().catch(() => {
                     elements.video.muted = true;
                     updateMuteButtonState();
@@ -277,6 +262,7 @@ function initPlayer(config) {
 
         destroyPlayer();
         elements.video.src = program.url;
+        applyLinearSeek(program);
         elements.video.play().catch(() => {
             elements.video.muted = true;
             updateMuteButtonState();
@@ -284,17 +270,12 @@ function initPlayer(config) {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // 6. UI Rendering & Progress Trackers
-    // -------------------------------------------------------------------------
     function renderScheduleUI() {
         if (!elements.scheduleList || !schedule.length) return;
-
         elements.scheduleList.innerHTML = schedule.map(item => {
             const isActive = currentScheduleItem && currentScheduleItem.id === item.id;
             const startStr = new Date(item.startTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const endStr = new Date(item.endTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
             return `
                 <div class="schedule-item ${isActive ? 'active' : ''}">
                     <strong>${startStr} - ${endStr}</strong>: ${item.title}
@@ -327,9 +308,6 @@ function initPlayer(config) {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 7. Event Listeners & Control Bindings
-    // -------------------------------------------------------------------------
     function bindEvents() {
         if (elements.btnPlay) {
             elements.btnPlay.addEventListener('click', () => {
@@ -365,30 +343,20 @@ function initPlayer(config) {
 
         if (elements.btnFullscreen) {
             elements.btnFullscreen.addEventListener('click', () => {
-                // Target the highest container available (wrapper or video element)
                 const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
-                
                 if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    const requestFn = targetEl.requestFullscreen || 
-                                      targetEl.webkitRequestFullscreen || 
-                                      targetEl.msRequestFullscreen;
+                    const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
                     if (requestFn) {
-                        requestFn.call(targetEl).catch(err => {
-                            console.error("Fullscreen request failed:", err);
-                        });
+                        requestFn.call(targetEl).catch(err => console.error("Fullscreen failed:", err));
                     }
                 } else {
-                    const exitFn = document.exitFullscreen || 
-                                   document.webkitExitFullscreen || 
-                                   document.msExitFullscreen;
-                    if (exitFn) {
-                        exitFn.call(document);
-                    }
+                    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                    if (exitFn) exitFn.call(document);
                 }
             });
         }
-        elements.video.addEventListener('volumechange', updateMuteButtonState);
 
+        elements.video.addEventListener('volumechange', updateMuteButtonState);
         elements.video.addEventListener('waiting', () => showLoader(true));
         elements.video.addEventListener('playing', () => {
             showLoader(false);
@@ -400,24 +368,14 @@ function initPlayer(config) {
         });
     }
 
-    // -------------------------------------------------------------------------
-    // 8. Sample Mock Schedule Generator & Startup
-    // -------------------------------------------------------------------------
     function generateMockSchedule() {
         const now = Math.floor(Date.now() / 1000);
         return [
             {
                 id: 'ch1',
-                title: 'Tears of Steel (HLS Demo Stream)',
-                startTime: now - 60,
-                endTime: now + 300,
-                url:'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
-            },
-            {
-                id: 'ch2',
-                title: 'Big Buck Bunny (Live Feed)',
-                startTime: now + 300,
-                endTime: now + 900,
+                title: 'Linear Stream Channel',
+                startTime: now - 300, // Started 5 minutes ago so it immediately seeks to 05:00 on refresh
+                endTime: now + 3600,  // Runs for 1 hour
                 url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
             }
         ];

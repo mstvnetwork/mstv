@@ -1,6 +1,6 @@
 /**
  * Production-Grade Broadcast Synchronized TV Player Controller
- * Features: Double-Buffered Seamless Transitions, Zero-drift Sync, Hidden Controls
+ * Features: Double-Buffered Seamless Transitions, Fixed Sync Math, Drift Correction
  */
 
 function initPlayer(config) {
@@ -25,7 +25,6 @@ function initPlayer(config) {
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
 
-    // Active & Background Media References
     let activeVideo = elements.videoPrimary;
     let hiddenVideo = elements.videoSecondary;
     let activeHls = null;
@@ -42,6 +41,7 @@ function initPlayer(config) {
     let clockTimer = null;
     let retryCount = 0;
     let isInternalSeeking = false;
+    let hasInitialSeekApplied = false;
     let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
@@ -125,17 +125,13 @@ function initPlayer(config) {
         });
     }
 
+    // FIXED: Corrected linear broadcast playback position without artificial wrapping
     function getBroadcastCalculatedTime(program) {
         if (!program || !program.startTime) return 0;
         const nowSec = Date.now() / 1000;
         let elapsedTime = nowSec - program.startTime;
         if (elapsedTime < 0) return 0;
-
-        const videoDuration = activeVideo.duration || program.duration;
-        if (videoDuration && !isNaN(videoDuration) && videoDuration > 0) {
-            return elapsedTime % videoDuration;
-        }
-        return elapsedTime;
+        return Math.min(elapsedTime, program.duration);
     }
 
     function getCurrentProgram(offsetSeconds = 0) {
@@ -147,9 +143,8 @@ function initPlayer(config) {
         return match || schedule[0];
     }
 
-    // --- PRELOAD NEXT ITEM IN BACKGROUND ---
     function preloadNextStream() {
-        const nextProgram = getCurrentProgram(5); // Peak 5 seconds ahead
+        const nextProgram = getCurrentProgram(8); // Pre-buffer 8s ahead
         if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
 
         preloadedScheduleItem = nextProgram;
@@ -176,7 +171,6 @@ function initPlayer(config) {
         }
     }
 
-    // --- SWAP VIDEO ELEMENTS SEAMLESSLY ---
     function playMedia(program) {
         showError(null);
         retryCount = 0;
@@ -190,19 +184,16 @@ function initPlayer(config) {
         isIframe = false;
         elements.iframe.style.display = 'none';
 
-        // Check if secondary element has preloaded target program
         if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
             hiddenVideo.muted = activeVideo.muted;
             hiddenVideo.volume = activeVideo.volume;
 
-            // Transition visibility instantly
             activeVideo.style.display = 'none';
             activeVideo.pause();
 
             hiddenVideo.style.display = 'block';
             executeAutoPlay(hiddenVideo);
 
-            // Swap References
             const tempVid = activeVideo;
             activeVideo = hiddenVideo;
             hiddenVideo = tempVid;
@@ -215,7 +206,6 @@ function initPlayer(config) {
             bindVideoEvents(activeVideo);
             showLoader(false);
         } else {
-            // Direct load fallback
             setupVideoSource(activeVideo, program, false);
         }
     }
@@ -235,7 +225,6 @@ function initPlayer(config) {
             const hls = new Hls({
                 liveSyncDurationCount: 3,
                 liveMaxLatencyDurationCount: 10,
-                liveDurationInfinity: true,
                 enableWorker: true,
                 lowLatencyMode: true
             });
@@ -289,14 +278,14 @@ function initPlayer(config) {
         }
     }
 
+    // FIXED: Smart sync drift evaluation with safe thresholds
     function evaluateScheduleSync() {
         if (!rawPlaylist.length) return;
         const targetProgram = getCurrentProgram();
         if (!targetProgram) return;
 
-        // Check if approaching track boundary (5 seconds before end)
         const currentOffset = getBroadcastCalculatedTime(targetProgram);
-        if (targetProgram.duration - currentOffset <= 5) {
+        if (targetProgram.duration - currentOffset <= 8) {
             preloadNextStream();
         }
 
@@ -306,22 +295,24 @@ function initPlayer(config) {
             renderScheduleUI();
             playMedia(targetProgram);
             showToast(elements.updateToast);
-        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2) {
+        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2 && !isInternalSeeking) {
             const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
             const actualOffset = activeVideo.currentTime;
             const drift = actualOffset - expectedOffset;
 
-            if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
-                activeVideo.playbackRate = drift < 0 ? 1.05 : 0.95;
+            // Micro adjustments via playback rate (no seeking interrupts)
+            if (Math.abs(drift) > 1.0 && Math.abs(drift) <= 5) {
+                activeVideo.playbackRate = drift < 0 ? 1.03 : 0.97;
             } else {
                 activeVideo.playbackRate = 1.0;
             }
 
-            if (Math.abs(drift) > 3) {
+            // Hard seek ONLY if drift is severe (> 8s gap)
+            if (Math.abs(drift) > 8) {
                 isInternalSeeking = true;
                 activeVideo.currentTime = expectedOffset;
                 showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
+                setTimeout(() => { isInternalSeeking = false; }, 1000);
             }
         }
     }

@@ -36,6 +36,17 @@ function initPlayer(config) {
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
+    // Anti-tamper check loop to guarantee logo stays on screen
+    setInterval(() => {
+        const logo = document.getElementById('tvLogoWatermark');
+        if (logo) {
+            if (logo.style.display === 'none' || logo.style.visibility === 'hidden') {
+                logo.style.display = 'flex';
+                logo.style.visibility = 'visible';
+            }
+        }
+    }, 1000);
+
     function showLoader(show) {
         if (elements.loader) {
             elements.loader.classList.toggle('hidden', !show);
@@ -111,7 +122,6 @@ function initPlayer(config) {
             const expectedOffset = nowSec - currentScheduleItem.startTime;
             const actualOffset = elements.video.currentTime;
 
-            // Strict drift correction or bypass jump check (>3 seconds out of sync)
             if (Math.abs(actualOffset - expectedOffset) > 3) {
                 isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
@@ -342,14 +352,12 @@ function initPlayer(config) {
             });
         }
 
-        // --- STRICT REVERT BACK TO LIVE IF VIEWER SEEKS/BYPASSES ---
         elements.video.addEventListener('seeking', () => {
             if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
 
             const nowSec = Math.floor(Date.now() / 1000);
             const expectedOffset = nowSec - currentScheduleItem.startTime;
 
-            // If user tried jumping/seeking manually away from the live linear progression point
             if (Math.abs(elements.video.currentTime - expectedOffset) > 2) {
                 isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
@@ -369,7 +377,6 @@ function initPlayer(config) {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
         });
 
-        // --- Auto-hiding Controls Inactivity Logic ---
         let hideControlsTimeout = null;
 
         function triggerActivity() {
@@ -411,4 +418,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
     progressTimer = setInterval(updateProgress, 500);
-        }
+                                             }

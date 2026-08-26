@@ -443,16 +443,23 @@ function initPlayer(config) {
         return [
             {
                 "title": "Apna Tv Stream - Part 01",
-                "duration": 1936,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8",
+                "duration": 2144,
+                "url": "https://https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxz757bboxuzvta274tssrqu75tgcjfqjgshcemvbrda25jcb72qahh4q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxz757bboxuzvta274tssrqu75tgcjfqjgshcemvbrda25jcb72qahh4q%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             },
             {
                 "title": "Apna Tv Stream - Part 02",
-                "duration": 1550,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw3ou7bboxuzvta5p4fyg3zzw2miat4r42ehp4675zhejr4772q4ebtlq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw3ou7bboxuzvta5p4fyg3zzw2miat4r42ehp4675zhejr4772q4ebtlq%2Findex-v1-a1.m3u8",
+                "duration": 1497,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxzx57bboxuzvta274dacqjvyjp3gm3hkbcawtep5nem675jmzjza2iaq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxzx57bboxuzvta274dacqjvyjp3gm3hkbcawtep5nem675jmzjza2iaq%2Findex-v1-a1.m3u8",
+                "type": "m3u8"
+            },
+            {
+                "title": "Apna Tv Stream - Part 03",
+                "duration": 8801,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }
+            
         ];
     }
 

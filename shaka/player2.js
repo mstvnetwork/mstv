@@ -1,11 +1,12 @@
 /**
- * 99.9% Production-Grade Broadcast Synchronized TV Player Controller
- * Features: Simplified Playlist Input, Continuous Looping, Zero-drift Sync, Hidden Controls on Hover/Click
+ * Production-Grade Broadcast Synchronized TV Player Controller
+ * Features: Double-Buffered Seamless Transitions, Zero-drift Sync, Hidden Controls
  */
 
 function initPlayer(config) {
     const elements = {
-        video: document.getElementById(config.videoId),
+        videoPrimary: document.getElementById(config.videoId),
+        videoSecondary: document.getElementById('videoPlayerNext'),
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
@@ -24,8 +25,14 @@ function initPlayer(config) {
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
 
-    let hls = null;
+    // Active & Background Media References
+    let activeVideo = elements.videoPrimary;
+    let hiddenVideo = elements.videoSecondary;
+    let activeHls = null;
+    let hiddenHls = null;
+
     let currentScheduleItem = null;
+    let preloadedScheduleItem = null;
     let rawPlaylist = [];
     let schedule = [];
     let isLiveStream = false;
@@ -35,12 +42,10 @@ function initPlayer(config) {
     let clockTimer = null;
     let retryCount = 0;
     let isInternalSeeking = false;
-    let hasInitialSeekApplied = false;
     let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
-    // FIXED CHANNEL UTC ANCHOR: Base time reference for absolute world synchronization
     const CHANNEL_START_EPOCH = 1700000000;
 
     function showLoader(show) {
@@ -75,7 +80,7 @@ function initPlayer(config) {
 
     function updateMuteButtonState() {
         if (!elements.btnMute) return;
-        elements.btnMute.textContent = (elements.video.muted || elements.video.volume === 0) ? '🔇' : '🔊';
+        elements.btnMute.textContent = (activeVideo.muted || activeVideo.volume === 0) ? '🔇' : '🔊';
     }
 
     function startClock() {
@@ -89,7 +94,6 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
-    // --- AUTOMATIC TIMELINE ENGINE FOR SIMPLIFIED PLAYLISTS ---
     function buildScheduleFromSimplePlaylist(playlist) {
         if (!playlist || !playlist.length) return [];
         
@@ -115,103 +119,151 @@ function initPlayer(config) {
                 endTime: itemEndTime,
                 duration: item.duration,
                 url: item.url,
+                type: item.type,
                 isIframe: item.type === 'iframe'
             };
         });
     }
 
-    // --- BROADCAST TIME CALCULATION ENGINE ---
     function getBroadcastCalculatedTime(program) {
         if (!program || !program.startTime) return 0;
-        
         const nowSec = Date.now() / 1000;
         let elapsedTime = nowSec - program.startTime;
-
         if (elapsedTime < 0) return 0;
 
-        // If the individual video duration is known, ensure smooth wrapping within item duration
-        const videoDuration = elements.video.duration || program.duration;
+        const videoDuration = activeVideo.duration || program.duration;
         if (videoDuration && !isNaN(videoDuration) && videoDuration > 0) {
             return elapsedTime % videoDuration;
         }
-
         return elapsedTime;
     }
 
-    function getCurrentProgram() {
+    function getCurrentProgram(offsetSeconds = 0) {
         schedule = buildScheduleFromSimplePlaylist(rawPlaylist);
         if (!schedule.length) return null;
 
-        const nowSec = Date.now() / 1000;
+        const nowSec = (Date.now() / 1000) + offsetSeconds;
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
         return match || schedule[0];
     }
 
-    // --- ACCURATE 99.9% LIVE DRIFT CORRECTION ---
-    function evaluateScheduleSync() {
-        if (!rawPlaylist.length) return;
-        const targetProgram = getCurrentProgram();
-        if (!targetProgram) return;
+    // --- PRELOAD NEXT ITEM IN BACKGROUND ---
+    function preloadNextStream() {
+        const nextProgram = getCurrentProgram(5); // Peak 5 seconds ahead
+        if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
 
-        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
-            currentScheduleItem = targetProgram;
-            hasInitialSeekApplied = false;
-            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
-            renderScheduleUI();
-            playMedia(targetProgram);
-            showToast(elements.updateToast);
-        } else if (!isLiveStream && !isIframe && elements.video.readyState >= 2) {
-            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
-            const actualOffset = elements.video.currentTime;
-            const drift = actualOffset - expectedOffset;
+        preloadedScheduleItem = nextProgram;
+        hiddenVideo.muted = true;
 
-            // Micro-adjustments: smooth out minor clock drifts transparently
-            if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
-                elements.video.playbackRate = drift < 0 ? 1.05 : 0.95;
-            } else {
-                elements.video.playbackRate = 1.0;
-            }
+        if (hiddenHls) {
+            hiddenHls.destroy();
+            hiddenHls = null;
+        }
 
-            // Hard seek jump if manual seek or large drift occurs
-            if (Math.abs(drift) > 3) {
-                isInternalSeeking = true;
-                elements.video.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
+        const calculatedSeek = getBroadcastCalculatedTime(nextProgram);
+
+        if (nextProgram.url.includes('.m3u8') && Hls.isSupported()) {
+            hiddenHls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hiddenHls.loadSource(nextProgram.url);
+            hiddenHls.attachMedia(hiddenVideo);
+            hiddenHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hiddenVideo.currentTime = calculatedSeek;
+            });
+        } else {
+            hiddenVideo.src = nextProgram.url;
+            hiddenVideo.currentTime = calculatedSeek;
+            hiddenVideo.load();
         }
     }
 
-    function destroyPlayer() {
-        if (hls) {
-            hls.destroy();
-            hls = null;
-        }
-        elements.video.pause();
-        elements.video.removeAttribute('src');
-        elements.video.load();
-    }
-
+    // --- SWAP VIDEO ELEMENTS SEAMLESSLY ---
     function playMedia(program) {
         showError(null);
-        showLoader(true);
         retryCount = 0;
-        hasInitialSeekApplied = false;
 
         const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {
             setupIframePlayer(program.url);
-        } else if (program.url.includes('.m3u8')) {
-            setupHlsPlayer(program);
+            return;
+        }
+
+        isIframe = false;
+        elements.iframe.style.display = 'none';
+
+        // Check if secondary element has preloaded target program
+        if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
+            hiddenVideo.muted = activeVideo.muted;
+            hiddenVideo.volume = activeVideo.volume;
+
+            // Transition visibility instantly
+            activeVideo.style.display = 'none';
+            activeVideo.pause();
+
+            hiddenVideo.style.display = 'block';
+            executeAutoPlay(hiddenVideo);
+
+            // Swap References
+            const tempVid = activeVideo;
+            activeVideo = hiddenVideo;
+            hiddenVideo = tempVid;
+
+            const tempHls = activeHls;
+            activeHls = hiddenHls;
+            hiddenHls = tempHls;
+
+            preloadedScheduleItem = null;
+            bindVideoEvents(activeVideo);
+            showLoader(false);
         } else {
-            setupNativeVideoPlayer(program);
+            // Direct load fallback
+            setupVideoSource(activeVideo, program, false);
+        }
+    }
+
+    function setupVideoSource(targetVideo, program, isBackground) {
+        let hlsInstance = isBackground ? hiddenHls : activeHls;
+        if (hlsInstance) {
+            hlsInstance.destroy();
+            hlsInstance = null;
+        }
+
+        targetVideo.style.display = isBackground ? 'none' : 'block';
+        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+
+        if (program.url.includes('.m3u8') && Hls.isSupported()) {
+            const hls = new Hls({
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                liveDurationInfinity: true,
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+
+            hls.loadSource(program.url);
+            hls.attachMedia(targetVideo);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                isLiveStream = data.levels[0]?.details?.live || false;
+                applyLinearSeek(program, targetVideo);
+                if (!isBackground) executeAutoPlay(targetVideo);
+            });
+
+            if (isBackground) hiddenHls = hls;
+            else activeHls = hls;
+
+        } else {
+            targetVideo.src = program.url;
+            applyLinearSeek(program, targetVideo);
+            if (!isBackground) executeAutoPlay(targetVideo);
         }
     }
 
     function setupIframePlayer(url) {
         isIframe = true;
         destroyPlayer();
-        elements.video.style.display = 'none';
+        activeVideo.style.display = 'none';
+        hiddenVideo.style.display = 'none';
         elements.iframe.style.display = 'block';
         elements.iframe.src = url;
 
@@ -220,100 +272,65 @@ function initPlayer(config) {
         showLoader(false);
     }
 
-    function applyLinearSeek(program) {
-        if (program && program.startTime && elements.video.readyState >= 1) {
+    function executeAutoPlay(videoTarget) {
+        videoTarget.play().catch(() => {
+            videoTarget.muted = true;
+            updateMuteButtonState();
+            videoTarget.play().catch(e => console.error("Autoplay failed:", e));
+        });
+    }
+
+    function applyLinearSeek(program, videoTarget) {
+        if (program && program.startTime) {
             const targetOffset = getBroadcastCalculatedTime(program);
             isInternalSeeking = true;
-            elements.video.currentTime = targetOffset;
-            hasInitialSeekApplied = true;
+            videoTarget.currentTime = targetOffset;
             setTimeout(() => { isInternalSeeking = false; }, 500);
         }
     }
 
-    function executeAutoPlay() {
-        elements.video.play().catch(() => {
-            elements.video.muted = true;
-            updateMuteButtonState();
-            elements.video.play().catch(e => console.error("Autoplay failed:", e));
-        });
-    }
+    function evaluateScheduleSync() {
+        if (!rawPlaylist.length) return;
+        const targetProgram = getCurrentProgram();
+        if (!targetProgram) return;
 
-    function setupHlsPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        elements.video.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+        // Check if approaching track boundary (5 seconds before end)
+        const currentOffset = getBroadcastCalculatedTime(targetProgram);
+        if (targetProgram.duration - currentOffset <= 5) {
+            preloadNextStream();
+        }
 
-        destroyPlayer();
+        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
+            currentScheduleItem = targetProgram;
+            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
+            renderScheduleUI();
+            playMedia(targetProgram);
+            showToast(elements.updateToast);
+        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2) {
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const actualOffset = activeVideo.currentTime;
+            const drift = actualOffset - expectedOffset;
 
-        if (Hls.isSupported()) {
-            hls = new Hls({
-                liveSyncDurationCount: 3,
-                liveMaxLatencyDurationCount: 10,
-                liveDurationInfinity: true,
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 60,
-                maxBufferLength: 30,
-                maxMaxBufferLength: 60
-            });
+            if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
+                activeVideo.playbackRate = drift < 0 ? 1.05 : 0.95;
+            } else {
+                activeVideo.playbackRate = 1.0;
+            }
 
-            hls.loadSource(program.url);
-            hls.attachMedia(elements.video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                isLiveStream = data.levels[0]?.details?.live || false;
-                executeAutoPlay();
-            });
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            if (retryCount < MAX_RETRIES) {
-                                retryCount++;
-                                showError(`Network issue. Re-syncing... (${retryCount}/${MAX_RETRIES})`);
-                                hls.startLoad();
-                            } else {
-                                showError('Network offline. Re-initializing playback...');
-                                setTimeout(() => playMedia(program), 3000);
-                            }
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            showError('Buffer error. Recovering broadcast...');
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            showError('Critical error. Reloading broadcast...');
-                            destroyPlayer();
-                            setTimeout(() => playMedia(program), 2000);
-                            break;
-                    }
-                }
-            });
-
-        } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
-            elements.video.src = program.url;
-            executeAutoPlay();
-        } else {
-            showError('HLS Playback is not supported on this browser.');
-            showLoader(false);
+            if (Math.abs(drift) > 3) {
+                isInternalSeeking = true;
+                activeVideo.currentTime = expectedOffset;
+                showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 500);
+            }
         }
     }
 
-    function setupNativeVideoPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        elements.video.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
-
-        destroyPlayer();
-        elements.video.src = program.url;
-        executeAutoPlay();
+    function destroyPlayer() {
+        if (activeHls) { activeHls.destroy(); activeHls = null; }
+        if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+        activeVideo.pause();
+        hiddenVideo.pause();
     }
 
     function renderScheduleUI() {
@@ -339,44 +356,53 @@ function initPlayer(config) {
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
-            if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(elements.video.duration - elements.video.currentTime)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(activeVideo.duration - activeVideo.currentTime)}`;
         } else if (currentScheduleItem) {
             const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
-            const duration = elements.video.duration || currentScheduleItem.duration;
+            const duration = activeVideo.duration || currentScheduleItem.duration;
 
-            if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(elements.video.currentTime)} / ${formatTime(duration)}`;
-            if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(elements.video.currentTime - expectedOffset).toFixed(1)}s`;
+            if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(activeVideo.currentTime - expectedOffset).toFixed(1)}s`;
         }
     }
 
     function resetControlsTimeout() {
         if (!elements.container) return;
-
         elements.container.classList.remove('controls-hidden');
         clearTimeout(hideControlsTimeout);
 
-        if (elements.video && !elements.video.paused) {
+        if (activeVideo && !activeVideo.paused) {
             hideControlsTimeout = setTimeout(() => {
                 elements.container.classList.add('controls-hidden');
             }, 2500);
         }
     }
 
-    function bindEvents() {
-        elements.video.addEventListener('canplay', () => {
-            if (!hasInitialSeekApplied && currentScheduleItem && !isLiveStream && !isIframe) {
-                applyLinearSeek(currentScheduleItem);
-            }
-        });
+    function bindVideoEvents(videoEl) {
+        videoEl.onwaiting = () => showLoader(true);
+        videoEl.onplaying = () => {
+            showLoader(false);
+            showError(null);
+            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
+            resetControlsTimeout();
+        };
+        videoEl.onpause = () => {
+            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
+            clearTimeout(hideControlsTimeout);
+            if (elements.container) elements.container.classList.remove('controls-hidden');
+        };
+        videoEl.onvolumechange = updateMuteButtonState;
+    }
 
+    function bindControls() {
         if (elements.btnPlay) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (elements.video.paused) {
-                    elements.video.play();
+                if (activeVideo.paused) {
+                    activeVideo.play();
                     elements.btnPlay.textContent = '⏸';
                 } else {
-                    elements.video.pause();
+                    activeVideo.pause();
                     elements.btnPlay.textContent = '▶';
                 }
             });
@@ -385,7 +411,7 @@ function initPlayer(config) {
         if (elements.btnMute) {
             elements.btnMute.addEventListener('click', (e) => {
                 e.stopPropagation();
-                elements.video.muted = !elements.video.muted;
+                activeVideo.muted = !activeVideo.muted;
                 updateMuteButtonState();
             });
         }
@@ -393,82 +419,47 @@ function initPlayer(config) {
         if (elements.btnFullscreen) {
             elements.btnFullscreen.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
-                    if (requestFn) {
-                        requestFn.call(targetEl).catch(err => console.error("Fullscreen failed:", err));
-                    }
+                const targetEl = elements.container || activeVideo;
+                if (!document.fullscreenElement) {
+                    targetEl.requestFullscreen().catch(err => console.error("Fullscreen failed:", err));
                 } else {
-                    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-                    if (exitFn) exitFn.call(document);
+                    document.exitFullscreen();
                 }
             });
         }
-
-        elements.video.addEventListener('seeking', () => {
-            if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
-
-            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
-            if (Math.abs(elements.video.currentTime - expectedOffset) > 1.5) {
-                isInternalSeeking = true;
-                elements.video.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
-        });
-
-        elements.video.addEventListener('volumechange', updateMuteButtonState);
-        elements.video.addEventListener('waiting', () => showLoader(true));
-        elements.video.addEventListener('playing', () => {
-            showLoader(false);
-            showError(null);
-            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
-            resetControlsTimeout();
-        });
-        
-        elements.video.addEventListener('pause', () => {
-            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
-            clearTimeout(hideControlsTimeout);
-            if (elements.container) {
-                elements.container.classList.remove('controls-hidden');
-            }
-        });
 
         if (elements.container) {
             elements.container.addEventListener('mousemove', resetControlsTimeout);
             elements.container.addEventListener('mousedown', resetControlsTimeout);
             elements.container.addEventListener('click', resetControlsTimeout);
-            elements.container.addEventListener('touchstart', resetControlsTimeout, { passive: true });
-            
             elements.container.addEventListener('mouseleave', () => {
-                if (elements.video && !elements.video.paused) {
+                if (activeVideo && !activeVideo.paused) {
                     elements.container.classList.add('controls-hidden');
                 }
             });
         }
     }
 
-    // --- YOUR SIMPLE SIMPLIFIED PLAYLIST ---
     function loadPlaylist() {
         return [
             {
                 "title": "Apna Tv Stream - Part 01",
-                "duration": 60, // Duration in seconds (e.g., 1 hr)
+                "duration": 60,
                 "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             },
             {
                 "title": "Apna Tv Stream - Part 02",
-                "duration": 60, // 30 minutes
+                "duration": 60,
                 "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohx2xg7bboxuzvta274da3tbucwbprvcc4fsva4iybw7nz3gjodmobutra%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohx2xg7bboxuzvta274da3tbucwbprvcc4fsva4iybw7nz3gjodmobutra%2Findex-v1-a1.m3u8",
-                "type": "ifrane"
+                "type": "m3u8"
             }
         ];
     }
 
     rawPlaylist = loadPlaylist();
-    bindEvents();
+    bindVideoEvents(activeVideo);
+    bindControls();
     startClock();
     evaluateScheduleSync();
 

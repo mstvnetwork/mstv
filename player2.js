@@ -24,6 +24,24 @@ function initPlayer(config) {
         clock: config.showClock ? document.getElementById(config.clockId) : null,
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
+    // --- Auto-hiding Controls Inactivity Timer ---
+    let hideControlsTimeout = null;
+    function handleContainerActivity() {
+        elements.container.classList.remove('controls-hidden');
+        clearTimeout(hideControlsTimeout);
+        
+        hideControlsTimeout = setTimeout(() => {
+            if (!elements.video.paused) {
+                elements.container.classList.add('controls-hidden');
+            }
+        }, 2500); // Fades out after 2.5 seconds of inactivity
+    }
+
+    if (elements.container) {
+        elements.container.addEventListener('mousemove', handleContainerActivity);
+        elements.container.addEventListener('click', handleContainerActivity);
+        elements.container.addEventListener('touchstart', handleContainerActivity);
+    }
 
     // -------------------------------------------------------------------------
     // 2. State Management

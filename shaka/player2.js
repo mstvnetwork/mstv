@@ -34,6 +34,7 @@ function initPlayer(config) {
     let retryCount = 0;
     let isInternalSeeking = false;
     let hasInitialSeekApplied = false;
+    let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
@@ -93,7 +94,7 @@ function initPlayer(config) {
 
         if (elapsedTime < 0) return 0;
 
-        // Loop modulo arithmetic if total length exceeds video media duration
+        // Loop modulo arithmetic if broadcast duration exceeds local video length
         const videoDuration = elements.video.duration;
         if (videoDuration && !isNaN(videoDuration) && videoDuration > 0) {
             return elapsedTime % videoDuration;
@@ -129,14 +130,14 @@ function initPlayer(config) {
             const actualOffset = elements.video.currentTime;
             const drift = actualOffset - expectedOffset;
 
-            // Micro-adjustments: smooth drift with slight playback rate adjustments
+            // Micro-adjustments: smooth small drifts via subtle speed changes
             if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
                 elements.video.playbackRate = drift < 0 ? 1.05 : 0.95;
             } else {
                 elements.video.playbackRate = 1.0;
             }
 
-            // Hard adjustment if drift exceeds 3 seconds
+            // Hard seek jump if drift exceeds 3 seconds
             if (Math.abs(drift) > 3) {
                 isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
@@ -313,8 +314,20 @@ function initPlayer(config) {
         }
     }
 
+    function resetControlsTimeout() {
+        if (!elements.container) return;
+
+        elements.container.classList.remove('controls-hidden');
+        clearTimeout(hideControlsTimeout);
+
+        if (elements.video && !elements.video.paused) {
+            hideControlsTimeout = setTimeout(() => {
+                elements.container.classList.add('controls-hidden');
+            }, 2500);
+        }
+    }
+
     function bindEvents() {
-        // Essential: Perform actual frame seek only when metadata and initial buffer frames load completely
         elements.video.addEventListener('canplay', () => {
             if (!hasInitialSeekApplied && currentScheduleItem && !isLiveStream && !isIframe) {
                 applyLinearSeek(currentScheduleItem);
@@ -358,7 +371,6 @@ function initPlayer(config) {
             });
         }
 
-        // Snap viewers back immediately if they attempt to manual seek
         elements.video.addEventListener('seeking', () => {
             if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
 
@@ -377,58 +389,33 @@ function initPlayer(config) {
             showLoader(false);
             showError(null);
             if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
+            resetControlsTimeout();
         });
+        
         elements.video.addEventListener('pause', () => {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
+            clearTimeout(hideControlsTimeout);
+            if (elements.container) {
+                elements.container.classList.remove('controls-hidden');
+            }
         });
 
-        // --- AUTO-HIDING CONTROLS INACTIVITY LOGIC ---
-let hideControlsTimeout = null;
-
-function resetControlsTimeout() {
-    if (!elements.container) return;
-
-    // 1. Reveal controls immediately on user activity
-    elements.container.classList.remove('controls-hidden');
-    clearTimeout(hideControlsTimeout);
-
-    // 2. Hide controls automatically after 2.5 seconds if video is actively playing
-    if (elements.video && !elements.video.paused) {
-        hideControlsTimeout = setTimeout(() => {
-            elements.container.classList.add('controls-hidden');
-        }, 2500);
-    }
-}
-
-if (elements.container) {
-    // Triggers on mouse move, clicks, double clicks, and touch events
-    elements.container.addEventListener('mousemove', resetControlsTimeout);
-    elements.container.addEventListener('mousedown', resetControlsTimeout);
-    elements.container.addEventListener('click', resetControlsTimeout);
-    elements.container.addEventListener('touchstart', resetControlsTimeout, { passive: true });
-    
-    // Immediately hide controls when the mouse leaves the video frame entirely
-    elements.container.addEventListener('mouseleave', () => {
-        if (elements.video && !elements.video.paused) {
-            elements.container.classList.add('controls-hidden');
+        if (elements.container) {
+            elements.container.addEventListener('mousemove', resetControlsTimeout);
+            elements.container.addEventListener('mousedown', resetControlsTimeout);
+            elements.container.addEventListener('click', resetControlsTimeout);
+            elements.container.addEventListener('touchstart', resetControlsTimeout, { passive: true });
+            
+            elements.container.addEventListener('mouseleave', () => {
+                if (elements.video && !elements.video.paused) {
+                    elements.container.classList.add('controls-hidden');
+                }
+            });
         }
-    });
-}
-
-// Ensure controls stay visible if playback is paused
-elements.video.addEventListener('pause', () => {
-    clearTimeout(hideControlsTimeout);
-    if (elements.container) {
-        elements.container.classList.remove('controls-hidden');
     }
-});
 
-// Start the hide countdown as soon as video starts playing
-elements.video.addEventListener('playing', resetControlsTimeout);
-
-    // FIXED BROADCAST ANCHOR: Uses fixed UTC epoch time so all viewers hit the exact same offset
     function generateMockSchedule() {
-        const FIXED_CHANNEL_START_EPOCH = 1700000000; // Fixed UTC Anchor
+        const FIXED_CHANNEL_START_EPOCH = 1700000000;
         const ONE_YEAR_IN_SECONDS = 31536000;
         
         return [

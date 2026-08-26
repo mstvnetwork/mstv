@@ -3,17 +3,15 @@
  */
 
 function initPlayer(config) {
-    // -------------------------------------------------------------------------
-    // 1. DOM Elements Reference
-    // -------------------------------------------------------------------------
     const elements = {
         video: document.getElementById(config.videoId),
         iframe: document.getElementById(config.iframeId),
+        container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
         error: document.getElementById(config.errorId),
         btnPlay: document.getElementById(config.btnPlayId),
-        volSlider: document.getElementById(config.volSliderId),
-        progressFill: document.getElementById(config.progressFillId),
+        btnMute: document.getElementById(config.btnMuteId),
+        btnFullscreen: document.getElementById(config.btnFullscreenId),
         scheduleList: document.getElementById(config.scheduleListId),
         syncToast: document.getElementById(config.syncToastId),
         updateToast: document.getElementById(config.updateToastId),
@@ -24,28 +22,7 @@ function initPlayer(config) {
         clock: config.showClock ? document.getElementById(config.clockId) : null,
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
-    // --- Auto-hiding Controls Inactivity Timer ---
-    let hideControlsTimeout = null;
-    function handleContainerActivity() {
-        elements.container.classList.remove('controls-hidden');
-        clearTimeout(hideControlsTimeout);
-        
-        hideControlsTimeout = setTimeout(() => {
-            if (!elements.video.paused) {
-                elements.container.classList.add('controls-hidden');
-            }
-        }, 2500); // Fades out after 2.5 seconds of inactivity
-    }
 
-    if (elements.container) {
-        elements.container.addEventListener('mousemove', handleContainerActivity);
-        elements.container.addEventListener('click', handleContainerActivity);
-        elements.container.addEventListener('touchstart', handleContainerActivity);
-    }
-
-    // -------------------------------------------------------------------------
-    // 2. State Management
-    // -------------------------------------------------------------------------
     let hls = null;
     let currentScheduleItem = null;
     let schedule = [];
@@ -55,11 +32,10 @@ function initPlayer(config) {
     let progressTimer = null;
     let clockTimer = null;
     let retryCount = 0;
+    let isInternalSeeking = false;
     const MAX_RETRIES = 3;
+    const isEmbedMode = document.body.classList.contains('embed-mode');
 
-    // -------------------------------------------------------------------------
-    // 3. UI Helpers
-    // -------------------------------------------------------------------------
     function showLoader(show) {
         if (elements.loader) {
             elements.loader.classList.toggle('hidden', !show);
@@ -79,6 +55,8 @@ function initPlayer(config) {
 
     function showToast(el) {
         if (!el) return;
+        if (el === elements.updateToast && isEmbedMode) return;
+        
         el.classList.add('show');
         setTimeout(() => el.classList.remove('show'), 3000);
     }
@@ -90,69 +68,59 @@ function initPlayer(config) {
         return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
 
-    // -------------------------------------------------------------------------
-    // 4. Live Clock & EPG Sync Logic
-    // -------------------------------------------------------------------------
+    function updateMuteButtonState() {
+        if (!elements.btnMute) return;
+        if (elements.video.muted || elements.video.volume === 0) {
+            elements.btnMute.textContent = '🔇';
+        } else {
+            elements.btnMute.textContent = '🔊';
+        }
+    }
+
     function startClock() {
         if (!config.showClock) return;
-
         function updateClock() {
             const now = new Date();
-            if (elements.clock) {
-                elements.clock.textContent = now.toLocaleTimeString();
-            }
-            if (elements.clockDate) {
-                elements.clockDate.textContent = now.toLocaleDateString();
-            }
+            if (elements.clock) elements.clock.textContent = now.toLocaleTimeString();
+            if (elements.clockDate) elements.clockDate.textContent = now.toLocaleDateString();
         }
-
         updateClock();
         clockTimer = setInterval(updateClock, 1000);
     }
 
-    /**
-     * Finds what program should be playing based on system time relative to item start/end
-     */
     function getCurrentProgram() {
         if (!schedule.length) return null;
         const nowSec = Math.floor(Date.now() / 1000);
-
-        // Find match in provided linear schedule array
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
-        return match || schedule[schedule.length - 1]; // Fallback to last item if past schedule
+        return match || schedule[0];
     }
 
     function evaluateScheduleSync() {
         if (!schedule.length) return;
-
         const targetProgram = getCurrentProgram();
         if (!targetProgram) return;
 
-        // Swapped to a new channel/program
         if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
             currentScheduleItem = targetProgram;
             if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
-
             renderScheduleUI();
             playMedia(targetProgram);
             showToast(elements.updateToast);
         } else if (!isLiveStream && !isIframe) {
-            // Check drift for static files simulating live schedule offset
             const nowSec = Math.floor(Date.now() / 1000);
             const expectedOffset = nowSec - currentScheduleItem.startTime;
             const actualOffset = elements.video.currentTime;
 
-            // If drift > 4 seconds, seek to live edge of scheduled item
-            if (Math.abs(actualOffset - expectedOffset) > 4) {
+            // Strict drift correction or bypass jump check (>3 seconds out of sync)
+            if (Math.abs(actualOffset - expectedOffset) > 3) {
+                isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
                 showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 500);
             }
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 5. HLS.js Player Initialization & Error Handling
-    // -------------------------------------------------------------------------
     function destroyPlayer() {
         if (hls) {
             hls.destroy();
@@ -169,7 +137,6 @@ function initPlayer(config) {
         retryCount = 0;
 
         const isEmbed = program.url.includes('iframe') || program.isIframe;
-
         if (isEmbed) {
             setupIframePlayer(program.url);
         } else if (program.url.includes('.m3u8')) {
@@ -182,13 +149,25 @@ function initPlayer(config) {
     function setupIframePlayer(url) {
         isIframe = true;
         destroyPlayer();
-
         elements.video.style.display = 'none';
         elements.iframe.style.display = 'block';
         elements.iframe.src = url;
 
         if (elements.volOverlay) elements.volOverlay.style.display = 'block';
+        if (elements.btnMute) elements.btnMute.style.display = 'none';
         showLoader(false);
+    }
+
+    function applyLinearSeek(program) {
+        if (program && program.startTime) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const targetOffset = nowSec - program.startTime;
+            if (targetOffset > 0) {
+                isInternalSeeking = true;
+                elements.video.currentTime = targetOffset;
+                setTimeout(() => { isInternalSeeking = false; }, 500);
+            }
+        }
     }
 
     function setupHlsPlayer(program) {
@@ -197,18 +176,18 @@ function initPlayer(config) {
         elements.iframe.src = '';
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
 
         destroyPlayer();
 
         if (Hls.isSupported()) {
             hls = new Hls({
-                // Config tuned for ultra-smooth Live Sync & Low-Latency Playback
-                liveSyncDurationCount: 3,        // Keep 3 segments buffered to avoid stalls
-                liveMaxLatencyDurationCount: 10, // Catch up if falling too far behind
-                liveDurationInfinity: true,      // Treat live stream manifests correctly
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                liveDurationInfinity: true,
                 enableWorker: true,
                 lowLatencyMode: true,
-                backBufferLength: 60,            // Garbage collection buffer management
+                backBufferLength: 60,
                 maxBufferLength: 30,
                 maxMaxBufferLength: 60
             });
@@ -218,24 +197,19 @@ function initPlayer(config) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
-
-                // Sync static VOD item simulating a TV program to calculated target timestamp
-                if (!isLiveStream && program.startTime) {
-                    const nowSec = Math.floor(Date.now() / 1000);
-                    const targetOffset = nowSec - program.startTime;
-                    if (targetOffset > 0) {
-                        elements.video.currentTime = targetOffset;
-                    }
-                }
+                applyLinearSeek(program);
 
                 elements.video.play().catch(() => {
-                    // Autoplay blocked handling: start muted
                     elements.video.muted = true;
+                    updateMuteButtonState();
                     elements.video.play();
                 });
             });
 
-            // Resilient Stalling & Network Error Auto-Recovery Engine
+            elements.video.addEventListener('loadedmetadata', () => {
+                applyLinearSeek(program);
+            }, { once: true });
+
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal) {
                     switch (data.type) {
@@ -263,10 +237,14 @@ function initPlayer(config) {
             });
 
         } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
-            // Safari Native HLS Support
             elements.video.src = program.url;
             elements.video.addEventListener('loadedmetadata', () => {
-                elements.video.play();
+                applyLinearSeek(program);
+                elements.video.play().catch(() => {
+                    elements.video.muted = true;
+                    updateMuteButtonState();
+                    elements.video.play();
+                });
             });
         } else {
             showError('HLS Playback is not supported on this browser.');
@@ -280,23 +258,24 @@ function initPlayer(config) {
         elements.iframe.src = '';
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
 
         destroyPlayer();
         elements.video.src = program.url;
-        elements.video.play();
+        applyLinearSeek(program);
+        elements.video.play().catch(() => {
+            elements.video.muted = true;
+            updateMuteButtonState();
+            elements.video.play();
+        });
     }
 
-    // -------------------------------------------------------------------------
-    // 6. UI Rendering & Progress Trackers
-    // -------------------------------------------------------------------------
     function renderScheduleUI() {
         if (!elements.scheduleList || !schedule.length) return;
-
         elements.scheduleList.innerHTML = schedule.map(item => {
             const isActive = currentScheduleItem && currentScheduleItem.id === item.id;
             const startStr = new Date(item.startTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const endStr = new Date(item.endTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
             return `
                 <div class="schedule-item ${isActive ? 'active' : ''}">
                     <strong>${startStr} - ${endStr}</strong>: ${item.title}
@@ -309,32 +288,26 @@ function initPlayer(config) {
         if (isIframe) {
             if (elements.statusText) elements.statusText.textContent = 'Live (Embedded Player)';
             if (elements.statusOffset) elements.statusOffset.textContent = '';
-            if (elements.progressFill) elements.progressFill.style.width = '100%';
             return;
         }
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(elements.video.duration - elements.video.currentTime)}`;
-            if (elements.progressFill) elements.progressFill.style.width = '100%';
         } else if (currentScheduleItem) {
             const nowSec = Math.floor(Date.now() / 1000);
             const duration = currentScheduleItem.endTime - currentScheduleItem.startTime;
             const elapsed = nowSec - currentScheduleItem.startTime;
-            const pct = Math.min(Math.max((elapsed / duration) * 100, 0), 100);
 
-            if (elements.progressFill) elements.progressFill.style.width = `${pct}%`;
             if (elements.statusText) elements.statusText.textContent = `Linear Sync: ${formatTime(elapsed)} / ${formatTime(duration)}`;
             if (elements.statusOffset) elements.statusOffset.textContent = `Offset: +${Math.round(elements.video.currentTime - elapsed)}s`;
         }
     }
 
-    // -------------------------------------------------------------------------
-    // 7. Event Listeners & Control Bindings
-    // -------------------------------------------------------------------------
     function bindEvents() {
         if (elements.btnPlay) {
-            elements.btnPlay.addEventListener('click', () => {
+            elements.btnPlay.addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (elements.video.paused) {
                     elements.video.play();
                     elements.btnPlay.textContent = '⏸';
@@ -345,13 +318,47 @@ function initPlayer(config) {
             });
         }
 
-        if (elements.volSlider) {
-            elements.volSlider.addEventListener('input', (e) => {
-                elements.video.volume = parseFloat(e.target.value);
-                elements.video.muted = elements.video.volume === 0;
+        if (elements.btnMute) {
+            elements.btnMute.addEventListener('click', (e) => {
+                e.stopPropagation();
+                elements.video.muted = !elements.video.muted;
+                updateMuteButtonState();
             });
         }
 
+        if (elements.btnFullscreen) {
+            elements.btnFullscreen.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
+                    if (requestFn) {
+                        requestFn.call(targetEl).catch(err => console.error("Fullscreen failed:", err));
+                    }
+                } else {
+                    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
+                    if (exitFn) exitFn.call(document);
+                }
+            });
+        }
+
+        // --- STRICT REVERT BACK TO LIVE IF VIEWER SEEKS/BYPASSES ---
+        elements.video.addEventListener('seeking', () => {
+            if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
+
+            const nowSec = Math.floor(Date.now() / 1000);
+            const expectedOffset = nowSec - currentScheduleItem.startTime;
+
+            // If user tried jumping/seeking manually away from the live linear progression point
+            if (Math.abs(elements.video.currentTime - expectedOffset) > 2) {
+                isInternalSeeking = true;
+                elements.video.currentTime = expectedOffset;
+                showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 500);
+            }
+        });
+
+        elements.video.addEventListener('volumechange', updateMuteButtonState);
         elements.video.addEventListener('waiting', () => showLoader(true));
         elements.video.addEventListener('playing', () => {
             showLoader(false);
@@ -361,40 +368,47 @@ function initPlayer(config) {
         elements.video.addEventListener('pause', () => {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
         });
+
+        // --- Auto-hiding Controls Inactivity Logic ---
+        let hideControlsTimeout = null;
+
+        function triggerActivity() {
+            if (!elements.container) return;
+            elements.container.classList.remove('controls-hidden');
+            clearTimeout(hideControlsTimeout);
+
+            hideControlsTimeout = setTimeout(() => {
+                if (elements.video && !elements.video.paused) {
+                    elements.container.classList.add('controls-hidden');
+                }
+            }, 2500);
+        }
+
+        if (elements.container) {
+            elements.container.addEventListener('mousemove', triggerActivity);
+            elements.container.addEventListener('click', triggerActivity);
+            elements.container.addEventListener('touchstart', triggerActivity);
+        }
     }
 
-    // -------------------------------------------------------------------------
-    // 8. Sample Mock Schedule Generator & Startup
-    // -------------------------------------------------------------------------
     function generateMockSchedule() {
         const now = Math.floor(Date.now() / 1000);
         return [
             {
                 id: 'ch1',
-                title: 'Tears of Steel (HLS Demo Stream)',
-                startTime: now - 60,
-                endTime: now + 300,
-                url: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8'
-            },
-            {
-                id: 'ch2',
-                title: 'Big Buck Bunny (Live Feed)',
-                startTime: now + 300,
-                endTime: now + 900,
-                url: 'https://test-streams.mux.dev/x36xhzz/url_0/1920x1080/2000/index.m3u8'
+                title: 'Linear Stream Channel',
+                startTime: now - 300,
+                endTime: now + 3600,
+                url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
             }
         ];
     }
 
-    // Startup Execution
     schedule = generateMockSchedule();
     bindEvents();
     startClock();
     evaluateScheduleSync();
 
-    // Check Live Schedule alignment every 3 seconds
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
-    
-    // Update Progress Bars every 500ms
     progressTimer = setInterval(updateProgress, 500);
-                }
+}

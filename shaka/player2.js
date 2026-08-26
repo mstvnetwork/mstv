@@ -35,6 +35,7 @@ function initPlayer(config) {
     let clockTimer = null;
     let retryCount = 0;
     const MAX_RETRIES = 3;
+    const isEmbedMode = document.body.classList.contains('embed-mode');
 
     function showLoader(show) {
         if (elements.loader) {
@@ -55,6 +56,9 @@ function initPlayer(config) {
 
     function showToast(el) {
         if (!el) return;
+        // Skip update toast if we are in embed mode
+        if (el === elements.updateToast && isEmbedMode) return;
+        
         el.classList.add('show');
         setTimeout(() => el.classList.remove('show'), 3000);
     }
@@ -90,7 +94,7 @@ function initPlayer(config) {
         if (!schedule.length) return null;
         const nowSec = Math.floor(Date.now() / 1000);
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
-        return match || schedule[0]; // Fallback to first program if out of bounds
+        return match || schedule[0];
     }
 
     function evaluateScheduleSync() {
@@ -154,7 +158,6 @@ function initPlayer(config) {
         showLoader(false);
     }
 
-    // Force application of the exact lapsed time since program start
     function applyLinearSeek(program) {
         if (program && program.startTime) {
             const nowSec = Math.floor(Date.now() / 1000);
@@ -193,8 +196,6 @@ function initPlayer(config) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
-                
-                // Apply seek right after metadata/manifest parses
                 applyLinearSeek(program);
 
                 elements.video.play().catch(() => {
@@ -204,7 +205,6 @@ function initPlayer(config) {
                 });
             });
 
-            // Fallback seek trigger on loadedmetadata in case manifest parsed event fires early
             elements.video.addEventListener('loadedmetadata', () => {
                 applyLinearSeek(program);
             }, { once: true });
@@ -324,10 +324,6 @@ function initPlayer(config) {
         if (elements.btnMute) {
             elements.btnMute.addEventListener('click', () => {
                 elements.video.muted = !elements.video.muted;
-                if (!elements.video.muted && elements.video.volume === 0) {
-                    elements.video.volume = 0.8;
-                    if (elements.volSlider) elements.volSlider.value = 0.8;
-                }
                 updateMuteButtonState();
             });
         }
@@ -374,8 +370,8 @@ function initPlayer(config) {
             {
                 id: 'ch1',
                 title: 'Linear Stream Channel',
-                startTime: now - 300, // Started 5 minutes ago so it immediately seeks to 05:00 on refresh
-                endTime: now + 3600,  // Runs for 1 hour
+                startTime: now - 300,
+                endTime: now + 3600,
                 url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
             }
         ];
@@ -388,4 +384,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
     progressTimer = setInterval(updateProgress, 500);
-}
+    }

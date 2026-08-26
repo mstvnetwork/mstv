@@ -1,5 +1,6 @@
 /**
  * 99.9% Production-Grade Broadcast Synchronized TV Player Controller
+ * Features: Simplified Playlist Input, Continuous Looping, Zero-drift Sync, Hidden Controls on Hover/Click
  */
 
 function initPlayer(config) {
@@ -25,6 +26,7 @@ function initPlayer(config) {
 
     let hls = null;
     let currentScheduleItem = null;
+    let rawPlaylist = [];
     let schedule = [];
     let isLiveStream = false;
     let isIframe = false;
@@ -37,6 +39,9 @@ function initPlayer(config) {
     let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
+
+    // FIXED CHANNEL UTC ANCHOR: Base time reference for absolute world synchronization
+    const CHANNEL_START_EPOCH = 1700000000;
 
     function showLoader(show) {
         if (elements.loader) {
@@ -56,11 +61,9 @@ function initPlayer(config) {
     }
 
     function showToast(el) {
-    // Completely suppress all toast notifications if running in embed mode
-    if (!el || isEmbedMode) return;
-
-    el.classList.add('show');
-    setTimeout(() => el.classList.remove('show'), 3000);
+        if (!el || isEmbedMode) return;
+        el.classList.add('show');
+        setTimeout(() => el.classList.remove('show'), 3000);
     }
 
     function formatTime(seconds) {
@@ -86,37 +89,67 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
+    // --- AUTOMATIC TIMELINE ENGINE FOR SIMPLIFIED PLAYLISTS ---
+    function buildScheduleFromSimplePlaylist(playlist) {
+        if (!playlist || !playlist.length) return [];
+        
+        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+        if (totalPlaylistDuration <= 0) return [];
+
+        const now = Date.now() / 1000;
+        const elapsedSinceLaunch = now - CHANNEL_START_EPOCH;
+        const currentLoopOffset = elapsedSinceLaunch % totalPlaylistDuration;
+        const currentLoopStart = now - currentLoopOffset;
+
+        let accumulatedTime = 0;
+
+        return playlist.map((item, index) => {
+            const itemStartTime = currentLoopStart + accumulatedTime;
+            accumulatedTime += item.duration;
+            const itemEndTime = currentLoopStart + accumulatedTime;
+
+            return {
+                id: `item_${index}_${Math.floor(itemStartTime)}`,
+                title: item.title,
+                startTime: itemStartTime,
+                endTime: itemEndTime,
+                duration: item.duration,
+                url: item.url,
+                isIframe: item.type === 'iframe'
+            };
+        });
+    }
+
     // --- BROADCAST TIME CALCULATION ENGINE ---
     function getBroadcastCalculatedTime(program) {
         if (!program || !program.startTime) return 0;
         
         const nowSec = Date.now() / 1000;
-        const totalProgramDuration = program.endTime - program.startTime;
         let elapsedTime = nowSec - program.startTime;
 
         if (elapsedTime < 0) return 0;
 
-        // Loop modulo arithmetic if broadcast duration exceeds local video length
-        const videoDuration = elements.video.duration;
+        // If the individual video duration is known, ensure smooth wrapping within item duration
+        const videoDuration = elements.video.duration || program.duration;
         if (videoDuration && !isNaN(videoDuration) && videoDuration > 0) {
             return elapsedTime % videoDuration;
-        } else if (totalProgramDuration > 0) {
-            return elapsedTime % totalProgramDuration;
         }
 
         return elapsedTime;
     }
 
     function getCurrentProgram() {
+        schedule = buildScheduleFromSimplePlaylist(rawPlaylist);
         if (!schedule.length) return null;
-        const nowSec = Math.floor(Date.now() / 1000);
+
+        const nowSec = Date.now() / 1000;
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
         return match || schedule[0];
     }
 
     // --- ACCURATE 99.9% LIVE DRIFT CORRECTION ---
     function evaluateScheduleSync() {
-        if (!schedule.length) return;
+        if (!rawPlaylist.length) return;
         const targetProgram = getCurrentProgram();
         if (!targetProgram) return;
 
@@ -132,14 +165,14 @@ function initPlayer(config) {
             const actualOffset = elements.video.currentTime;
             const drift = actualOffset - expectedOffset;
 
-            // Micro-adjustments: smooth small drifts via subtle speed changes
+            // Micro-adjustments: smooth out minor clock drifts transparently
             if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
                 elements.video.playbackRate = drift < 0 ? 1.05 : 0.95;
             } else {
                 elements.video.playbackRate = 1.0;
             }
 
-            // Hard seek jump if drift exceeds 3 seconds
+            // Hard seek jump if manual seek or large drift occurs
             if (Math.abs(drift) > 3) {
                 isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
@@ -309,7 +342,7 @@ function initPlayer(config) {
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(elements.video.duration - elements.video.currentTime)}`;
         } else if (currentScheduleItem) {
             const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
-            const duration = elements.video.duration || (currentScheduleItem.endTime - currentScheduleItem.startTime);
+            const duration = elements.video.duration || currentScheduleItem.duration;
 
             if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(elements.video.currentTime)} / ${formatTime(duration)}`;
             if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(elements.video.currentTime - expectedOffset).toFixed(1)}s`;
@@ -416,22 +449,25 @@ function initPlayer(config) {
         }
     }
 
-    function generateMockSchedule() {
-        const FIXED_CHANNEL_START_EPOCH = 1700000000;
-        const ONE_YEAR_IN_SECONDS = 31536000;
-        
+    // --- YOUR SIMPLE SIMPLIFIED PLAYLIST ---
+    function loadPlaylist() {
         return [
             {
-                id: 'ch1',
-                title: 'Apna Tv Broadcast',
-                startTime: FIXED_CHANNEL_START_EPOCH,
-                endTime: FIXED_CHANNEL_START_EPOCH + ONE_YEAR_IN_SECONDS,
-                url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
+                "title": "Apna Tv Stream - Part 01",
+                "duration": 3600, // Duration in seconds (e.g., 1 hr)
+                "url": "https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8",
+                "type": "m3u8"
+            },
+            {
+                "title": "Apna Tv Stream - Part 02",
+                "duration": 1800, // 30 minutes
+                "url": "https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8",
+                "type": "m3u8"
             }
         ];
     }
 
-    schedule = generateMockSchedule();
+    rawPlaylist = loadPlaylist();
     bindEvents();
     startClock();
     evaluateScheduleSync();

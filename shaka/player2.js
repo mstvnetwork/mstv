@@ -12,8 +12,6 @@ function initPlayer(config) {
         btnPlay: document.getElementById(config.btnPlayId),
         btnMute: document.getElementById(config.btnMuteId),
         btnFullscreen: document.getElementById(config.btnFullscreenId),
-        volSlider: document.getElementById(config.volSliderId),
-        progressFill: document.getElementById(config.progressFillId),
         scheduleList: document.getElementById(config.scheduleListId),
         syncToast: document.getElementById(config.syncToastId),
         updateToast: document.getElementById(config.updateToastId),
@@ -56,7 +54,6 @@ function initPlayer(config) {
 
     function showToast(el) {
         if (!el) return;
-        // Skip update toast if we are in embed mode
         if (el === elements.updateToast && isEmbedMode) return;
         
         el.classList.add('show');
@@ -154,7 +151,6 @@ function initPlayer(config) {
 
         if (elements.volOverlay) elements.volOverlay.style.display = 'block';
         if (elements.btnMute) elements.btnMute.style.display = 'none';
-        if (elements.volSlider) elements.volSlider.style.display = 'none';
         showLoader(false);
     }
 
@@ -175,7 +171,6 @@ function initPlayer(config) {
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
         if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
-        if (elements.volSlider) elements.volSlider.style.display = 'inline-block';
 
         destroyPlayer();
 
@@ -258,7 +253,6 @@ function initPlayer(config) {
         elements.video.style.display = 'block';
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
         if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
-        if (elements.volSlider) elements.volSlider.style.display = 'inline-block';
 
         destroyPlayer();
         elements.video.src = program.url;
@@ -288,21 +282,17 @@ function initPlayer(config) {
         if (isIframe) {
             if (elements.statusText) elements.statusText.textContent = 'Live (Embedded Player)';
             if (elements.statusOffset) elements.statusOffset.textContent = '';
-            if (elements.progressFill) elements.progressFill.style.width = '100%';
             return;
         }
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(elements.video.duration - elements.video.currentTime)}`;
-            if (elements.progressFill) elements.progressFill.style.width = '100%';
         } else if (currentScheduleItem) {
             const nowSec = Math.floor(Date.now() / 1000);
             const duration = currentScheduleItem.endTime - currentScheduleItem.startTime;
             const elapsed = nowSec - currentScheduleItem.startTime;
-            const pct = Math.min(Math.max((elapsed / duration) * 100, 0), 100);
 
-            if (elements.progressFill) elements.progressFill.style.width = `${pct}%`;
             if (elements.statusText) elements.statusText.textContent = `Linear Sync: ${formatTime(elapsed)} / ${formatTime(duration)}`;
             if (elements.statusOffset) elements.statusOffset.textContent = `Offset: +${Math.round(elements.video.currentTime - elapsed)}s`;
         }
@@ -310,7 +300,8 @@ function initPlayer(config) {
 
     function bindEvents() {
         if (elements.btnPlay) {
-            elements.btnPlay.addEventListener('click', () => {
+            elements.btnPlay.addEventListener('click', (e) => {
+                e.stopPropagation();
                 if (elements.video.paused) {
                     elements.video.play();
                     elements.btnPlay.textContent = '⏸';
@@ -322,23 +313,16 @@ function initPlayer(config) {
         }
 
         if (elements.btnMute) {
-            elements.btnMute.addEventListener('click', () => {
+            elements.btnMute.addEventListener('click', (e) => {
+                e.stopPropagation();
                 elements.video.muted = !elements.video.muted;
                 updateMuteButtonState();
             });
         }
 
-        if (elements.volSlider) {
-            elements.volSlider.addEventListener('input', (e) => {
-                const val = parseFloat(e.target.value);
-                elements.video.volume = val;
-                elements.video.muted = val === 0;
-                updateMuteButtonState();
-            });
-        }
-
         if (elements.btnFullscreen) {
-            elements.btnFullscreen.addEventListener('click', () => {
+            elements.btnFullscreen.addEventListener('click', (e) => {
+                e.stopPropagation();
                 const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
                 if (!document.fullscreenElement && !document.webkitFullscreenElement) {
                     const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
@@ -362,6 +346,28 @@ function initPlayer(config) {
         elements.video.addEventListener('pause', () => {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
         });
+
+        // --- Robust Auto-hiding Controls Inactivity Logic ---
+        let hideControlsTimeout = null;
+
+        function triggerActivity() {
+            if (!elements.container) return;
+            elements.container.classList.remove('controls-hidden');
+            clearTimeout(hideControlsTimeout);
+
+            hideControlsTimeout = setTimeout(() => {
+                // Keep controls visible if video is paused, otherwise fade out
+                if (elements.video && !elements.video.paused) {
+                    elements.container.classList.add('controls-hidden');
+                }
+            }, 2500);
+        }
+
+        if (elements.container) {
+            elements.container.addEventListener('mousemove', triggerActivity);
+            elements.container.addEventListener('click', triggerActivity);
+            elements.container.addEventListener('touchstart', triggerActivity);
+        }
     }
 
     function generateMockSchedule() {
@@ -384,4 +390,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
     progressTimer = setInterval(updateProgress, 500);
-    }
+}

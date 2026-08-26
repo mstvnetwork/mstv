@@ -371,21 +371,10 @@ function initPlayer(config) {
 
     function loadPlaylist() {
         return [
-            {
-                "title": "Apna Tv Stream - Part 01",
-                "duration": 2144,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxz757bboxuzvta274tssrqu75tgcjfqjgshcemvbrda25jcb72qahh4q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxz757bboxuzvta274tssrqu75tgcjfqjgshcemvbrda25jcb72qahh4q%2Findex-v1-a1.m3u8",
-                "type": "m3u8"
-            },
-            {
-                "title": "Apna Tv Stream - Part 02",
-                "duration": 1497,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxzx57bboxuzvta274dacqjvyjp3gm3hkbcawtep5nem675jmzjza2iaq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxzx57bboxuzvta274dacqjvyjp3gm3hkbcawtep5nem675jmzjza2iaq%2Findex-v1-a1.m3u8",
-                "type": "m3u8"
-            },
+            
             {
                 "title": "Apna Tv Stream - Part 03",
-                "duration": 8801,
+                "duration": 60,
                 "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }

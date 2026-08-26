@@ -456,13 +456,13 @@ function initPlayer(config) {
                 "title": "Apna Tv Stream - Part 01",
                 "duration": 3600, // Duration in seconds (e.g., 1 hr)
                 "url": "https://hlsplayers.pages.dev/player3?url=https://si.videoapne.to/hls/bdohw3hg7bboxuzvta274t2srmc5liu5g4kidnk55xmwbauva4qdi6ykofpa/index-v1-a1.m3u8",
-                "type": "m3u8"
+                "type": "iframe"
             },
             {
                 "title": "Apna Tv Stream - Part 02",
                 "duration": 1800, // 30 minutes
                 "url": "https://hlsplayers.pages.dev/player3?url=https://si.videoapne.to/hls/bdohw3hg7bboxuzvta274t2srmc5liu5g4kidnk55xmwbauva4qdi6ykofpa/index-v1-a1.m3u8",
-                "type": "m3u8"
+                "type": "ifrane"
             }
         ];
     }

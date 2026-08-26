@@ -455,13 +455,13 @@ function initPlayer(config) {
             {
                 "title": "Apna Tv Stream - Part 01",
                 "duration": 3600, // Duration in seconds (e.g., 1 hr)
-                "url": "https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8",
+                "url": "https://hlsplayers.pages.dev/player3?url=https://si.videoapne.to/hls/bdohw3hg7bboxuzvta274t2srmc5liu5g4kidnk55xmwbauva4qdi6ykofpa/index-v1-a1.m3u8",
                 "type": "m3u8"
             },
             {
                 "title": "Apna Tv Stream - Part 02",
                 "duration": 1800, // 30 minutes
-                "url": "https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8",
+                "url": "https://hlsplayers.pages.dev/player3?url=https://si.videoapne.to/hls/bdohw3hg7bboxuzvta274t2srmc5liu5g4kidnk55xmwbauva4qdi6ykofpa/index-v1-a1.m3u8",
                 "type": "m3u8"
             }
         ];

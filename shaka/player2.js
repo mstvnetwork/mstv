@@ -365,23 +365,28 @@ function initPlayer(config) {
 
         if (elements.btnFullscreen) {
             elements.btnFullscreen.addEventListener('click', () => {
-                const targetEl = elements.container || elements.video;
-                if (!document.fullscreenElement) {
-                    if (targetEl.requestFullscreen) {
-                        targetEl.requestFullscreen();
-                    } else if (targetEl.webkitRequestFullscreen) {
-                        targetEl.webkitRequestFullscreen();
-                    } else if (targetEl.msRequestFullscreen) {
-                        targetEl.msRequestFullscreen();
+                // Target the highest container available (wrapper or video element)
+                const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
+                
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    const requestFn = targetEl.requestFullscreen || 
+                                      targetEl.webkitRequestFullscreen || 
+                                      targetEl.msRequestFullscreen;
+                    if (requestFn) {
+                        requestFn.call(targetEl).catch(err => {
+                            console.error("Fullscreen request failed:", err);
+                        });
                     }
                 } else {
-                    if (document.exitFullscreen) {
-                        document.exitFullscreen();
+                    const exitFn = document.exitFullscreen || 
+                                   document.webkitExitFullscreen || 
+                                   document.msExitFullscreen;
+                    if (exitFn) {
+                        exitFn.call(document);
                     }
                 }
             });
         }
-
         elements.video.addEventListener('volumechange', updateMuteButtonState);
 
         elements.video.addEventListener('waiting', () => showLoader(true));

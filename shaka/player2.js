@@ -125,7 +125,6 @@ function initPlayer(config) {
         });
     }
 
-    // FIXED: Corrected linear broadcast playback position without artificial wrapping
     function getBroadcastCalculatedTime(program) {
         if (!program || !program.startTime) return 0;
         const nowSec = Date.now() / 1000;
@@ -144,7 +143,7 @@ function initPlayer(config) {
     }
 
     function preloadNextStream() {
-        const nextProgram = getCurrentProgram(8); // Pre-buffer 8s ahead
+        const nextProgram = getCurrentProgram(8);
         if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
 
         preloadedScheduleItem = nextProgram;
@@ -278,7 +277,6 @@ function initPlayer(config) {
         }
     }
 
-    // FIXED: Smart sync drift evaluation with safe thresholds
     function evaluateScheduleSync() {
         if (!rawPlaylist.length) return;
         const targetProgram = getCurrentProgram();
@@ -300,14 +298,12 @@ function initPlayer(config) {
             const actualOffset = activeVideo.currentTime;
             const drift = actualOffset - expectedOffset;
 
-            // Micro adjustments via playback rate (no seeking interrupts)
             if (Math.abs(drift) > 1.0 && Math.abs(drift) <= 5) {
                 activeVideo.playbackRate = drift < 0 ? 1.03 : 0.97;
             } else {
                 activeVideo.playbackRate = 1.0;
             }
 
-            // Hard seek ONLY if drift is severe (> 8s gap)
             if (Math.abs(drift) > 8) {
                 isInternalSeeking = true;
                 activeVideo.currentTime = expectedOffset;
@@ -370,18 +366,30 @@ function initPlayer(config) {
     }
 
     function bindVideoEvents(videoEl) {
+        // Show loader if video pauses to buffer mid-stream
         videoEl.onwaiting = () => showLoader(true);
+
+        // Hide loader immediately when playback begins rendering frames
         videoEl.onplaying = () => {
             showLoader(false);
             showError(null);
             if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
             resetControlsTimeout();
         };
+
+        // Fallback: hide loader once media can play if not paused
+        videoEl.oncanplay = () => {
+            if (!videoEl.paused) {
+                showLoader(false);
+            }
+        };
+
         videoEl.onpause = () => {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
             clearTimeout(hideControlsTimeout);
             if (elements.container) elements.container.classList.remove('controls-hidden');
         };
+
         videoEl.onvolumechange = updateMuteButtonState;
     }
 

@@ -56,9 +56,11 @@ function initPlayer(config) {
     }
 
     function showToast(el) {
-        if (!el || (el === elements.updateToast && isEmbedMode)) return;
-        el.classList.add('show');
-        setTimeout(() => el.classList.remove('show'), 3000);
+    // Completely suppress all toast notifications if running in embed mode
+    if (!el || isEmbedMode) return;
+
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 3000);
     }
 
     function formatTime(seconds) {

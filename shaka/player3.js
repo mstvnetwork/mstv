@@ -1,6 +1,5 @@
 /**
- * Test-Ready Linear TV Player Controller (Sequential / Non-Looping)
- * Features: Double-Buffered Seamless Transitions, Auto-Advancing Playlist, Dynamic Standby Placeholder
+ * Test-Ready Linear TV Player Controller (Sequential / Non-Looping with Virtual Duration Enforcement)
  */
 
 function initPlayer(config) {
@@ -39,6 +38,7 @@ function initPlayer(config) {
     let progressTimer = null;
     let clockTimer = null;
     let hideControlsTimeout = null;
+    let hasEndedCurrentTrack = false;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
     function showLoader(show) {
@@ -117,11 +117,14 @@ function initPlayer(config) {
     }
 
     function playMedia(index) {
+        hasEndedCurrentTrack = false;
+
         if (index < 0 || index >= rawPlaylist.length) {
-            // End of playlist: show standby fallback
+            // End of playlist reach - Stop video and display animated fallback overlay
+            activeVideo.pause();
             showFallback(true);
             showLoader(false);
-            if (elements.nowTitle) elements.nowTitle.textContent = "Broadcast Ended";
+            if (elements.nowTitle) elements.nowTitle.textContent = "Broadcast Standby";
             return;
         }
 
@@ -256,23 +259,36 @@ function initPlayer(config) {
             return;
         }
 
+        const currentItem = rawPlaylist[currentIndex];
+        
+        // --- VIRTUAL DURATION CHECK ---
+        // Force track end when currentTime hits the array duration (60s in your test)
+        if (currentItem && currentItem.duration && activeVideo.currentTime >= currentItem.duration) {
+            if (!hasEndedCurrentTrack) {
+                hasEndedCurrentTrack = true;
+                playMedia(currentIndex + 1);
+                return;
+            }
+        }
+
         const isPlaying = activeVideo && 
                           !activeVideo.paused && 
                           !activeVideo.ended && 
-                          activeVideo.readyState >= 2;
+                          activeVideo.readyState >= 2 &&
+                          !hasEndedCurrentTrack;
 
         showFallback(!isPlaying);
 
-        if (isPlaying && (activeVideo.duration - activeVideo.currentTime <= 8)) {
+        if (isPlaying && currentItem && (currentItem.duration - activeVideo.currentTime <= 8)) {
             preloadNextStream();
         }
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(activeVideo.duration - activeVideo.currentTime)}`;
-        } else if (rawPlaylist[currentIndex]) {
-            const duration = activeVideo.duration || rawPlaylist[currentIndex].duration;
-            if (elements.statusText) elements.statusText.textContent = `Playing: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
+        } else if (currentItem) {
+            const limitDuration = currentItem.duration || activeVideo.duration;
+            if (elements.statusText) elements.statusText.textContent = `Playing: ${formatTime(activeVideo.currentTime)} / ${formatTime(limitDuration)}`;
             if (elements.statusOffset) elements.statusOffset.textContent = `Track ${currentIndex + 1} of ${rawPlaylist.length}`;
         }
     }
@@ -301,7 +317,7 @@ function initPlayer(config) {
         };
 
         videoEl.oncanplay = () => {
-            if (!videoEl.paused) {
+            if (!videoEl.paused && !hasEndedCurrentTrack) {
                 showLoader(false);
                 showFallback(false);
             }
@@ -317,7 +333,10 @@ function initPlayer(config) {
         };
 
         videoEl.onended = () => {
-            playMedia(currentIndex + 1);
+            if (!hasEndedCurrentTrack) {
+                hasEndedCurrentTrack = true;
+                playMedia(currentIndex + 1);
+            }
         };
 
         videoEl.onvolumechange = updateMuteButtonState;
@@ -328,7 +347,12 @@ function initPlayer(config) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (activeVideo.paused) {
-                    activeVideo.play();
+                    // If stream was terminated by virtual duration, replay from 0
+                    if (hasEndedCurrentTrack) {
+                        playMedia(currentIndex);
+                    } else {
+                        activeVideo.play();
+                    }
                     elements.btnPlay.textContent = '⏸';
                 } else {
                     activeVideo.pause();
@@ -371,7 +395,6 @@ function initPlayer(config) {
 
     function loadPlaylist() {
         return [
-            
             {
                 "title": "Apna Tv Stream - Part 03",
                 "duration": 60,

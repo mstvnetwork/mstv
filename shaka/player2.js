@@ -32,6 +32,7 @@ function initPlayer(config) {
     let progressTimer = null;
     let clockTimer = null;
     let retryCount = 0;
+    let isInternalSeeking = false;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
@@ -110,9 +111,12 @@ function initPlayer(config) {
             const expectedOffset = nowSec - currentScheduleItem.startTime;
             const actualOffset = elements.video.currentTime;
 
-            if (Math.abs(actualOffset - expectedOffset) > 4) {
+            // Strict drift correction or bypass jump check (>3 seconds out of sync)
+            if (Math.abs(actualOffset - expectedOffset) > 3) {
+                isInternalSeeking = true;
                 elements.video.currentTime = expectedOffset;
                 showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 500);
             }
         }
     }
@@ -159,7 +163,9 @@ function initPlayer(config) {
             const nowSec = Math.floor(Date.now() / 1000);
             const targetOffset = nowSec - program.startTime;
             if (targetOffset > 0) {
+                isInternalSeeking = true;
                 elements.video.currentTime = targetOffset;
+                setTimeout(() => { isInternalSeeking = false; }, 500);
             }
         }
     }
@@ -336,6 +342,22 @@ function initPlayer(config) {
             });
         }
 
+        // --- STRICT REVERT BACK TO LIVE IF VIEWER SEEKS/BYPASSES ---
+        elements.video.addEventListener('seeking', () => {
+            if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
+
+            const nowSec = Math.floor(Date.now() / 1000);
+            const expectedOffset = nowSec - currentScheduleItem.startTime;
+
+            // If user tried jumping/seeking manually away from the live linear progression point
+            if (Math.abs(elements.video.currentTime - expectedOffset) > 2) {
+                isInternalSeeking = true;
+                elements.video.currentTime = expectedOffset;
+                showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 500);
+            }
+        });
+
         elements.video.addEventListener('volumechange', updateMuteButtonState);
         elements.video.addEventListener('waiting', () => showLoader(true));
         elements.video.addEventListener('playing', () => {
@@ -347,7 +369,7 @@ function initPlayer(config) {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
         });
 
-        // --- Robust Auto-hiding Controls Inactivity Logic ---
+        // --- Auto-hiding Controls Inactivity Logic ---
         let hideControlsTimeout = null;
 
         function triggerActivity() {
@@ -356,7 +378,6 @@ function initPlayer(config) {
             clearTimeout(hideControlsTimeout);
 
             hideControlsTimeout = setTimeout(() => {
-                // Keep controls visible if video is paused, otherwise fade out
                 if (elements.video && !elements.video.paused) {
                     elements.container.classList.add('controls-hidden');
                 }
@@ -390,4 +411,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
     progressTimer = setInterval(updateProgress, 500);
-}
+        }

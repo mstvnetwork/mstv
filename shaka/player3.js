@@ -1,10 +1,12 @@
 /**
- * Production-Grade Linear Sync & HLS Player Controller
+ * Production-Grade Broadcast Synchronized TV Player Controller
+ * Features: Double-Buffered Seamless Transitions, Zero-drift Sync, Hidden Controls
  */
 
 function initPlayer(config) {
     const elements = {
-        video: document.getElementById(config.videoId),
+        videoPrimary: document.getElementById(config.videoId),
+        videoSecondary: document.getElementById('videoPlayerNext'),
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
@@ -23,8 +25,15 @@ function initPlayer(config) {
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
 
-    let hls = null;
+    // Active & Background Media References
+    let activeVideo = elements.videoPrimary;
+    let hiddenVideo = elements.videoSecondary;
+    let activeHls = null;
+    let hiddenHls = null;
+
     let currentScheduleItem = null;
+    let preloadedScheduleItem = null;
+    let rawPlaylist = [];
     let schedule = [];
     let isLiveStream = false;
     let isIframe = false;
@@ -33,8 +42,11 @@ function initPlayer(config) {
     let clockTimer = null;
     let retryCount = 0;
     let isInternalSeeking = false;
+    let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
+
+    const CHANNEL_START_EPOCH = 1700000000;
 
     function showLoader(show) {
         if (elements.loader) {
@@ -54,9 +66,7 @@ function initPlayer(config) {
     }
 
     function showToast(el) {
-        if (!el) return;
-        if (el === elements.updateToast && isEmbedMode) return;
-        
+        if (!el || isEmbedMode) return;
         el.classList.add('show');
         setTimeout(() => el.classList.remove('show'), 3000);
     }
@@ -70,11 +80,7 @@ function initPlayer(config) {
 
     function updateMuteButtonState() {
         if (!elements.btnMute) return;
-        if (elements.video.muted || elements.video.volume === 0) {
-            elements.btnMute.textContent = '🔇';
-        } else {
-            elements.btnMute.textContent = '🔊';
-        }
+        elements.btnMute.textContent = (activeVideo.muted || activeVideo.volume === 0) ? '🔇' : '🔊';
     }
 
     function startClock() {
@@ -88,49 +94,89 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
-    function getCurrentProgram() {
+    function buildScheduleFromSimplePlaylist(playlist) {
+        if (!playlist || !playlist.length) return [];
+        
+        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+        if (totalPlaylistDuration <= 0) return [];
+
+        const now = Date.now() / 1000;
+        const elapsedSinceLaunch = now - CHANNEL_START_EPOCH;
+        const currentLoopOffset = elapsedSinceLaunch % totalPlaylistDuration;
+        const currentLoopStart = now - currentLoopOffset;
+
+        let accumulatedTime = 0;
+
+        return playlist.map((item, index) => {
+            const itemStartTime = currentLoopStart + accumulatedTime;
+            accumulatedTime += item.duration;
+            const itemEndTime = currentLoopStart + accumulatedTime;
+
+            return {
+                id: `item_${index}_${Math.floor(itemStartTime)}`,
+                title: item.title,
+                startTime: itemStartTime,
+                endTime: itemEndTime,
+                duration: item.duration,
+                url: item.url,
+                type: item.type,
+                isIframe: item.type === 'iframe'
+            };
+        });
+    }
+
+    function getBroadcastCalculatedTime(program) {
+        if (!program || !program.startTime) return 0;
+        const nowSec = Date.now() / 1000;
+        let elapsedTime = nowSec - program.startTime;
+        if (elapsedTime < 0) return 0;
+
+        const videoDuration = activeVideo.duration || program.duration;
+        if (videoDuration && !isNaN(videoDuration) && videoDuration > 0) {
+            return elapsedTime % videoDuration;
+        }
+        return elapsedTime;
+    }
+
+    function getCurrentProgram(offsetSeconds = 0) {
+        schedule = buildScheduleFromSimplePlaylist(rawPlaylist);
         if (!schedule.length) return null;
-        const nowSec = Math.floor(Date.now() / 1000);
+
+        const nowSec = (Date.now() / 1000) + offsetSeconds;
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
         return match || schedule[0];
     }
 
-    function evaluateScheduleSync() {
-        if (!schedule.length) return;
-        const targetProgram = getCurrentProgram();
-        if (!targetProgram) return;
+    // --- PRELOAD NEXT ITEM IN BACKGROUND ---
+    function preloadNextStream() {
+        const nextProgram = getCurrentProgram(5); // Peak 5 seconds ahead
+        if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
 
-        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
-            currentScheduleItem = targetProgram;
-            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
-            renderScheduleUI();
-            playMedia(targetProgram);
-            showToast(elements.updateToast);
-        } else if (!isLiveStream && !isIframe) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const expectedOffset = nowSec - currentScheduleItem.startTime;
-            const actualOffset = elements.video.currentTime;
+        preloadedScheduleItem = nextProgram;
+        hiddenVideo.muted = true;
 
-            // Strict drift correction or bypass jump check (>3 seconds out of sync)
-            if (Math.abs(actualOffset - expectedOffset) > 3) {
-                isInternalSeeking = true;
-                elements.video.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
+        if (hiddenHls) {
+            hiddenHls.destroy();
+            hiddenHls = null;
+        }
+
+        const calculatedSeek = getBroadcastCalculatedTime(nextProgram);
+
+        if (nextProgram.url.includes('.m3u8') && Hls.isSupported()) {
+            hiddenHls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hiddenHls.loadSource(nextProgram.url);
+            hiddenHls.attachMedia(hiddenVideo);
+            hiddenHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hiddenVideo.currentTime = calculatedSeek;
+            });
+        } else {
+            hiddenVideo.src = nextProgram.url;
+            hiddenVideo.currentTime = calculatedSeek;
+            hiddenVideo.load();
         }
     }
 
-    function destroyPlayer() {
-        if (hls) {
-            hls.destroy();
-            hls = null;
-        }
-        elements.video.pause();
-        elements.video.removeAttribute('src');
-        elements.video.load();
-    }
-
+    // --- SWAP VIDEO ELEMENTS SEAMLESSLY ---
     function playMedia(program) {
         showError(null);
         retryCount = 0;
@@ -138,17 +184,86 @@ function initPlayer(config) {
         const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {
             setupIframePlayer(program.url);
-        } else if (program.url.includes('.m3u8')) {
-            setupHlsPlayer(program);
+            return;
+        }
+
+        isIframe = false;
+        elements.iframe.style.display = 'none';
+
+        // Check if secondary element has preloaded target program
+        if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
+            hiddenVideo.muted = activeVideo.muted;
+            hiddenVideo.volume = activeVideo.volume;
+
+            // Transition visibility instantly
+            activeVideo.style.display = 'none';
+            activeVideo.pause();
+
+            hiddenVideo.style.display = 'block';
+            executeAutoPlay(hiddenVideo);
+
+            // Swap References
+            const tempVid = activeVideo;
+            activeVideo = hiddenVideo;
+            hiddenVideo = tempVid;
+
+            const tempHls = activeHls;
+            activeHls = hiddenHls;
+            hiddenHls = tempHls;
+
+            preloadedScheduleItem = null;
+            bindVideoEvents(activeVideo);
+            showLoader(false);
         } else {
-            setupNativeVideoPlayer(program);
+            // Direct load fallback
+            setupVideoSource(activeVideo, program, false);
+        }
+    }
+
+    function setupVideoSource(targetVideo, program, isBackground) {
+        let hlsInstance = isBackground ? hiddenHls : activeHls;
+        if (hlsInstance) {
+            hlsInstance.destroy();
+            hlsInstance = null;
+        }
+
+        targetVideo.style.display = isBackground ? 'none' : 'block';
+        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+
+        if (program.url.includes('.m3u8') && Hls.isSupported()) {
+            const hls = new Hls({
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                liveDurationInfinity: true,
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+
+            hls.loadSource(program.url);
+            hls.attachMedia(targetVideo);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                isLiveStream = data.levels[0]?.details?.live || false;
+                applyLinearSeek(program, targetVideo);
+                if (!isBackground) executeAutoPlay(targetVideo);
+            });
+
+            if (isBackground) hiddenHls = hls;
+            else activeHls = hls;
+
+        } else {
+            targetVideo.src = program.url;
+            applyLinearSeek(program, targetVideo);
+            if (!isBackground) executeAutoPlay(targetVideo);
         }
     }
 
     function setupIframePlayer(url) {
         isIframe = true;
         destroyPlayer();
-        elements.video.style.display = 'none';
+        activeVideo.style.display = 'none';
+        hiddenVideo.style.display = 'none';
         elements.iframe.style.display = 'block';
         elements.iframe.src = url;
 
@@ -157,126 +272,65 @@ function initPlayer(config) {
         showLoader(false);
     }
 
-    function applyLinearSeek(program) {
+    function executeAutoPlay(videoTarget) {
+        videoTarget.play().catch(() => {
+            videoTarget.muted = true;
+            updateMuteButtonState();
+            videoTarget.play().catch(e => console.error("Autoplay failed:", e));
+        });
+    }
+
+    function applyLinearSeek(program, videoTarget) {
         if (program && program.startTime) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const targetOffset = nowSec - program.startTime;
-            if (targetOffset > 0) {
+            const targetOffset = getBroadcastCalculatedTime(program);
+            isInternalSeeking = true;
+            videoTarget.currentTime = targetOffset;
+            setTimeout(() => { isInternalSeeking = false; }, 500);
+        }
+    }
+
+    function evaluateScheduleSync() {
+        if (!rawPlaylist.length) return;
+        const targetProgram = getCurrentProgram();
+        if (!targetProgram) return;
+
+        // Check if approaching track boundary (5 seconds before end)
+        const currentOffset = getBroadcastCalculatedTime(targetProgram);
+        if (targetProgram.duration - currentOffset <= 5) {
+            preloadNextStream();
+        }
+
+        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
+            currentScheduleItem = targetProgram;
+            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
+            renderScheduleUI();
+            playMedia(targetProgram);
+            showToast(elements.updateToast);
+        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2) {
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const actualOffset = activeVideo.currentTime;
+            const drift = actualOffset - expectedOffset;
+
+            if (Math.abs(drift) > 0.5 && Math.abs(drift) <= 3) {
+                activeVideo.playbackRate = drift < 0 ? 1.05 : 0.95;
+            } else {
+                activeVideo.playbackRate = 1.0;
+            }
+
+            if (Math.abs(drift) > 3) {
                 isInternalSeeking = true;
-                elements.video.currentTime = targetOffset;
+                activeVideo.currentTime = expectedOffset;
+                showToast(elements.syncToast);
                 setTimeout(() => { isInternalSeeking = false; }, 500);
             }
         }
     }
 
-    function setupHlsPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        elements.video.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
-
-        if (Hls.isSupported()) {
-            // Re-use existing Hls instance if present for seamless source transition
-            if (hls) {
-                hls.loadSource(program.url);
-                applyLinearSeek(program);
-                elements.video.play().catch(() => {
-                    elements.video.muted = true;
-                    updateMuteButtonState();
-                    elements.video.play();
-                });
-                return;
-            }
-
-            hls = new Hls({
-                liveSyncDurationCount: 3,
-                liveMaxLatencyDurationCount: 10,
-                liveDurationInfinity: true,
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 60,
-                maxBufferLength: 30,
-                maxMaxBufferLength: 60
-            });
-
-            hls.loadSource(program.url);
-            hls.attachMedia(elements.video);
-
-            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                isLiveStream = data.levels[0]?.details?.live || false;
-                applyLinearSeek(program);
-
-                elements.video.play().catch(() => {
-                    elements.video.muted = true;
-                    updateMuteButtonState();
-                    elements.video.play();
-                });
-            });
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            if (retryCount < MAX_RETRIES) {
-                                retryCount++;
-                                showError(`Network issue detected. Syncing... (${retryCount}/${MAX_RETRIES})`);
-                                hls.startLoad();
-                            } else {
-                                showError('Network offline. Re-initializing playback...');
-                                setTimeout(() => playMedia(program), 3000);
-                            }
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            showError('Buffer failure. Recovering live frame...');
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            showError('Playback critical error. Reloading live edge...');
-                            destroyPlayer();
-                            setTimeout(() => playMedia(program), 2000);
-                            break;
-                    }
-                }
-            });
-
-        } else if (elements.video.canPlayType('application/vnd.apple.mpegurl')) {
-            elements.video.src = program.url;
-            elements.video.addEventListener('loadedmetadata', () => {
-                applyLinearSeek(program);
-                elements.video.play().catch(() => {
-                    elements.video.muted = true;
-                    updateMuteButtonState();
-                    elements.video.play();
-                });
-            }, { once: true });
-        } else {
-            showError('HLS Playback is not supported on this browser.');
-            showLoader(false);
-        }
-    }
-
-    function setupNativeVideoPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        elements.video.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
-
-        if (hls) {
-            hls.destroy();
-            hls = null;
-        }
-
-        elements.video.src = program.url;
-        applyLinearSeek(program);
-        elements.video.play().catch(() => {
-            elements.video.muted = true;
-            updateMuteButtonState();
-            elements.video.play();
-        });
+    function destroyPlayer() {
+        if (activeHls) { activeHls.destroy(); activeHls = null; }
+        if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+        activeVideo.pause();
+        hiddenVideo.pause();
     }
 
     function renderScheduleUI() {
@@ -302,26 +356,53 @@ function initPlayer(config) {
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
-            if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(elements.video.duration - elements.video.currentTime)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(activeVideo.duration - activeVideo.currentTime)}`;
         } else if (currentScheduleItem) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const duration = currentScheduleItem.endTime - currentScheduleItem.startTime;
-            const elapsed = nowSec - currentScheduleItem.startTime;
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const duration = activeVideo.duration || currentScheduleItem.duration;
 
-            if (elements.statusText) elements.statusText.textContent = `Linear Sync: ${formatTime(elapsed)} / ${formatTime(duration)}`;
-            if (elements.statusOffset) elements.statusOffset.textContent = `Offset: +${Math.round(elements.video.currentTime - elapsed)}s`;
+            if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(activeVideo.currentTime - expectedOffset).toFixed(1)}s`;
         }
     }
 
-    function bindEvents() {
+    function resetControlsTimeout() {
+        if (!elements.container) return;
+        elements.container.classList.remove('controls-hidden');
+        clearTimeout(hideControlsTimeout);
+
+        if (activeVideo && !activeVideo.paused) {
+            hideControlsTimeout = setTimeout(() => {
+                elements.container.classList.add('controls-hidden');
+            }, 2500);
+        }
+    }
+
+    function bindVideoEvents(videoEl) {
+        videoEl.onwaiting = () => showLoader(true);
+        videoEl.onplaying = () => {
+            showLoader(false);
+            showError(null);
+            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
+            resetControlsTimeout();
+        };
+        videoEl.onpause = () => {
+            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
+            clearTimeout(hideControlsTimeout);
+            if (elements.container) elements.container.classList.remove('controls-hidden');
+        };
+        videoEl.onvolumechange = updateMuteButtonState;
+    }
+
+    function bindControls() {
         if (elements.btnPlay) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
-                if (elements.video.paused) {
-                    elements.video.play();
+                if (activeVideo.paused) {
+                    activeVideo.play();
                     elements.btnPlay.textContent = '⏸';
                 } else {
-                    elements.video.pause();
+                    activeVideo.pause();
                     elements.btnPlay.textContent = '▶';
                 }
             });
@@ -330,7 +411,7 @@ function initPlayer(config) {
         if (elements.btnMute) {
             elements.btnMute.addEventListener('click', (e) => {
                 e.stopPropagation();
-                elements.video.muted = !elements.video.muted;
+                activeVideo.muted = !activeVideo.muted;
                 updateMuteButtonState();
             });
         }
@@ -338,86 +419,50 @@ function initPlayer(config) {
         if (elements.btnFullscreen) {
             elements.btnFullscreen.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const targetEl = document.getElementById('playerWrap') || elements.container || elements.video;
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
-                    if (requestFn) {
-                        requestFn.call(targetEl).catch(err => console.error("Fullscreen failed:", err));
-                    }
+                const targetEl = elements.container || activeVideo;
+                if (!document.fullscreenElement) {
+                    targetEl.requestFullscreen().catch(err => console.error("Fullscreen failed:", err));
                 } else {
-                    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-                    if (exitFn) exitFn.call(document);
+                    document.exitFullscreen();
                 }
             });
         }
 
-        // --- STRICT REVERT BACK TO LIVE IF VIEWER SEEKS/BYPASSES ---
-        elements.video.addEventListener('seeking', () => {
-            if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
-
-            const nowSec = Math.floor(Date.now() / 1000);
-            const expectedOffset = nowSec - currentScheduleItem.startTime;
-
-            // If user tried jumping/seeking manually away from the live linear progression point
-            if (Math.abs(elements.video.currentTime - expectedOffset) > 2) {
-                isInternalSeeking = true;
-                elements.video.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
-        });
-
-        elements.video.addEventListener('volumechange', updateMuteButtonState);
-        elements.video.addEventListener('waiting', () => showLoader(true));
-        elements.video.addEventListener('playing', () => {
-            showLoader(false);
-            showError(null);
-            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
-        });
-        elements.video.addEventListener('pause', () => {
-            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
-        });
-
-        // --- Auto-hiding Controls Inactivity Logic ---
-        let hideControlsTimeout = null;
-
-        function triggerActivity() {
-            if (!elements.container) return;
-            elements.container.classList.remove('controls-hidden');
-            clearTimeout(hideControlsTimeout);
-
-            hideControlsTimeout = setTimeout(() => {
-                if (elements.video && !elements.video.paused) {
+        if (elements.container) {
+            elements.container.addEventListener('mousemove', resetControlsTimeout);
+            elements.container.addEventListener('mousedown', resetControlsTimeout);
+            elements.container.addEventListener('click', resetControlsTimeout);
+            elements.container.addEventListener('mouseleave', () => {
+                if (activeVideo && !activeVideo.paused) {
                     elements.container.classList.add('controls-hidden');
                 }
-            }, 2500);
-        }
-
-        if (elements.container) {
-            elements.container.addEventListener('mousemove', triggerActivity);
-            elements.container.addEventListener('click', triggerActivity);
-            elements.container.addEventListener('touchstart', triggerActivity);
+            });
         }
     }
 
-    function generateMockSchedule() {
-        const now = Math.floor(Date.now() / 1000);
+    function loadPlaylist() {
         return [
             {
-                id: 'ch1',
-                title: 'Linear Stream Channel',
-                startTime: now - 300,
-                endTime: now + 3600,
-                url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
+                "title": "Apna Tv Stream - Part 01",
+                "duration": 60,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwj6u7bboxuzvta5p4dqdqhwk3wn6rn77nahrpbmxzcecu4mkdsagxfca%2Findex-v1-a1.m3u8",
+                "type": "m3u8"
+            },
+            {
+                "title": "Apna Tv Stream - Part 02",
+                "duration": 60,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohx2xg7bboxuzvta274da3tbucwbprvcc4fsva4iybw7nz3gjodmobutra%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohx2xg7bboxuzvta274da3tbucwbprvcc4fsva4iybw7nz3gjodmobutra%2Findex-v1-a1.m3u8",
+                "type": "m3u8"
             }
         ];
     }
 
-    schedule = generateMockSchedule();
-    bindEvents();
+    rawPlaylist = loadPlaylist();
+    bindVideoEvents(activeVideo);
+    bindControls();
     startClock();
     evaluateScheduleSync();
 
-    autoSyncTimer = setInterval(evaluateScheduleSync, 3000);
-    progressTimer = setInterval(updateProgress, 500);
+    autoSyncTimer = setInterval(evaluateScheduleSync, 1000);
+    progressTimer = setInterval(updateProgress, 250);
 }

@@ -61,30 +61,46 @@ iframe {
     display: block;
 }
 
+/* Controls inside video container for overlay appearance */
+.video-controls-wrapper {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
+    padding: 20px 15px 10px 15px;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    opacity: 0.9;
+    transition: opacity 0.3s ease;
+}
+
 .controls {
     display: flex;
     gap: 12px;
     align-items: center;
-    padding: 12px 0;
 }
 
 button {
     cursor: pointer;
-    padding: 8px 14px;
-    background: #333;
+    padding: 6px 12px;
+    background: rgba(51, 51, 51, 0.8);
     color: #fff;
     border: 1px solid #555;
     border-radius: 4px;
 }
 
 button:hover {
-    background: #444;
+    background: rgba(68, 68, 68, 0.9);
 }
 
 .progress {
-    height: 6px;
-    background: #333;
-    margin: 10px 0;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.3);
+    width: 100%;
+    cursor: pointer;
 }
 
 .progress-fill {
@@ -128,7 +144,7 @@ button:hover {
 .vol-overlay {
     display: none;
     position: absolute;
-    bottom: 10px;
+    bottom: 60px;
     left: 10px;
     padding: 6px 10px;
     background: rgba(0,0,0,.7);
@@ -136,6 +152,34 @@ button:hover {
     font-size: 12px;
     z-index: 100;
     pointer-events: none;
+}
+
+/* --- EMBED MODE CONFIGURATION --- */
+body.embed-mode {
+    background: transparent;
+    padding: 0;
+}
+
+body.embed-mode .player-wrap {
+    max-width: 100%;
+    padding: 0;
+}
+
+body.embed-mode #nowTitle,
+body.embed-mode #clock,
+body.embed-mode #clockDate,
+body.embed-mode #errorMsg,
+body.embed-mode #statusText,
+body.embed-mode #statusOffset,
+body.embed-mode h3,
+body.embed-mode #scheduleList {
+    display: none !important;
+}
+
+body.embed-mode .video-container {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: unset;
 }
 </style>
 </head>
@@ -170,31 +214,32 @@ button:hover {
             Volume controlled by embedded player
         </div>
 
+        <!-- Controls and Progress Moved Inside Container -->
+        <div class="video-controls-wrapper">
+            <div class="controls">
+                <button id="btnPlay" title="Play/Pause">⏸</button>
+                <button id="btnMute" title="Mute/Unmute">🔇</button>
+
+                <input
+                    id="volSlider"
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0.8">
+
+                <button id="btnFullscreen" title="Toggle Fullscreen">⛶</button>
+            </div>
+
+            <div class="progress">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+        </div>
+
     </div>
 
     <div id="errorMsg" class="error">
         Playback error. Retrying...
-    </div>
-
-    <div class="controls">
-
-        <button id="btnPlay" title="Play/Pause">⏸</button>
-        <button id="btnMute" title="Mute/Unmute">🔇</button>
-
-        <input
-            id="volSlider"
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value="0.8">
-
-        <button id="btnFullscreen" title="Toggle Fullscreen">⛶</button>
-
-    </div>
-
-    <div class="progress">
-        <div id="progressFill" class="progress-fill"></div>
     </div>
 
     <div id="statusText"></div>
@@ -212,6 +257,14 @@ button:hover {
 <div id="updateToast" class="toast">
     Playlist updated
 </div>
+
+<script>
+// Automatically toggle Embed Mode based on URL query parameter (e.g., ?mode=embed)
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('mode') === 'embed') {
+    document.body.classList.add('embed-mode');
+}
+</script>
 
 <script src="./player2.js"></script>
 

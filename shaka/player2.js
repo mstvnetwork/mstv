@@ -382,25 +382,49 @@ function initPlayer(config) {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
         });
 
-        let hideControlsTimeout = null;
-        function triggerActivity() {
-            if (!elements.container) return;
-            elements.container.classList.remove('controls-hidden');
-            clearTimeout(hideControlsTimeout);
+        // --- AUTO-HIDING CONTROLS INACTIVITY LOGIC ---
+let hideControlsTimeout = null;
 
-            hideControlsTimeout = setTimeout(() => {
-                if (elements.video && !elements.video.paused) {
-                    elements.container.classList.add('controls-hidden');
-                }
-            }, 2500);
-        }
+function resetControlsTimeout() {
+    if (!elements.container) return;
 
-        if (elements.container) {
-            elements.container.addEventListener('mousemove', triggerActivity);
-            elements.container.addEventListener('click', triggerActivity);
-            elements.container.addEventListener('touchstart', triggerActivity);
-        }
+    // 1. Reveal controls immediately on user activity
+    elements.container.classList.remove('controls-hidden');
+    clearTimeout(hideControlsTimeout);
+
+    // 2. Hide controls automatically after 2.5 seconds if video is actively playing
+    if (elements.video && !elements.video.paused) {
+        hideControlsTimeout = setTimeout(() => {
+            elements.container.classList.add('controls-hidden');
+        }, 2500);
     }
+}
+
+if (elements.container) {
+    // Triggers on mouse move, clicks, double clicks, and touch events
+    elements.container.addEventListener('mousemove', resetControlsTimeout);
+    elements.container.addEventListener('mousedown', resetControlsTimeout);
+    elements.container.addEventListener('click', resetControlsTimeout);
+    elements.container.addEventListener('touchstart', resetControlsTimeout, { passive: true });
+    
+    // Immediately hide controls when the mouse leaves the video frame entirely
+    elements.container.addEventListener('mouseleave', () => {
+        if (elements.video && !elements.video.paused) {
+            elements.container.classList.add('controls-hidden');
+        }
+    });
+}
+
+// Ensure controls stay visible if playback is paused
+elements.video.addEventListener('pause', () => {
+    clearTimeout(hideControlsTimeout);
+    if (elements.container) {
+        elements.container.classList.remove('controls-hidden');
+    }
+});
+
+// Start the hide countdown as soon as video starts playing
+elements.video.addEventListener('playing', resetControlsTimeout);
 
     // FIXED BROADCAST ANCHOR: Uses fixed UTC epoch time so all viewers hit the exact same offset
     function generateMockSchedule() {

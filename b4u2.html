@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sony HD Live Stream</title>
+    <title>Multi-Stream HLS Live Player</title>
     <style>
         body { 
             margin: 0; 
@@ -28,71 +28,86 @@
         }
     </style>
 
-    <!-- Load Hls.js via highly resilient jsDelivr CDN Network -->
+    <!-- Load Hls.js via jsDelivr CDN -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 
     <div class="player-container">
-        <!-- Main HTML5 Video Object Element -->
         <video id="video" controls autoplay playsinline></video>
     </div>
 
     <script>
-        // Use window.onload to guarantee the Hls.js script is completely loaded and defined first
-        window.onload = function() {
-            var video = document.getElementById('video');
-            var streamUrl = 'https://xtremplay.com/api/proxy?url=http%3A%2F%2F38.96.178.205%2FSONYHD%2Ftracks-v1a1%2Fmono.m3u8&ref=http%3A%2F%2F38.96.178.205%2FSONYHD%2Findex.m3u8';
+        // 1. Map your indices (#1, #2, #3, etc.) to their stream URLs here
+        const streams = {
+            "1": "https://xtremplay.com/api/proxy?url=http%3A%2F%2F38.96.178.205%2FSONYHD%2Ftracks-v1a1%2Fmono.m3u8&ref=http%3A%2F%2F38.96.178.205%2FSONYHD%2Findex.m3u8",
+            "2": "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+            "3": "https://playertest.longtailvideo.com/adaptive/oceans/oceans.m3u8"
+        };
 
-            // Double check if Hls asset engine interface safely initialized
+        let hlsInstance = null;
+
+        function loadStream() {
+            var video = document.getElementById('video');
+            
+            // Extract the hash value (e.g., "#1" becomes "1"). Default to "1" if missing or invalid.
+            var hashKey = window.location.hash.replace('#', '');
+            var streamUrl = streams[hashKey] || streams["1"];
+
+            console.log("Playing channel:", hashKey || "1", "URL:", streamUrl);
+
+            // Destroy existing instance before loading a new URL to prevent memory leaks
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+
+            // HLS.js engine execution
             if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-                console.log("Hls.js framework loaded successfully. Initializing stream...");
-                
-                var hls = new Hls({
+                hlsInstance = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,
                     defaultAudioCodec: 'mp4a.40.2'
                 });
                 
-                hls.loadSource(streamUrl);
-                hls.attachMedia(video);
+                hlsInstance.loadSource(streamUrl);
+                hlsInstance.attachMedia(video);
                 
-                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, function() {
                     video.play().catch(function(e) {
                         console.log("Autoplay blocked by browser. User interaction required.");
                     });
                 });
 
-                // Error monitoring recovery rules
-                hls.on(Hls.Events.ERROR, function (event, data) {
+                hlsInstance.on(Hls.Events.ERROR, function (event, data) {
                     if (data.fatal) {
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.log("Network error caught, retrying source stream context...");
-                                hls.startLoad();
+                                hlsInstance.startLoad();
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.log("Media decode error caught, skipping stalled frames...");
-                                hls.recoverMediaError();
+                                hlsInstance.recoverMediaError();
                                 break;
                             default:
-                                console.log("Unrecoverable playback exception triggered.");
                                 break;
                         }
                     }
                 });
             } 
-            // Fallback rule processing for native Safari environments (macOS/iOS)
+            // Native HLS fallback (Safari/iOS)
             else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                console.log("Using native browser engine fallback streaming.");
                 video.src = streamUrl;
                 video.addEventListener('loadedmetadata', function() {
                     video.play();
                 });
-            } else {
-                console.log("Error: This web browser environment does not support HLS streaming.");
             }
-        };
+        }
+
+        // Initialize on window load
+        window.onload = loadStream;
+
+        // Switch channels dynamically when the hash changes in the URL (e.g., #1 -> #2)
+        window.onhashchange = loadStream;
     </script>
 
 </body>

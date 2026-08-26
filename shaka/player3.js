@@ -1,6 +1,7 @@
 /**
  * Production-Grade Broadcast Synchronized TV Player Controller
  * Features: Double-Buffered Seamless Transitions, Fixed Sync Math, Drift Correction, Accurate Playback Detection & Dynamic Fallback Text
+ * TEST MODE: Loop calculation disabled (Playlist runs once in real-time starting from page load).
  */
 
 function initPlayer(config) {
@@ -48,7 +49,8 @@ function initPlayer(config) {
     let hideControlsTimeout = null;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
-    const CHANNEL_START_EPOCH = 1700000000;
+    // Lock session start time on page load to establish non-looping timeline
+    const SESSION_START_TIME = Date.now() / 1000;
 
     function updateFallbackState() {
         if (!elements.fallback) return;
@@ -79,6 +81,16 @@ function initPlayer(config) {
                     elements.fallbackSubtext.textContent = activeVideo.paused 
                         ? 'Press play to resume live stream broadcast' 
                         : 'Connecting to linear broadcast transmission...';
+                }
+            } else {
+                if (elements.fallbackTitle) {
+                    elements.fallbackTitle.textContent = 'Broadcast Finished';
+                }
+                if (elements.fallbackBadge) {
+                    elements.fallbackBadge.innerHTML = '<span class="dot"></span> Off-Air';
+                }
+                if (elements.fallbackSubtext) {
+                    elements.fallbackSubtext.textContent = 'No active broadcast scheduled';
                 }
             }
             elements.fallback.classList.remove('hidden');
@@ -131,23 +143,19 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
+    /**
+     * NON-LOOPING SCHEDULE CALCULATOR
+     * Plays items linearly starting from SESSION_START_TIME without cycling back to start.
+     */
     function buildScheduleFromSimplePlaylist(playlist) {
         if (!playlist || !playlist.length) return [];
         
-        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
-        if (totalPlaylistDuration <= 0) return [];
-
-        const now = Date.now() / 1000;
-        const elapsedSinceLaunch = now - CHANNEL_START_EPOCH;
-        const currentLoopOffset = elapsedSinceLaunch % totalPlaylistDuration;
-        const currentLoopStart = now - currentLoopOffset;
-
-        let accumulatedTime = 0;
+        let accumulatedTime = SESSION_START_TIME;
 
         return playlist.map((item, index) => {
-            const itemStartTime = currentLoopStart + accumulatedTime;
+            const itemStartTime = accumulatedTime;
             accumulatedTime += item.duration;
-            const itemEndTime = currentLoopStart + accumulatedTime;
+            const itemEndTime = accumulatedTime;
 
             return {
                 id: `item_${index}_${Math.floor(itemStartTime)}`,
@@ -176,7 +184,9 @@ function initPlayer(config) {
 
         const nowSec = (Date.now() / 1000) + offsetSeconds;
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
-        return match || schedule[0];
+        
+        // Returns null if sequence end is reached (No loop reset)
+        return match || null;
     }
 
     function preloadNextStream() {
@@ -318,7 +328,18 @@ function initPlayer(config) {
     function evaluateScheduleSync() {
         if (!rawPlaylist.length) return;
         const targetProgram = getCurrentProgram();
-        if (!targetProgram) return;
+        
+        // Handle end of transmission (Playlist ended)
+        if (!targetProgram) {
+            if (currentScheduleItem) {
+                currentScheduleItem = null;
+                destroyPlayer();
+                if (elements.nowTitle) elements.nowTitle.textContent = 'Off Air';
+                renderScheduleUI();
+                updateFallbackState();
+            }
+            return;
+        }
 
         const currentOffset = getBroadcastCalculatedTime(targetProgram);
         if (targetProgram.duration - currentOffset <= 8) {
@@ -388,6 +409,9 @@ function initPlayer(config) {
 
             if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
             if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(activeVideo.currentTime - expectedOffset).toFixed(1)}s`;
+        } else {
+            if (elements.statusText) elements.statusText.textContent = 'Broadcast Offline';
+            if (elements.statusOffset) elements.statusOffset.textContent = '';
         }
     }
 
@@ -506,4 +530,4 @@ function initPlayer(config) {
         updateProgress();
         updateFallbackState();
     }, 250);
-                   }
+}

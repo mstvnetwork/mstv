@@ -455,8 +455,8 @@ function initPlayer(config) {
             },
             {
                 "title": "Apna Tv Stream - Part 03",
-                "duration": 8801,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8",
+                "duration": 7216,
+                "url": "https://crickethd.pages.dev/b4u2#3",
                 "type": "m3u8"
             }
             

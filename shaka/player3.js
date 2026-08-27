@@ -63,6 +63,9 @@ function initPlayer(config) {
     let lastPlaylistFingerprint = null;
     let lastProgressTimestamp = 0;
     let lastKnownCurrentTime = -1;
+    let lastFailedProgramId = null;
+    let fallbackRetryAt = 0;
+    const FALLBACK_RETRY_COOLDOWN_MS = 20000; // don't retry the same dead source more than once per 20s
 
     function showLoader(show) {
         if (elements.loader) {
@@ -237,9 +240,11 @@ function initPlayer(config) {
         };
     }
 
-    function activateFallback(reason) {
+    function activateFallback(reason, failedProgramId = null) {
         if (isFallbackActive) return;
         isFallbackActive = true;
+        lastFailedProgramId = failedProgramId;
+        fallbackRetryAt = Date.now() + FALLBACK_RETRY_COOLDOWN_MS;
         console.warn('Activating MP4 fallback:', reason);
 
         currentScheduleItem = buildFallbackProgram();
@@ -272,7 +277,7 @@ function initPlayer(config) {
 
             if (activeVideo.currentTime === lastKnownCurrentTime) {
                 if (Date.now() - lastProgressTimestamp > STUCK_WATCHDOG_MS) {
-                    activateFallback('playback stalled (no currentTime progress)');
+                    activateFallback('playback stalled (no currentTime progress)', currentScheduleItem ? currentScheduleItem.id : null);
                 }
             } else {
                 lastKnownCurrentTime = activeVideo.currentTime;
@@ -393,7 +398,7 @@ function initPlayer(config) {
             hls.on(Hls.Events.ERROR, (event, data) => {
                 if (data.fatal && !isBackground && !isFallback) {
                     console.error('Fatal HLS error, activating fallback:', data);
-                    activateFallback('fatal HLS error: ' + data.type);
+                    activateFallback('fatal HLS error: ' + data.type, program.id);
                 }
             });
 
@@ -415,7 +420,7 @@ function initPlayer(config) {
             targetVideo.onerror = () => {
                 if (!isFallback) {
                     console.error('Video element error, activating fallback.');
-                    activateFallback('video element error');
+                    activateFallback('video element error', program.id);
                 }
             };
         }
@@ -466,10 +471,20 @@ function initPlayer(config) {
             return;
         }
 
-        // Real content is available again — drop fallback state so normal
-        // id-diff logic below picks it up as "new" content.
+        // Real content may be available again — but don't thrash: only drop
+        // fallback if either (a) the resolved program is different from the
+        // one that failed, or (b) the retry cooldown has elapsed. Without
+        // this, a still-dead URL gets retried every single sync tick (1s),
+        // tearing down and reloading the fallback mp4 constantly, which is
+        // what causes choppy/stuttering fallback playback.
         if (isFallbackActive) {
-            tryDeactivateFallback();
+            const cooldownElapsed = Date.now() >= fallbackRetryAt;
+            const differentProgram = targetProgram.id !== lastFailedProgramId;
+            if (differentProgram || cooldownElapsed) {
+                tryDeactivateFallback();
+            } else {
+                return; // stay on fallback, don't touch playback at all this tick
+            }
         }
 
         const currentOffset = getBroadcastCalculatedTime(targetProgram);
@@ -642,8 +657,8 @@ function initPlayer(config) {
         return [
             {
                 "title": "Apna Tv Stream - Part 04",
-                "duration":,
-                "url":"",
+                "duration": 20,
+                "url": "",
                 "type": "m3u8"
             }
         ];
@@ -658,4 +673,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 1000);
     progressTimer = setInterval(updateProgress, 250);
-        }
+}

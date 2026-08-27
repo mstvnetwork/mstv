@@ -11,7 +11,6 @@ function initPlayer(config) {
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
-        fallbackOverlay: document.getElementById(config.fallbackOverlayId),
         error: document.getElementById(config.errorId),
         btnPlay: document.getElementById(config.btnPlayId),
         btnMute: document.getElementById(config.btnMuteId),
@@ -79,12 +78,6 @@ function initPlayer(config) {
             } else {
                 elements.error.classList.remove('show');
             }
-        }
-    }
-
-    function showFallbackOverlay(show) {
-        if (elements.fallbackOverlay) {
-            elements.fallbackOverlay.classList.toggle('hidden', !show);
         }
     }
 
@@ -257,15 +250,6 @@ function initPlayer(config) {
         isIframe = false;
         elements.iframe.style.display = 'none';
         setupVideoSource(activeVideo, currentScheduleItem, false, /* isFallback */ true);
-
-        // Show the standby card only until the fallback mp4 itself starts
-        // rendering frames — then get out of the way so the video is
-        // actually visible. If it stalls again, onwaiting brings it back.
-        showFallbackOverlay(true);
-        activeVideo.addEventListener('playing', function onFallbackPlaying() {
-            if (isFallbackActive) showFallbackOverlay(false);
-            activeVideo.removeEventListener('playing', onFallbackPlaying);
-        });
     }
 
     function tryDeactivateFallback() {
@@ -274,7 +258,6 @@ function initPlayer(config) {
         // will naturally take over because currentScheduleItem.id is
         // 'fallback_placeholder', which never matches a real program id.
         isFallbackActive = false;
-        showFallbackOverlay(false);
     }
 
     function armStuckWatchdog() {
@@ -338,10 +321,6 @@ function initPlayer(config) {
         showError(null);
         retryCount = 0;
 
-        if (program.id !== 'fallback_placeholder') {
-            showFallbackOverlay(false);
-        }
-
         const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {
             setupIframePlayer(program.url);
@@ -354,6 +333,7 @@ function initPlayer(config) {
         if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
             hiddenVideo.muted = activeVideo.muted;
             hiddenVideo.volume = activeVideo.volume;
+            hiddenVideo.loop = false;
 
             activeVideo.style.display = 'none';
             activeVideo.pause();
@@ -386,6 +366,7 @@ function initPlayer(config) {
         }
 
         targetVideo.style.display = isBackground ? 'none' : 'block';
+        targetVideo.loop = !!isFallback;
         if (elements.volOverlay) elements.volOverlay.style.display = 'none';
         if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
 
@@ -402,7 +383,7 @@ function initPlayer(config) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
-                applyLinearSeek(program, targetVideo);
+                if (!isFallback) applyLinearSeek(program, targetVideo);
                 if (!isBackground) {
                     executeAutoPlay(targetVideo);
                     if (!isFallback) armStuckWatchdog();
@@ -421,7 +402,7 @@ function initPlayer(config) {
 
         } else {
             targetVideo.src = program.url;
-            applyLinearSeek(program, targetVideo);
+            if (!isFallback) applyLinearSeek(program, targetVideo);
             if (!isBackground) {
                 executeAutoPlay(targetVideo);
                 if (!isFallback) armStuckWatchdog();
@@ -662,7 +643,7 @@ function initPlayer(config) {
             {
                 "title": "Apna Tv Stream - Part 04",
                 "duration": 60,
-                "url": "",
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }
         ];
@@ -677,4 +658,4 @@ function initPlayer(config) {
 
     autoSyncTimer = setInterval(evaluateScheduleSync, 1000);
     progressTimer = setInterval(updateProgress, 250);
-}
+        }

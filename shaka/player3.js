@@ -1,11 +1,16 @@
 /**
- * Test-Ready Linear TV Player Controller (Sequential / Non-Looping with Virtual Duration Enforcement)
+ * Test-Ready Linear TV Player Controller 
+ * Features: MP4 Video Fallback support, Virtual Duration Enforcement, Preloading & Auto-Advancing
  */
 
 function initPlayer(config) {
     const elements = {
         videoPrimary: document.getElementById(config.videoId),
         videoSecondary: document.getElementById('videoPlayerNext'),
+        fallbackVideo: document.getElementById(config.fallbackVideoId || 'videoPlayerFallback'),
+        // ADD THESE TWO LINES:
+        fallbackVideoId: 'videoPlayerFallback',
+        fallbackVideoUrl: 'https://files.catbox.moe/c9z1wf.mp4',
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
@@ -27,6 +32,7 @@ function initPlayer(config) {
 
     let activeVideo = elements.videoPrimary;
     let hiddenVideo = elements.videoSecondary;
+    let fallbackVideo = elements.fallbackVideo;
     let activeHls = null;
     let hiddenHls = null;
 
@@ -41,6 +47,14 @@ function initPlayer(config) {
     let hasEndedCurrentTrack = false;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
+    // Setup Fallback MP4 Video if provided
+    if (fallbackVideo && config.fallbackVideoUrl) {
+        fallbackVideo.src = config.fallbackVideoUrl;
+        fallbackVideo.loop = true;
+        fallbackVideo.muted = true;
+        fallbackVideo.load();
+    }
+
     function showLoader(show) {
         if (elements.loader) {
             elements.loader.classList.toggle('hidden', !show);
@@ -48,8 +62,20 @@ function initPlayer(config) {
     }
 
     function showFallback(show) {
+        // Handle DOM overlay fallback (if present)
         if (elements.fallbackOverlay) {
             elements.fallbackOverlay.classList.toggle('hidden', !show);
+        }
+
+        // Handle MP4 Video fallback
+        if (fallbackVideo && config.fallbackVideoUrl) {
+            if (show) {
+                fallbackVideo.style.display = 'block';
+                fallbackVideo.play().catch(() => {});
+            } else {
+                fallbackVideo.pause();
+                fallbackVideo.style.display = 'none';
+            }
         }
     }
 
@@ -120,7 +146,7 @@ function initPlayer(config) {
         hasEndedCurrentTrack = false;
 
         if (index < 0 || index >= rawPlaylist.length) {
-            // End of playlist reach - Stop video and display animated fallback overlay
+            // End of playlist: stop stream and display fallback video
             activeVideo.pause();
             showFallback(true);
             showLoader(false);
@@ -261,8 +287,7 @@ function initPlayer(config) {
 
         const currentItem = rawPlaylist[currentIndex];
         
-        // --- VIRTUAL DURATION CHECK ---
-        // Force track end when currentTime hits the array duration (60s in your test)
+        // Virtual Duration Check (Ends track when currentTime hits item's duration)
         if (currentItem && currentItem.duration && activeVideo.currentTime >= currentItem.duration) {
             if (!hasEndedCurrentTrack) {
                 hasEndedCurrentTrack = true;
@@ -347,7 +372,6 @@ function initPlayer(config) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (activeVideo.paused) {
-                    // If stream was terminated by virtual duration, replay from 0
                     if (hasEndedCurrentTrack) {
                         playMedia(currentIndex);
                     } else {

@@ -656,9 +656,9 @@ function initPlayer(config) {
         // point config.playlistUrl at a JSON endpoint your CMS updates.
         return [
             {
-                "title": "Apna Tv Stream - Part 04",
-                "duration": 3425,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwr7e7bboxuzvta274bcy3mxktxkhjk6mkdi5cmxen7vaxjcgo5kf4vka%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwr7e7bboxuzvta274bcy3mxktxkhjk6mkdi5cmxen7vaxjcgo5kf4vka%2Findex-v1-a1.m3u8",
+                "title": "Apna Tv Stream - Part 05",
+                "duration": 1300,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwexh7bboxuzvta274fa3rqxmqij27pqcbi34t3l5uqnj3icppcwdrg6a%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwexh7bboxuzvta274fa3rqxmqij27pqcbi34t3l5uqnj3icppcwdrg6a%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }
         ];

@@ -642,7 +642,7 @@ function initPlayer(config) {
         return [
             {
                 "title": "Apna Tv Stream - Part 04",
-                "duration": 60,
+                "duration":,
                 "url":"",
                 "type": "m3u8"
             }

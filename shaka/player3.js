@@ -1,13 +1,13 @@
 /**
- * Test-Ready Linear TV Player Controller 
- * Features: MP4 Video Fallback support, Virtual Duration Enforcement, Preloading & Auto-Advancing
+ * Production-Grade Broadcast Synchronized TV Player Controller
+ * Features: Double-Buffered Seamless Transitions, Fixed Sync Math, Drift Correction,
+ *           Live Playlist Polling, Automatic MP4 Fallback
  */
 
 function initPlayer(config) {
     const elements = {
         videoPrimary: document.getElementById(config.videoId),
         videoSecondary: document.getElementById('videoPlayerNext'),
-        fallbackVideo: document.getElementById(config.fallbackVideoId || 'videoPlayerFallback'),
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
@@ -29,50 +29,45 @@ function initPlayer(config) {
 
     let activeVideo = elements.videoPrimary;
     let hiddenVideo = elements.videoSecondary;
-    let fallbackVideo = elements.fallbackVideo;
     let activeHls = null;
     let hiddenHls = null;
 
-    let currentIndex = 0;
-    let preloadedIndex = -1;
+    let currentScheduleItem = null;
+    let preloadedScheduleItem = null;
     let rawPlaylist = [];
+    let schedule = [];
     let isLiveStream = false;
     let isIframe = false;
+    let autoSyncTimer = null;
     let progressTimer = null;
     let clockTimer = null;
+    let playlistPollTimer = null;
+    let stuckWatchdogTimer = null;
+    let retryCount = 0;
+    let isInternalSeeking = false;
+    let hasInitialSeekApplied = false;
     let hideControlsTimeout = null;
-    let hasEndedCurrentTrack = false;
+    const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
-    // Setup Fallback MP4 Video if provided
-    if (fallbackVideo && config.fallbackVideoUrl) {
-        fallbackVideo.src = config.fallbackVideoUrl;
-        fallbackVideo.loop = true;
-        fallbackVideo.muted = true;
-        fallbackVideo.load();
-    }
+    const CHANNEL_START_EPOCH = 1700000000;
+
+    // ---- Fallback config ------------------------------------------------
+    // Config can override this via config.fallbackUrl / config.playlistUrl /
+    // config.playlistPollMs; sane defaults are provided below.
+    const FALLBACK_MP4_URL = config.fallbackVideoUrl || config.fallbackUrl || 'https://files.catbox.moe/c9z1wf.mp4';
+    const PLAYLIST_URL = config.playlistUrl || null; // e.g. '/api/playlist.json'
+    const PLAYLIST_POLL_MS = config.playlistPollMs || 15000;
+    const STUCK_WATCHDOG_MS = config.stuckWatchdogMs || 12000; // no progress => assume dead
+
+    let isFallbackActive = false;
+    let lastPlaylistFingerprint = null;
+    let lastProgressTimestamp = 0;
+    let lastKnownCurrentTime = -1;
 
     function showLoader(show) {
         if (elements.loader) {
             elements.loader.classList.toggle('hidden', !show);
-        }
-    }
-
-    function showFallback(show) {
-        // Handle DOM overlay fallback (if present)
-        if (elements.fallbackOverlay) {
-            elements.fallbackOverlay.classList.toggle('hidden', !show);
-        }
-
-        // Handle MP4 Video fallback
-        if (fallbackVideo && config.fallbackVideoUrl) {
-            if (show) {
-                fallbackVideo.style.display = 'block';
-                fallbackVideo.play().catch(() => {});
-            } else {
-                fallbackVideo.pause();
-                fallbackVideo.style.display = 'none';
-            }
         }
     }
 
@@ -84,6 +79,12 @@ function initPlayer(config) {
             } else {
                 elements.error.classList.remove('show');
             }
+        }
+    }
+
+    function showFallbackOverlay(show) {
+        if (elements.fallbackOverlay) {
+            elements.fallbackOverlay.classList.toggle('hidden', !show);
         }
     }
 
@@ -116,12 +117,193 @@ function initPlayer(config) {
         clockTimer = setInterval(updateClock, 1000);
     }
 
-    function preloadNextStream() {
-        const nextIndex = currentIndex + 1;
-        if (nextIndex >= rawPlaylist.length || preloadedIndex === nextIndex) return;
+    function buildScheduleFromSimplePlaylist(playlist) {
+        if (!playlist || !playlist.length) return [];
 
-        const nextProgram = rawPlaylist[nextIndex];
-        preloadedIndex = nextIndex;
+        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+        if (totalPlaylistDuration <= 0) return [];
+
+        const now = Date.now() / 1000;
+        const elapsedSinceLaunch = now - CHANNEL_START_EPOCH;
+        const currentLoopOffset = elapsedSinceLaunch % totalPlaylistDuration;
+        const currentLoopStart = now - currentLoopOffset;
+
+        let accumulatedTime = 0;
+
+        return playlist.map((item, index) => {
+            const itemStartTime = currentLoopStart + accumulatedTime;
+            accumulatedTime += item.duration;
+            const itemEndTime = currentLoopStart + accumulatedTime;
+
+            return {
+                id: `item_${index}_${Math.floor(itemStartTime)}`,
+                title: item.title,
+                startTime: itemStartTime,
+                endTime: itemEndTime,
+                duration: item.duration,
+                url: item.url,
+                type: item.type,
+                isIframe: item.type === 'iframe'
+            };
+        });
+    }
+
+    function getBroadcastCalculatedTime(program) {
+        if (!program || !program.startTime) return 0;
+        const nowSec = Date.now() / 1000;
+        let elapsedTime = nowSec - program.startTime;
+        if (elapsedTime < 0) return 0;
+        return Math.min(elapsedTime, program.duration);
+    }
+
+    function getCurrentProgram(offsetSeconds = 0) {
+        schedule = buildScheduleFromSimplePlaylist(rawPlaylist);
+        if (!schedule.length) return null;
+
+        const nowSec = (Date.now() / 1000) + offsetSeconds;
+        const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
+        return match || schedule[0];
+    }
+
+    // ---- Live playlist polling ------------------------------------------
+    // This is the actual fix for "playlist changes don't show up without a
+    // refresh". Previously rawPlaylist was set once at init from a static
+    // array and NEVER updated again — evaluateScheduleSync() only recomputes
+    // start/end times off that same frozen array. Now we periodically fetch
+    // the playlist source and, if it actually changed, swap it in.
+
+    function fingerprintPlaylist(playlist) {
+        try {
+            return JSON.stringify(playlist.map(p => [p.title, p.duration, p.url, p.type]));
+        } catch (e) {
+            return String(Date.now());
+        }
+    }
+
+    async function fetchRemotePlaylist() {
+        if (!PLAYLIST_URL) return null;
+        try {
+            const res = await fetch(PLAYLIST_URL, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
+            const data = await res.json();
+            if (!Array.isArray(data) || !data.length) throw new Error('Empty/invalid playlist payload');
+            return data;
+        } catch (err) {
+            console.warn('Playlist poll failed, keeping current playlist:', err);
+            return null;
+        }
+    }
+
+    async function pollPlaylistForChanges() {
+        const fresh = await fetchRemotePlaylist();
+        if (!fresh) return;
+
+        const fingerprint = fingerprintPlaylist(fresh);
+        if (fingerprint === lastPlaylistFingerprint) return; // no real change, skip
+
+        lastPlaylistFingerprint = fingerprint;
+        rawPlaylist = fresh;
+
+        // Drop any stale preload built against the old playlist so the next
+        // evaluateScheduleSync() tick re-evaluates cleanly against new data.
+        preloadedScheduleItem = null;
+        if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+
+        // Force re-selection of the current program even if the id would
+        // otherwise coincidentally match, by clearing currentScheduleItem
+        // only when the *content* at "now" actually differs.
+        const recalculated = getCurrentProgram();
+        if (!currentScheduleItem || !recalculated || recalculated.url !== currentScheduleItem.url) {
+            currentScheduleItem = null; // triggers playMedia() on next tick
+        }
+
+        console.info('Playlist updated from remote source, applying live.');
+    }
+
+    function startPlaylistPolling() {
+        if (!PLAYLIST_URL) return; // no remote source configured, static playlist only
+        lastPlaylistFingerprint = fingerprintPlaylist(rawPlaylist);
+        playlistPollTimer = setInterval(pollPlaylistForChanges, PLAYLIST_POLL_MS);
+    }
+
+    // ---- MP4 fallback logic ---------------------------------------------
+    // Triggers when: (a) the schedule is empty, (b) a source errors out via
+    // native <video> error event or hls.js fatal error, or (c) playback
+    // appears stuck (currentTime not advancing) for STUCK_WATCHDOG_MS.
+
+    function buildFallbackProgram() {
+        return {
+            id: 'fallback_placeholder',
+            title: 'Programming will resume shortly',
+            startTime: Date.now() / 1000,
+            endTime: Date.now() / 1000 + 1e9, // effectively open-ended
+            duration: 1e9,
+            url: FALLBACK_MP4_URL,
+            type: 'mp4',
+            isIframe: false
+        };
+    }
+
+    function activateFallback(reason) {
+        if (isFallbackActive) return;
+        isFallbackActive = true;
+        console.warn('Activating MP4 fallback:', reason);
+
+        currentScheduleItem = buildFallbackProgram();
+        preloadedScheduleItem = null;
+        if (elements.nowTitle) elements.nowTitle.textContent = currentScheduleItem.title;
+        showError(null);
+
+        isIframe = false;
+        elements.iframe.style.display = 'none';
+        setupVideoSource(activeVideo, currentScheduleItem, false, /* isFallback */ true);
+
+        // Show the standby card only until the fallback mp4 itself starts
+        // rendering frames — then get out of the way so the video is
+        // actually visible. If it stalls again, onwaiting brings it back.
+        showFallbackOverlay(true);
+        activeVideo.addEventListener('playing', function onFallbackPlaying() {
+            if (isFallbackActive) showFallbackOverlay(false);
+            activeVideo.removeEventListener('playing', onFallbackPlaying);
+        });
+    }
+
+    function tryDeactivateFallback() {
+        // Called on the next schedule sync tick; if a real program is
+        // available again, evaluateScheduleSync()'s normal id-diff logic
+        // will naturally take over because currentScheduleItem.id is
+        // 'fallback_placeholder', which never matches a real program id.
+        isFallbackActive = false;
+        showFallbackOverlay(false);
+    }
+
+    function armStuckWatchdog() {
+        clearTimeout(stuckWatchdogTimer);
+        if (isFallbackActive || isIframe) return;
+        lastProgressTimestamp = Date.now();
+        lastKnownCurrentTime = activeVideo.currentTime;
+
+        stuckWatchdogTimer = setInterval(() => {
+            if (isFallbackActive || isIframe || !currentScheduleItem) return;
+            if (activeVideo.paused) return; // user-paused, not a failure
+
+            if (activeVideo.currentTime === lastKnownCurrentTime) {
+                if (Date.now() - lastProgressTimestamp > STUCK_WATCHDOG_MS) {
+                    activateFallback('playback stalled (no currentTime progress)');
+                }
+            } else {
+                lastKnownCurrentTime = activeVideo.currentTime;
+                lastProgressTimestamp = Date.now();
+            }
+        }, 3000);
+    }
+
+    function preloadNextStream() {
+        if (isFallbackActive) return; // don't preload while riding the fallback
+        const nextProgram = getCurrentProgram(8);
+        if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
+
+        preloadedScheduleItem = nextProgram;
         hiddenVideo.muted = true;
 
         if (hiddenHls) {
@@ -129,36 +311,38 @@ function initPlayer(config) {
             hiddenHls = null;
         }
 
+        const calculatedSeek = getBroadcastCalculatedTime(nextProgram);
+
         if (nextProgram.url.includes('.m3u8') && Hls.isSupported()) {
             hiddenHls = new Hls({ enableWorker: true, lowLatencyMode: true });
             hiddenHls.loadSource(nextProgram.url);
             hiddenHls.attachMedia(hiddenVideo);
+            hiddenHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hiddenVideo.currentTime = calculatedSeek;
+            });
+            hiddenHls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.warn('Preload of next stream failed fatally; will fall back live if it becomes current.');
+                    if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+                    preloadedScheduleItem = null;
+                }
+            });
         } else {
             hiddenVideo.src = nextProgram.url;
+            hiddenVideo.currentTime = calculatedSeek;
             hiddenVideo.load();
         }
     }
 
-    function playMedia(index) {
-        hasEndedCurrentTrack = false;
+    function playMedia(program) {
+        showError(null);
+        retryCount = 0;
 
-        if (index < 0 || index >= rawPlaylist.length) {
-            // End of playlist: stop stream and display fallback video
-            activeVideo.pause();
-            showFallback(true);
-            showLoader(false);
-            if (elements.nowTitle) elements.nowTitle.textContent = "Broadcast Standby";
-            return;
+        if (program.id !== 'fallback_placeholder') {
+            showFallbackOverlay(false);
         }
 
-        currentIndex = index;
-        const program = rawPlaylist[currentIndex];
-        showError(null);
-
-        if (elements.nowTitle) elements.nowTitle.textContent = program.title;
-        renderScheduleUI();
-
-        const isEmbed = program.url.includes('iframe') || program.type === 'iframe';
+        const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {
             setupIframePlayer(program.url);
             return;
@@ -167,8 +351,7 @@ function initPlayer(config) {
         isIframe = false;
         elements.iframe.style.display = 'none';
 
-        // Seamless buffer swap if already preloaded
-        if (preloadedIndex === index && hiddenVideo.readyState >= 2) {
+        if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
             hiddenVideo.muted = activeVideo.muted;
             hiddenVideo.volume = activeVideo.volume;
 
@@ -186,18 +369,16 @@ function initPlayer(config) {
             activeHls = hiddenHls;
             hiddenHls = tempHls;
 
-            preloadedIndex = -1;
+            preloadedScheduleItem = null;
             bindVideoEvents(activeVideo);
             showLoader(false);
-            showFallback(false);
+            armStuckWatchdog();
         } else {
             setupVideoSource(activeVideo, program, false);
         }
-
-        showToast(elements.updateToast);
     }
 
-    function setupVideoSource(targetVideo, program, isBackground) {
+    function setupVideoSource(targetVideo, program, isBackground, isFallback = false) {
         let hlsInstance = isBackground ? hiddenHls : activeHls;
         if (hlsInstance) {
             hlsInstance.destroy();
@@ -221,7 +402,18 @@ function initPlayer(config) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
                 isLiveStream = data.levels[0]?.details?.live || false;
-                if (!isBackground) executeAutoPlay(targetVideo);
+                applyLinearSeek(program, targetVideo);
+                if (!isBackground) {
+                    executeAutoPlay(targetVideo);
+                    if (!isFallback) armStuckWatchdog();
+                }
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal && !isBackground && !isFallback) {
+                    console.error('Fatal HLS error, activating fallback:', data);
+                    activateFallback('fatal HLS error: ' + data.type);
+                }
             });
 
             if (isBackground) hiddenHls = hls;
@@ -229,7 +421,22 @@ function initPlayer(config) {
 
         } else {
             targetVideo.src = program.url;
-            if (!isBackground) executeAutoPlay(targetVideo);
+            applyLinearSeek(program, targetVideo);
+            if (!isBackground) {
+                executeAutoPlay(targetVideo);
+                if (!isFallback) armStuckWatchdog();
+            }
+        }
+
+        if (!isBackground) {
+            // Native <video> element error (covers plain mp4/dead URLs too,
+            // not just hls.js-managed sources).
+            targetVideo.onerror = () => {
+                if (!isFallback) {
+                    console.error('Video element error, activating fallback.');
+                    activateFallback('video element error');
+                }
+            };
         }
     }
 
@@ -244,7 +451,6 @@ function initPlayer(config) {
         if (elements.volOverlay) elements.volOverlay.style.display = 'block';
         if (elements.btnMute) elements.btnMute.style.display = 'none';
         showLoader(false);
-        showFallback(false);
     }
 
     function executeAutoPlay(videoTarget) {
@@ -255,6 +461,67 @@ function initPlayer(config) {
         });
     }
 
+    function applyLinearSeek(program, videoTarget) {
+        if (program && program.startTime) {
+            const targetOffset = getBroadcastCalculatedTime(program);
+            isInternalSeeking = true;
+            videoTarget.currentTime = targetOffset;
+            setTimeout(() => { isInternalSeeking = false; }, 500);
+        }
+    }
+
+    function evaluateScheduleSync() {
+        // No playlist at all (e.g. still loading, or remote fetch returned
+        // nothing usable) -> go straight to fallback rather than sitting on
+        // a blank player.
+        if (!rawPlaylist.length) {
+            activateFallback('empty playlist');
+            return;
+        }
+
+        const targetProgram = getCurrentProgram();
+        if (!targetProgram) {
+            activateFallback('no matching program in schedule');
+            return;
+        }
+
+        // Real content is available again — drop fallback state so normal
+        // id-diff logic below picks it up as "new" content.
+        if (isFallbackActive) {
+            tryDeactivateFallback();
+        }
+
+        const currentOffset = getBroadcastCalculatedTime(targetProgram);
+        if (targetProgram.duration - currentOffset <= 8) {
+            preloadNextStream();
+        }
+
+        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
+            currentScheduleItem = targetProgram;
+            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
+            renderScheduleUI();
+            playMedia(targetProgram);
+            showToast(elements.updateToast);
+        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2 && !isInternalSeeking) {
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const actualOffset = activeVideo.currentTime;
+            const drift = actualOffset - expectedOffset;
+
+            if (Math.abs(drift) > 1.0 && Math.abs(drift) <= 5) {
+                activeVideo.playbackRate = drift < 0 ? 1.03 : 0.97;
+            } else {
+                activeVideo.playbackRate = 1.0;
+            }
+
+            if (Math.abs(drift) > 8) {
+                isInternalSeeking = true;
+                activeVideo.currentTime = expectedOffset;
+                showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 1000);
+            }
+        }
+    }
+
     function destroyPlayer() {
         if (activeHls) { activeHls.destroy(); activeHls = null; }
         if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
@@ -263,12 +530,14 @@ function initPlayer(config) {
     }
 
     function renderScheduleUI() {
-        if (!elements.scheduleList || !rawPlaylist.length) return;
-        elements.scheduleList.innerHTML = rawPlaylist.map((item, idx) => {
-            const isActive = currentIndex === idx;
+        if (!elements.scheduleList || !schedule.length) return;
+        elements.scheduleList.innerHTML = schedule.map(item => {
+            const isActive = currentScheduleItem && currentScheduleItem.id === item.id;
+            const startStr = new Date(item.startTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const endStr = new Date(item.endTime * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             return `
                 <div class="schedule-item ${isActive ? 'active' : ''}">
-                    <strong>Part ${idx + 1}</strong>: ${item.title}
+                    <strong>${startStr} - ${endStr}</strong>: ${item.title}
                 </div>
             `;
         }).join('');
@@ -276,42 +545,26 @@ function initPlayer(config) {
 
     function updateProgress() {
         if (isIframe) {
-            showFallback(false);
             if (elements.statusText) elements.statusText.textContent = 'Live (Embedded Player)';
             if (elements.statusOffset) elements.statusOffset.textContent = '';
             return;
         }
 
-        const currentItem = rawPlaylist[currentIndex];
-        
-        // Virtual Duration Check (Ends track when currentTime hits item's duration)
-        if (currentItem && currentItem.duration && activeVideo.currentTime >= currentItem.duration) {
-            if (!hasEndedCurrentTrack) {
-                hasEndedCurrentTrack = true;
-                playMedia(currentIndex + 1);
-                return;
-            }
-        }
-
-        const isPlaying = activeVideo && 
-                          !activeVideo.paused && 
-                          !activeVideo.ended && 
-                          activeVideo.readyState >= 2 &&
-                          !hasEndedCurrentTrack;
-
-        showFallback(!isPlaying);
-
-        if (isPlaying && currentItem && (currentItem.duration - activeVideo.currentTime <= 8)) {
-            preloadNextStream();
+        if (isFallbackActive) {
+            if (elements.statusText) elements.statusText.textContent = 'Fallback Content';
+            if (elements.statusOffset) elements.statusOffset.textContent = 'Reconnecting to schedule…';
+            return;
         }
 
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(activeVideo.duration - activeVideo.currentTime)}`;
-        } else if (currentItem) {
-            const limitDuration = currentItem.duration || activeVideo.duration;
-            if (elements.statusText) elements.statusText.textContent = `Playing: ${formatTime(activeVideo.currentTime)} / ${formatTime(limitDuration)}`;
-            if (elements.statusOffset) elements.statusOffset.textContent = `Track ${currentIndex + 1} of ${rawPlaylist.length}`;
+        } else if (currentScheduleItem) {
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const duration = activeVideo.duration || currentScheduleItem.duration;
+
+            if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(activeVideo.currentTime - expectedOffset).toFixed(1)}s`;
         }
     }
 
@@ -328,20 +581,21 @@ function initPlayer(config) {
     }
 
     function bindVideoEvents(videoEl) {
+        // Show loader if video pauses to buffer mid-stream
         videoEl.onwaiting = () => showLoader(true);
 
+        // Hide loader immediately when playback begins rendering frames
         videoEl.onplaying = () => {
             showLoader(false);
-            showFallback(false);
             showError(null);
             if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
             resetControlsTimeout();
         };
 
+        // Fallback: hide loader once media can play if not paused
         videoEl.oncanplay = () => {
-            if (!videoEl.paused && !hasEndedCurrentTrack) {
+            if (!videoEl.paused) {
                 showLoader(false);
-                showFallback(false);
             }
         };
 
@@ -349,16 +603,6 @@ function initPlayer(config) {
             if (elements.btnPlay) elements.btnPlay.textContent = '▶';
             clearTimeout(hideControlsTimeout);
             if (elements.container) elements.container.classList.remove('controls-hidden');
-            if (!isIframe) {
-                showFallback(true);
-            }
-        };
-
-        videoEl.onended = () => {
-            if (!hasEndedCurrentTrack) {
-                hasEndedCurrentTrack = true;
-                playMedia(currentIndex + 1);
-            }
         };
 
         videoEl.onvolumechange = updateMuteButtonState;
@@ -369,11 +613,7 @@ function initPlayer(config) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
                 if (activeVideo.paused) {
-                    if (hasEndedCurrentTrack) {
-                        playMedia(currentIndex);
-                    } else {
-                        activeVideo.play();
-                    }
+                    activeVideo.play();
                     elements.btnPlay.textContent = '⏸';
                 } else {
                     activeVideo.pause();
@@ -415,9 +655,12 @@ function initPlayer(config) {
     }
 
     function loadPlaylist() {
+        // Static fallback/default list used until the first successful
+        // remote poll (if PLAYLIST_URL is configured). Edit this, or better,
+        // point config.playlistUrl at a JSON endpoint your CMS updates.
         return [
             {
-                "title": "Apna Tv Stream - Part 03",
+                "title": "Apna Tv Stream - Part 04",
                 "duration": 60,
                 "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
@@ -429,7 +672,9 @@ function initPlayer(config) {
     bindVideoEvents(activeVideo);
     bindControls();
     startClock();
-    playMedia(0);
+    evaluateScheduleSync();
+    startPlaylistPolling();
 
+    autoSyncTimer = setInterval(evaluateScheduleSync, 1000);
     progressTimer = setInterval(updateProgress, 250);
 }

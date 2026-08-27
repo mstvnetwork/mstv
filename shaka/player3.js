@@ -8,9 +8,6 @@ function initPlayer(config) {
         videoPrimary: document.getElementById(config.videoId),
         videoSecondary: document.getElementById('videoPlayerNext'),
         fallbackVideo: document.getElementById(config.fallbackVideoId || 'videoPlayerFallback'),
-        // ADD THESE TWO LINES:
-        fallbackVideoId: 'videoPlayerFallback',
-        fallbackVideoUrl: 'https://files.catbox.moe/c9z1wf.mp4',
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),

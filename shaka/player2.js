@@ -657,8 +657,8 @@ function initPlayer(config) {
         return [
             {
                 "title": "Apna Tv Stream - Part 04",
-                "duration": 20,
-                "url": "",
+                "duration": 3425,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwr7e7bboxuzvta274bcy3mxktxkhjk6mkdi5cmxen7vaxjcgo5kf4vka%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwr7e7bboxuzvta274bcy3mxktxkhjk6mkdi5cmxen7vaxjcgo5kf4vka%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }
         ];

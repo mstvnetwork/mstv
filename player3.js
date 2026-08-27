@@ -1,12 +1,13 @@
 /**
- * Production-Grade Linear Sync & HLS Player Controller
- * Seamless Dual-Element Buffering Architecture
+ * Production-Grade Broadcast Synchronized TV Player Controller
+ * Features: Double-Buffered Seamless Transitions, Fixed Sync Math, Drift Correction,
+ *           Live Playlist Polling, Automatic MP4 Fallback
  */
 
 function initPlayer(config) {
     const elements = {
-        videoA: document.getElementById(config.videoId),
-        videoB: document.getElementById(config.videoIdNext || config.videoId + 'Next'),
+        videoPrimary: document.getElementById(config.videoId),
+        videoSecondary: document.getElementById('videoPlayerNext'),
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
@@ -25,32 +26,48 @@ function initPlayer(config) {
         clockDate: config.showClock ? document.getElementById(config.clockDateId) : null
     };
 
-    // Active & Hidden Player Refs
-    let activeVideo = elements.videoA;
-    let hiddenVideo = elements.videoB;
-
-    let hlsActive = null;
-    let hlsPreload = null;
+    let activeVideo = elements.videoPrimary;
+    let hiddenVideo = elements.videoSecondary;
+    let activeHls = null;
+    let hiddenHls = null;
 
     let currentScheduleItem = null;
     let preloadedScheduleItem = null;
+    let rawPlaylist = [];
     let schedule = [];
-
     let isLiveStream = false;
     let isIframe = false;
+    let autoSyncTimer = null;
+    let progressTimer = null;
+    let clockTimer = null;
+    let playlistPollTimer = null;
+    let stuckWatchdogTimer = null;
     let retryCount = 0;
     let isInternalSeeking = false;
+    let hasInitialSeekApplied = false;
+    let hideControlsTimeout = null;
     const MAX_RETRIES = 3;
     const isEmbedMode = document.body.classList.contains('embed-mode');
 
-    // Make sure background video is initialized cleanly
-    if (hiddenVideo) {
-        hiddenVideo.style.display = 'none';
-        hiddenVideo.muted = true;
-    }
+    const CHANNEL_START_EPOCH = 1700000000;
+
+    // ---- Fallback config ------------------------------------------------
+    // Config can override this via config.fallbackUrl / config.playlistUrl /
+    // config.playlistPollMs; sane defaults are provided below.
+    const FALLBACK_MP4_URL = config.fallbackUrl || 'https://files.catbox.moe/c9z1wf.mp4';
+    const PLAYLIST_URL = config.playlistUrl || null; // e.g. '/api/playlist.json'
+    const PLAYLIST_POLL_MS = config.playlistPollMs || 15000;
+    const STUCK_WATCHDOG_MS = config.stuckWatchdogMs || 12000; // no progress => assume dead
+
+    let isFallbackActive = false;
+    let lastPlaylistFingerprint = null;
+    let lastProgressTimestamp = 0;
+    let lastKnownCurrentTime = -1;
 
     function showLoader(show) {
-        if (elements.loader) elements.loader.classList.toggle('hidden', !show);
+        if (elements.loader) {
+            elements.loader.classList.toggle('hidden', !show);
+        }
     }
 
     function showError(message) {
@@ -65,7 +82,7 @@ function initPlayer(config) {
     }
 
     function showToast(el) {
-        if (!el || (el === elements.updateToast && isEmbedMode)) return;
+        if (!el || isEmbedMode) return;
         el.classList.add('show');
         setTimeout(() => el.classList.remove('show'), 3000);
     }
@@ -78,7 +95,7 @@ function initPlayer(config) {
     }
 
     function updateMuteButtonState() {
-        if (!elements.btnMute || !activeVideo) return;
+        if (!elements.btnMute) return;
         elements.btnMute.textContent = (activeVideo.muted || activeVideo.volume === 0) ? '🔇' : '🔊';
     }
 
@@ -90,151 +107,315 @@ function initPlayer(config) {
             if (elements.clockDate) elements.clockDate.textContent = now.toLocaleDateString();
         }
         updateClock();
-        setInterval(updateClock, 1000);
+        clockTimer = setInterval(updateClock, 1000);
     }
 
-    function getCurrentProgram() {
+    function buildScheduleFromSimplePlaylist(playlist) {
+        if (!playlist || !playlist.length) return [];
+
+        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+        if (totalPlaylistDuration <= 0) return [];
+
+        const now = Date.now() / 1000;
+        const elapsedSinceLaunch = now - CHANNEL_START_EPOCH;
+        const currentLoopOffset = elapsedSinceLaunch % totalPlaylistDuration;
+        const currentLoopStart = now - currentLoopOffset;
+
+        let accumulatedTime = 0;
+
+        return playlist.map((item, index) => {
+            const itemStartTime = currentLoopStart + accumulatedTime;
+            accumulatedTime += item.duration;
+            const itemEndTime = currentLoopStart + accumulatedTime;
+
+            return {
+                id: `item_${index}_${Math.floor(itemStartTime)}`,
+                title: item.title,
+                startTime: itemStartTime,
+                endTime: itemEndTime,
+                duration: item.duration,
+                url: item.url,
+                type: item.type,
+                isIframe: item.type === 'iframe'
+            };
+        });
+    }
+
+    function getBroadcastCalculatedTime(program) {
+        if (!program || !program.startTime) return 0;
+        const nowSec = Date.now() / 1000;
+        let elapsedTime = nowSec - program.startTime;
+        if (elapsedTime < 0) return 0;
+        return Math.min(elapsedTime, program.duration);
+    }
+
+    function getCurrentProgram(offsetSeconds = 0) {
+        schedule = buildScheduleFromSimplePlaylist(rawPlaylist);
         if (!schedule.length) return null;
-        const nowSec = Math.floor(Date.now() / 1000);
+
+        const nowSec = (Date.now() / 1000) + offsetSeconds;
         const match = schedule.find(item => nowSec >= item.startTime && nowSec < item.endTime);
         return match || schedule[0];
     }
 
-    function getNextProgram() {
-        if (!schedule.length) return null;
-        const currentIndex = schedule.findIndex(item => item.id === currentScheduleItem?.id);
-        if (currentIndex !== -1 && currentIndex + 1 < schedule.length) {
-            return schedule[currentIndex + 1];
+    // ---- Live playlist polling ------------------------------------------
+    // This is the actual fix for "playlist changes don't show up without a
+    // refresh". Previously rawPlaylist was set once at init from a static
+    // array and NEVER updated again — evaluateScheduleSync() only recomputes
+    // start/end times off that same frozen array. Now we periodically fetch
+    // the playlist source and, if it actually changed, swap it in.
+
+    function fingerprintPlaylist(playlist) {
+        try {
+            return JSON.stringify(playlist.map(p => [p.title, p.duration, p.url, p.type]));
+        } catch (e) {
+            return String(Date.now());
         }
-        return schedule[0]; // Loop back to start if playlist reaches the end
     }
 
-    function applyLinearSeek(program, targetVideo) {
-        if (program && program.startTime) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const targetOffset = nowSec - program.startTime;
-            if (targetOffset > 0) {
-                isInternalSeeking = true;
-                targetVideo.currentTime = targetOffset;
-                setTimeout(() => { isInternalSeeking = false; }, 500);
+    async function fetchRemotePlaylist() {
+        if (!PLAYLIST_URL) return null;
+        try {
+            const res = await fetch(PLAYLIST_URL, { cache: 'no-store' });
+            if (!res.ok) throw new Error(`Playlist fetch failed: ${res.status}`);
+            const data = await res.json();
+            if (!Array.isArray(data) || !data.length) throw new Error('Empty/invalid playlist payload');
+            return data;
+        } catch (err) {
+            console.warn('Playlist poll failed, keeping current playlist:', err);
+            return null;
+        }
+    }
+
+    async function pollPlaylistForChanges() {
+        const fresh = await fetchRemotePlaylist();
+        if (!fresh) return;
+
+        const fingerprint = fingerprintPlaylist(fresh);
+        if (fingerprint === lastPlaylistFingerprint) return; // no real change, skip
+
+        lastPlaylistFingerprint = fingerprint;
+        rawPlaylist = fresh;
+
+        // Drop any stale preload built against the old playlist so the next
+        // evaluateScheduleSync() tick re-evaluates cleanly against new data.
+        preloadedScheduleItem = null;
+        if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+
+        // Force re-selection of the current program even if the id would
+        // otherwise coincidentally match, by clearing currentScheduleItem
+        // only when the *content* at "now" actually differs.
+        const recalculated = getCurrentProgram();
+        if (!currentScheduleItem || !recalculated || recalculated.url !== currentScheduleItem.url) {
+            currentScheduleItem = null; // triggers playMedia() on next tick
+        }
+
+        console.info('Playlist updated from remote source, applying live.');
+    }
+
+    function startPlaylistPolling() {
+        if (!PLAYLIST_URL) return; // no remote source configured, static playlist only
+        lastPlaylistFingerprint = fingerprintPlaylist(rawPlaylist);
+        playlistPollTimer = setInterval(pollPlaylistForChanges, PLAYLIST_POLL_MS);
+    }
+
+    // ---- MP4 fallback logic ---------------------------------------------
+    // Triggers when: (a) the schedule is empty, (b) a source errors out via
+    // native <video> error event or hls.js fatal error, or (c) playback
+    // appears stuck (currentTime not advancing) for STUCK_WATCHDOG_MS.
+
+    function buildFallbackProgram() {
+        return {
+            id: 'fallback_placeholder',
+            title: 'Programming will resume shortly',
+            startTime: Date.now() / 1000,
+            endTime: Date.now() / 1000 + 1e9, // effectively open-ended
+            duration: 1e9,
+            url: FALLBACK_MP4_URL,
+            type: 'mp4',
+            isIframe: false
+        };
+    }
+
+    function activateFallback(reason) {
+        if (isFallbackActive) return;
+        isFallbackActive = true;
+        console.warn('Activating MP4 fallback:', reason);
+
+        currentScheduleItem = buildFallbackProgram();
+        preloadedScheduleItem = null;
+        if (elements.nowTitle) elements.nowTitle.textContent = currentScheduleItem.title;
+        showError(null);
+
+        isIframe = false;
+        elements.iframe.style.display = 'none';
+        setupVideoSource(activeVideo, currentScheduleItem, false, /* isFallback */ true);
+    }
+
+    function tryDeactivateFallback() {
+        // Called on the next schedule sync tick; if a real program is
+        // available again, evaluateScheduleSync()'s normal id-diff logic
+        // will naturally take over because currentScheduleItem.id is
+        // 'fallback_placeholder', which never matches a real program id.
+        isFallbackActive = false;
+    }
+
+    function armStuckWatchdog() {
+        clearTimeout(stuckWatchdogTimer);
+        if (isFallbackActive || isIframe) return;
+        lastProgressTimestamp = Date.now();
+        lastKnownCurrentTime = activeVideo.currentTime;
+
+        stuckWatchdogTimer = setInterval(() => {
+            if (isFallbackActive || isIframe || !currentScheduleItem) return;
+            if (activeVideo.paused) return; // user-paused, not a failure
+
+            if (activeVideo.currentTime === lastKnownCurrentTime) {
+                if (Date.now() - lastProgressTimestamp > STUCK_WATCHDOG_MS) {
+                    activateFallback('playback stalled (no currentTime progress)');
+                }
+            } else {
+                lastKnownCurrentTime = activeVideo.currentTime;
+                lastProgressTimestamp = Date.now();
             }
-        }
+        }, 3000);
     }
 
-    function preloadNextProgram(nextProgram) {
-        if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id) || !hiddenVideo) return;
+    function preloadNextStream() {
+        if (isFallbackActive) return; // don't preload while riding the fallback
+        const nextProgram = getCurrentProgram(8);
+        if (!nextProgram || (preloadedScheduleItem && preloadedScheduleItem.id === nextProgram.id)) return;
 
         preloadedScheduleItem = nextProgram;
-        if (hlsPreload) {
-            hlsPreload.destroy();
-            hlsPreload = null;
+        hiddenVideo.muted = true;
+
+        if (hiddenHls) {
+            hiddenHls.destroy();
+            hiddenHls = null;
         }
 
+        const calculatedSeek = getBroadcastCalculatedTime(nextProgram);
+
         if (nextProgram.url.includes('.m3u8') && Hls.isSupported()) {
-            hlsPreload = new Hls({
-                liveSyncDurationCount: 3,
-                enableWorker: true,
-                lowLatencyMode: true
+            hiddenHls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hiddenHls.loadSource(nextProgram.url);
+            hiddenHls.attachMedia(hiddenVideo);
+            hiddenHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                hiddenVideo.currentTime = calculatedSeek;
             });
-            hlsPreload.loadSource(nextProgram.url);
-            hlsPreload.attachMedia(hiddenVideo);
-            hlsPreload.on(Hls.Events.MANIFEST_PARSED, () => {
-                applyLinearSeek(nextProgram, hiddenVideo);
+            hiddenHls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    console.warn('Preload of next stream failed fatally; will fall back live if it becomes current.');
+                    if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+                    preloadedScheduleItem = null;
+                }
             });
-        } else if (!nextProgram.url.includes('iframe')) {
+        } else {
             hiddenVideo.src = nextProgram.url;
+            hiddenVideo.currentTime = calculatedSeek;
             hiddenVideo.load();
         }
     }
 
-    function swapPlayersToNext(nextProgram) {
-        if (!hiddenVideo) {
-            playMedia(nextProgram);
-            return;
-        }
-
-        // Swap references
-        const oldVideo = activeVideo;
-        activeVideo = hiddenVideo;
-        hiddenVideo = oldVideo;
-
-        if (hlsActive) hlsActive.destroy();
-        hlsActive = hlsPreload;
-        hlsPreload = null;
-
-        currentScheduleItem = nextProgram;
-        preloadedScheduleItem = null;
-
-        // Visual Swap
-        hiddenVideo.style.display = 'none';
-        hiddenVideo.pause();
-
-        activeVideo.style.display = 'block';
-        activeVideo.muted = oldVideo.muted;
-
-        if (elements.nowTitle) elements.nowTitle.textContent = currentScheduleItem.title;
-        renderScheduleUI();
-        showToast(elements.updateToast);
-
-        applyLinearSeek(currentScheduleItem, activeVideo);
-        activeVideo.play().catch(() => {
-            activeVideo.muted = true;
-            updateMuteButtonState();
-            activeVideo.play();
-        });
-    }
-
-    function evaluateScheduleSync() {
-        if (!schedule.length) return;
-        const targetProgram = getCurrentProgram();
-        if (!targetProgram) return;
-
-        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
-            if (preloadedScheduleItem && preloadedScheduleItem.id === targetProgram.id) {
-                swapPlayersToNext(targetProgram);
-            } else {
-                currentScheduleItem = targetProgram;
-                if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
-                renderScheduleUI();
-                playMedia(targetProgram);
-                showToast(elements.updateToast);
-            }
-        } else if (!isLiveStream && !isIframe) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const expectedOffset = nowSec - currentScheduleItem.startTime;
-            const actualOffset = activeVideo.currentTime;
-
-            if (Math.abs(actualOffset - expectedOffset) > 3) {
-                isInternalSeeking = true;
-                activeVideo.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
-        }
-    }
-
-    function destroyPlayer() {
-        if (hlsActive) {
-            hlsActive.destroy();
-            hlsActive = null;
-        }
-        activeVideo.pause();
-        activeVideo.removeAttribute('src');
-        activeVideo.load();
-    }
-
     function playMedia(program) {
         showError(null);
-        showLoader(true);
         retryCount = 0;
 
         const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {
             setupIframePlayer(program.url);
-        } else if (program.url.includes('.m3u8')) {
-            setupHlsPlayer(program);
+            return;
+        }
+
+        isIframe = false;
+        elements.iframe.style.display = 'none';
+
+        if (preloadedScheduleItem && preloadedScheduleItem.id === program.id && hiddenVideo.readyState >= 2) {
+            hiddenVideo.muted = activeVideo.muted;
+            hiddenVideo.volume = activeVideo.volume;
+
+            activeVideo.style.display = 'none';
+            activeVideo.pause();
+
+            hiddenVideo.style.display = 'block';
+            executeAutoPlay(hiddenVideo);
+
+            const tempVid = activeVideo;
+            activeVideo = hiddenVideo;
+            hiddenVideo = tempVid;
+
+            const tempHls = activeHls;
+            activeHls = hiddenHls;
+            hiddenHls = tempHls;
+
+            preloadedScheduleItem = null;
+            bindVideoEvents(activeVideo);
+            showLoader(false);
+            armStuckWatchdog();
         } else {
-            setupNativeVideoPlayer(program);
+            setupVideoSource(activeVideo, program, false);
+        }
+    }
+
+    function setupVideoSource(targetVideo, program, isBackground, isFallback = false) {
+        let hlsInstance = isBackground ? hiddenHls : activeHls;
+        if (hlsInstance) {
+            hlsInstance.destroy();
+            hlsInstance = null;
+        }
+
+        targetVideo.style.display = isBackground ? 'none' : 'block';
+        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
+        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+
+        if (program.url.includes('.m3u8') && Hls.isSupported()) {
+            const hls = new Hls({
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 10,
+                enableWorker: true,
+                lowLatencyMode: true
+            });
+
+            hls.loadSource(program.url);
+            hls.attachMedia(targetVideo);
+
+            hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
+                isLiveStream = data.levels[0]?.details?.live || false;
+                applyLinearSeek(program, targetVideo);
+                if (!isBackground) {
+                    executeAutoPlay(targetVideo);
+                    if (!isFallback) armStuckWatchdog();
+                }
+            });
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal && !isBackground && !isFallback) {
+                    console.error('Fatal HLS error, activating fallback:', data);
+                    activateFallback('fatal HLS error: ' + data.type);
+                }
+            });
+
+            if (isBackground) hiddenHls = hls;
+            else activeHls = hls;
+
+        } else {
+            targetVideo.src = program.url;
+            applyLinearSeek(program, targetVideo);
+            if (!isBackground) {
+                executeAutoPlay(targetVideo);
+                if (!isFallback) armStuckWatchdog();
+            }
+        }
+
+        if (!isBackground) {
+            // Native <video> element error (covers plain mp4/dead URLs too,
+            // not just hls.js-managed sources).
+            targetVideo.onerror = () => {
+                if (!isFallback) {
+                    console.error('Video element error, activating fallback.');
+                    activateFallback('video element error');
+                }
+            };
         }
     }
 
@@ -242,7 +423,7 @@ function initPlayer(config) {
         isIframe = true;
         destroyPlayer();
         activeVideo.style.display = 'none';
-        if (hiddenVideo) hiddenVideo.style.display = 'none';
+        hiddenVideo.style.display = 'none';
         elements.iframe.style.display = 'block';
         elements.iframe.src = url;
 
@@ -251,100 +432,80 @@ function initPlayer(config) {
         showLoader(false);
     }
 
-    function setupHlsPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        activeVideo.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+    function executeAutoPlay(videoTarget) {
+        videoTarget.play().catch(() => {
+            videoTarget.muted = true;
+            updateMuteButtonState();
+            videoTarget.play().catch(e => console.error("Autoplay failed:", e));
+        });
+    }
 
-        destroyPlayer();
-
-        if (Hls.isSupported()) {
-            hlsActive = new Hls({
-                liveSyncDurationCount: 3,
-                liveMaxLatencyDurationCount: 10,
-                liveDurationInfinity: true,
-                enableWorker: true,
-                lowLatencyMode: true,
-                backBufferLength: 60,
-                maxBufferLength: 30,
-                maxMaxBufferLength: 60
-            });
-
-            hlsActive.loadSource(program.url);
-            hlsActive.attachMedia(activeVideo);
-
-            hlsActive.on(Hls.Events.MANIFEST_PARSED, (event, data) => {
-                isLiveStream = data.levels[0]?.details?.live || false;
-                applyLinearSeek(program, activeVideo);
-
-                activeVideo.play().catch(() => {
-                    activeVideo.muted = true;
-                    updateMuteButtonState();
-                    activeVideo.play();
-                });
-            });
-
-            hlsActive.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            if (retryCount < MAX_RETRIES) {
-                                retryCount++;
-                                showError(`Network issue detected. Syncing... (${retryCount}/${MAX_RETRIES})`);
-                                hlsActive.startLoad();
-                            } else {
-                                showError('Network offline. Re-initializing playback...');
-                                setTimeout(() => playMedia(program), 3000);
-                            }
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            showError('Buffer failure. Recovering live frame...');
-                            hlsActive.recoverMediaError();
-                            break;
-                        default:
-                            showError('Playback critical error. Reloading live edge...');
-                            destroyPlayer();
-                            setTimeout(() => playMedia(program), 2000);
-                            break;
-                    }
-                }
-            });
-
-        } else if (activeVideo.canPlayType('application/vnd.apple.mpegurl')) {
-            activeVideo.src = program.url;
-            activeVideo.addEventListener('loadedmetadata', () => {
-                applyLinearSeek(program, activeVideo);
-                activeVideo.play().catch(() => {
-                    activeVideo.muted = true;
-                    updateMuteButtonState();
-                    activeVideo.play();
-                });
-            });
-        } else {
-            showError('HLS Playback is not supported on this browser.');
-            showLoader(false);
+    function applyLinearSeek(program, videoTarget) {
+        if (program && program.startTime) {
+            const targetOffset = getBroadcastCalculatedTime(program);
+            isInternalSeeking = true;
+            videoTarget.currentTime = targetOffset;
+            setTimeout(() => { isInternalSeeking = false; }, 500);
         }
     }
 
-    function setupNativeVideoPlayer(program) {
-        isIframe = false;
-        elements.iframe.style.display = 'none';
-        elements.iframe.src = '';
-        activeVideo.style.display = 'block';
-        if (elements.volOverlay) elements.volOverlay.style.display = 'none';
-        if (elements.btnMute) elements.btnMute.style.display = 'inline-block';
+    function evaluateScheduleSync() {
+        // No playlist at all (e.g. still loading, or remote fetch returned
+        // nothing usable) -> go straight to fallback rather than sitting on
+        // a blank player.
+        if (!rawPlaylist.length) {
+            activateFallback('empty playlist');
+            return;
+        }
 
-        destroyPlayer();
-        activeVideo.src = program.url;
-        applyLinearSeek(program, activeVideo);
-        activeVideo.play().catch(() => {
-            activeVideo.muted = true;
-            updateMuteButtonState();
-            activeVideo.play();
-        });
+        const targetProgram = getCurrentProgram();
+        if (!targetProgram) {
+            activateFallback('no matching program in schedule');
+            return;
+        }
+
+        // Real content is available again — drop fallback state so normal
+        // id-diff logic below picks it up as "new" content.
+        if (isFallbackActive) {
+            tryDeactivateFallback();
+        }
+
+        const currentOffset = getBroadcastCalculatedTime(targetProgram);
+        if (targetProgram.duration - currentOffset <= 8) {
+            preloadNextStream();
+        }
+
+        if (!currentScheduleItem || currentScheduleItem.id !== targetProgram.id) {
+            currentScheduleItem = targetProgram;
+            if (elements.nowTitle) elements.nowTitle.textContent = targetProgram.title;
+            renderScheduleUI();
+            playMedia(targetProgram);
+            showToast(elements.updateToast);
+        } else if (!isLiveStream && !isIframe && activeVideo.readyState >= 2 && !isInternalSeeking) {
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const actualOffset = activeVideo.currentTime;
+            const drift = actualOffset - expectedOffset;
+
+            if (Math.abs(drift) > 1.0 && Math.abs(drift) <= 5) {
+                activeVideo.playbackRate = drift < 0 ? 1.03 : 0.97;
+            } else {
+                activeVideo.playbackRate = 1.0;
+            }
+
+            if (Math.abs(drift) > 8) {
+                isInternalSeeking = true;
+                activeVideo.currentTime = expectedOffset;
+                showToast(elements.syncToast);
+                setTimeout(() => { isInternalSeeking = false; }, 1000);
+            }
+        }
+    }
+
+    function destroyPlayer() {
+        if (activeHls) { activeHls.destroy(); activeHls = null; }
+        if (hiddenHls) { hiddenHls.destroy(); hiddenHls = null; }
+        activeVideo.pause();
+        hiddenVideo.pause();
     }
 
     function renderScheduleUI() {
@@ -368,29 +529,65 @@ function initPlayer(config) {
             return;
         }
 
+        if (isFallbackActive) {
+            if (elements.statusText) elements.statusText.textContent = 'Fallback Content';
+            if (elements.statusOffset) elements.statusOffset.textContent = 'Reconnecting to schedule…';
+            return;
+        }
+
         if (isLiveStream) {
             if (elements.statusText) elements.statusText.textContent = 'Live Stream';
             if (elements.statusOffset) elements.statusOffset.textContent = `Latency: ${formatTime(activeVideo.duration - activeVideo.currentTime)}`;
         } else if (currentScheduleItem) {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const duration = currentScheduleItem.endTime - currentScheduleItem.startTime;
-            const elapsed = nowSec - currentScheduleItem.startTime;
-            const remaining = duration - elapsed;
+            const expectedOffset = getBroadcastCalculatedTime(currentScheduleItem);
+            const duration = activeVideo.duration || currentScheduleItem.duration;
 
-            // Trigger preload when 15 seconds remain in current item
-            if (remaining <= 15 && remaining > 0) {
-                const nextProgram = getNextProgram();
-                if (nextProgram && nextProgram.id !== currentScheduleItem.id) {
-                    preloadNextProgram(nextProgram);
-                }
-            }
-
-            if (elements.statusText) elements.statusText.textContent = `Linear Sync: ${formatTime(elapsed)} / ${formatTime(duration)}`;
-            if (elements.statusOffset) elements.statusOffset.textContent = `Offset: +${Math.round(activeVideo.currentTime - elapsed)}s`;
+            if (elements.statusText) elements.statusText.textContent = `Linear Broadcast Sync: ${formatTime(activeVideo.currentTime)} / ${formatTime(duration)}`;
+            if (elements.statusOffset) elements.statusOffset.textContent = `Live Drift: ${(activeVideo.currentTime - expectedOffset).toFixed(1)}s`;
         }
     }
 
-    function bindEvents() {
+    function resetControlsTimeout() {
+        if (!elements.container) return;
+        elements.container.classList.remove('controls-hidden');
+        clearTimeout(hideControlsTimeout);
+
+        if (activeVideo && !activeVideo.paused) {
+            hideControlsTimeout = setTimeout(() => {
+                elements.container.classList.add('controls-hidden');
+            }, 2500);
+        }
+    }
+
+    function bindVideoEvents(videoEl) {
+        // Show loader if video pauses to buffer mid-stream
+        videoEl.onwaiting = () => showLoader(true);
+
+        // Hide loader immediately when playback begins rendering frames
+        videoEl.onplaying = () => {
+            showLoader(false);
+            showError(null);
+            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
+            resetControlsTimeout();
+        };
+
+        // Fallback: hide loader once media can play if not paused
+        videoEl.oncanplay = () => {
+            if (!videoEl.paused) {
+                showLoader(false);
+            }
+        };
+
+        videoEl.onpause = () => {
+            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
+            clearTimeout(hideControlsTimeout);
+            if (elements.container) elements.container.classList.remove('controls-hidden');
+        };
+
+        videoEl.onvolumechange = updateMuteButtonState;
+    }
+
+    function bindControls() {
         if (elements.btnPlay) {
             elements.btnPlay.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -408,7 +605,6 @@ function initPlayer(config) {
             elements.btnMute.addEventListener('click', (e) => {
                 e.stopPropagation();
                 activeVideo.muted = !activeVideo.muted;
-                if (hiddenVideo) hiddenVideo.muted = true;
                 updateMuteButtonState();
             });
         }
@@ -416,97 +612,48 @@ function initPlayer(config) {
         if (elements.btnFullscreen) {
             elements.btnFullscreen.addEventListener('click', (e) => {
                 e.stopPropagation();
-                const targetEl = document.getElementById('playerWrap') || elements.container || activeVideo;
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    const requestFn = targetEl.requestFullscreen || targetEl.webkitRequestFullscreen || targetEl.msRequestFullscreen;
-                    if (requestFn) {
-                        requestFn.call(targetEl).catch(err => console.error("Fullscreen failed:", err));
-                    }
+                const targetEl = elements.container || activeVideo;
+                if (!document.fullscreenElement) {
+                    targetEl.requestFullscreen().catch(err => console.error("Fullscreen failed:", err));
                 } else {
-                    const exitFn = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-                    if (exitFn) exitFn.call(document);
+                    document.exitFullscreen();
                 }
             });
         }
 
-        // Attach listener to current active target
-        const handleSeeking = () => {
-            if (isIframe || isLiveStream || !currentScheduleItem || isInternalSeeking) return;
-
-            const nowSec = Math.floor(Date.now() / 1000);
-            const expectedOffset = nowSec - currentScheduleItem.startTime;
-
-            if (Math.abs(activeVideo.currentTime - expectedOffset) > 2) {
-                isInternalSeeking = true;
-                activeVideo.currentTime = expectedOffset;
-                showToast(elements.syncToast);
-                setTimeout(() => { isInternalSeeking = false; }, 500);
-            }
-        };
-
-        elements.videoA.addEventListener('seeking', handleSeeking);
-        if (elements.videoB) elements.videoB.addEventListener('seeking', handleSeeking);
-
-        const handlePlaying = () => {
-            showLoader(false);
-            showError(null);
-            if (elements.btnPlay) elements.btnPlay.textContent = '⏸';
-        };
-
-        const handlePause = () => {
-            if (elements.btnPlay) elements.btnPlay.textContent = '▶';
-        };
-
-        elements.videoA.addEventListener('volumechange', updateMuteButtonState);
-        elements.videoA.addEventListener('waiting', () => showLoader(true));
-        elements.videoA.addEventListener('playing', handlePlaying);
-        elements.videoA.addEventListener('pause', handlePause);
-
-        if (elements.videoB) {
-            elements.videoB.addEventListener('volumechange', updateMuteButtonState);
-            elements.videoB.addEventListener('waiting', () => showLoader(true));
-            elements.videoB.addEventListener('playing', handlePlaying);
-            elements.videoB.addEventListener('pause', handlePause);
-        }
-
-        let hideControlsTimeout = null;
-        function triggerActivity() {
-            if (!elements.container) return;
-            elements.container.classList.remove('controls-hidden');
-            clearTimeout(hideControlsTimeout);
-
-            hideControlsTimeout = setTimeout(() => {
+        if (elements.container) {
+            elements.container.addEventListener('mousemove', resetControlsTimeout);
+            elements.container.addEventListener('mousedown', resetControlsTimeout);
+            elements.container.addEventListener('click', resetControlsTimeout);
+            elements.container.addEventListener('mouseleave', () => {
                 if (activeVideo && !activeVideo.paused) {
                     elements.container.classList.add('controls-hidden');
                 }
-            }, 2500);
-        }
-
-        if (elements.container) {
-            elements.container.addEventListener('mousemove', triggerActivity);
-            elements.container.addEventListener('click', triggerActivity);
-            elements.container.addEventListener('touchstart', triggerActivity);
+            });
         }
     }
 
-    function generateMockSchedule() {
-        const now = Math.floor(Date.now() / 1000);
+    function loadPlaylist() {
+        // Static fallback/default list used until the first successful
+        // remote poll (if PLAYLIST_URL is configured). Edit this, or better,
+        // point config.playlistUrl at a JSON endpoint your CMS updates.
         return [
             {
-                id: 'ch1',
-                title: 'Linear Stream Channel',
-                startTime: now - 300,
-                endTime: now + 3600,
-                url: 'https://cdn30091.jemsa431ilk.com/stream2/i-arch-400/059876ce446f715070a26b5305a7cf47/MJTMsp1RshGTygnMNRUR2N2MSlnWXZEdMNDZzQWe5MDZzMmdZJTO1R2RWVHZDljekhkSsl1VwYnWtx2cihVT2p1VOlmTUNWePdVW61EVa1WW6lUNORVU14UbapWWUtGNOpGZspFVGxWWqNWP:1787714029:101.119.79.147:96d71a98a7d76ec6a84381e0e0644c7c5de1dbe0a655203867eace9b147d9f19:=0EVBhHTqVEePNFNz80U0gnTENWP/720/index.m3u8'
+                "title": "Apna Tv Stream - Part 04",
+                "duration": 60,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8",
+                "type": "m3u8"
             }
         ];
     }
 
-    schedule = generateMockSchedule();
-    bindEvents();
+    rawPlaylist = loadPlaylist();
+    bindVideoEvents(activeVideo);
+    bindControls();
     startClock();
     evaluateScheduleSync();
+    startPlaylistPolling();
 
-    setInterval(evaluateScheduleSync, 1000);
-    setInterval(updateProgress, 500);
+    autoSyncTimer = setInterval(evaluateScheduleSync, 1000);
+    progressTimer = setInterval(updateProgress, 250);
 }

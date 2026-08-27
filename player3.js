@@ -11,6 +11,7 @@ function initPlayer(config) {
         iframe: document.getElementById(config.iframeId),
         container: document.getElementById(config.containerId),
         loader: document.getElementById(config.loaderId),
+        fallbackOverlay: document.getElementById(config.fallbackOverlayId),
         error: document.getElementById(config.errorId),
         btnPlay: document.getElementById(config.btnPlayId),
         btnMute: document.getElementById(config.btnMuteId),
@@ -54,7 +55,7 @@ function initPlayer(config) {
     // ---- Fallback config ------------------------------------------------
     // Config can override this via config.fallbackUrl / config.playlistUrl /
     // config.playlistPollMs; sane defaults are provided below.
-    const FALLBACK_MP4_URL = config.fallbackUrl || 'https://files.catbox.moe/c9z1wf.mp4';
+    const FALLBACK_MP4_URL = config.fallbackVideoUrl || config.fallbackUrl || 'https://files.catbox.moe/c9z1wf.mp4';
     const PLAYLIST_URL = config.playlistUrl || null; // e.g. '/api/playlist.json'
     const PLAYLIST_POLL_MS = config.playlistPollMs || 15000;
     const STUCK_WATCHDOG_MS = config.stuckWatchdogMs || 12000; // no progress => assume dead
@@ -78,6 +79,12 @@ function initPlayer(config) {
             } else {
                 elements.error.classList.remove('show');
             }
+        }
+    }
+
+    function showFallbackOverlay(show) {
+        if (elements.fallbackOverlay) {
+            elements.fallbackOverlay.classList.toggle('hidden', !show);
         }
     }
 
@@ -250,6 +257,11 @@ function initPlayer(config) {
         isIframe = false;
         elements.iframe.style.display = 'none';
         setupVideoSource(activeVideo, currentScheduleItem, false, /* isFallback */ true);
+
+        // Bring up the standby card. Keep it above the video but let the
+        // loader still show on top while the mp4 itself is buffering — the
+        // loader clears on its own via onplaying/oncanplay.
+        showFallbackOverlay(true);
     }
 
     function tryDeactivateFallback() {
@@ -258,6 +270,7 @@ function initPlayer(config) {
         // will naturally take over because currentScheduleItem.id is
         // 'fallback_placeholder', which never matches a real program id.
         isFallbackActive = false;
+        showFallbackOverlay(false);
     }
 
     function armStuckWatchdog() {
@@ -320,6 +333,10 @@ function initPlayer(config) {
     function playMedia(program) {
         showError(null);
         retryCount = 0;
+
+        if (program.id !== 'fallback_placeholder') {
+            showFallbackOverlay(false);
+        }
 
         const isEmbed = program.url.includes('iframe') || program.isIframe;
         if (isEmbed) {

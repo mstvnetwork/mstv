@@ -657,9 +657,10 @@ function initPlayer(config) {
         return [
             {
                 "title": "Apna Tv Stream - Part 05",
-                "duration": 1300,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwexh7bboxuzvta274fa3rqxmqij27pqcbi34t3l5uqnj3icppcwdrg6a%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwexh7bboxuzvta274fa3rqxmqij27pqcbi34t3l5uqnj3icppcwdrg6a%2Findex-v1-a1.m3u8",
-                "type": "m3u8"
+                "duration": 1800,
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwjgw7bboxuzvta574eynrcbwhjkiezrkaz37ifoj2d7stdhdbpojpzsq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwjgw7bboxuzvta574eynrcbwhjkiezrkaz37ifoj2d7stdhdbpojpzsq%2Findex-v1-a1.m3u8",
+                "type": "iframe"
+            
             }
         ];
     }

@@ -18,10 +18,9 @@
       height: 100%;
       background-color: #000;
       overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
     }
 
-    /* Media Player Outer Container */
     #player-container {
       position: relative;
       width: 100vw;
@@ -33,7 +32,6 @@
       overflow: hidden;
     }
 
-    /* Media Layers */
     .media-element {
       position: absolute;
       top: 0;
@@ -42,14 +40,22 @@
       height: 100%;
       border: none;
       object-fit: contain;
-      pointer-events: none; /* Disables native interaction, click-through to container */
     }
 
-    iframe.media-element {
-      pointer-events: auto; /* Required for interactive embeds, masked by control overlay */
+    #debug-status {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #00ff66;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      z-index: 10000;
+      pointer-events: none;
     }
 
-    /* Custom Controls Overlay */
     #controls-overlay {
       position: absolute;
       bottom: 0;
@@ -62,8 +68,6 @@
       justify-content: space-between;
       padding: 0 24px;
       z-index: 9999;
-      opacity: 1;
-      transition: opacity 0.3s ease;
     }
 
     .control-btn {
@@ -75,16 +79,7 @@
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
       backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      transition: background 0.2s;
-    }
-
-    .control-btn:hover {
-      background: rgba(255, 255, 255, 0.3);
     }
 
     .live-badge {
@@ -94,8 +89,6 @@
       color: #ff3b30;
       font-size: 13px;
       font-weight: 700;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
     }
 
     .live-dot {
@@ -103,14 +96,6 @@
       height: 8px;
       background-color: #ff3b30;
       border-radius: 50%;
-      box-shadow: 0 0 8px #ff3b30;
-      animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-      0% { opacity: 1; }
-      50% { opacity: 0.4; }
-      100% { opacity: 1; }
     }
 
     .controls-left, .controls-right {
@@ -119,24 +104,22 @@
       gap: 12px;
     }
   </style>
-  <!-- HLS.js Library for cross-browser HLS support -->
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 </head>
 <body>
 
   <div id="player-container">
-    <!-- Active media element dynamically rendered here -->
-    <video id="native-player" class="media-element" playsinline webkit-playsinline></video>
+    <div id="debug-status">Initializing Live Engine...</div>
+    
+    <!-- Video Element explicit inline attributes for aggressive autoplay -->
+    <video id="native-player" class="media-element" autoplay muted playsinline webkit-playsinline></video>
     <iframe id="iframe-player" class="media-element" style="display: none;"></iframe>
 
-    <!-- Strictly 3-button bottom controls overlay -->
     <div id="controls-overlay">
       <div class="controls-left">
         <button id="btn-play" class="control-btn">Play</button>
         <button id="btn-mute" class="control-btn">Unmute</button>
-        <div class="live-badge">
-          <span class="live-dot"></span> LIVE
-        </div>
+        <div class="live-badge"><span class="live-dot"></span> LIVE</div>
       </div>
       <div class="controls-right">
         <button id="btn-fullscreen" class="control-btn">Fullscreen</button>
@@ -145,51 +128,53 @@
   </div>
 
   <script>
-    // Configuration Settings
-    const PLAYLIST_URL = './playlist.json'; 
-    const FETCH_INTERVAL_MS = 2000;         // Poll JSON every 2s for instant updates
-    const SYNC_CHECK_INTERVAL_MS = 500;     // Force live position lock twice every second
-    const MAX_ALLOWED_DRIFT_SEC = 0.5;      // Tight aggressive drift tolerance threshold
+    const PLAYLIST_URL = './playlist.json';
+    const FETCH_INTERVAL_MS = 2000;
+    const SYNC_CHECK_INTERVAL_MS = 500;
+    const MAX_ALLOWED_DRIFT_SEC = 0.5;
 
-    // DOM Elements
-    const container = document.getElementById('player-container');
     const videoElem = document.getElementById('native-player');
     const iframeElem = document.getElementById('iframe-player');
+    const debugElem = document.getElementById('debug-status');
     const btnPlay = document.getElementById('btn-play');
     const btnMute = document.getElementById('btn-mute');
     const btnFullscreen = document.getElementById('btn-fullscreen');
 
-    // Internal State
     let playlist = [];
     let hlsInstance = null;
     let currentItem = null;
     let totalPlaylistDuration = 0;
 
-    // --- 1. Aggressive Playlist Fetching & Auto Updates ---
-    async function fetchPlaylist() {
-  try {
-    // Append unique timestamp and use cache control headers to force fresh fetch from GitHub Pages CDN
-    const response = await fetch(`${PLAYLIST_URL}?cachebuster=${Date.now()}`, {
-      cache: 'no-store',
-      headers: {
-        'Cache-Control': 'no-cache, no-store, must-revalidate',
-        'Pragma': 'no-cache'
-      }
-    });
-    if (!response.ok) return;
-    const data = await response.json();
-    
-    if (JSON.stringify(data) !== JSON.stringify(playlist)) {
-      playlist = data;
-      totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration_seconds, 0);
-      syncEngine();
-    }
-  } catch (e) {
-    // Retry automatically on next interval cycle
-  }
-      }
+    // Force startup properties
+    videoElem.muted = true;
+    btnMute.textContent = 'Unmute';
 
-    // --- 2. Deterministic Global Time Synchronization Engine ---
+    async function fetchPlaylist() {
+      try {
+        const response = await fetch(`${PLAYLIST_URL}?cachebuster=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) {
+          debugElem.textContent = `Error: playlist.json HTTP ${response.status}`;
+          return;
+        }
+        const data = await response.json();
+        
+        if (!Array.isArray(data) || data.length === 0) {
+          debugElem.textContent = 'Error: playlist.json is empty or invalid array';
+          return;
+        }
+
+        if (JSON.stringify(data) !== JSON.stringify(playlist)) {
+          playlist = data;
+          totalPlaylistDuration = playlist.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
+          syncEngine();
+        }
+      } catch (e) {
+        debugElem.textContent = `Fetch Error: ${e.message}`;
+      }
+    }
+    setInterval(fetchPlaylist, FETCH_INTERVAL_MS);
+    fetchPlaylist();
+
     function getGlobalTimeState() {
       if (!totalPlaylistDuration || totalPlaylistDuration === 0) return null;
       
@@ -217,50 +202,44 @@
 
       const { item, seekPosition } = state;
 
-      // Swap media engine dynamically if content item changes
       if (!currentItem || currentItem.url !== item.url) {
         currentItem = item;
+        debugElem.textContent = `Syncing [Item ${state.itemIndex + 1}]: ${item.type.toUpperCase()}`;
         loadMediaSource(item, seekPosition);
         return;
       }
 
-      // Enforce zero-drift sync on HTML5 Video / HLS
       if (item.type === 'mp4' || item.type === 'm3u8') {
         const drift = Math.abs(videoElem.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
           videoElem.currentTime = seekPosition;
         }
 
-        // Prevent browser/user pauses, aggressively enforcing live state
         if (videoElem.paused) {
-          videoElem.play().catch(() => {});
+          videoElem.play().catch(err => {
+            debugElem.textContent = `Autoplay Blocked: Tap 'Play' button`;
+          });
         }
       }
     }
 
-    // Tight 500ms continuous lock loop to prevent Safari/Samsung timeline manipulation
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- 3. Dynamic Engine Switcher (MP4, HLS, iFrame) ---
     function loadMediaSource(item, initialSeek) {
-      // Clear legacy HLS instance
       if (hlsInstance) {
         hlsInstance.destroy();
         hlsInstance = null;
       }
 
       if (item.type === 'iframe') {
-        // Switch to iFrame view
         videoElem.style.display = 'none';
         videoElem.pause();
         iframeElem.style.display = 'block';
         iframeElem.src = item.url;
       } else {
-        // Switch to Native Video Element view
         iframeElem.style.display = 'none';
         iframeElem.src = '';
         videoElem.style.display = 'block';
-        videoElem.removeAttribute('controls'); // Ensure standard UI controls remain stripped
 
         if (item.type === 'm3u8') {
           if (Hls.isSupported()) {
@@ -271,8 +250,10 @@
               videoElem.currentTime = initialSeek;
               videoElem.play().catch(() => {});
             });
+            hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+              if (data.fatal) debugElem.textContent = `HLS Fatal Error: ${data.details}`;
+            });
           } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native HLS for iOS Safari
             videoElem.src = item.url;
             videoElem.currentTime = initialSeek;
             videoElem.play().catch(() => {});
@@ -285,16 +266,13 @@
       }
     }
 
-    // --- 4. Custom Controls Interface Implementation ---
     btnPlay.addEventListener('click', () => {
-      if (currentItem && (currentItem.type === 'mp4' || currentItem.type === 'm3u8')) {
-        if (videoElem.paused) {
-          videoElem.play();
-          btnPlay.textContent = 'Pause';
-        } else {
-          videoElem.pause();
-          btnPlay.textContent = 'Play';
-        }
+      if (videoElem.paused) {
+        videoElem.play();
+        btnPlay.textContent = 'Pause';
+      } else {
+        videoElem.pause();
+        btnPlay.textContent = 'Play';
       }
     });
 
@@ -305,31 +283,21 @@
 
     btnFullscreen.addEventListener('click', () => {
       if (!document.fullscreenElement) {
-        container.requestFullscreen().catch(err => {
-          alert(`Fullscreen error: ${err.message}`);
-        });
+        container.requestFullscreen().catch(() => {});
       } else {
         document.exitFullscreen();
       }
     });
 
-    // --- 5. Anti-Bypass Guarding & Event Hardening ---
-    // Prevent iOS Safari and Samsung Internet native full-screen override controls from seeking
     videoElem.addEventListener('seeking', () => {
       const state = getGlobalTimeState();
-      if (state) {
+      if (state && (state.item.type === 'mp4' || state.item.type === 'm3u8')) {
         const drift = Math.abs(videoElem.currentTime - state.seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
-          videoElem.currentTime = state.seekPosition; // Immediate revert step
+          videoElem.currentTime = state.seekPosition;
         }
       }
     });
-
-    // Handle initial autostart/autoplay policies smoothly
-    window.addEventListener('load', () => {
-      videoElem.muted = true; // Auto-mute enables reliable zero-click autoplay globally
-      btnMute.textContent = 'Unmute';
-    });
   </script>
 </body>
-  </html>
+</html>

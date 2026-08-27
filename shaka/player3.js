@@ -419,7 +419,7 @@ function initPlayer(config) {
             {
                 "title": "Apna Tv Stream - Part 03",
                 "duration": 60,
-                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohwghl7fboxuzvtaq74hyprcimk2rlc64hqoigerngtagfy7bxmxkkmk6q%2Findex-v1-a1.m3u8",
+                "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohwshe7bboxuzvta274tavqd2t3zsemepzjg3tbjj2r5pricxyhxitrlqq%2Findex-v1-a1.m3u8",
                 "type": "m3u8"
             }
         ];

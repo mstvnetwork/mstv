@@ -397,42 +397,51 @@
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
     // --- 4. Switch Media Types (MP4, HLS, iFrame) ---
+    
     function loadMediaSource(item, initialSeek) {
-      if (hlsInstance) {
-        hlsInstance.destroy();
-        hlsInstance = null;
-      }
+  if (hlsInstance) {
+    hlsInstance.destroy();
+    hlsInstance = null;
+  }
 
-      if (item.type === 'iframe') {
-        videoElem.style.display = 'none';
-        videoElem.pause();
-        iframeElem.style.display = 'block';
-        iframeElem.src = item.url;
-      } else {
-        iframeElem.style.display = 'none';
-        iframeElem.src = '';
-        videoElem.style.display = 'block';
+  if (item.type === 'iframe') {
+    videoElem.style.display = 'none';
+    videoElem.pause();
+    iframeElem.style.display = 'block';
+    iframeElem.src = item.url;
+  } else {
+    iframeElem.style.display = 'none';
+    iframeElem.src = '';
+    videoElem.style.display = 'block';
 
-        if (item.type === 'm3u8') {
-          if (Hls.isSupported()) {
-            hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
-            hlsInstance.loadSource(item.url);
-            hlsInstance.attachMedia(videoElem);
-            hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-              videoElem.currentTime = initialSeek;
-              videoElem.play().catch(() => {});
-            });
-          } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
-            videoElem.src = item.url;
-            videoElem.currentTime = initialSeek;
-            videoElem.play().catch(() => {});
+    if (item.type === 'm3u8') {
+      if (Hls.isSupported()) {
+        hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
+
+        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            debugElem.textContent = `Now Playing : Stream Error (${data.type})`;
+            hideLoader();
           }
-        } else if (item.type === 'mp4') {
-          videoElem.src = item.url;
+        });
+
+        hlsInstance.loadSource(item.url);
+        hlsInstance.attachMedia(videoElem);
+        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
           videoElem.currentTime = initialSeek;
           videoElem.play().catch(() => {});
-        }
+        });
+      } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
+        videoElem.src = item.url;
+        videoElem.currentTime = initialSeek;
+        videoElem.play().catch(() => {});
       }
+    } else if (item.type === 'mp4') {
+      videoElem.src = item.url;
+      videoElem.currentTime = initialSeek;
+      videoElem.play().catch(() => {});
+    }
+  }
     }
 
     // --- 5. Auto Fade Control Overlay (status box stays visible always) ---

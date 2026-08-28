@@ -19,10 +19,9 @@
       height: 100%;
       background-color: #000;
       overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: system-ui, -apple-system, sans-serif;
     }
 
-    /* Player Container - Universal Cross-Device Fullscreen Surface */
     #player-container {
       position: relative;
       width: 100vw;
@@ -34,7 +33,6 @@
       overflow: hidden;
     }
 
-    /* Standardized Video/iFrame Layering */
     .media-element {
       position: absolute;
       top: 0;
@@ -45,53 +43,67 @@
       object-fit: contain;
     }
 
-    /* Top Left Dynamic Now Playing Badge */
-    #now-playing-badge {
+    /* Restored Original Top-Left Status Box */
+    #debug-status {
       position: absolute;
-      top: 16px;
-      left: 16px;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(12px);
-      -webkit-backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 8px;
-      padding: 8px 14px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      z-index: 9999;
+      top: 12px;
+      left: 12px;
+      background: rgba(0, 0, 0, 0.75);
+      color: #00ff66;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      z-index: 10000;
+      pointer-events: none;
       transition: opacity 0.4s ease, visibility 0.4s ease;
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     }
 
-    .live-dot {
-      width: 8px;
-      height: 8px;
-      background-color: #ff3b30;
+    /* Sleek Loading Overlay & Circular Spinner */
+    #loader-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      z-index: 9998;
+      pointer-events: none;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .spinner {
+      width: 54px;
+      height: 54px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #ff3b30; /* Bright red arc matching screenshot */
       border-radius: 50%;
-      box-shadow: 0 0 8px #ff3b30;
-      animation: pulse 1.5s infinite;
-      flex-shrink: 0;
+      animation: spin 0.9s linear infinite;
     }
 
-    @keyframes pulse {
-      0% { opacity: 1; }
-      50% { opacity: 0.3; }
-      100% { opacity: 1; }
+    .loading-text {
+      color: #ffd700; /* Sleek yellow text */
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
     }
 
-    /* Native M3U8 Style Bottom Control Bar */
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Bottom Control Overlay matching Screenshot */
     #controls-overlay {
       position: absolute;
       bottom: 0;
       left: 0;
       width: 100%;
-      /* Adjust padding dynamically for modern mobile notch/home bar safe areas */
-      padding: 16px 20px calc(16px + env(safe-area-inset-bottom)) 20px;
-      background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.4) 70%, transparent 100%);
+      padding: 0 16px calc(16px + env(safe-area-inset-bottom)) 16px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -99,7 +111,6 @@
       transition: opacity 0.4s ease, visibility 0.4s ease;
     }
 
-    /* Interface Hiding State */
     .ui-hidden {
       opacity: 0 !important;
       visibility: hidden !important;
@@ -109,33 +120,35 @@
     .controls-left, .controls-right {
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
     }
 
-    /* Equalized Control Buttons for Mobile & Desktop */
+    /* Custom Square Icon Button Design matching Screenshot */
     .control-btn {
-      background: rgba(255, 255, 255, 0.18);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      color: #ffffff;
-      min-width: 84px;
-      height: 40px;
-      padding: 0 16px;
-      border-radius: 20px;
+      background: rgba(35, 35, 35, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: #ff9500;
+      width: 44px;
+      height: 44px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.3px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      backdrop-filter: blur(10px);
-      -webkit-backdrop-filter: blur(10px);
-      transition: background 0.2s transform 0.1s;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .control-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: #ff9500;
     }
 
     .control-btn:active {
-      transform: scale(0.95);
-      background: rgba(255, 255, 255, 0.35);
+      transform: scale(0.92);
+      background: rgba(60, 60, 60, 0.95);
     }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -143,24 +156,40 @@
 <body>
 
   <div id="player-container">
-    <!-- Dynamic Now Playing Title Overlay -->
-    <div id="now-playing-badge">
-      <span class="live-dot"></span>
-      <span id="title-text">Syncing Live Channel...</span>
+    <!-- Top-Left Original Monospace Box -->
+    <div id="debug-status">Initializing Live Engine...</div>
+
+    <!-- Centered Loader Spinner -->
+    <div id="loader-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Please Wait</div>
     </div>
 
-    <!-- Media Players -->
+    <!-- Media Elements -->
     <video id="native-player" class="media-element" autoplay muted playsinline webkit-playsinline></video>
     <iframe id="iframe-player" class="media-element" style="display: none;"></iframe>
 
-    <!-- Bottom Interface Controls -->
+    <!-- Bottom Controls with Custom Square SVG Icons -->
     <div id="controls-overlay">
       <div class="controls-left">
-        <button id="btn-play" class="control-btn">Pause</button>
-        <button id="btn-mute" class="control-btn">Unmute</button>
+        <!-- Play / Pause Button -->
+        <button id="btn-play" class="control-btn" aria-label="Play/Pause">
+          <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          <svg id="icon-play" viewBox="0 0 24 24" style="display:none;"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+
+        <!-- Unmute / Mute Button -->
+        <button id="btn-mute" class="control-btn" aria-label="Mute/Unmute">
+          <svg id="icon-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+          <svg id="icon-unmuted" viewBox="0 0 24 24" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
       </div>
+
       <div class="controls-right">
-        <button id="btn-fullscreen" class="control-btn">Fullscreen</button>
+        <!-- Fullscreen Button -->
+        <button id="btn-fullscreen" class="control-btn" aria-label="Fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
       </div>
     </div>
   </div>
@@ -175,12 +204,18 @@
     const container = document.getElementById('player-container');
     const videoElem = document.getElementById('native-player');
     const iframeElem = document.getElementById('iframe-player');
-    const titleText = document.getElementById('title-text');
-    const badgeElem = document.getElementById('now-playing-badge');
+    const debugElem = document.getElementById('debug-status');
+    const loaderElem = document.getElementById('loader-overlay');
     const controlsOverlay = document.getElementById('controls-overlay');
 
     const btnPlay = document.getElementById('btn-play');
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+
     const btnMute = document.getElementById('btn-mute');
+    const iconMuted = document.getElementById('icon-muted');
+    const iconUnmuted = document.getElementById('icon-unmuted');
+
     const btnFullscreen = document.getElementById('btn-fullscreen');
 
     let playlist = [];
@@ -191,11 +226,31 @@
 
     videoElem.muted = true;
 
-    // --- 1. Aggressive Live Playlist Polling Engine ---
+    // Loader visibility logic tied strictly to media playback state
+    function hideLoader() {
+      loaderElem.classList.add('ui-hidden');
+    }
+    function showLoader() {
+      loaderElem.classList.remove('ui-hidden');
+    }
+
+    videoElem.addEventListener('playing', hideLoader);
+    videoElem.addEventListener('waiting', showLoader);
+    videoElem.addEventListener('seeking', showLoader);
+    videoElem.addEventListener('seeked', () => {
+      if (!videoElem.paused) hideLoader();
+    });
+
+    iframeElem.addEventListener('load', hideLoader);
+
+    // --- 1. Aggressive JSON Fetching ---
     async function fetchPlaylist() {
       try {
         const response = await fetch(`${PLAYLIST_URL}?cachebuster=${Date.now()}`, { cache: 'no-store' });
-        if (!response.ok) return;
+        if (!response.ok) {
+          debugElem.textContent = `Error: playlist.json HTTP ${response.status}`;
+          return;
+        }
         const data = await response.json();
         
         if (Array.isArray(data) && data.length > 0) {
@@ -206,13 +261,13 @@
           }
         }
       } catch (e) {
-        // Silently retry on subsequent interval
+        debugElem.textContent = `Fetch Error: ${e.message}`;
       }
     }
     setInterval(fetchPlaylist, FETCH_INTERVAL_MS);
     fetchPlaylist();
 
-    // --- 2. Live Broadcast Time Calculator ---
+    // --- 2. Live Broadcast Time Logic ---
     function getGlobalTimeState() {
       if (!totalPlaylistDuration || totalPlaylistDuration === 0) return null;
       
@@ -234,41 +289,36 @@
       return null;
     }
 
-    // --- 3. Strict Live Drift Guard & Switcher ---
+    // --- 3. Strict Live Drift Lock ---
     function syncEngine() {
       const state = getGlobalTimeState();
       if (!state) return;
 
       const { item, seekPosition } = state;
 
-      // Update Top-Left "Now Playing" Title dynamically from JSON
-      const displayName = item.name ? item.name : `Video ${state.itemIndex + 1}`;
-      if (titleText.textContent !== displayName) {
-        titleText.textContent = displayName;
-      }
-
-      // Handle item transitions
       if (!currentItem || currentItem.url !== item.url) {
         currentItem = item;
+        const displayName = item.name ? item.name : `Video ${state.itemIndex + 1}`;
+        debugElem.textContent = `Syncing [${displayName}]: ${item.type.toUpperCase()}`;
+        showLoader();
         loadMediaSource(item, seekPosition);
         return;
       }
 
-      // Zero-Drift Anti-Bypass Sync Enforcement
       if (item.type === 'mp4' || item.type === 'm3u8') {
         const drift = Math.abs(videoElem.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
           videoElem.currentTime = seekPosition;
         }
 
-        if (videoElem.paused && btnPlay.textContent !== 'Play') {
+        if (videoElem.paused && iconPlay.style.display === 'none') {
           videoElem.play().catch(() => {});
         }
       }
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- 4. Engine Switching (MP4, HLS, iFrame) ---
+    // --- 4. Switch Media Types (MP4, HLS, iFrame) ---
     function loadMediaSource(item, initialSeek) {
       if (hlsInstance) {
         hlsInstance.destroy();
@@ -307,34 +357,57 @@
       }
     }
 
-    // --- 5. Auto Fade Control Overlay (M3U8 Behavior) ---
+    // --- 5. Auto Fade Control Overlay ---
     function showControls() {
       controlsOverlay.classList.remove('ui-hidden');
-      badgeElem.classList.remove('ui-hidden');
+      debugElem.classList.remove('ui-hidden');
       
       clearTimeout(uiHideTimer);
       uiHideTimer = setTimeout(() => {
         controlsOverlay.classList.add('ui-hidden');
-        badgeElem.classList.add('ui-hidden');
+        debugElem.classList.add('ui-hidden');
       }, UI_HIDE_TIMEOUT_MS);
     }
 
     container.addEventListener('mousemove', showControls);
     container.addEventListener('click', showControls);
     container.addEventListener('touchstart', showControls, { passive: true });
-    showControls(); // Initialize with controls visible
+    showControls();
 
-    // --- 6. Unified Universal Fullscreen Engine ---
-    function toggleUniversalFullscreen() {
-      // 1. Cross-browser standard element API
-      if (!document.fullscreenElement && !document.webkitFullscreenElement && !document.mozFullScreenElement) {
+    // Button Click Controls & Icon Toggles
+    btnPlay.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (videoElem.paused) {
+        videoElem.play();
+        iconPlay.style.display = 'none';
+        iconPause.style.display = 'block';
+      } else {
+        videoElem.pause();
+        iconPlay.style.display = 'block';
+        iconPause.style.display = 'none';
+      }
+    });
+
+    btnMute.addEventListener('click', (e) => {
+      e.stopPropagation();
+      videoElem.muted = !videoElem.muted;
+      if (videoElem.muted) {
+        iconMuted.style.display = 'block';
+        iconUnmuted.style.display = 'none';
+      } else {
+        iconMuted.style.display = 'none';
+        iconUnmuted.style.display = 'block';
+      }
+    });
+
+    btnFullscreen.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (!document.fullscreenElement && !document.webkitFullscreenElement) {
         if (container.requestFullscreen) {
           container.requestFullscreen();
-        } else if (container.webkitRequestFullscreen) { /* Safari / iOS WebKit */
+        } else if (container.webkitRequestFullscreen) {
           container.webkitRequestFullscreen();
-        } else if (container.mozRequestFullScreen) {
-          container.mozRequestFullScreen();
-        } else if (videoElem.webkitEnterFullscreen) { /* Native iOS iPhone Safari fallback */
+        } else if (videoElem.webkitEnterFullscreen) {
           videoElem.webkitEnterFullscreen();
         }
       } else {
@@ -342,36 +415,11 @@
           document.exitFullscreen();
         } else if (document.webkitExitFullscreen) {
           document.webkitExitFullscreen();
-        } else if (document.mozCancelFullScreen) {
-          document.mozCancelFullScreen();
         }
       }
-    }
-
-    btnFullscreen.addEventListener('click', (e) => {
-      e.stopPropagation();
-      toggleUniversalFullscreen();
     });
 
-    // Control Handlers
-    btnPlay.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (videoElem.paused) {
-        videoElem.play();
-        btnPlay.textContent = 'Pause';
-      } else {
-        videoElem.pause();
-        btnPlay.textContent = 'Play';
-      }
-    });
-
-    btnMute.addEventListener('click', (e) => {
-      e.stopPropagation();
-      videoElem.muted = !videoElem.muted;
-      btnMute.textContent = videoElem.muted ? 'Unmute' : 'Mute';
-    });
-
-    // Revert user-forced seeks immediately
+    // Anti-Bypass Seeking Revert Logic
     videoElem.addEventListener('seeking', () => {
       const state = getGlobalTimeState();
       if (state && (state.item.type === 'mp4' || state.item.type === 'm3u8')) {

@@ -43,7 +43,7 @@
       object-fit: contain;
     }
 
-    /* Restored Original Top-Left Status Box */
+    /* Top-Left Status Box (Original Monospace Style) */
     #debug-status {
       position: absolute;
       top: 12px;
@@ -59,7 +59,7 @@
       transition: opacity 0.4s ease, visibility 0.4s ease;
     }
 
-    /* Sleek Loading Overlay & Circular Spinner */
+    /* Loading Overlay & Spinner */
     #loader-overlay {
       position: absolute;
       top: 50%;
@@ -78,13 +78,13 @@
       width: 54px;
       height: 54px;
       border: 4px solid rgba(255, 255, 255, 0.15);
-      border-top-color: #ff3b30; /* Bright red arc matching screenshot */
+      border-top-color: #ff3b30;
       border-radius: 50%;
       animation: spin 0.9s linear infinite;
     }
 
     .loading-text {
-      color: #ffd700; /* Sleek yellow text */
+      color: #ffd700;
       font-size: 14px;
       font-weight: 600;
       letter-spacing: 0.5px;
@@ -97,7 +97,7 @@
       100% { transform: rotate(360deg); }
     }
 
-    /* Bottom Control Overlay matching Screenshot */
+    /* Bottom Control Overlay */
     #controls-overlay {
       position: absolute;
       bottom: 0;
@@ -123,7 +123,7 @@
       gap: 10px;
     }
 
-    /* Custom Square Icon Button Design matching Screenshot */
+    /* Square Icon Buttons */
     .control-btn {
       background: rgba(35, 35, 35, 0.85);
       border: 1px solid rgba(255, 255, 255, 0.15);
@@ -156,8 +156,8 @@
 <body>
 
   <div id="player-container">
-    <!-- Top-Left Original Monospace Box -->
-    <div id="debug-status">Initializing Live Engine...</div>
+    <!-- Top-Left Status Display -->
+    <div id="debug-status">Now Playing : Initializing...</div>
 
     <!-- Centered Loader Spinner -->
     <div id="loader-overlay">
@@ -169,16 +169,14 @@
     <video id="native-player" class="media-element" autoplay muted playsinline webkit-playsinline></video>
     <iframe id="iframe-player" class="media-element" style="display: none;"></iframe>
 
-    <!-- Bottom Controls with Custom Square SVG Icons -->
+    <!-- Bottom Controls -->
     <div id="controls-overlay">
       <div class="controls-left">
-        <!-- Play / Pause Button -->
         <button id="btn-play" class="control-btn" aria-label="Play/Pause">
           <svg id="icon-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
           <svg id="icon-play" viewBox="0 0 24 24" style="display:none;"><path d="M8 5v14l11-7z"/></svg>
         </button>
 
-        <!-- Unmute / Mute Button -->
         <button id="btn-mute" class="control-btn" aria-label="Mute/Unmute">
           <svg id="icon-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
           <svg id="icon-unmuted" viewBox="0 0 24 24" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
@@ -186,7 +184,6 @@
       </div>
 
       <div class="controls-right">
-        <!-- Fullscreen Button -->
         <button id="btn-fullscreen" class="control-btn" aria-label="Fullscreen">
           <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
         </button>
@@ -226,7 +223,6 @@
 
     videoElem.muted = true;
 
-    // Loader visibility logic tied strictly to media playback state
     function hideLoader() {
       loaderElem.classList.add('ui-hidden');
     }
@@ -248,7 +244,7 @@
       try {
         const response = await fetch(`${PLAYLIST_URL}?cachebuster=${Date.now()}`, { cache: 'no-store' });
         if (!response.ok) {
-          debugElem.textContent = `Error: playlist.json HTTP ${response.status}`;
+          debugElem.textContent = `Now Playing : Error (HTTP ${response.status})`;
           return;
         }
         const data = await response.json();
@@ -261,7 +257,7 @@
           }
         }
       } catch (e) {
-        debugElem.textContent = `Fetch Error: ${e.message}`;
+        debugElem.textContent = `Now Playing : Fetch Error`;
       }
     }
     setInterval(fetchPlaylist, FETCH_INTERVAL_MS);
@@ -289,17 +285,19 @@
       return null;
     }
 
-    // --- 3. Strict Live Drift Lock ---
+    // --- 3. Strict Live Drift Lock & Top Box Updater ---
     function syncEngine() {
       const state = getGlobalTimeState();
       if (!state) return;
 
       const { item, seekPosition } = state;
+      const displayName = item.name ? item.name : `Video ${state.itemIndex + 1}`;
+
+      // Update the top-left display text dynamically
+      debugElem.textContent = `Now Playing : ${displayName}`;
 
       if (!currentItem || currentItem.url !== item.url) {
         currentItem = item;
-        const displayName = item.name ? item.name : `Video ${state.itemIndex + 1}`;
-        debugElem.textContent = `Syncing [${displayName}]: ${item.type.toUpperCase()}`;
         showLoader();
         loadMediaSource(item, seekPosition);
         return;
@@ -374,7 +372,7 @@
     container.addEventListener('touchstart', showControls, { passive: true });
     showControls();
 
-    // Button Click Controls & Icon Toggles
+    // Button Click Handlers
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
       if (videoElem.paused) {

@@ -267,12 +267,12 @@
       </div>
     </div>
   </div>     
-<script>
+ <script>
     const PLAYLIST_URL = './playlist.json';
     const FALLBACK_VIDEO_URL = './fallback.mp4';
     const FETCH_INTERVAL_MS = 2000;
-    const SYNC_CHECK_INTERVAL_MS = 500;
-    const MAX_ALLOWED_DRIFT_SEC = 0.5;
+    const SYNC_CHECK_INTERVAL_MS = 1000;
+    const MAX_ALLOWED_DRIFT_SEC = 3.0; // Loosened drift tolerance to prevent false seeks
     const UI_HIDE_TIMEOUT_MS = 3000;
     const BUFFER_RECOVERY_TIMEOUT_MS = 3000;
 
@@ -296,9 +296,7 @@
     let playlist = [];
     let hlsInstance = null;
     let currentItem = null;
-    let currentItemStartTime = null;
     let currentItemIndex = 0;
-    let totalPlaylistDuration = 0;
     let uiHideTimer = null;
     
     let isFallbackActive = false;
@@ -325,6 +323,28 @@
     });
 
     iframeElem.addEventListener('load', hideLoader);
+
+    // --- Native Completion Handler ---
+    // Instead of calculated timers, advance when current media natively finishes
+    videoElem.addEventListener('ended', () => {
+      if (isFallbackActive || playlist.length === 0) return;
+      playNextInPlaylist();
+    });
+
+    function playNextInPlaylist() {
+      if (playlist.length === 0) return;
+      
+      // Advance sequentially to next index
+      currentItemIndex = (currentItemIndex + 1) % playlist.length;
+      const nextItem = playlist[currentItemIndex];
+      
+      currentItem = nextItem;
+      const displayName = nextItem.name ? nextItem.name : `Video ${currentItemIndex + 1}`;
+      debugElem.textContent = `Now Playing : ${displayName}`;
+      
+      showLoader();
+      loadMediaSource(nextItem, 0); // Always start new video from 0s
+    }
 
     // --- Buffer & Network Failure Tolerances ---
     function clearBufferTimeout() {
@@ -382,9 +402,7 @@
       if (!document.hidden) {
         clearBufferTimeout();
         consecutiveFetchFailures = 0;
-        if (playlist.length > 0) {
-          syncEngine();
-        } else {
+        if (playlist.length === 0) {
           fetchPlaylist();
         }
       }
@@ -408,14 +426,22 @@
         consecutiveFetchFailures = 0;
         
         if (Array.isArray(data) && data.length > 0) {
-          if (JSON.stringify(data) !== JSON.stringify(playlist)) {
-            playlist = data;
-            totalPlaylistDuration = data.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
+          const isFirstLoad = playlist.length === 0;
+          playlist = data;
 
-            if (!currentItem) {
-              syncEngine();
-            } else {
-              console.log("Playlist JSON updated successfully without interrupting playback.");
+          if (isFirstLoad || !currentItem) {
+            // Initial startup
+            currentItemIndex = 0;
+            currentItem = playlist[0];
+            const displayName = currentItem.name ? currentItem.name : `Video 1`;
+            debugElem.textContent = `Now Playing : ${displayName}`;
+            showLoader();
+            loadMediaSource(currentItem, 0);
+          } else {
+            // Sync index of active video if array positions changed
+            const existingIdx = playlist.findIndex(i => i.url === currentItem.url);
+            if (existingIdx !== -1) {
+              currentItemIndex = existingIdx;
             }
           }
         } else {
@@ -431,102 +457,18 @@
     setInterval(fetchPlaylist, FETCH_INTERVAL_MS);
     fetchPlaylist();
 
-    // --- 2. Anchor-Aware Continuous Broadcast Engine ---
-    function getGlobalTimeState() {
-      if (!playlist || playlist.length === 0 || !totalPlaylistDuration) return null;
-      
-      const epochSeconds = Date.now() / 1000;
-
-      // Scenario A: Active playback is in progress
-      if (currentItem && currentItemStartTime !== null) {
-        const elapsed = epochSeconds - currentItemStartTime;
-        const currentDuration = currentItem.duration_seconds || 0;
-
-        // Current video is still within its expected timeline
-        if (elapsed < currentDuration) {
-          let idx = playlist.findIndex(i => i.url === currentItem.url);
-          return {
-            itemIndex: idx >= 0 ? idx : currentItemIndex,
-            item: currentItem,
-            seekPosition: Math.max(0, elapsed),
-            calculatedStartTime: currentItemStartTime
-          };
-        }
-
-        // Current video finished naturally -> advance directly to next sequential video from beginning (0s)
-        let nextIndex = (currentItemIndex + 1) % playlist.length;
-        const nextItem = playlist[nextIndex];
-        return {
-          itemIndex: nextIndex,
-          item: nextItem,
-          seekPosition: 0,
-          calculatedStartTime: epochSeconds
-        };
-      }
-
-      // Scenario B: Initial boot - compute loop position using epoch modulo
-      const currentLoopTime = epochSeconds % totalPlaylistDuration;
-      let accumulatedTime = 0;
-
-      for (let i = 0; i < playlist.length; i++) {
-        const item = playlist[i];
-        const itemDuration = item.duration_seconds || 0;
-        if (currentLoopTime >= accumulatedTime && currentLoopTime < accumulatedTime + itemDuration) {
-          const seekPos = currentLoopTime - accumulatedTime;
-          return {
-            itemIndex: i,
-            item: item,
-            seekPosition: seekPos,
-            calculatedStartTime: epochSeconds - seekPos
-          };
-        }
-        accumulatedTime += itemDuration;
-      }
-      
-      return {
-        itemIndex: 0,
-        item: playlist[0],
-        seekPosition: 0,
-        calculatedStartTime: epochSeconds
-      };
-    }
-
-    // --- 3. Sync Engine ---
+    // --- 2. Sync Engine (Handles recovery & play state only) ---
     function syncEngine() {
-      if (document.hidden) return;
-
-      const state = getGlobalTimeState();
-      if (!state) {
-        if (playlist.length === 0) triggerFallback('No Items Available');
-        return;
-      }
-
-      const { item, seekPosition, calculatedStartTime, itemIndex } = state;
+      if (document.hidden || !currentItem) return;
 
       if (isFallbackActive) {
         isFallbackActive = false;
         videoElem.loop = false;
-        currentItem = null; 
-      }
-
-      const displayName = item.name ? item.name : `Video ${itemIndex + 1}`;
-      debugElem.textContent = `Now Playing : ${displayName}`;
-
-      if (!currentItem || currentItem.url !== item.url) {
-        currentItem = item;
-        currentItemIndex = itemIndex;
-        currentItemStartTime = calculatedStartTime;
-        showLoader();
-        loadMediaSource(item, seekPosition);
+        loadMediaSource(currentItem, 0);
         return;
       }
 
-      if (item.type === 'mp4' || item.type === 'm3u8') {
-        const drift = Math.abs(videoElem.currentTime - seekPosition);
-        if (drift > MAX_ALLOWED_DRIFT_SEC) {
-          videoElem.currentTime = seekPosition;
-        }
-
+      if (currentItem.type === 'mp4' || currentItem.type === 'm3u8') {
         if (videoElem.paused && iconPlay.style.display === 'none') {
           videoElem.play().catch(() => {});
         }
@@ -534,7 +476,7 @@
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- 4. Switch Media Types ---
+    // --- 3. Switch Media Types ---
     function loadMediaSource(item, initialSeek) {
       if (hlsInstance) {
         hlsInstance.destroy();
@@ -580,25 +522,25 @@
             hlsInstance.loadSource(item.url);
             hlsInstance.attachMedia(videoElem);
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-              videoElem.currentTime = initialSeek;
+              if (initialSeek > 0) videoElem.currentTime = initialSeek;
               videoElem.play().catch(() => {});
             });
           } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
             videoElem.src = item.url;
-            videoElem.currentTime = initialSeek;
+            if (initialSeek > 0) videoElem.currentTime = initialSeek;
             videoElem.play().catch(() => {});
           }
         } else if (item.type === 'mp4') {
           if (videoElem.src !== item.url) {
             videoElem.src = item.url;
           }
-          videoElem.currentTime = initialSeek;
+          if (initialSeek > 0) videoElem.currentTime = initialSeek;
           videoElem.play().catch(() => {});
         }
       }
     }
 
-    // --- 5. Controls Overlay ---
+    // --- 4. Controls Overlay ---
     function showControls() {
       controlsOverlay.classList.remove('ui-hidden');
       
@@ -660,18 +602,6 @@
         }
       }
     });
-
-    videoElem.addEventListener('seeking', () => {
-      if (isFallbackActive) return;
-      const state = getGlobalTimeState();
-      if (state && (state.item.type === 'mp4' || state.item.type === 'm3u8')) {
-        const drift = Math.abs(videoElem.currentTime - state.seekPosition);
-        if (drift > MAX_ALLOWED_DRIFT_SEC) {
-          videoElem.currentTime = state.seekPosition;
-        }
-      }
-    });
-</script>
+      </script>
 </body>
 </html>
-                               

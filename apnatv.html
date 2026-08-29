@@ -267,12 +267,12 @@
       </div>
     </div>
   </div>     
-                           <script>
+ <script>
     const PLAYLIST_URL = './playlist.json';
     const FALLBACK_VIDEO_URL = './fallback.mp4';
     const FETCH_INTERVAL_MS = 2000;
     const SYNC_CHECK_INTERVAL_MS = 500;
-    const MAX_ALLOWED_DRIFT_SEC = 2.0;
+    const MAX_ALLOWED_DRIFT_SEC = 0.5; // Strict drift limit to prevent seeking bypass
     const UI_HIDE_TIMEOUT_MS = 3000;
     const BUFFER_RECOVERY_TIMEOUT_MS = 3000;
 
@@ -465,7 +465,7 @@
 
       const epochSeconds = Date.now() / 1000;
 
-      // 1. Session state: Lock track time if active session is already running
+      // 1. Active session: Calculate expected seek based on currentItemStartTime
       if (currentItem && currentItemStartTime !== null) {
         const elapsed = epochSeconds - currentItemStartTime;
         const duration = currentItem.duration_seconds || 0;
@@ -475,8 +475,7 @@
             itemIndex: currentItemIndex,
             item: currentItem,
             seekPosition: Math.max(0, elapsed),
-            calculatedStartTime: currentItemStartTime,
-            isBootstrapping: false
+            calculatedStartTime: currentItemStartTime
           };
         } else {
           // Time expired naturally -> step to next sequential track
@@ -485,8 +484,7 @@
             itemIndex: nextIndex,
             item: playlist[nextIndex],
             seekPosition: 0,
-            calculatedStartTime: epochSeconds,
-            isBootstrapping: false
+            calculatedStartTime: epochSeconds
           };
         }
       }
@@ -504,8 +502,7 @@
             itemIndex: i,
             item: item,
             seekPosition: seekPos,
-            calculatedStartTime: epochSeconds - seekPos,
-            isBootstrapping: true
+            calculatedStartTime: epochSeconds - seekPos
           };
         }
         accumulatedTime += itemDuration;
@@ -515,8 +512,7 @@
         itemIndex: 0,
         item: playlist[0],
         seekPosition: 0,
-        calculatedStartTime: epochSeconds,
-        isBootstrapping: true
+        calculatedStartTime: epochSeconds
       };
     }
 
@@ -530,7 +526,7 @@
         return;
       }
 
-      const { item, seekPosition, calculatedStartTime, itemIndex, isBootstrapping } = state;
+      const { item, seekPosition, calculatedStartTime, itemIndex } = state;
 
       if (isFallbackActive) {
         isFallbackActive = false;
@@ -550,19 +546,31 @@
         return;
       }
 
-      // Drift correction: Only run alignment check during initial cold boot/reload
-      if (isBootstrapping && (item.type === 'mp4' || item.type === 'm3u8')) {
+      // Live Drift Check
+      if (item.type === 'mp4' || item.type === 'm3u8') {
         const drift = Math.abs(videoElem.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
           videoElem.currentTime = seekPosition;
         }
-      }
 
-      if ((item.type === 'mp4' || item.type === 'm3u8') && videoElem.paused && iconPlay.style.display === 'none') {
-        videoElem.play().catch(() => {});
+        if (videoElem.paused && iconPlay.style.display === 'none') {
+          videoElem.play().catch(() => {});
+        }
       }
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
+
+    // --- Anti-Bypass Seeking Revert Logic ---
+    videoElem.addEventListener('seeking', () => {
+      if (isFallbackActive) return;
+      const state = getGlobalTimeState();
+      if (state && (state.item.type === 'mp4' || state.item.type === 'm3u8')) {
+        const drift = Math.abs(videoElem.currentTime - state.seekPosition);
+        if (drift > MAX_ALLOWED_DRIFT_SEC) {
+          videoElem.currentTime = state.seekPosition;
+        }
+      }
+    });
 
     // --- 4. Switch Media Types ---
     function loadMediaSource(item, initialSeek) {
@@ -610,19 +618,19 @@
             hlsInstance.loadSource(item.url);
             hlsInstance.attachMedia(videoElem);
             hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-              if (initialSeek > 0) videoElem.currentTime = initialSeek;
+              videoElem.currentTime = initialSeek;
               videoElem.play().catch(() => {});
             });
           } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
             videoElem.src = item.url;
-            if (initialSeek > 0) videoElem.currentTime = initialSeek;
+            videoElem.currentTime = initialSeek;
             videoElem.play().catch(() => {});
           }
         } else if (item.type === 'mp4') {
           if (videoElem.src !== item.url) {
             videoElem.src = item.url;
           }
-          if (initialSeek > 0) videoElem.currentTime = initialSeek;
+          videoElem.currentTime = initialSeek;
           videoElem.play().catch(() => {});
         }
       }
@@ -690,6 +698,8 @@
         }
       }
     });
-  </script>
+   </script>       
 </body>
 </html>
+                                        
+        

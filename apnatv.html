@@ -267,7 +267,7 @@
       </div>
     </div>
   </div>
-  <script>
+    <script>
     const PLAYLIST_URL = './playlist.json';
     const FETCH_INTERVAL_MS = 2000;
     const SYNC_CHECK_INTERVAL_MS = 500;
@@ -327,17 +327,19 @@
         
         if (Array.isArray(data) && data.length > 0) {
           if (JSON.stringify(data) !== JSON.stringify(playlist)) {
+            const newTotalDuration = data.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
+
             // If nothing is playing yet, initialize immediately
             if (!currentItem) {
               playlist = data;
-              totalPlaylistDuration = playlist.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
+              totalPlaylistDuration = newTotalDuration;
               syncEngine();
             } else {
-              // Queue update safely: update the array and duration for future slots, 
-              // but do NOT trigger an immediate reset/jump on the currently running video.
+              // Background update: safely update playlist reference and recalculate total duration 
+              // without resetting the active video playback pointer or forcing an immediate timeline snap.
               playlist = data;
-              totalPlaylistDuration = playlist.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
-              console.log("Playlist updated in background. Current video will finish its course first.");
+              totalPlaylistDuration = newTotalDuration;
+              console.log("Playlist updated in background safely.");
             }
           }
         }
@@ -358,16 +360,23 @@
       let accumulatedTime = 0;
       for (let i = 0; i < playlist.length; i++) {
         const item = playlist[i];
-        if (currentLoopTime >= accumulatedTime && currentLoopTime < accumulatedTime + item.duration_seconds) {
+        const itemDuration = item.duration_seconds || 0;
+        if (currentLoopTime >= accumulatedTime && currentLoopTime < accumulatedTime + itemDuration) {
           return {
             itemIndex: i,
             item: item,
             seekPosition: currentLoopTime - accumulatedTime
           };
         }
-        accumulatedTime += item.duration_seconds;
+        accumulatedTime += itemDuration;
       }
-      return null;
+      
+      // Fallback to first item if time overflows slightly due to float precision
+      return {
+        itemIndex: 0,
+        item: playlist[0],
+        seekPosition: 0
+      };
     }
 
     // --- 3. Strict Live Drift Lock & Top Box Updater ---
@@ -388,7 +397,7 @@
         return;
       }
 
-      // If a new URL/item has naturally rolled in by timeline clock sequence:
+      // If the current playing video URL changes by clock rollover or active slot replacement:
       if (currentItem.url !== item.url) {
         currentItem = item;
         showLoader();
@@ -396,7 +405,7 @@
         return;
       }
 
-      // Maintain live-sync drift for active streams
+      // Maintain live-sync drift for active streams (skip drift adjustment if user is interacting with an iframe)
       if (item.type === 'mp4' || item.type === 'm3u8') {
         const drift = Math.abs(videoElem.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
@@ -421,7 +430,9 @@
         videoElem.style.display = 'none';
         videoElem.pause();
         iframeElem.style.display = 'block';
-        iframeElem.src = item.url;
+        if (iframeElem.src !== item.url) {
+          iframeElem.src = item.url;
+        }
       } else {
         iframeElem.style.display = 'none';
         iframeElem.src = '';
@@ -450,7 +461,9 @@
             videoElem.play().catch(() => {});
           }
         } else if (item.type === 'mp4') {
-          videoElem.src = item.url;
+          if (videoElem.src !== item.url) {
+            videoElem.src = item.url;
+          }
           videoElem.currentTime = initialSeek;
           videoElem.play().catch(() => {});
         }
@@ -531,8 +544,8 @@
         }
       }
     });
-      </script>
+  </script>
 </body>
-</html>
+</html> 
 
               

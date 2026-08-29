@@ -267,12 +267,12 @@
       </div>
     </div>
   </div>     
- <script>
+                           <script>
     const PLAYLIST_URL = './playlist.json';
     const FALLBACK_VIDEO_URL = './fallback.mp4';
     const FETCH_INTERVAL_MS = 2000;
-    const SYNC_CHECK_INTERVAL_MS = 1000;
-    const MAX_ALLOWED_DRIFT_SEC = 3.0; // Loosened drift tolerance to prevent false seeks
+    const SYNC_CHECK_INTERVAL_MS = 500;
+    const MAX_ALLOWED_DRIFT_SEC = 2.0;
     const UI_HIDE_TIMEOUT_MS = 3000;
     const BUFFER_RECOVERY_TIMEOUT_MS = 3000;
 
@@ -297,6 +297,8 @@
     let hlsInstance = null;
     let currentItem = null;
     let currentItemIndex = 0;
+    let currentItemStartTime = null;
+    let totalPlaylistDuration = 0;
     let uiHideTimer = null;
     
     let isFallbackActive = false;
@@ -324,26 +326,27 @@
 
     iframeElem.addEventListener('load', hideLoader);
 
-    // --- Native Completion Handler ---
-    // Instead of calculated timers, advance when current media natively finishes
+    // Native completion trigger for seamless track advancement
     videoElem.addEventListener('ended', () => {
       if (isFallbackActive || playlist.length === 0) return;
-      playNextInPlaylist();
+      advanceToNextTrack();
     });
 
-    function playNextInPlaylist() {
+    function advanceToNextTrack() {
       if (playlist.length === 0) return;
-      
-      // Advance sequentially to next index
+
+      const epochSeconds = Date.now() / 1000;
       currentItemIndex = (currentItemIndex + 1) % playlist.length;
       const nextItem = playlist[currentItemIndex];
       
       currentItem = nextItem;
+      currentItemStartTime = epochSeconds;
+
       const displayName = nextItem.name ? nextItem.name : `Video ${currentItemIndex + 1}`;
       debugElem.textContent = `Now Playing : ${displayName}`;
       
       showLoader();
-      loadMediaSource(nextItem, 0); // Always start new video from 0s
+      loadMediaSource(nextItem, 0);
     }
 
     // --- Buffer & Network Failure Tolerances ---
@@ -402,7 +405,9 @@
       if (!document.hidden) {
         clearBufferTimeout();
         consecutiveFetchFailures = 0;
-        if (playlist.length === 0) {
+        if (playlist.length > 0) {
+          syncEngine();
+        } else {
           fetchPlaylist();
         }
       }
@@ -426,22 +431,19 @@
         consecutiveFetchFailures = 0;
         
         if (Array.isArray(data) && data.length > 0) {
-          const isFirstLoad = playlist.length === 0;
-          playlist = data;
+          if (JSON.stringify(data) !== JSON.stringify(playlist)) {
+            playlist = data;
+            totalPlaylistDuration = data.reduce((acc, item) => acc + (item.duration_seconds || 0), 0);
 
-          if (isFirstLoad || !currentItem) {
-            // Initial startup
-            currentItemIndex = 0;
-            currentItem = playlist[0];
-            const displayName = currentItem.name ? currentItem.name : `Video 1`;
-            debugElem.textContent = `Now Playing : ${displayName}`;
-            showLoader();
-            loadMediaSource(currentItem, 0);
-          } else {
-            // Sync index of active video if array positions changed
-            const existingIdx = playlist.findIndex(i => i.url === currentItem.url);
-            if (existingIdx !== -1) {
-              currentItemIndex = existingIdx;
+            if (!currentItem) {
+              syncEngine();
+            } else {
+              // Update index of active track in case array ordering shifted
+              const existingIndex = playlist.findIndex(i => i.url === currentItem.url);
+              if (existingIndex !== -1) {
+                currentItemIndex = existingIndex;
+              }
+              console.log("Playlist dynamic update received safely.");
             }
           }
         } else {
@@ -457,26 +459,112 @@
     setInterval(fetchPlaylist, FETCH_INTERVAL_MS);
     fetchPlaylist();
 
-    // --- 2. Sync Engine (Handles recovery & play state only) ---
+    // --- 2. Live Synchronization State Resolver ---
+    function getGlobalTimeState() {
+      if (!playlist || playlist.length === 0 || !totalPlaylistDuration) return null;
+
+      const epochSeconds = Date.now() / 1000;
+
+      // 1. Session state: Lock track time if active session is already running
+      if (currentItem && currentItemStartTime !== null) {
+        const elapsed = epochSeconds - currentItemStartTime;
+        const duration = currentItem.duration_seconds || 0;
+
+        if (elapsed < duration) {
+          return {
+            itemIndex: currentItemIndex,
+            item: currentItem,
+            seekPosition: Math.max(0, elapsed),
+            calculatedStartTime: currentItemStartTime,
+            isBootstrapping: false
+          };
+        } else {
+          // Time expired naturally -> step to next sequential track
+          let nextIndex = (currentItemIndex + 1) % playlist.length;
+          return {
+            itemIndex: nextIndex,
+            item: playlist[nextIndex],
+            seekPosition: 0,
+            calculatedStartTime: epochSeconds,
+            isBootstrapping: false
+          };
+        }
+      }
+
+      // 2. Cold Boot / Page Reload State: Compute live position based on wall-clock epoch modulo
+      const currentLoopTime = epochSeconds % totalPlaylistDuration;
+      let accumulatedTime = 0;
+
+      for (let i = 0; i < playlist.length; i++) {
+        const item = playlist[i];
+        const itemDuration = item.duration_seconds || 0;
+        if (currentLoopTime >= accumulatedTime && currentLoopTime < accumulatedTime + itemDuration) {
+          const seekPos = currentLoopTime - accumulatedTime;
+          return {
+            itemIndex: i,
+            item: item,
+            seekPosition: seekPos,
+            calculatedStartTime: epochSeconds - seekPos,
+            isBootstrapping: true
+          };
+        }
+        accumulatedTime += itemDuration;
+      }
+
+      return {
+        itemIndex: 0,
+        item: playlist[0],
+        seekPosition: 0,
+        calculatedStartTime: epochSeconds,
+        isBootstrapping: true
+      };
+    }
+
+    // --- 3. Sync Engine ---
     function syncEngine() {
-      if (document.hidden || !currentItem) return;
+      if (document.hidden) return;
+
+      const state = getGlobalTimeState();
+      if (!state) {
+        if (playlist.length === 0) triggerFallback('No Items Available');
+        return;
+      }
+
+      const { item, seekPosition, calculatedStartTime, itemIndex, isBootstrapping } = state;
 
       if (isFallbackActive) {
         isFallbackActive = false;
         videoElem.loop = false;
-        loadMediaSource(currentItem, 0);
+        currentItem = null;
+      }
+
+      const displayName = item.name ? item.name : `Video ${itemIndex + 1}`;
+      debugElem.textContent = `Now Playing : ${displayName}`;
+
+      if (!currentItem || currentItem.url !== item.url) {
+        currentItem = item;
+        currentItemIndex = itemIndex;
+        currentItemStartTime = calculatedStartTime;
+        showLoader();
+        loadMediaSource(item, seekPosition);
         return;
       }
 
-      if (currentItem.type === 'mp4' || currentItem.type === 'm3u8') {
-        if (videoElem.paused && iconPlay.style.display === 'none') {
-          videoElem.play().catch(() => {});
+      // Drift correction: Only run alignment check during initial cold boot/reload
+      if (isBootstrapping && (item.type === 'mp4' || item.type === 'm3u8')) {
+        const drift = Math.abs(videoElem.currentTime - seekPosition);
+        if (drift > MAX_ALLOWED_DRIFT_SEC) {
+          videoElem.currentTime = seekPosition;
         }
+      }
+
+      if ((item.type === 'mp4' || item.type === 'm3u8') && videoElem.paused && iconPlay.style.display === 'none') {
+        videoElem.play().catch(() => {});
       }
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- 3. Switch Media Types ---
+    // --- 4. Switch Media Types ---
     function loadMediaSource(item, initialSeek) {
       if (hlsInstance) {
         hlsInstance.destroy();
@@ -540,7 +628,7 @@
       }
     }
 
-    // --- 4. Controls Overlay ---
+    // --- 5. Controls Overlay ---
     function showControls() {
       controlsOverlay.classList.remove('ui-hidden');
       
@@ -602,6 +690,6 @@
         }
       }
     });
-      </script>
+  </script>
 </body>
 </html>

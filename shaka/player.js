@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// LINEAR TV — Shared Player Engine v3
+// LINEAR TV — Shared Player Engine v3 (Fixed Sync & Anti-Seek)
 // Supports: direct .m3u8/.mp4 URLs  →  <video> + hls.js
 //           web player iframe URLs  →  <iframe> embed
 // ═══════════════════════════════════════════════════════════════════
@@ -41,28 +41,21 @@ function detectType(item) {
 // ── Seek URL builder ──────────────────────────────────────────────
 // For iframe sources that support a time/start param, we inject the
 // seek offset so the embed starts at the right position.
-// Add more patterns here as needed for other player domains.
 function buildIframeSrc(url, seekSec) {
   const t = Math.floor(seekSec);
   try {
     const u = new URL(url);
-    // Common seek params used by various players
-    // Try appending #t= first (most universal), then ?t= as fallback
-    // For players that use &t= or &start=
     if (u.searchParams.has('url') || u.searchParams.has('src') || u.searchParams.has('file')) {
-      // These are wrapper players — pass #t= as a fragment so the inner player may pick it up
       u.hash = `t=${t}`;
     } else if (u.searchParams.has('t')) {
       u.searchParams.set('t', t);
     } else if (u.searchParams.has('start')) {
       u.searchParams.set('start', t);
     } else {
-      // Append #t= fragment — harmless if ignored, helpful if supported
       u.hash = `t=${t}`;
     }
     return u.toString();
   } catch {
-    // Malformed URL — just append fragment
     return url + '#t=' + t;
   }
 }
@@ -177,33 +170,35 @@ function initPlayer(cfg) {
     if (volOverlay) volOverlay.style.display = 'none';
     currentMode = 'video';
   }
-  // ── Prevent user seeking / video skipping ─────────────────────
-let lastValidTime = 0;
 
-vid.addEventListener('timeupdate', () => {
-  if (currentMode !== 'video' || vid.seeking) return;
+  // ── Prevent user seeking / video skipping (Fixed with internal flag) ──
+  let lastValidTime = 0;
+  let isInternalSync = false;
 
-  // Allow max 1.5 seconds shift for normal playback; revert if skip detected
-  if (Math.abs(vid.currentTime - lastValidTime) > 1.5) {
-    vid.currentTime = lastValidTime;
-  } else {
-    lastValidTime = vid.currentTime;
+  if (vid) {
+    vid.addEventListener('timeupdate', () => {
+      if (currentMode !== 'video' || vid.seeking || isInternalSync) return;
+
+      if (Math.abs(vid.currentTime - lastValidTime) > 2.0) {
+        vid.currentTime = lastValidTime;
+      } else {
+        lastValidTime = vid.currentTime;
+      }
+    });
+
+    vid.addEventListener('seeking', () => {
+      if (isInternalSync) return;
+      const pos = computePos(Date.now());
+      if (pos && Math.abs(vid.currentTime - pos.offset) > RESYNC_DRIFT) {
+        vid.currentTime = lastValidTime;
+      }
+    });
   }
-});
-
-// Reset baseline when new items load
-vid.addEventListener('seeking', () => {
-  const pos = computePos(Date.now());
-  if (pos && Math.abs(vid.currentTime - pos.offset) > RESYNC_DRIFT) {
-    vid.currentTime = lastValidTime;
-  }
-});
 
   function showIframe() {
     if (vid)      { vid.pause(); vid.src = ''; vid.style.display = 'none'; }
     if (iframeEl) iframeEl.style.display = 'block';
     if (hls)      { hls.destroy(); hls = null; }
-    // Volume slider can't control iframe audio — show a note
     if (volSlider) volSlider.closest && volSlider.closest('.vol-wrap') &&
       (volSlider.closest('.vol-wrap').style.opacity = '0.3');
     if (volOverlay) volOverlay.style.display = 'flex';
@@ -232,7 +227,6 @@ vid.addEventListener('seeking', () => {
   // ── iframe mode ───────────────────────────────────────────────────
   function loadIframe(item, seekTo) {
     if (!iframeEl) {
-      // No iframe element in DOM — fallback error
       loader.classList.add('hidden');
       errorMsg.classList.add('show');
       return;
@@ -242,7 +236,6 @@ vid.addEventListener('seeking', () => {
     iframeEl.src = src;
     iframeLoadTime = Date.now();
     iframeEl.onload = () => loader.classList.add('hidden');
-    // Fallback: hide loader after 4s even if onload doesn't fire
     setTimeout(() => loader.classList.add('hidden'), 4000);
   }
 
@@ -251,7 +244,13 @@ vid.addEventListener('seeking', () => {
     showVideo();
     if (hls) { hls.destroy(); hls = null; }
 
-    const onReady = () => { vid.currentTime = seekTo; doPlay(); };
+    const onReady = () => {
+      isInternalSync = true;
+      vid.currentTime = seekTo;
+      lastValidTime = seekTo;
+      setTimeout(() => { isInternalSync = false; }, 400);
+      doPlay();
+    };
 
     if (type === 'hls' && typeof Hls !== 'undefined' && Hls.isSupported()) {
       hls = new Hls({ startPosition: seekTo });
@@ -291,16 +290,11 @@ vid.addEventListener('seeking', () => {
   if (btnPlay) {
     btnPlay.addEventListener('click', () => {
       if (currentMode === 'iframe') {
-        // Iframe: pause = mute iframe by reloading at current position
-        // (can't truly pause cross-origin iframe — best we can do)
         if (!paused) {
-          // "Pause" — reload iframe at t=0 of current item to freeze
-          // Actually just stop by blanking src
           iframeEl.src = 'about:blank';
           paused = true;
           btnPlay.textContent = '▶';
         } else {
-          // Resume — reload at current live position
           const pos = computePos(Date.now());
           if (!pos) return;
           if (pos.index !== currentIndex) {
@@ -313,14 +307,16 @@ vid.addEventListener('seeking', () => {
           showSyncToast();
         }
       } else {
-        // Video mode
         if (vid.paused) {
           const pos = computePos(Date.now());
           if (!pos) return;
           if (pos.index !== currentIndex) {
             loadItem(pos.index, pos.offset);
           } else {
+            isInternalSync = true;
             vid.currentTime = pos.offset;
+            lastValidTime = pos.offset;
+            setTimeout(() => { isInternalSync = false; }, 400);
             vid.play();
           }
           paused = false;
@@ -347,7 +343,7 @@ vid.addEventListener('seeking', () => {
     const pos = computePos(Date.now());
     if (!pos) return;
 
-    // Progress bar — for iframe mode use wall-clock elapsed
+    // Progress bar
     if (progressFill) {
       if (currentMode === 'iframe') {
         const elapsed = (Date.now() - iframeLoadTime) / 1000;
@@ -376,17 +372,19 @@ vid.addEventListener('seeking', () => {
       return;
     }
 
-    // ── Drift correction (video mode only) ────────────────────────
+    // ── Drift correction (video mode only) — Fixed with isInternalSync ──
     if (currentMode === 'video' && vid && !vid.paused && !vid.seeking) {
       const drift = Math.abs(vid.currentTime - pos.offset);
       if (drift > RESYNC_DRIFT) {
+        isInternalSync = true;
         vid.currentTime = pos.offset;
+        lastValidTime = pos.offset;
         showSyncToast();
+        setTimeout(() => { isInternalSync = false; }, 500);
       }
     }
 
     // ── Iframe drift correction ───────────────────────────────────
-    // If iframe has been running too long vs expected, reload it
     if (currentMode === 'iframe' && iframeEl && !paused) {
       const iframeElapsed = (Date.now() - iframeLoadTime) / 1000;
       const drift = Math.abs(iframeElapsed - pos.offset);
@@ -420,7 +418,6 @@ vid.addEventListener('seeking', () => {
 
       showUpdateToast();
 
-      // Same URL still playing? Just update schedule, no interruption.
       const sameUrl = pos.index === currentIndex &&
         playlist[pos.index] &&
         playlist[pos.index].url === currentUrl;
@@ -457,4 +454,4 @@ vid.addEventListener('seeking', () => {
   }
 
   init();
-    }
+}

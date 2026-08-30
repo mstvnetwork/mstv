@@ -365,24 +365,37 @@ function initPlayer(config) {
   });
 }
 
-function renderPlaylistUI(container) {
+function renderPlaylistUI(
+  container
+) {
   if (!container) return;
   container.innerHTML = "";
-  SCHEDULE_TIMELINE.forEach((track, index) => {
-    const div = document.createElement("div");
-    div.className = "schedule-item";
-    div.id = `track-${index}`;
-    const clk = new Date(track.startMs)
-      .toLocaleTimeString([], {
-        hour: '2-digit', 
-        minute:'2-digit'
+  SCHEDULE_TIMELINE.forEach(
+    (track, index) => {
+      const div = 
+        document.createElement(
+          "div"
+        );
+      div.className = 
+        "schedule-item";
+      div.id = `track-${index}`;
+      const clk = new Date(
+        track.startMs
+      ).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit"
       });
-    div.innerHTML = `Slot [${clk}]: <b>${
-      track.name
-    }</b> (${track.duration_seconds}s)`;
-    container.appendChild(div);
-  });
+      div.innerHTML = 
+        `Slot [${clk}]: <b>${
+          track.name
+        }</b> (${
+          track.duration_seconds
+        }s)`;
+      container.appendChild(div);
+    }
+  );
 }
+
 function updateUIHighlighter(
   activeIndex
 ) {
@@ -410,3 +423,4 @@ function showNotificationToast(
   setTimeout(() => {
     el.classList.remove("show");
   }, 2500);
+}

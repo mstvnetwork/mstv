@@ -1,228 +1,206 @@
-// Sample linear TV schedule. Replace URLs and times with your actual content.
-// "start" must be a UTC ISO string. "duration" is in seconds.
-const SAMPLE_SCHEDULE = [
-    {
-        title: "Big Buck Bunny (HLS Stream)",
-        type: "hls",
-        url: "https://mux.dev",
-        start: "2026-01-01T00:00:00Z", 
-        duration: 600 // 10 minutes
-    },
-    {
-        title: "Sintel (MP4 fallback)",
-        type: "mp4",
-        url: "https://googleapis.com",
-        start: "2026-01-01T00:10:00Z",
-        duration: 318 // 5.3 minutes
-    }
-];
-
+let PLAYLIST = [];
+let SCHEDULE_TIMELINE = [];
 let hlsInstance = null;
+let currentTrack = null;
+let globalConfig = null;
+
+const PLAYLIST_JSON_URL = "./playlist.json"; 
+
+// Base epoch anchor string reference point
+const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
+
+async function fetchPlaylistUpdates() {
+    try {
+        const response = await fetch(`${PLAYLIST_JSON_URL}?t=${Date.now()}`);
+        if (!response.ok) throw new Error("Network issues reaching source");
+        
+        const freshData = await response.json();
+        
+        // Only trigger UI repaint loops if actual structure mutations occurred
+        if (JSON.stringify(freshData) !== JSON.stringify(PLAYLIST)) {
+            PLAYLIST = freshData;
+            generateAbsoluteTimeline();
+            
+            if (globalConfig && document.getElementById(globalConfig.scheduleListId)) {
+                renderPlaylistUI(document.getElementById(globalConfig.scheduleListId));
+                showNotificationToast(document.getElementById(globalConfig.updateToastId));
+            }
+        }
+    } catch (err) {
+        console.error("Silent sync verification log:", err);
+    }
+}
+
+// Convert track raw lists into absolute time objects relative to an explicit baseline
+function generateAbsoluteTimeline() {
+    let runningTimelineMs = new Date(BASE_ANCHOR_DATE).getTime();
+    
+    SCHEDULE_TIMELINE = PLAYLIST.map(track => {
+        const trackStartMs = runningTimelineMs;
+        const trackEndMs = trackStartMs + (track.duration_seconds * 1000);
+        runningTimelineMs = trackEndMs; // Chain link start paths
+        
+        return {
+            ...track,
+            startMs: trackStartMs,
+            endMs: trackEndMs
+        };
+    });
+}
 
 function initPlayer(config) {
-    const video = document.getElementById(config.videoId);
-    const iframe = document.getElementById(config.iframeId);
-    const loader = document.getElementById(config.loaderId);
-    const errorMsg = document.getElementById(config.errorId);
-    const btnPlay = document.getElementById(config.btnPlayId);
-    const volSlider = document.getElementById(config.volSliderId);
-    const progressFill = document.getElementById(config.progressFillId);
-    const scheduleList = document.getElementById(config.scheduleListId);
-    const syncToast = document.getElementById(config.syncToastId);
-    const nowTitle = document.getElementById(config.nowTitleId);
-    const statusText = document.getElementById(config.statusTextId);
-    const statusOffset = document.getElementById(config.statusOffsetId);
-    const volOverlay = document.getElementById(config.volOverlayId);
+    globalConfig = config;
+    
+    // Background polling update sequence (runs smoothly every 30 seconds)
+    setInterval(fetchPlaylistUpdates, 30000);
 
-    let currentItem = null;
-    let isMutedByUser = false;
+    fetchPlaylistUpdates().then(() => {
+        const video = document.getElementById(config.videoId);
+        const progressFill = document.getElementById(config.progressFillId);
+        const syncToast = document.getElementById(config.syncToastId);
+        const nowTitle = document.getElementById(config.nowTitleId);
+        const statusText = document.getElementById(config.statusTextId);
+        const statusOffset = document.getElementById(config.statusOffsetId);
 
-    // 1. Digital Clock System
-    if (config.showClock) {
-        setInterval(() => {
-            const now = new Date();
-            document.getElementById(config.clockId).innerText = now.toLocaleTimeString();
-            document.getElementById(config.clockDateId).innerText = now.toLocaleDateString();
-        }, 1000);
-    }
+        if (config.showClock) {
+            setInterval(() => {
+                document.getElementById(config.clockId).innerText = new Date().toLocaleTimeString();
+                document.getElementById(config.clockDateId).innerText = new Date().toLocaleDateString();
+            }, 1000);
+        }
 
-    // 2. Generate Loopable Schedule dynamically if old
-    const schedule = generateLoopingSchedule(SAMPLE_SCHEDULE);
+        function calculateLiveSyncState() {
+            if (SCHEDULE_TIMELINE.length === 0) return;
 
-    // 3. Render Schedule UI Layout
-    renderScheduleUI(schedule, scheduleList);
+            const nowMs = Date.now();
+            let totalDurationMs = 0;
+            PLAYLIST.forEach(t => totalDurationMs += (t.duration_seconds * 1000));
 
-    // 4. Core Core Synchronization Loop
-    function syncToLinearTimeline() {
-        const nowMs = Date.now();
-        let activeItem = null;
-        let seekOffsetSeconds = 0;
+            const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+            const msPassedSinceAnchor = nowMs - baseAnchorMs;
+            
+            // Calculate absolute looping frame boundary offset points
+            const currentLoopCycleMs = msPassedSinceAnchor % totalDurationMs;
+            const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
 
-        for (let item of schedule) {
-            const startMs = new Date(item.start).getTime();
-            const endMs = startMs + (item.duration * 1000);
+            let activeTrack = null;
+            let trackSeekOffset = 0;
+            let activeIndex = 0;
 
-            if (nowMs >= startMs && nowMs < endMs) {
-                activeItem = item;
-                seekOffsetSeconds = (nowMs - startMs) / 1000;
-                break;
+            for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
+                const track = SCHEDULE_TIMELINE[i];
+                if (targetVirtualTimeMs >= track.startMs && targetVirtualTimeMs < track.endMs) {
+                    activeTrack = track;
+                    trackSeekOffset = (targetVirtualTimeMs - track.startMs) / 1000;
+                    activeIndex = i;
+                    break;
+                }
             }
-        }
 
-        if (!activeItem) {
-            nowTitle.innerText = "Off-Air / Intermission";
-            video.style.display = "none";
-            iframe.style.display = "none";
-            loader.classList.add("hidden");
-            return;
-        }
+            if (!activeTrack) return;
 
-        // Handle item transition
-        if (!currentItem || currentItem.url !== activeItem.url) {
-            currentItem = activeItem;
-            nowTitle.innerText = `Playing Now: ${currentItem.title}`;
-            highlightActiveScheduleUI(schedule, currentItem);
-            loadMediaSource(currentItem, seekOffsetSeconds);
-        } else {
-            // Guard against drifted tabs or pausing: Enforce sync drift boundary
-            if (currentItem.type !== 'iframe' && Math.abs(video.currentTime - seekOffsetSeconds) > 3) {
-                video.currentTime = seekOffsetSeconds;
-                showToast(syncToast);
-            }
-        }
+            updateUIHighlighter(activeIndex);
 
-        // Update technical status displays
-        if (currentItem.type !== 'iframe') {
-            const pct = (video.currentTime / video.duration) * 100 || 0;
-            progressFill.style.width = `${pct}%`;
-            statusText.innerText = `Source type: ${currentItem.type.toUpperCase()}`;
-            statusOffset.innerText = `Current Seek Offset: ${Math.floor(seekOffsetSeconds)}s / ${currentItem.duration}s`;
-        }
-    }
-
-    // 5. Media Source Handlers (HLS, HTML5 Video, iframe)
-    function loadMediaSource(item, offset) {
-        loader.classList.remove("hidden");
-        errorMsg.classList.remove("show");
-
-        if (hlsInstance) {
-            hlsInstance.destroy();
-            hlsInstance = null;
-        }
-
-        if (item.type === 'iframe') {
-            video.style.display = "none";
-            iframe.style.display = "block";
-            volOverlay.style.display = "block";
-            // Check if YouTube link to inject timestamp variables automatically
-            let embedUrl = item.url;
-            if (embedUrl.includes("youtube.com") || embedUrl.includes("youtu.be")) {
-                embedUrl += (embedUrl.includes("?") ? "&" : "?") + `autoplay=1&start=${Math.floor(offset)}`;
-            }
-            iframe.src = embedUrl;
-            loader.classList.add("hidden");
-        } else {
-            iframe.style.display = "none";
-            video.style.display = "block";
-            volOverlay.style.display = "none";
-
-            if (item.type === 'hls' && Hls.isSupported()) {
-                hlsInstance = new Hls();
-                hlsInstance.loadSource(item.url);
-                hlsInstance.attachMedia(video);
-                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                    video.currentTime = offset;
-                    video.play().catch(handleAutoplayBlock);
-                });
+            if (!currentTrack || currentTrack.url !== activeTrack.url) {
+                currentTrack = activeTrack;
+                nowTitle.innerText = currentTrack.name;
+                loadMedia(currentTrack, trackSeekOffset);
             } else {
-                video.src = item.url;
+                // Keep players aligned within a strict 4-second drift boundary window
+                if (Math.abs(video.currentTime - trackSeekOffset) > 4) {
+                    video.currentTime = trackSeekOffset;
+                    showNotificationToast(syncToast);
+                }
+            }
+
+            const pct = (video.currentTime / activeTrack.duration_seconds) * 100 || 0;
+            progressFill.style.width = `${pct}%`;
+            statusText.innerText = `Mode: Absolute Timeline Engine (${activeTrack.type.toUpperCase()})`;
+            statusOffset.innerText = `Sync Offset: ${Math.floor(video.currentTime)}s / ${activeTrack.duration_seconds}s`;
+        }
+
+        function loadMedia(track, offset) {
+            document.getElementById(config.loaderId).classList.remove("hidden");
+            document.getElementById(config.errorId).classList.remove("show");
+
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+
+            const formatType = track.type.toLowerCase();
+
+            if (formatType === 'm3u8' || formatType === 'hls') {
+                if (Hls.isSupported()) {
+                    hlsInstance = new Hls();
+                    hlsInstance.loadSource(track.url);
+                    hlsInstance.attachMedia(video);
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                        video.currentTime = offset;
+                        video.play().catch(handleAutoplayBlock);
+                    });
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = track.url;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.currentTime = offset;
+                        video.play().catch(handleAutoplayBlock);
+                    }, { once: true });
+                }
+            } else {
+                video.src = track.url;
                 video.addEventListener('loadedmetadata', () => {
                     video.currentTime = offset;
                     video.play().catch(handleAutoplayBlock);
                 }, { once: true });
             }
         }
-    }
 
-    // 6. User Event Controls
-    btnPlay.addEventListener("click", () => {
-        if (video.paused) {
-            syncToLinearTimeline(); 
+        document.getElementById(config.btnPlayId).addEventListener("click", () => {
+            if (video.paused) { calculateLiveSyncState(); video.play(); } else { video.pause(); }
+        });
+
+        document.getElementById(config.volSliderId).addEventListener("input", (e) => {
+            video.volume = e.target.value;
+            video.muted = (video.volume === 0);
+        });
+
+        video.addEventListener("playing", () => document.getElementById(config.loaderId).classList.add("hidden"));
+        video.addEventListener("waiting", () => document.getElementById(config.loaderId).classList.remove("hidden"));
+        video.addEventListener("error", () => document.getElementById(config.errorId).classList.add("show"));
+
+        function handleAutoplayBlock() {
+            video.muted = true;
+            document.getElementById(config.volSliderId).value = 0;
             video.play();
-            btnPlay.innerText = "⏸";
-        } else {
-            video.pause();
-            btnPlay.innerText = "▶";
         }
-    });
 
-    volSlider.addEventListener("input", (e) => {
-        video.volume = e.target.value;
-        video.muted = (video.volume === 0);
-    });
-
-    video.addEventListener("play", () => btnPlay.innerText = "⏸");
-    video.addEventListener("pause", () => btnPlay.innerText = "▶");
-    video.addEventListener("playing", () => loader.classList.add("hidden"));
-    video.addEventListener("waiting", () => loader.classList.remove("hidden"));
-    video.addEventListener("error", () => errorMsg.classList.add("show"));
-
-    function handleAutoplayBlock() {
-        video.muted = true; // Browsers block sound on auto-load
-        video.play();
-        btnPlay.innerText = "⏸";
-        statusText.innerText = "Playback started muted. Click anywhere or adjust slider to unmute.";
-    }
-
-    // Run synchronization calculation loop every 2 seconds
-    setInterval(syncToLinearTimeline, 2000);
-    syncToLinearTimeline();
-}
-
-// Helper: Ensure the schedule never expires by looping it over today's date
-function generateLoopingSchedule(baseSchedule) {
-    const now = new Date();
-    const startOfTodayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0);
-    
-    let totalScheduleDuration = 0;
-    baseSchedule.forEach(item => totalScheduleDuration += item.duration);
-
-    const msPassedToday = Date.now() - startOfTodayMs;
-    const currentLoopIteration = Math.floor(msPassedToday / (totalScheduleDuration * 1000));
-    let runningTimelineMs = startOfTodayMs + (currentLoopIteration * totalScheduleDuration * 1000);
-
-    return baseSchedule.map(item => {
-        const itemStart = new Date(runningTimelineMs).toISOString();
-        runningTimelineMs += (item.duration * 1000);
-        return { ...item, start: itemStart };
+        setInterval(calculateLiveSyncState, 2000);
+        calculateLiveSyncState();
     });
 }
 
-function renderScheduleUI(schedule, container) {
+function renderPlaylistUI(container) {
     container.innerHTML = "";
-    schedule.forEach((item, index) => {
+    SCHEDULE_TIMELINE.forEach((track, index) => {
         const div = document.createElement("div");
         div.className = "schedule-item";
-        div.id = `sched-${index}`;
-        const startTimeStr = new Date(item.start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-        div.innerHTML = `<strong>${startTimeStr}</strong> - ${item.title} (${item.duration}s)`;
+        div.id = `track-${index}`;
+        
+        // Calculate virtual layout clock paths relative to today's date mapping structure
+        const itemStartClock = new Date(track.startMs).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        div.innerHTML = `Slot [${itemStartClock}]: <strong>${track.name}</strong> (${track.duration_seconds}s)`;
         container.appendChild(div);
     });
 }
 
-function highlightActiveScheduleUI(schedule, activeItem) {
+function updateUIHighlighter(activeIndex) {
     document.querySelectorAll(".schedule-item").forEach(el => el.classList.remove("active"));
-    const matchIndex = schedule.findIndex(item => item.url === activeItem.url && item.start === activeItem.start);
-    if (matchIndex !== -1) {
-        const targetEl = document.getElementById(`sched-${matchIndex}`);
-        if (targetEl) {
-            targetEl.classList.add("active");
-            targetEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        }
-    }
+    const activeEl = document.getElementById(`track-${activeIndex}`);
+    if (activeEl) activeEl.classList.add("active");
 }
 
-function showToast(el) {
+function showNotificationToast(el) {
+    if (!el) return;
     el.classList.add("show");
     setTimeout(() => el.classList.remove("show"), 2500);
 }

@@ -72,6 +72,79 @@ function initPlayer(config) {
   const container = document.getElementById(
     config.videoContainerId
   );
+  // Add this right beneath the 
+// other video event listeners 
+// inside your initPlayer block:
+
+const forceLiveSync = () => {
+  if (!currentTrack) {
+    return;
+  }
+  
+  const nowMs = Date.now();
+  let totalDurMs = 0;
+  PLAYLIST.forEach(t => {
+    totalDurMs += (
+      t.duration_seconds * 1000
+    );
+  });
+
+  const baseMs = new Date(
+    BASE_ANCHOR_DATE
+  ).getTime();
+  
+  const cycleMs = (
+    nowMs - baseMs
+  ) % totalDurationMs;
+  
+  const targetTimeMs = (
+    baseMs + cycleMs
+  );
+
+  let activeTrack = null;
+  let targetOffset = 0;
+
+  for (
+    let i = 0; 
+    i < SCHEDULE_TIMELINE.length; 
+    i++
+  ) {
+    const track = 
+      SCHEDULE_TIMELINE[i];
+    if (
+      targetTimeMs >= track.startMs && 
+      targetTimeMs < track.endMs
+    ) {
+      activeTrack = track;
+      targetOffset = (
+        targetTimeMs - track.startMs
+      ) / 1000;
+      break;
+    }
+  }
+
+  if (!activeTrack) {
+    return;
+  }
+
+  const drift = Math.abs(
+    video.currentTime - targetOffset
+  );
+
+  // If user jumped more than 1 second, 
+  // immediately snap them back
+  if (drift > 1) {
+    video.currentTime = targetOffset;
+    showNotificationToast(syncToast);
+  }
+};
+
+// Intercept manual seek timelines
+video.addEventListener(
+  "seeking",
+  forceLiveSync
+);
+
   
   function triggerUIReveal() {
     container.classList.add('show-ui');

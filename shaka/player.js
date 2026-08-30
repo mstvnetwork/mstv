@@ -83,20 +83,19 @@ function initPlayer(config) {
       if (!video.paused) {
         container.classList.remove('show-ui');
       }
-    }, 3000);
+    }, 3500);
   }
   
+  // High efficiency mobile listener touch mappings
   container.addEventListener('mousemove', triggerUIReveal);
   container.addEventListener('click', triggerUIReveal);
+  container.addEventListener('touchstart', triggerUIReveal, {passive: true});
   
   setInterval(fetchPlaylistUpdates, 30000);
 
   fetchPlaylistUpdates().then(() => {
     const video = document.getElementById(
       config.videoId
-    );
-    const progressFill = document.getElementById(
-      config.progressFillId
     );
     const syncToast = document.getElementById(
       config.syncToastId
@@ -118,9 +117,6 @@ function initPlayer(config) {
     );
     const btnMute = document.getElementById(
       config.btnMuteId
-    );
-    const volSlider = document.getElementById(
-      config.volSliderId
     );
     const btnFullscreen = document.getElementById(
       config.btnFullscreenId
@@ -196,7 +192,7 @@ function initPlayer(config) {
         }
         if(nowPlayingOverlay) {
           nowPlayingOverlay.innerText = 
-            `Now Playing: ${currentTrack.name}`;
+            `Now Playing : ${currentTrack.name}`;
         }
         loadMedia(currentTrack, trackSeekOffset);
       } else {
@@ -208,12 +204,6 @@ function initPlayer(config) {
           showNotificationToast(syncToast);
         }
       }
-
-      const pct = (
-        video.currentTime / 
-        activeTrack.duration_seconds
-      ) * 100 || 0;
-      progressFill.style.width = `${pct}%`;
       
       if(statusText) {
         statusText.innerText = 
@@ -283,7 +273,9 @@ function initPlayer(config) {
       }
     }
 
-    btnPlay.addEventListener("click", (e) => {
+    // Double binding to ensure both desktop clicks and mobile touches work smoothly
+    function handlePlayToggle(e) {
+      e.preventDefault();
       e.stopPropagation();
       if (video.paused) { 
         calculateLiveSyncState(); 
@@ -291,42 +283,40 @@ function initPlayer(config) {
       } else { 
         video.pause(); 
       }
-    });
+    }
 
-    btnMute.addEventListener("click", (e) => {
+    function handleMuteToggle(e) {
+      e.preventDefault();
       e.stopPropagation();
       video.muted = !video.muted;
       if (video.muted) {
         btnMute.innerText = "🔇";
-        volSlider.value = 0;
       } else {
         btnMute.innerText = "🔊";
-        volSlider.value = video.volume || 0.8;
-        if(video.volume === 0) { 
-          video.volume = 0.8; 
-          volSlider.value = 0.8; 
-        }
+        if(video.volume === 0) { video.volume = 0.8; }
       }
-    });
+    }
 
-    volSlider.addEventListener("input", (e) => {
-      video.volume = e.target.value;
-      video.muted = (video.volume == 0);
-      btnMute.innerText = video.muted ? "🔇" : "🔊";
-    });
-
-    btnFullscreen.addEventListener("click", (e) => {
+    function handleFullscreenToggle(e) {
+      e.preventDefault();
       e.stopPropagation();
       if (!document.fullscreenElement) {
         container.requestFullscreen().catch(
           err => console.error(err)
         );
-        btnFullscreen.innerText = "⛶"; 
       } else {
         document.exitFullscreen();
-        btnFullscreen.innerText = "⛶";
       }
-    });
+    }
+
+    btnPlay.addEventListener("click", handlePlayToggle);
+    btnPlay.addEventListener("touchstart", handlePlayToggle);
+
+    btnMute.addEventListener("click", handleMuteToggle);
+    btnMute.addEventListener("touchstart", handleMuteToggle);
+
+    btnFullscreen.addEventListener("click", handleFullscreenToggle);
+    btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
 
     video.addEventListener(
       "play", 
@@ -355,7 +345,6 @@ function initPlayer(config) {
     function handleAutoplayBlock() {
       video.muted = true;
       btnMute.innerText = "🔇";
-      volSlider.value = 0;
       video.play();
     }
 
@@ -365,49 +354,47 @@ function initPlayer(config) {
   });
 }
 
-function renderPlaylistUI(
-  container
-) {
+function renderPlaylistUI(container) {
   if (!container) return;
   container.innerHTML = "";
-  SCHEDULE_TIMELINE.forEach(
-    (track, index) => {
-      const div = 
-        document.createElement(
-          "div"
-        );
-      div.className = 
-        "schedule-item";
-      div.id = `track-${index}`;
-      const clk = new Date(
-        track.startMs
-      ).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
+  SCHEDULE_TIMELINE.forEach((track, index) => {
+    const div = document.createElement("div");
+    div.className = "schedule-item";
+    div.id = `track-${index}`;
+    const clk = new Date(track.startMs)
+      .toLocaleTimeString([], {
+        hour: '2-digit', 
+        minute:'2-digit'
       });
-      div.innerHTML = 
-        `Slot [${clk}]: <b>${
-          track.name
-        }</b> (${
-          track.duration_seconds
-        }s)`;
-      container.appendChild(div);
-    }
-  );
+    div.innerHTML = `Slot [${clk}]: <b>${
+      track.name
+    }</b> (${track.duration_seconds}s)`;
+    container.appendChild(div);
+  });
 }
 
 function updateUIHighlighter(
   activeIndex
 ) {
-  document.querySelectorAll(
-    ".schedule-item"
-  ).forEach(el => 
-    el.classList.remove("active")
-  );
-  const activeEl = 
-    document.getElementById(
-      `track-${activeIndex}`
+  const items =
+    document.querySelectorAll(
+      ".schedule-item"
     );
+  
+  items.forEach(el => {
+    el.classList.remove(
+      "active"
+    );
+  });
+
+  const idStr =
+    `track-${activeIndex}`;
+
+  const activeEl =
+    document.getElementById(
+      idStr
+    );
+
   if (activeEl) {
     activeEl.classList.add(
       "active"
@@ -418,9 +405,23 @@ function updateUIHighlighter(
 function showNotificationToast(
   el
 ) {
-  if (!el) return;
-  el.classList.add("show");
-  setTimeout(() => {
-    el.classList.remove("show");
-  }, 2500);
+  if (!el) {
+    return;
+  }
+  
+  el.classList.add(
+    "show"
+  );
+  
+  const clearToast = () => {
+    el.classList.remove(
+      "show"
+    );
+  };
+
+  setTimeout(
+    clearToast,
+    2500
+  );
 }
+

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Linear TV Stream Platform</title>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -16,7 +16,6 @@ body {
     overflow-x: hidden;
 }
 
-/* Master Layout Frameworks */
 .player-wrap {
     max-width: 1200px;
     margin: auto;
@@ -44,23 +43,22 @@ video {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    pointer-events: auto; /* Ensures tapping video itself works */
 }
 
-/* Transparent Borderless Dynamic Text Box Overlay */
+/* Transparent Text Box Overlay matching screenshot placement */
 .now-playing-overlay {
     position: absolute;
-    top: 15px;
+    top: 12px;
     left: 15px;
-    color: rgba(255, 255, 255, 0.85);
-    font-size: 16px;
-    font-weight: bold;
-    text-shadow: 1px 1px 4px rgba(0,0,0,0.9);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: normal;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
     pointer-events: none;
-    z-index: 10;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    z-index: 15;
 }
 
-/* Loader Layout Structures */
 .loader {
     position: absolute;
     inset: 0;
@@ -69,6 +67,7 @@ video {
     justify-content: center;
     background: rgba(0,0,0,0.6);
     z-index: 5;
+    pointer-events: none;
 }
 .loader.hidden { display: none; }
 
@@ -81,69 +80,53 @@ video {
 }
 .error.show { display: block; }
 
-/* Custom Sleek HLS Player Control Bar Overlay */
+/* Fixed Screenshot Aligned Bottom Controls Panel */
 .hls-controls-overlay {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
-    padding: 15px 20px;
+    bottom: 20px;
+    left: 15px;
+    right: 15px;
     display: flex;
     align-items: center;
+    justify-content: flex-start; /* Aligns items to the left */
     gap: 15px;
-    z-index: 10;
+    z-index: 20;
     opacity: 0;
-    pointer-events: none;
+    pointer-events: none; /* Master layer doesn't steal touches */
     transition: opacity 0.3s ease;
 }
-/* Trigger interface display layout on movement loops */
-.video-container.show-ui .hls-controls-overlay {
-    opacity: 1;
+
+/* Force layout strip rules for the fullscreen button */
+.fullscreen-right-wrapper {
+    margin-left: auto; /* Pushes fullscreen icon to the far right side */
     pointer-events: auto;
 }
 
+.video-container.show-ui .hls-controls-overlay {
+    opacity: 1;
+}
+
+/* Pro Circular Semi-Transparent Dark Buttons from screenshot */
 .control-btn {
-    background: none;
+    background: rgba(255, 255, 255, 0.2);
     border: none;
     color: #fff;
-    font-size: 18px;
+    font-size: 20px;
     cursor: pointer;
-    padding: 5px 10px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.1s ease;
+    pointer-events: auto; /* CRUCIAL: Forces mobile touch registration */
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s;
 }
-.control-btn:hover { transform: scale(1.1); }
-
-.volume-wrapper {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-.vol-slider {
-    cursor: pointer;
-    width: 80px;
-    accent-color: #0f0;
+.control-btn:active {
+    background: rgba(255, 255, 255, 0.4);
 }
 
-.progress-timeline-container {
-    flex-grow: 1;
-    height: 6px;
-    background: rgba(255,255,255,0.25);
-    border-radius: 3px;
-    overflow: hidden;
-    position: relative;
-}
-.progress-fill {
-    height: 100%;
-    width: 0%;
-    background: #0f0;
-    border-radius: 3px;
-}
-
-/* Sidebar Info Blocks (Hidden natively in public execution modes) */
 .private-ui-block { display: block; }
 body.public-mode .private-ui-block { display: none !important; }
 
@@ -175,41 +158,32 @@ body.public-mode .private-ui-block { display: none !important; }
 <div class="player-wrap">
 
     <div class="private-ui-block">
-        <h2 id="nowTitle">Loading Playlist Structure...</h2>
+        <h2 id="nowTitle">Loading Platform Setup...</h2>
         <div id="clock"></div>
         <div id="clockDate"></div>
     </div>
 
-    <!-- Media Player Viewport Container Block -->
     <div id="videoContainer" class="video-container">
 
-        <!-- Borderless Dynamic Text Box Overlay -->
         <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
 
-        <!-- HTML5 Video Component (Controls native attributes completely stripped) -->
         <video id="videoPlayer" playsinline></video>
 
-        <div id="loader" class="loader">Loading Broadcast...</div>
+        <div id="loader" class="loader">Loading...</div>
 
-        <!-- Pro Aligned Floating Custom HLS Interface Control Bar -->
+        <!-- Clean Control Interface without timelines or sliders -->
         <div class="hls-controls-overlay">
             <button id="btnPlay" class="control-btn">⏸</button>
             <button id="btnMute" class="control-btn">🔊</button>
             
-            <div class="volume-wrapper">
-                <input id="volSlider" class="vol-slider" type="range" min="0" max="1" step="0.01" value="0.8">
+            <div class="fullscreen-right-wrapper">
+                <button id="btnFullscreen" class="control-btn">⛶</button>
             </div>
-
-            <div class="progress-timeline-container">
-                <div id="progressFill" class="progress-fill"></div>
-            </div>
-
-            <button id="btnFullscreen" class="control-btn">⛶</button>
         </div>
 
     </div>
 
-    <div id="errorMsg" class="error">Playback error routing stream channel. Syncing...</div>
+    <div id="errorMsg" class="error">Playback routing error. Retrying...</div>
 
     <div class="private-ui-block">
         <div id="statusText" style="margin-top:10px; font-size:12px; color:#aaa;"></div>
@@ -220,8 +194,8 @@ body.public-mode .private-ui-block { display: none !important; }
 
 </div>
 
-<div id="syncToast" class="toast">Synced to live track position</div>
-<div id="updateToast" class="toast">Station playlist updated dynamically</div>
+<div id="syncToast" class="toast">Synced to live frame position</div>
+<div id="updateToast" class="toast">Station playlist updated</div>
 
 <script src="./player.js"></script>
 <script>
@@ -232,9 +206,7 @@ initPlayer({
     errorId: 'errorMsg',
     btnPlayId: 'btnPlay',
     btnMuteId: 'btnMute',
-    volSliderId: 'volSlider',
     btnFullscreenId: 'btnFullscreen',
-    progressFillId: 'progressFill',
     scheduleListId: 'scheduleList',
     syncToastId: 'syncToast',
     updateToastId: 'updateToast',
@@ -250,4 +222,5 @@ initPlayer({
 
 </body>
 </html>
+
 

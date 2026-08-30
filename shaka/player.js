@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════
-// LINEAR TV — Shared Player Engine v3 (Fixed Sync & Anti-Seek)
+// LINEAR TV — Shared Player Engine v3 (Bulletproof Sync Fix)
 // Supports: direct .m3u8/.mp4 URLs  →  <video> + hls.js
 //           web player iframe URLs  →  <iframe> embed
 // ═══════════════════════════════════════════════════════════════════
@@ -13,15 +13,11 @@ const RESYNC_DRIFT    = 3;      // seconds drift before snap (video mode)
 const IFRAME_RESYNC   = 8;      // seconds drift before iframe reload
 
 // ── URL type detection ────────────────────────────────────────────
-// Returns 'iframe' if URL is a web player page, 'hls' or 'mp4' otherwise.
 function detectType(item) {
   if (item.type === 'iframe') return 'iframe';
   const url = item.url || '';
-  // Direct stream indicators
   if (url.includes('.m3u8')) return 'hls';
   if (url.includes('.mp4'))  return 'mp4';
-  // Web player page indicators — anything that looks like an HTML page URL
-  // with query params, player paths, or known player domains
   if (
     url.includes('/player')   ||
     url.includes('?url=')     ||
@@ -34,13 +30,10 @@ function detectType(item) {
     url.includes('iframe')    ||
     item.type === 'embed'
   ) return 'iframe';
-  // Fallback: if no .m3u8 / .mp4 extension → treat as iframe
   return url.match(/\.(m3u8|mp4|webm|ogg|mkv)(\?|$)/i) ? 'mp4' : 'iframe';
 }
 
 // ── Seek URL builder ──────────────────────────────────────────────
-// For iframe sources that support a time/start param, we inject the
-// seek offset so the embed starts at the right position.
 function buildIframeSrc(url, seekSec) {
   const t = Math.floor(seekSec);
   try {
@@ -88,7 +81,7 @@ function initPlayer(cfg) {
   let hls              = null;
   let paused           = false;
   let lastPlaylistHash = '';
-  let iframeLoadTime   = 0;      // wallclock ms when iframe was last loaded
+  let iframeLoadTime   = 0;      
 
   // ── Clock ─────────────────────────────────────────────────────────
   if (cfg.showClock && cfg.clockId) {
@@ -171,15 +164,21 @@ function initPlayer(cfg) {
     currentMode = 'video';
   }
 
-  // ── Prevent user seeking / video skipping (Fixed with internal flag) ──
+  // ── Prevent user seeking / video skipping (Cooldown protected) ────
   let lastValidTime = 0;
-  let isInternalSync = false;
+  let syncCooldown = 0; // Timestamp blocking anti-seek right after internal jumps
 
   if (vid) {
     vid.addEventListener('timeupdate', () => {
-      if (currentMode !== 'video' || vid.seeking || isInternalSync) return;
+      if (currentMode !== 'video' || vid.seeking) return;
+      
+      // If we recently forced a sync via watchdog/load, ignore checks temporarily
+      if (Date.now() < syncCooldown) {
+        lastValidTime = vid.currentTime;
+        return;
+      }
 
-      if (Math.abs(vid.currentTime - lastValidTime) > 2.0) {
+      if (Math.abs(vid.currentTime - lastValidTime) > 2.5) {
         vid.currentTime = lastValidTime;
       } else {
         lastValidTime = vid.currentTime;
@@ -187,7 +186,8 @@ function initPlayer(cfg) {
     });
 
     vid.addEventListener('seeking', () => {
-      if (isInternalSync) return;
+      if (Date.now() < syncCooldown) return;
+      
       const pos = computePos(Date.now());
       if (pos && Math.abs(vid.currentTime - pos.offset) > RESYNC_DRIFT) {
         vid.currentTime = lastValidTime;
@@ -245,10 +245,9 @@ function initPlayer(cfg) {
     if (hls) { hls.destroy(); hls = null; }
 
     const onReady = () => {
-      isInternalSync = true;
+      syncCooldown = Date.now() + 2000; // Protect sync for 2 seconds
       vid.currentTime = seekTo;
       lastValidTime = seekTo;
-      setTimeout(() => { isInternalSync = false; }, 400);
       doPlay();
     };
 
@@ -313,10 +312,9 @@ function initPlayer(cfg) {
           if (pos.index !== currentIndex) {
             loadItem(pos.index, pos.offset);
           } else {
-            isInternalSync = true;
+            syncCooldown = Date.now() + 2000;
             vid.currentTime = pos.offset;
             lastValidTime = pos.offset;
-            setTimeout(() => { isInternalSync = false; }, 400);
             vid.play();
           }
           paused = false;
@@ -372,15 +370,14 @@ function initPlayer(cfg) {
       return;
     }
 
-    // ── Drift correction (video mode only) — Fixed with isInternalSync ──
+    // ── Drift correction (video mode) — Protected by Cooldown ────
     if (currentMode === 'video' && vid && !vid.paused && !vid.seeking) {
       const drift = Math.abs(vid.currentTime - pos.offset);
       if (drift > RESYNC_DRIFT) {
-        isInternalSync = true;
+        syncCooldown = Date.now() + 2000; // Lock anti-seek for 2s during snap
         vid.currentTime = pos.offset;
         lastValidTime = pos.offset;
         showSyncToast();
-        setTimeout(() => { isInternalSync = false; }, 500);
       }
     }
 

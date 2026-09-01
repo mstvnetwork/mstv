@@ -1,4 +1,4 @@
-  let PLAYLIST = [];
+let PLAYLIST = [];
 let SCHEDULE_TIMELINE = [];
 let hlsInstance = null;
 let currentTrack = null;
@@ -476,6 +476,46 @@ function initPlayer(config) {
     video.addEventListener("pause", () => {
       if (btnPlay) btnPlay.innerText = "▶";
       if (!isSwitchingTrack) container.classList.add('show-ui');
+    });
+
+    // Strict live-lock: revert any manual scrubbing (scrollbar drag,
+    // keyboard arrows, etc.) back to the correct live timeline position.
+    // isInternalSeeking distinguishes our own programmatic seeks (small
+    // drift corrections) from user-initiated ones, so only the latter
+    // gets forcibly reverted.
+    video.addEventListener("seeking", () => {
+      if (isInternalSeeking || isSwitchingTrack || isMediaLoading) return;
+      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return;
+
+      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+      if (!liveTrack) return;
+
+      const nowMs = Date.now();
+      const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+      let totalDurationMs = 0;
+      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+      if (totalDurationMs === 0) return;
+
+      const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
+      const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+
+      // Only correct if the target time still falls within this same track's
+      // window (i.e. the user scrubbed within the current track, not past
+      // a track boundary — that case is handled by the normal sync loop).
+      if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
+        const correctOffset = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
+        const drift = Math.abs(video.currentTime - correctOffset);
+
+        // Any noticeable jump away from the live-calculated offset is
+        // treated as a manual scrub attempt and snapped back immediately.
+        if (drift > 2) {
+          isInternalSeeking = true;
+          video.currentTime = correctOffset;
+          const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+          showNotificationToast(syncToast);
+          setTimeout(() => { isInternalSeeking = false; }, 400);
+        }
+      }
     });
 
     video.addEventListener("playing", () => {

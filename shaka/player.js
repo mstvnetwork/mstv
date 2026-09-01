@@ -12,14 +12,9 @@ let autoRecoveryAttempts = 0;
 const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-// Strict low-tolerance drift threshold (0.5 seconds)
-const MAX_ALLOWED_DRIFT_SEC = 0.5;
-const SYNC_CHECK_INTERVAL_MS = 250; // High frequency sync check (4x per sec)
+const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold matching original snippet efficiency
+const SYNC_CHECK_INTERVAL_MS = 500;
 
-/**
- * Normalizes a playlist array to only the fields that matter for playback
- * scheduling.
- */
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
     (list || []).map(t => ({
@@ -157,11 +152,11 @@ function calculateLiveSyncState() {
   } else if (video) {
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
       const delta = Math.abs(video.currentTime - trackSeekOffset);
-      if (delta > MAX_ALLOWED_DRIFT_SEC) {
+      if (delta > 15) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
-        setTimeout(() => { isInternalSeeking = false; }, 400);
+        setTimeout(() => { isInternalSeeking = false; }, 800);
       }
     }
   }
@@ -461,8 +456,8 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Helper: Gets absolute current live seek target
-    function getLivePosition() {
+    // Pure, direct position calculation mirroring your exact snippet's seek logic
+    function getExactSeekPosition() {
       if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
       const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
       if (!liveTrack) return null;
@@ -482,26 +477,18 @@ function initPlayer(config) {
       return null;
     }
 
-    // --- High Frequency Aggressive Sync Engine ---
+    // --- Direct Live Drift Check Engine ---
     function syncEngine() {
       if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
 
-      const trackType = (currentTrack.type || '').toLowerCase();
-      if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
-        const livePos = getLivePosition();
-        if (livePos === null) return;
+      const itemType = (currentTrack.type || '').toLowerCase();
+      if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
+        const seekPosition = getExactSeekPosition();
+        if (seekPosition === null) return;
 
-        const drift = Math.abs(video.currentTime - livePos);
-        if (drift > MAX_ALLOWED_DRIFT_SEC && !isInternalSeeking) {
-          isInternalSeeking = true;
-          video.style.opacity = '0'; // Hide video during seek to stop visual leak
-          video.currentTime = livePos;
-
-          video.addEventListener("seeked", function releaseFlag() {
-            video.style.opacity = '1'; // Restore video display once seeked
-            isInternalSeeking = false;
-            video.removeEventListener("seeked", releaseFlag);
-          }, { once: true });
+        const drift = Math.abs(video.currentTime - seekPosition);
+        if (drift > MAX_ALLOWED_DRIFT_SEC) {
+          video.currentTime = seekPosition;
         }
 
         if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
@@ -511,36 +498,24 @@ function initPlayer(config) {
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- Instant Anti-Bypass Seeking Revert (Zero Flashback) ---
-    video.addEventListener("seeking", () => {
-      if (isInternalSeeking || isSwitchingTrack || isMediaLoading) return;
+    // --- Direct Anti-Bypass Seeking Revert (Matches original snippet behavior) ---
+    video.addEventListener('seeking', () => {
+      if (!currentTrack) return;
+      const itemType = (currentTrack.type || '').toLowerCase();
 
-      const trackType = (currentTrack ? currentTrack.type : '').toLowerCase();
-      if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
-        const livePos = getLivePosition();
-        if (livePos === null) return;
+      if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
+        const seekPosition = getExactSeekPosition();
+        if (seekPosition === null) return;
 
-        const drift = Math.abs(video.currentTime - livePos);
+        const drift = Math.abs(video.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC) {
-          // Instant Visual Lockout: Prevent rendering frame flash
-          video.style.opacity = '0';
-          isInternalSeeking = true;
-          video.currentTime = livePos;
-
-          video.addEventListener("seeked", function releaseFlag() {
-            video.style.opacity = '1';
-            isInternalSeeking = false;
-            video.removeEventListener("seeked", releaseFlag);
-          }, { once: true });
-
-          const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
-          showNotificationToast(syncToast);
+          // Instant synchronous reset without conditional flag checks
+          video.currentTime = seekPosition;
         }
       }
     });
 
     video.addEventListener("playing", () => {
-      video.style.opacity = '1';
       const loaderEl = document.getElementById(config.loaderId);
       const errorEl = document.getElementById(config.errorId);
       if (loaderEl) loaderEl.classList.add("hidden");

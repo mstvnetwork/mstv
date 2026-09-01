@@ -1,4 +1,4 @@
-let PLAYLIST = [];
+  let PLAYLIST = [];
 let SCHEDULE_TIMELINE = [];
 let hlsInstance = null;
 let currentTrack = null;
@@ -372,9 +372,36 @@ function initPlayer(config) {
     }
 
     video.addEventListener("ended", () => {
-      currentTrack = null;
       isMediaLoading = false;
-      calculateLiveSyncState();
+
+      // Explicitly advance to the next track in sequence, wrapping back to
+      // the first track after the last one ends. This avoids relying solely
+      // on wall-clock recomputation at the exact boundary moment, which can
+      // be fragile if there's any playback drift.
+      if (SCHEDULE_TIMELINE.length > 0) {
+        const endedIndex = currentTrack
+          ? SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url)
+          : -1;
+        const nextIndex = endedIndex >= 0
+          ? (endedIndex + 1) % SCHEDULE_TIMELINE.length
+          : 0;
+
+        const nextTrack = SCHEDULE_TIMELINE[nextIndex];
+        currentTrack = nextTrack;
+
+        if (globalConfig) {
+          const nowTitle = document.getElementById(globalConfig.nowTitleId);
+          const nowPlayingOverlay = document.getElementById(globalConfig.nowPlayingOverlayId);
+          if (nowTitle) nowTitle.innerText = `Playing Now: ${nextTrack.name}`;
+          if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${nextTrack.name}`;
+        }
+
+        updateUIHighlighter(nextIndex);
+        loadMediaSeamless(nextTrack, 0);
+      } else {
+        currentTrack = null;
+        calculateLiveSyncState();
+      }
     });
 
     video.addEventListener("error", (e) => {

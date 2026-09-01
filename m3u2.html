@@ -1,15 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Smart IPTV Extractor & Player</title>
+    <!-- Engine Dependencies: Resilient CDN HLS & DASH -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dashjs@latest/dist/dash.all.min.js"></script>
+    <style>
+        :root { --bg: #0f172a; --panel: #1e293b; --accent: #2563eb; --danger: #dc2626; --text: #f8fafc; }
+        body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+        header { padding: 10px 16px; background: var(--panel); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        input[type="text"] { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #334155; background: #0f172a; color: #fff; min-width: 200px; }
+        button, label.btn { background: var(--accent); color: white; padding: 10px 14px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
+        button.danger { background: var(--danger); }
+        input[type="file"] { display: none; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        .sidebar { width: 320px; background: var(--panel); border-right: 1px solid #334155; display: flex; flex-direction: column; }
+        .sidebar-header { padding: 12px; border-bottom: 1px solid #334155; font-size: 13px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; }
+        .channel-list { flex: 1; overflow-y: auto; list-style: none; margin: 0; padding: 0; }
+        .channel-item { padding: 10px 12px; border-bottom: 1px solid #1e293b; display: flex; justify-content: space-between; align-items: center; background: #0f172a; margin-bottom: 1px; }
+        .channel-item:hover { background: #334155; }
+        .channel-info { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+        .channel-tag { font-size: 9px; padding: 2px 5px; border-radius: 4px; background: #334155; margin-left: 6px; }
+        .player-container { flex: 1; background: #000; display: flex; justify-content: center; align-items: center; }
+        video { width: 100%; height: 100%; max-height: 100vh; aspect-ratio: 16/9; }
+        .checkbox-label { font-size: 12px; display: flex; align-items: center; gap: 4px; cursor: pointer; margin-left: 4px; }
+    </style>
+</head>
+<body>
 
+<header>
+    <input type="text" id="urlInput" placeholder="Paste HTTP/HTTPS stream link or M3U URL...">
+    <button onclick="loadFromUrl()">Load Source</button>
+    <label class="btn"><input type="file" id="fileInput" accept=".m3u,.m3u8" onchange="loadFromFile(event)">Upload M3U</label>
+    <button onclick="refreshCurrentSource()">Refresh</button>
+    <label class="checkbox-label">
+        <input type="checkbox" id="useProxyToggle" checked> Proxy Stream
+    </label>
+</header>
 
-
-
-
-
-
-
-
-
-
-<script>
+<div class="main-container">
+    <div class="sidebar">
+        <div class="sidebar-header">
+            <span>Channels (<span id="count">0</span>)</span>
+            <button class="danger" style="padding: 4px 8px;" onclick="clearPlaylist()">Clear All</button>
+        </div>
+        <ul class="channel-list" id="channelList"></ul>
+    </div>
+    
+    <div class="player-container">
+        <!-- Main HTML5 Video Object Element matching reference code -->
+        <video id="video" controls autoplay playsinline></video>
+    </div>
+</div>
+    <script>
     let playlist = [];
     let currentSource = null;
     let hlsEngine = null;

@@ -12,6 +12,9 @@ let autoRecoveryAttempts = 0;
 const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
+const MAX_ALLOWED_DRIFT_SEC = 2.0;
+const SYNC_CHECK_INTERVAL_MS = 1000;
+
 /**
  * Normalizes a playlist array to only the fields that matter for playback
  * scheduling. This prevents false-positive "playlist changed" detections
@@ -189,8 +192,6 @@ function loadMediaSeamless(track, offset) {
   // Guard against redundant reloads: if this exact track URL is already
   // the active <video> source and it's healthy/playing, don't touch
   // video.src / HLS again — just resync bookkeeping and bail out.
-  // This is the primary fix for the pause/flash loop that happened when
-  // a playlist poll re-triggered a load of the SAME already-playing track.
   if (video && video.currentSrc && track.url && video.currentSrc.indexOf(track.url) !== -1 &&
       !video.paused && !video.ended && video.readyState >= 2) {
     currentTrack = track;
@@ -374,10 +375,6 @@ function initPlayer(config) {
     video.addEventListener("ended", () => {
       isMediaLoading = false;
 
-      // Explicitly advance to the next track in sequence, wrapping back to
-      // the first track after the last one ends. This avoids relying solely
-      // on wall-clock recomputation at the exact boundary moment, which can
-      // be fragile if there's any playback drift.
       if (SCHEDULE_TIMELINE.length > 0) {
         const endedIndex = currentTrack
           ? SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url)
@@ -478,41 +475,80 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Strict live-lock: revert any manual scrubbing (scrollbar drag,
-    // keyboard arrows, etc.) back to the correct live timeline position.
-    // isInternalSeeking distinguishes our own programmatic seeks (small
-    // drift corrections) from user-initiated ones, so only the latter
-    // gets forcibly reverted.
+    // --- Live Drift Check Engine ---
+    function syncEngine() {
+      if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
+
+      const trackType = (currentTrack.type || '').toLowerCase();
+      if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
+        const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+        if (!liveTrack) return;
+
+        const nowMs = Date.now();
+        const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+        let totalDurationMs = 0;
+        PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+        if (totalDurationMs === 0) return;
+
+        const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
+        const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+
+        if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
+          const seekPosition = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
+          const drift = Math.abs(video.currentTime - seekPosition);
+
+          if (drift > MAX_ALLOWED_DRIFT_SEC && !isInternalSeeking) {
+            isInternalSeeking = true;
+            video.currentTime = seekPosition;
+            video.addEventListener("seeked", function releaseFlag() {
+              isInternalSeeking = false;
+              video.removeEventListener("seeked", releaseFlag);
+            }, { once: true });
+          }
+
+          if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
+            video.play().catch(() => {});
+          }
+        }
+      }
+    }
+    setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
+
+    // --- Anti-Bypass Seeking Revert Logic ---
     video.addEventListener("seeking", () => {
       if (isInternalSeeking || isSwitchingTrack || isMediaLoading) return;
       if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return;
 
-      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
-      if (!liveTrack) return;
+      const trackType = (currentTrack.type || '').toLowerCase();
+      if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
+        const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+        if (!liveTrack) return;
 
-      const nowMs = Date.now();
-      const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
-      let totalDurationMs = 0;
-      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
-      if (totalDurationMs === 0) return;
+        const nowMs = Date.now();
+        const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+        let totalDurationMs = 0;
+        PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+        if (totalDurationMs === 0) return;
 
-      const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
-      const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+        const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
+        const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
 
-      if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
-        const correctOffset = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
-        isInternalSeeking = true;
-        video.currentTime = correctOffset;
-        // Release the flag on the browser's own seeked confirmation rather
-        // than a fixed timeout, so back-to-back scrub attempts on flaky
-        // mobile browsers (e.g. Samsung Internet's overlay scrubber) can't
-        // slip through during a stale cooldown window.
-        video.addEventListener("seeked", function releaseFlag() {
-          isInternalSeeking = false;
-          video.removeEventListener("seeked", releaseFlag);
-        }, { once: true });
-        const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
-        showNotificationToast(syncToast);
+        if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
+          const seekPosition = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
+          const drift = Math.abs(video.currentTime - seekPosition);
+
+          if (drift > MAX_ALLOWED_DRIFT_SEC) {
+            isInternalSeeking = true;
+            video.currentTime = seekPosition;
+            video.addEventListener("seeked", function releaseFlag() {
+              isInternalSeeking = false;
+              video.removeEventListener("seeked", releaseFlag);
+            }, { once: true });
+
+            const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+            showNotificationToast(syncToast);
+          }
+        }
       }
     });
 

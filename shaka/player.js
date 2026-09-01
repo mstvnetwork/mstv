@@ -25,11 +25,10 @@ async function fetchPlaylistUpdates() {
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
       
-      // If URLs were added/removed, force re-sync immediately without triggering error screen
       if (currentTrack) {
         const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
         if (!trackStillExists) {
-          currentTrack = null; // Force media reload to new valid slot
+          currentTrack = null;
         }
       }
 
@@ -39,7 +38,6 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      // Re-evaluate current slot dynamically after playlist array structural mutation
       calculateLiveSyncState();
     }
   } catch (err) {
@@ -91,7 +89,6 @@ function calculateLiveSyncState() {
     }
   }
 
-  // Fallback to first track if bounds calculation fails due to URL additions/deletions
   if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
     activeTrack = SCHEDULE_TIMELINE[0];
     trackSeekOffset = 0;
@@ -109,7 +106,6 @@ function calculateLiveSyncState() {
   const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
   const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
 
-  // Seamless track switch trigger
   if (!currentTrack || currentTrack.url !== activeTrack.url) {
     currentTrack = activeTrack;
     if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
@@ -117,7 +113,6 @@ function calculateLiveSyncState() {
     
     loadMediaSeamless(currentTrack, trackSeekOffset);
   } else if (video) {
-    // Smooth time sync
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
       const delta = Math.abs(video.currentTime - trackSeekOffset);
       if (delta > 8) {
@@ -146,41 +141,28 @@ function loadMediaSeamless(track, offset) {
   const errorEl = document.getElementById(globalConfig.errorId);
   
   if (loaderEl) loaderEl.classList.remove("hidden");
-  // Automatically hide error banner on new load attempt
   if (errorEl) errorEl.classList.remove("show");
 
-  const isAlreadyPlaying = !video.paused;
   const formatType = (track.type || '').toLowerCase();
 
-  // Replace executeSeamlessPlay inside player.js -> loadMediaSeamless
+  const executeSeamlessPlay = () => {
+    isInternalSeeking = true;
+    video.currentTime = offset;
 
-const executeSeamlessPlay = () => {
-  isInternalSeeking = true;
-  video.currentTime = offset;
-
-  const playPromise = video.play();
-  if (playPromise !== undefined) {
-    playPromise
-      .then(() => {
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
         if (loaderEl) loaderEl.classList.add("hidden");
         if (errorEl) errorEl.classList.remove("show");
         autoRecoveryAttempts = 0;
-      })
-      .catch((err) => {
-        // Intercept play/pause interrupts silently without breaking player execution
+      }).catch(err => {
         if (err.name === 'AbortError' || err.message.includes('interrupted')) {
           console.warn("Play request safely interrupted for source switch.");
         } else {
           handleAutoplayBlock();
         }
       });
-  }
-
-  setTimeout(() => { 
-    isInternalSeeking = false; 
-    isSwitchingTrack = false;
-  }, 500);
-};
+    }
 
     setTimeout(() => { 
       isInternalSeeking = false; 
@@ -264,31 +246,25 @@ function initPlayer(config) {
       }, 1000);
     }
 
-    // Auto-advance seamlessly when a discrete video track ends naturally
     video.addEventListener("ended", () => {
       calculateLiveSyncState();
     });
 
-    // Auto-Recovery Error Interceptor
     video.addEventListener("error", (e) => {
-      // Ignore temporary errors caused while actively swapping media sources
       if (isSwitchingTrack) return;
 
       console.warn("Media error caught. Attempting silent recovery...", e);
-      
       const errorEl = document.getElementById(config.errorId);
       
-      // Try to recover automatically up to 3 times before displaying error banner
       if (autoRecoveryAttempts < 3) {
         autoRecoveryAttempts++;
         if (errorEl) errorEl.classList.remove("show");
         
         setTimeout(() => {
-          currentTrack = null; // Clear cached track to trigger a fresh rebuild
+          currentTrack = null;
           calculateLiveSyncState();
         }, 1000);
       } else {
-        // Display error banner only if multiple recovery attempts fail completely
         if (errorEl) errorEl.classList.add("show");
       }
     });
@@ -308,7 +284,7 @@ function initPlayer(config) {
       e.preventDefault();
       e.stopPropagation();
       video.muted = !video.muted;
-      btnMute.innerText = video.muted ? "🔇" : "🔊";
+      if (btnMute) btnMute.innerText = video.muted ? "🔇" : "🔊";
       if (!video.muted && video.volume === 0) { 
         video.volume = 0.8; 
       }
@@ -324,18 +300,26 @@ function initPlayer(config) {
       }
     }
 
-    btnPlay.addEventListener("click", handlePlayToggle);
-    btnPlay.addEventListener("touchstart", handlePlayToggle);
+    if (btnPlay) {
+      btnPlay.addEventListener("click", handlePlayToggle);
+      btnPlay.addEventListener("touchstart", handlePlayToggle);
+    }
 
-    btnMute.addEventListener("click", handleMuteToggle);
-    btnMute.addEventListener("touchstart", handleMuteToggle);
+    if (btnMute) {
+      btnMute.addEventListener("click", handleMuteToggle);
+      btnMute.addEventListener("touchstart", handleMuteToggle);
+    }
 
-    btnFullscreen.addEventListener("click", handleFullscreenToggle);
-    btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
+    if (btnFullscreen) {
+      btnFullscreen.addEventListener("click", handleFullscreenToggle);
+      btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
+    }
 
-    video.addEventListener("play", () => { btnPlay.innerText = "⏸"; });
+    video.addEventListener("play", () => { 
+      if (btnPlay) btnPlay.innerText = "⏸"; 
+    });
     video.addEventListener("pause", () => { 
-      btnPlay.innerText = "▶"; 
+      if (btnPlay) btnPlay.innerText = "▶"; 
       if (!isSwitchingTrack) container.classList.add('show-ui'); 
     });
     

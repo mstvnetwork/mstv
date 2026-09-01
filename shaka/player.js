@@ -9,8 +9,26 @@ let isSwitchingTrack = false;
 let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
-const PLAYLIST_JSON_URL = "./playlist.json"; 
+const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
+
+/**
+ * Normalizes a playlist array to only the fields that matter for playback
+ * scheduling. This prevents false-positive "playlist changed" detections
+ * caused by incidental JSON differences (key order, whitespace, extra
+ * metadata fields, CDN response variance) that don't actually affect what
+ * should be playing.
+ */
+function normalizePlaylistForCompare(list) {
+  return JSON.stringify(
+    (list || []).map(t => ({
+      url: t.url,
+      name: t.name,
+      type: t.type,
+      duration_seconds: t.duration_seconds
+    }))
+  );
+}
 
 async function fetchPlaylistUpdates() {
   if (document.hidden) return; // Prevent background network requests when tab is inactive
@@ -26,25 +44,34 @@ async function fetchPlaylistUpdates() {
         "Expires": "0"
       }
     });
-    
+
     if (!res.ok) throw new Error("Sync drop");
-    
+
     const freshData = await res.json();
-    const d1 = JSON.stringify(freshData);
-    const d2 = JSON.stringify(PLAYLIST);
-    
+    const d1 = normalizePlaylistForCompare(freshData);
+    const d2 = normalizePlaylistForCompare(PLAYLIST);
+
     if (d1 !== d2) {
+      const conf = globalConfig;
+      const video = conf ? document.getElementById(conf.videoId) : null;
+
+      // Snapshot whether something is actively, healthily playing BEFORE
+      // we mutate PLAYLIST / rebuild the timeline. If so, we won't force
+      // a resync below — the existing 1s interval loop will handle it
+      // via calculateLiveSyncState()'s own immunity check, without
+      // interrupting playback.
+      const wasActivelyPlaying =
+        video && !video.paused && !video.ended && video.readyState >= 2 && currentTrack;
+
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
 
-      const conf = globalConfig;
       if (conf && document.getElementById(conf.scheduleListId)) {
         renderPlaylistUI(document.getElementById(conf.scheduleListId));
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      const video = conf ? document.getElementById(conf.videoId) : null;
-      if (!video || video.paused || video.ended) {
+      if (!wasActivelyPlaying) {
         calculateLiveSyncState();
       }
     }
@@ -55,15 +82,15 @@ async function fetchPlaylistUpdates() {
 
 function generateAbsoluteTimeline() {
   let runMs = new Date(BASE_ANCHOR_DATE).getTime();
-  
+
   SCHEDULE_TIMELINE = PLAYLIST.map(track => {
     const trackStartMs = runMs;
     const trackEndMs = trackStartMs + ((track.duration_seconds || 30) * 1000);
     runMs = trackEndMs;
-    return { 
-      ...track, 
-      startMs: trackStartMs, 
-      endMs: trackEndMs 
+    return {
+      ...track,
+      startMs: trackStartMs,
+      endMs: trackEndMs
     };
   });
 }
@@ -82,7 +109,7 @@ function calculateLiveSyncState() {
       if (statusOffset) {
         statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${currentTrack.duration_seconds}s`;
       }
-      return; 
+      return;
     }
   }
 
@@ -132,7 +159,7 @@ function calculateLiveSyncState() {
     currentTrack = activeTrack;
     if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
     if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
-    
+
     loadMediaSeamless(currentTrack, trackSeekOffset);
   } else if (video) {
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
@@ -145,7 +172,7 @@ function calculateLiveSyncState() {
       }
     }
   }
-  
+
   if (statusText && activeTrack.type) {
     statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
   }
@@ -156,14 +183,26 @@ function calculateLiveSyncState() {
 
 function loadMediaSeamless(track, offset) {
   if (!globalConfig || isMediaLoading) return;
-  
+
+  const video = document.getElementById(globalConfig.videoId);
+
+  // Guard against redundant reloads: if this exact track URL is already
+  // the active <video> source and it's healthy/playing, don't touch
+  // video.src / HLS again — just resync bookkeeping and bail out.
+  // This is the primary fix for the pause/flash loop that happened when
+  // a playlist poll re-triggered a load of the SAME already-playing track.
+  if (video && video.currentSrc && track.url && video.currentSrc.indexOf(track.url) !== -1 &&
+      !video.paused && !video.ended && video.readyState >= 2) {
+    currentTrack = track;
+    return;
+  }
+
   isSwitchingTrack = true;
   isMediaLoading = true;
 
-  const video = document.getElementById(globalConfig.videoId);
   const loaderEl = document.getElementById(globalConfig.loaderId);
   const errorEl = document.getElementById(globalConfig.errorId);
-  
+
   if (loaderEl) loaderEl.classList.remove("hidden");
   if (errorEl) errorEl.classList.remove("show");
 
@@ -195,8 +234,8 @@ function loadMediaSeamless(track, offset) {
       isMediaLoading = false;
     }
 
-    setTimeout(() => { 
-      isInternalSeeking = false; 
+    setTimeout(() => {
+      isInternalSeeking = false;
       isSwitchingTrack = false;
     }, 600);
   };
@@ -223,7 +262,7 @@ function loadMediaSeamless(track, offset) {
         enableWorker: true,
         lowLatencyMode: true
       });
-      
+
       hlsInstance.attachMedia(video);
 
       const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
@@ -253,7 +292,7 @@ function loadMediaSeamless(track, offset) {
       });
 
       const manifestParsedEvent = (Hls.Events && Hls.Events.MANIFEST_PARSED) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
-      
+
       hlsInstance.loadSource(track.url);
       hlsInstance.once(manifestParsedEvent, () => {
         executeSeamlessPlay();
@@ -283,7 +322,7 @@ function initPlayer(config) {
 
   const urlParams = new URLSearchParams(window.location.search);
   const mode = urlParams.get('mode') || 'private';
-  
+
   if (mode === 'public') {
     document.body.classList.add('public-mode');
   }
@@ -300,7 +339,7 @@ function initPlayer(config) {
       }
     }, 3500);
   }
-  
+
   container.addEventListener('mousemove', triggerUIReveal);
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
@@ -315,7 +354,7 @@ function initPlayer(config) {
       });
     }
   });
-  
+
   setInterval(fetchPlaylistUpdates, 15000);
 
   fetchPlaylistUpdates().then(() => {
@@ -343,11 +382,11 @@ function initPlayer(config) {
 
       console.warn("Media error caught. Attempting silent recovery...", e);
       const errorEl = document.getElementById(config.errorId);
-      
+
       if (autoRecoveryAttempts < 3) {
         autoRecoveryAttempts++;
         if (errorEl) errorEl.classList.remove("show");
-        
+
         setTimeout(() => {
           currentTrack = null;
           isMediaLoading = false;
@@ -361,11 +400,11 @@ function initPlayer(config) {
     function handlePlayToggle(e) {
       e.preventDefault();
       e.stopPropagation();
-      if (video.paused) { 
-        calculateLiveSyncState(); 
-        video.play(); 
-      } else { 
-        video.pause(); 
+      if (video.paused) {
+        calculateLiveSyncState();
+        video.play();
+      } else {
+        video.pause();
       }
     }
 
@@ -374,8 +413,8 @@ function initPlayer(config) {
       e.stopPropagation();
       video.muted = !video.muted;
       if (btnMute) btnMute.innerText = video.muted ? "🔇" : "🔊";
-      if (!video.muted && video.volume === 0) { 
-        video.volume = 0.8; 
+      if (!video.muted && video.volume === 0) {
+        video.volume = 0.8;
       }
     }
 
@@ -404,14 +443,14 @@ function initPlayer(config) {
       btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
     }
 
-    video.addEventListener("play", () => { 
-      if (btnPlay) btnPlay.innerText = "⏸"; 
+    video.addEventListener("play", () => {
+      if (btnPlay) btnPlay.innerText = "⏸";
     });
-    video.addEventListener("pause", () => { 
-      if (btnPlay) btnPlay.innerText = "▶"; 
-      if (!isSwitchingTrack) container.classList.add('show-ui'); 
+    video.addEventListener("pause", () => {
+      if (btnPlay) btnPlay.innerText = "▶";
+      if (!isSwitchingTrack) container.classList.add('show-ui');
     });
-    
+
     video.addEventListener("playing", () => {
       const loaderEl = document.getElementById(config.loaderId);
       const errorEl = document.getElementById(config.errorId);
@@ -419,7 +458,7 @@ function initPlayer(config) {
       if (errorEl) errorEl.classList.remove("show");
       isMediaLoading = false;
     });
-    
+
     video.addEventListener("waiting", () => {
       if (!isSwitchingTrack && !isMediaLoading) {
         const loaderEl = document.getElementById(config.loaderId);
@@ -447,17 +486,17 @@ function handleAutoplayBlock() {
 function renderPlaylistUI(container) {
   if (!container) return;
   container.innerHTML = "";
-  
+
   SCHEDULE_TIMELINE.forEach((track, index) => {
     const div = document.createElement("div");
     div.className = "schedule-item";
     div.id = `track-${index}`;
-      
+
     const clk = new Date(track.startMs).toLocaleTimeString([], {
-      hour: '2-digit', 
-      minute:'2-digit'
+      hour: '2-digit',
+      minute: '2-digit'
     });
-    
+
     div.innerHTML = `Slot [${clk}]: <b>${track.name}</b> (${track.duration_seconds}s)`;
     container.appendChild(div);
   });

@@ -499,22 +499,20 @@ function initPlayer(config) {
       const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
       const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
 
-      // Only correct if the target time still falls within this same track's
-      // window (i.e. the user scrubbed within the current track, not past
-      // a track boundary — that case is handled by the normal sync loop).
       if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
         const correctOffset = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
-        const drift = Math.abs(video.currentTime - correctOffset);
-
-        // Any noticeable jump away from the live-calculated offset is
-        // treated as a manual scrub attempt and snapped back immediately.
-        if (drift > 2) {
-          isInternalSeeking = true;
-          video.currentTime = correctOffset;
-          const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
-          showNotificationToast(syncToast);
-          setTimeout(() => { isInternalSeeking = false; }, 400);
-        }
+        isInternalSeeking = true;
+        video.currentTime = correctOffset;
+        // Release the flag on the browser's own seeked confirmation rather
+        // than a fixed timeout, so back-to-back scrub attempts on flaky
+        // mobile browsers (e.g. Samsung Internet's overlay scrubber) can't
+        // slip through during a stale cooldown window.
+        video.addEventListener("seeked", function releaseFlag() {
+          isInternalSeeking = false;
+          video.removeEventListener("seeked", releaseFlag);
+        }, { once: true });
+        const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+        showNotificationToast(syncToast);
       }
     });
 

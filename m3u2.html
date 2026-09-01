@@ -1,0 +1,218 @@
+
+
+
+
+
+
+
+
+
+
+
+<script>
+    let playlist = [];
+    let currentSource = null;
+    let hlsEngine = null;
+    let dashEngine = null;
+
+    const videoElement = document.getElementById('video');
+
+    function formatProxyUrl(rawUrl) {
+        const useProxy = document.getElementById('useProxyToggle').checked;
+        if (!useProxy) return rawUrl;
+
+        if (rawUrl.includes('xtremplay.com/api/proxy')) return rawUrl;
+
+        const encodedTarget = encodeURIComponent(rawUrl);
+        // Clean proxying without altering the underlying path logic
+        return `https://xtremplay.com/api/proxy?url=${encodedTarget}&ref=${encodeURIComponent(rawUrl)}`;
+    }
+
+    function extractDirectStream(rawUrl) {
+        if (!rawUrl) return '';
+        let url = rawUrl.trim();
+        const match = url.match(/(https?:\/\/[^\s"]+)/i);
+        return match ? match[1] : url;
+    }
+
+    function parseM3U(content) {
+        const lines = content.split('\n');
+        const channels = [];
+        let currentName = "";
+
+        for (let line of lines) {
+            line = line.trim();
+            if (line.startsWith('#EXTINF:')) {
+                const parts = line.split(',');
+                currentName = parts.length > 1 ? parts[parts.length - 1].trim() : "Live Stream";
+            } else if (line && !line.startsWith('#')) {
+                const streamUrl = extractDirectStream(line);
+                let type = 'HLS';
+                if (streamUrl.includes('.mpd')) type = 'DASH';
+                else if (streamUrl.endsWith('.mp4') || streamUrl.endsWith('.ts')) type = 'DIRECT';
+
+                channels.push({
+                    name: currentName || streamUrl.split('/').pop() || "Channel",
+                    url: streamUrl,
+                    type: type
+                });
+                currentName = "";
+            }
+        }
+        return channels;
+    }
+
+    function playStream(rawUrl, type) {
+        // Destroy existing engines cleanly before starting a new stream
+        if (hlsEngine) { 
+            hlsEngine.destroy(); 
+            hlsEngine = null; 
+        }
+        if (dashEngine) { 
+            dashEngine.reset(); 
+            dashEngine = null; 
+        }
+
+        const streamUrl = formatProxyUrl(extractDirectStream(rawUrl));
+        console.log(`[Playback Engine] Attaching: ${streamUrl}`);
+
+        if (type === 'HLS' || rawUrl.includes('.m3u8')) {
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                console.log("Initializing HLS.js...");
+
+                hlsEngine = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    // High buffer parameters prevent random stalls on unstable streams
+                    maxBufferLength: 30,
+                    maxMaxBufferLength: 600,
+                    maxBufferHole: 0.5,
+                    manifestLoadingTimeOut: 10000,
+                    manifestLoadingMaxRetry: 4
+                });
+
+                hlsEngine.loadSource(streamUrl);
+                hlsEngine.attachMedia(videoElement);
+
+                hlsEngine.on(Hls.Events.MANIFEST_PARSED, function() {
+                    videoElement.play().catch(function(e) {
+                        console.log("Autoplay blocked by browser. User interaction required.");
+                    });
+                });
+
+                // Enhanced Resilient Error Handler
+                hlsEngine.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.warn("Network error encountered, attempting reload...");
+                                hlsEngine.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.warn("Media error encountered, attempting recovery...");
+                                hlsEngine.recoverMediaError();
+                                break;
+                            default:
+                                console.error("Fatal unrecoverable error. Re-initializing engine...");
+                                // Auto-reconnect fallback on fatal freeze
+                                hlsEngine.destroy();
+                                playStream(rawUrl, type);
+                                break;
+                        }
+                    }
+                });
+            } else if (videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+                videoElement.src = streamUrl;
+                videoElement.addEventListener('loadedmetadata', function() {
+                    videoElement.play();
+                });
+            } else {
+                console.error("Browser does not support HLS streaming.");
+            }
+        } else if (type === 'DASH' || rawUrl.includes('.mpd')) {
+            dashEngine = dashjs.MediaPlayer().create();
+            dashEngine.initialize(videoElement, streamUrl, true);
+        } else {
+            videoElement.src = streamUrl;
+            videoElement.play().catch(e => console.log("Playback interaction required."));
+        }
+    }
+
+    function renderPlaylist() {
+        const listEl = document.getElementById('channelList');
+        document.getElementById('count').innerText = playlist.length;
+        listEl.innerHTML = '';
+
+        playlist.forEach((item, index) => {
+            const li = document.createElement('li');
+            li.className = 'channel-item';
+            li.innerHTML = `
+                <div class="channel-info" onclick="playStream('${item.url}', '${item.type}')">
+                    <span>${item.name}</span>
+                    <span class="channel-tag">${item.type}</span>
+                </div>
+                <button class="danger" style="padding: 2px 6px;" onclick="deleteChannel(${index})">✕</button>
+            `;
+            listEl.appendChild(li);
+        });
+    }
+
+    async function loadFromUrl() {
+        const input = document.getElementById('urlInput').value.trim();
+        if (!input) return alert("Enter a stream or M3U link");
+
+        currentSource = { type: 'url', val: input };
+        const cleanUrl = extractDirectStream(input);
+
+        if (cleanUrl.includes('.m3u8') || cleanUrl.includes('.mpd')) {
+            const type = cleanUrl.includes('.mpd') ? 'DASH' : 'HLS';
+            playlist = [{ name: cleanUrl.split('/')[3] || "Direct Stream", url: cleanUrl, type: type }];
+            renderPlaylist();
+            playStream(cleanUrl, type);
+            return;
+        }
+
+        try {
+            const target = formatProxyUrl(cleanUrl);
+            const response = await fetch(target);
+            const content = await response.text();
+            playlist = parseM3U(content);
+            renderPlaylist();
+            if (playlist.length > 0) playStream(playlist[0].url, playlist[0].type);
+        } catch (err) {
+            alert("Could not fetch playlist. Try toggling 'Proxy Stream'.");
+        }
+    }
+
+    function loadFromFile(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        currentSource = { type: 'file', val: file };
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            playlist = parseM3U(e.target.result);
+            renderPlaylist();
+            if (playlist.length > 0) playStream(playlist[0].url, playlist[0].type);
+        };
+        reader.readAsText(file);
+    }
+
+    function deleteChannel(index) {
+        playlist.splice(index, 1);
+        renderPlaylist();
+    }
+
+    function clearPlaylist() {
+        playlist = [];
+        renderPlaylist();
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
+    }
+
+    function refreshCurrentSource() {
+        if (!currentSource) return;
+        if (currentSource.type === 'url') loadFromUrl();
+    }
+</script>

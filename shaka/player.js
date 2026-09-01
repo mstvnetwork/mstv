@@ -6,6 +6,7 @@ let globalConfig = null;
 let uiTimeout = null;
 let isInternalSeeking = false;
 let isSwitchingTrack = false;
+let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
 const PLAYLIST_JSON_URL = "./playlist.json"; 
@@ -14,7 +15,6 @@ const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 async function fetchPlaylistUpdates() {
   try {
     const tStamp = Date.now();
-    // Bypasses browser & GitHub Pages CDN caching aggressively
     const res = await fetch(`${PLAYLIST_JSON_URL}?cb=${tStamp}`, {
       cache: "no-store",
       headers: {
@@ -40,7 +40,6 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      // If no video is currently playing, sync instantly
       const video = conf ? document.getElementById(conf.videoId) : null;
       if (!video || video.paused || video.ended) {
         calculateLiveSyncState();
@@ -67,13 +66,13 @@ function generateAbsoluteTimeline() {
 }
 
 function calculateLiveSyncState() {
-  if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack) return;
+  // Prevent sync evaluation if media is actively switching or loading
+  if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
 
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
-  // ACTIVE PLAYBACK IMMUNITY:
-  // If video 1 is currently playing, let it finish naturally to prevent cuts.
-  if (video && !video.paused && video.readyState >= 3 && currentTrack) {
+  // Active Playback Guard: Don't interrupt playing video
+  if (video && !video.paused && video.readyState >= 2 && currentTrack) {
     const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
       const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
@@ -135,11 +134,11 @@ function calculateLiveSyncState() {
   } else if (video) {
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
       const delta = Math.abs(video.currentTime - trackSeekOffset);
-      if (delta > 12) {
+      if (delta > 15) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
-        setTimeout(() => { isInternalSeeking = false; }, 600);
+        setTimeout(() => { isInternalSeeking = false; }, 800);
       }
     }
   }
@@ -153,9 +152,11 @@ function calculateLiveSyncState() {
 }
 
 function loadMediaSeamless(track, offset) {
-  if (!globalConfig) return;
+  if (!globalConfig || isMediaLoading) return;
   
   isSwitchingTrack = true;
+  isMediaLoading = true;
+
   const video = document.getElementById(globalConfig.videoId);
   const loaderEl = document.getElementById(globalConfig.loaderId);
   const errorEl = document.getElementById(globalConfig.errorId);
@@ -178,19 +179,23 @@ function loadMediaSeamless(track, offset) {
         if (loaderEl) loaderEl.classList.add("hidden");
         if (errorEl) errorEl.classList.remove("show");
         autoRecoveryAttempts = 0;
+        isMediaLoading = false;
       }).catch(err => {
+        isMediaLoading = false;
         if (err.name === 'AbortError' || err.message.includes('interrupted')) {
           console.warn("Play request safely interrupted for source switch.");
         } else {
           handleAutoplayBlock();
         }
       });
+    } else {
+      isMediaLoading = false;
     }
 
     setTimeout(() => { 
       isInternalSeeking = false; 
       isSwitchingTrack = false;
-    }, 500);
+    }, 600);
   };
 
   if (formatType === 'm3u8' || formatType === 'hls') {
@@ -199,46 +204,50 @@ function loadMediaSeamless(track, offset) {
       if (loaderEl) loaderEl.classList.add("hidden");
       if (errorEl) errorEl.classList.add("show");
       isSwitchingTrack = false;
+      isMediaLoading = false;
       return;
     }
 
     if (Hls.isSupported()) {
-      if (!hlsInstance) {
-        hlsInstance = new Hls({
-          liveSyncDurationCount: 3,
-          maxBufferLength: 30,
-          enableWorker: true,
-          lowLatencyMode: true
-        });
-        hlsInstance.attachMedia(video);
-
-        const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
-
-        hlsInstance.on(hlsErrorEvent, (event, data) => {
-          if (data && data.fatal) {
-            console.warn("Fatal HLS error, attempting recovery:", data.type);
-            const netErr = Hls.ErrorTypes ? Hls.ErrorTypes.NETWORK_ERROR : 'networkError';
-            const medErr = Hls.ErrorTypes ? Hls.ErrorTypes.MEDIA_ERROR : 'mediaError';
-
-            switch (data.type) {
-              case netErr:
-                hlsInstance.startLoad();
-                break;
-              case medErr:
-                hlsInstance.recoverMediaError();
-                break;
-              default:
-                if (hlsInstance) {
-                  hlsInstance.destroy();
-                  hlsInstance = null;
-                }
-                break;
-            }
-          }
-        });
-      } else {
-        hlsInstance.stopLoad();
+      if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
       }
+
+      hlsInstance = new Hls({
+        liveSyncDurationCount: 3,
+        maxBufferLength: 30,
+        enableWorker: true,
+        lowLatencyMode: true
+      });
+      
+      hlsInstance.attachMedia(video);
+
+      const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
+
+      hlsInstance.on(hlsErrorEvent, (event, data) => {
+        if (data && data.fatal) {
+          console.warn("Fatal HLS error, attempting recovery:", data.type);
+          const netErr = Hls.ErrorTypes ? Hls.ErrorTypes.NETWORK_ERROR : 'networkError';
+          const medErr = Hls.ErrorTypes ? Hls.ErrorTypes.MEDIA_ERROR : 'mediaError';
+
+          switch (data.type) {
+            case netErr:
+              hlsInstance.startLoad();
+              break;
+            case medErr:
+              hlsInstance.recoverMediaError();
+              break;
+            default:
+              if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+              }
+              isMediaLoading = false;
+              break;
+          }
+        }
+      });
 
       const manifestParsedEvent = (Hls.Events && Hls.Events.MANIFEST_PARSED) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
       
@@ -293,7 +302,6 @@ function initPlayer(config) {
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
   
-  // Checks playlist every 15s without cache interference
   setInterval(fetchPlaylistUpdates, 15000);
 
   fetchPlaylistUpdates().then(() => {
@@ -310,14 +318,14 @@ function initPlayer(config) {
       }, 1000);
     }
 
-    // ON FINISH: Immediately triggers seamless pickup of video 2
     video.addEventListener("ended", () => {
       currentTrack = null;
+      isMediaLoading = false;
       calculateLiveSyncState();
     });
 
     video.addEventListener("error", (e) => {
-      if (isSwitchingTrack) return;
+      if (isSwitchingTrack || isMediaLoading) return;
 
       console.warn("Media error caught. Attempting silent recovery...", e);
       const errorEl = document.getElementById(config.errorId);
@@ -328,8 +336,9 @@ function initPlayer(config) {
         
         setTimeout(() => {
           currentTrack = null;
+          isMediaLoading = false;
           calculateLiveSyncState();
-        }, 1000);
+        }, 1200);
       } else {
         if (errorEl) errorEl.classList.add("show");
       }
@@ -394,10 +403,11 @@ function initPlayer(config) {
       const errorEl = document.getElementById(config.errorId);
       if (loaderEl) loaderEl.classList.add("hidden");
       if (errorEl) errorEl.classList.remove("show");
+      isMediaLoading = false;
     });
     
     video.addEventListener("waiting", () => {
-      if (!isSwitchingTrack) {
+      if (!isSwitchingTrack && !isMediaLoading) {
         const loaderEl = document.getElementById(config.loaderId);
         if (loaderEl) loaderEl.classList.remove("hidden");
       }

@@ -152,20 +152,35 @@ function loadMediaSeamless(track, offset) {
   const isAlreadyPlaying = !video.paused;
   const formatType = (track.type || '').toLowerCase();
 
-  const executeSeamlessPlay = () => {
-    isInternalSeeking = true;
-    video.currentTime = offset;
+  // Replace executeSeamlessPlay inside player.js -> loadMediaSeamless
 
-    const playPromise = video.play();
-    if (playPromise !== undefined) {
-      playPromise.then(() => {
+const executeSeamlessPlay = () => {
+  isInternalSeeking = true;
+  video.currentTime = offset;
+
+  const playPromise = video.play();
+  if (playPromise !== undefined) {
+    playPromise
+      .then(() => {
         if (loaderEl) loaderEl.classList.add("hidden");
         if (errorEl) errorEl.classList.remove("show");
-        autoRecoveryAttempts = 0; // Reset recovery counter on success
-      }).catch(err => {
-        handleAutoplayBlock();
+        autoRecoveryAttempts = 0;
+      })
+      .catch((err) => {
+        // Intercept play/pause interrupts silently without breaking player execution
+        if (err.name === 'AbortError' || err.message.includes('interrupted')) {
+          console.warn("Play request safely interrupted for source switch.");
+        } else {
+          handleAutoplayBlock();
+        }
       });
-    }
+  }
+
+  setTimeout(() => { 
+    isInternalSeeking = false; 
+    isSwitchingTrack = false;
+  }, 500);
+};
 
     setTimeout(() => { 
       isInternalSeeking = false; 

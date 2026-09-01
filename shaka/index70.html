@@ -2,23 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Linear TV Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Linear TV Stream Platform</title>
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <style>
 body {
     margin: 0;
-    background: #111;
+    background: #000;
     color: #fff;
     font-family: Arial, sans-serif;
+    overflow-x: hidden;
 }
 
 .player-wrap {
     max-width: 1200px;
     margin: auto;
     padding: 20px;
+}
+body.public-mode .player-wrap {
+    max-width: 100%;
+    padding: 0;
 }
 
 .video-container {
@@ -27,275 +32,129 @@ body {
     aspect-ratio: 16/9;
     background: #000;
     overflow: hidden;
-    cursor: default;
+}
+body.public-mode .video-container {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
 }
 
-video,
-iframe {
+video {
     width: 100%;
     height: 100%;
-    border: 0;
+    object-fit: contain;
+    pointer-events: auto;
 }
-
-/* --- MODERN STANDBY / FALLBACK OVERLAY --- */
-.fallback-overlay {
+.channel-logo {
     position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: radial-gradient(circle at center, #1c1414 0%, #08080a 100%);
-    z-index: 9; /* Under loader (10) and controls (20) */
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.4s ease, visibility 0.4s ease;
+    top: 15px;
+    right: 15px;
+    width: auto;
+    height: 40px;
+    max-width: 120px;
+    object-fit: contain;
+    opacity: 0.6;
     pointer-events: none;
+    z-index: 15;
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
 }
 
-.fallback-overlay.hidden {
-    opacity: 0;
-    visibility: hidden;
+@media (max-width: 600px) {
+    .channel-logo {
+        height: 25px;
+        top: 10px;
+        right: 10px;
+    }
 }
 
-.fallback-card {
-    position: relative;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    padding: 30px 45px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 16px;
-    backdrop-filter: blur(12px);
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
-}
-
-.fallback-pulse-ring {
+.now-playing-overlay {
     position: absolute;
-    inset: -1px;
-    border-radius: 16px;
-    border: 1px solid rgba(255, 51, 51, 0.35);
-    animation: fallback-pulse 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+    top: 12px;
+    left: 15px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: normal;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+    pointer-events: none;
+    z-index: 15;
 }
 
-.fallback-badge {
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 2.5px;
-    color: #ff3333;
-    margin-bottom: 12px;
-    font-family: monospace;
-    text-transform: uppercase;
-}
-
-.fallback-title {
-    margin: 0 0 8px 0;
-    font-size: 24px;
-    font-weight: 800;
-    letter-spacing: 2px;
-    color: #ffffff;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    text-transform: uppercase;
-    background: linear-gradient(180deg, #ffffff 0%, #aaaaaa 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-}
-
-.fallback-sub {
-    margin: 0;
-    font-size: 13px;
-    color: #888888;
-    letter-spacing: 0.5px;
-}
-
-.fallback-wave {
-    display: flex;
-    align-items: flex-end;
-    gap: 4px;
-    height: 18px;
-    margin-top: 20px;
-}
-
-.fallback-wave span {
-    width: 3px;
-    height: 100%;
-    background-color: #ff3333;
-    border-radius: 3px;
-    animation: fallback-wave-anim 1.2s ease-in-out infinite alternate;
-}
-
-.fallback-wave span:nth-child(2) { animation-delay: 0.2s; }
-.fallback-wave span:nth-child(3) { animation-delay: 0.4s; }
-.fallback-wave span:nth-child(4) { animation-delay: 0.6s; }
-.fallback-wave span:nth-child(5) { animation-delay: 0.8s; }
-
-@keyframes fallback-pulse {
-    0% { transform: scale(0.98); opacity: 0.8; }
-    50% { transform: scale(1.03); opacity: 0.15; }
-    100% { transform: scale(0.98); opacity: 0.8; }
-}
-
-@keyframes fallback-wave-anim {
-    0% { height: 4px; opacity: 0.3; }
-    100% { height: 18px; opacity: 1; }
-}
-
-/* --- MODERN SLEEK SPINNER --- */
 .loader {
     position: absolute;
     inset: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    background: rgba(0, 0, 0, 0.65);
-    backdrop-filter: blur(8px);
-    z-index: 10;
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.3s ease, visibility 0.3s ease;
+    background: rgba(0,0,0,0.6);
+    z-index: 5;
     pointer-events: none;
 }
-
-.loader.hidden {
-    opacity: 0;
-    visibility: hidden;
-}
-
-.spinner-ring {
-    width: 48px;
-    height: 48px;
-    border: 3.5px solid rgba(255, 255, 255, 0.15);
-    border-top-color: #ff3333;
-    border-radius: 50%;
-    animation: spinner-rotate 0.8s linear infinite;
-}
-
-@keyframes spinner-rotate {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+.loader.hidden { display: none; }
 
 .error {
     display: none;
     padding: 10px;
     background: #900;
     margin-top: 10px;
+    z-index: 6;
 }
+.error.show { display: block; }
 
-.error.show {
-    display: block;
-}
-
-/* --- AUTO-HIDING CONTROLS WRAPPER --- */
-.video-controls-wrapper {
+.hls-controls-overlay {
     position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.8), rgba(0,0,0,0));
-    padding: 25px 15px 12px 15px;
-    z-index: 20;
+    bottom: 20px;
+    left: 15px;
+    right: 15px;
     display: flex;
-    flex-direction: column;
-    gap: 8px;
-    opacity: 1;
-    visibility: visible;
-    transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
-}
-
-.video-container.controls-hidden .video-controls-wrapper {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-}
-
-.controls {
-    display: flex;
-    gap: 10px;
     align-items: center;
-}
-
-button {
-    cursor: pointer;
-    padding: 6px 12px;
-    background: rgba(40, 40, 40, 0.7);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 4px;
-    font-size: 14px;
-    backdrop-filter: blur(4px);
-    transition: background 0.2s;
-}
-
-button:hover {
-    background: rgba(70, 70, 70, 0.9);
-}
-
-/* --- TRANSPARENT & COMPACT TV CHANNEL WATERMARK LOGO --- */
-.tv-logo {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    padding: 4px 8px;
-    border-radius: 6px;
-    z-index: 25;
+    justify-content: flex-start;
+    gap: 15px;
+    z-index: 20;
+    opacity: 0;
     pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    opacity: 0.6;
     transition: opacity 0.3s ease;
 }
 
-.video-container:hover .tv-logo {
-    opacity: 0.9;
+.fullscreen-right-wrapper {
+    margin-left: auto;
+    pointer-events: auto;
 }
 
-.tv-logo .brand-main {
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.8px;
+.video-container.show-ui .hls-controls-overlay {
+    opacity: 1;
+}
+
+.control-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
     color: #fff;
-    text-transform: uppercase;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 20px;
+    cursor: pointer;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
-    gap: 3px;
+    justify-content: center;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s;
+}
+.control-btn:active {
+    background: rgba(255, 255, 255, 0.4);
 }
 
-.tv-logo .brand-main span {
-    color: #ff3333;
-    font-size: 8px;
-}
-
-.tv-logo .brand-sub {
-    font-size: 7px;
-    font-weight: 400;
-    letter-spacing: 1.2px;
-    color: #bbb;
-    text-transform: uppercase;
-}
+.private-ui-block { display: block; }
+body.public-mode .private-ui-block { display: none !important; }
 
 .schedule {
     margin-top: 20px;
-    max-height: 300px;
-    overflow: auto;
+    max-height: 250px;
+    overflow-y: auto;
     border: 1px solid #333;
 }
-
-.schedule-item {
-    padding: 10px;
-    border-bottom: 1px solid #222;
-}
-
-.schedule-item.active {
-    background: #222;
-}
+.schedule-item { padding: 10px; border-bottom: 1px solid #222; }
+.schedule-item.active { background: #222; border-left: 4px solid #0f0; }
 
 .toast {
     position: fixed;
@@ -306,152 +165,112 @@ button:hover {
     border-radius: 6px;
     opacity: 0;
     transition: .3s;
-    z-index: 999;
-}
-
-.toast.show {
-    opacity: 1;
-}
-
-.vol-overlay {
-    display: none;
-    position: absolute;
-    bottom: 50px;
-    left: 10px;
-    padding: 6px 10px;
-    background: rgba(0,0,0,.7);
-    border-radius: 4px;
-    font-size: 12px;
     z-index: 100;
-    pointer-events: none;
 }
-
-/* --- EMBED MODE CONFIGURATION --- */
-body.embed-mode {
-    background: transparent;
-    padding: 0;
-}
-
-body.embed-mode .player-wrap {
-    max-width: 100%;
-    padding: 0;
-}
-
-body.embed-mode #nowTitle,
-body.embed-mode #clock,
-body.embed-mode #clockDate,
-body.embed-mode #errorMsg,
-body.embed-mode #statusText,
-body.embed-mode #statusOffset,
-body.embed-mode h3,
-body.embed-mode #scheduleList,
-body.embed-mode #updateToast {
-    display: none !important;
-}
-
-body.embed-mode .video-container {
-    width: 100vw;
-    height: 100vh;
-    aspect-ratio: unset;
-}
+.toast.show { opacity: 1; }
 </style>
 </head>
 <body>
 
-<div class="player-wrap" id="playerWrap">
+<div class="player-wrap">
 
-    <h2 id="nowTitle">Loading...</h2>
+    <div class="private-ui-block">
+        <h2 id="nowTitle">Loading Platform Setup...</h2>
+        <div id="clock"></div>
+        <div id="clockDate"></div>
+    </div>
 
-    <div id="clock"></div>
-    <div id="clockDate"></div>
+    <div id="videoContainer" class="video-container">
 
-    <div class="video-container" id="videoContainer">
+        <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
+        <!-- APNA TV Brand Watermark Asset -->
+        <img id="channelLogo" class="channel-logo" src="https://cdn.jsdelivr.net/gh/mstvnetwork/mstv2/download.jpeg" alt="Apna TV Logo">
+        <video id="videoPlayer" playsinline></video>
+        <div id="loader" class="loader">Loading...</div>
 
-        <div class="tv-logo">
-            <div class="brand-main"><span>●</span> Apna Tv</div>
-            <div class="brand-sub">Ghar Jaisa</div>
-        </div>
-
-        <!-- Standby Fallback Overlay -->
-        <div id="fallbackOverlay" class="fallback-overlay hidden">
-            <div class="fallback-card">
-                <div class="fallback-pulse-ring"></div>
-                <div class="fallback-badge">● PLEASE STAND BY</div>
-                <h3 class="fallback-title">WE'LL BE RIGHT BACK</h3>
-                <p class="fallback-sub">The stream will resume automatically in a moment</p>
-                <div class="fallback-wave">
-                    <span></span><span></span><span></span><span></span><span></span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Primary Active Video Element -->
-        <video
-            id="videoPlayer"
-            playsinline
-            controlslist="nodownload">
-        </video>
-
-        <!-- Secondary Preload Video Element (Hidden) -->
-        <video
-            id="videoPlayerNext"
-            playsinline
-            controlslist="nodownload"
-            style="display: none;">
-        </video>
-
-        <iframe
-            id="iframePlayer"
-            style="display:none;"
-            allowfullscreen>
-        </iframe>
-
-        <div id="loader" class="loader">
-            <div class="spinner-ring"></div>
-        </div>
-
-        <div id="volOverlay" class="vol-overlay">
-            Volume controlled by embedded player
-        </div>
-
-        <div class="video-controls-wrapper">
-            <div class="controls">
-                <button id="btnPlay" title="Play/Pause">⏸</button>
-                <button id="btnMute" title="Mute/Unmute">🔇</button>
-                <button id="btnFullscreen" title="Toggle Fullscreen">⛶</button>
+        <div class="hls-controls-overlay">
+            <button id="btnPlay" class="control-btn">⏸</button>
+            <button id="btnMute" class="control-btn">🔊</button>
+            
+            <div class="fullscreen-right-wrapper">
+                <button id="btnFullscreen" class="control-btn">⛶</button>
             </div>
         </div>
 
     </div>
 
-    <div id="errorMsg" class="error">
-        Playback error. Retrying...
-    </div>
+    <div id="errorMsg" class="error">Playback routing error. Retrying...</div>
 
-    <div id="statusText"></div>
-    <div id="statusOffset"></div>
+    <div class="private-ui-block">
+        <div id="statusText" style="margin-top:10px; font-size:12px; color:#aaa;"></div>
+        <div id="statusOffset" style="font-size:12px; color:#aaa;"></div>
+        <h3>Station Broadcast Schedule</h3>
+        <div id="scheduleList" class="schedule"></div>
+    </div>
 
 </div>
 
-<script>
-const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('mode') === 'embed') {
-    document.body.classList.add('embed-mode');
-}
-</script>
+<div id="syncToast" class="toast">Synced to live frame position</div>
+<div id="updateToast" class="toast">Station playlist updated</div>
 
-<script src="./player3.js"></script>
-
+<script src="./player.js"></script>
 <script>
+// CORS Fix: Overrides video element assignments to intercept .mp4 extensions
+(function patchVideoSrc() {
+    const videoElement = document.getElementById('videoPlayer');
+    if (!videoElement) return;
+
+    // Intercept manual src assignments handled by your player JS engine
+    Object.defineProperty(videoElement, 'src', {
+        set: function(url) {
+            if (typeof url === 'string' && url.includes('.mp4')) {
+                // Terminate active HLS streaming core pipelines if running
+                if (window.hlsInstance) {
+                    window.hlsInstance.destroy();
+                    window.hlsInstance = null;
+                }
+                this.setAttribute('src', url);
+            } else {
+                this.setAttribute('src', url);
+            }
+        },
+        get: function() {
+            return this.getAttribute('src');
+        }
+    });
+
+    // Intercept Hls.js instance setups to catch cross-origin requests before they run
+    const OriginalHls = window.Hls;
+    if (OriginalHls) {
+        window.Hls = function(config) {
+            const instance = new OriginalHls(config);
+            window.hlsInstance = instance;
+            
+            const originalLoadSource = instance.loadSource;
+            instance.loadSource = function(source) {
+                if (source.includes('.mp4')) {
+                    // Force the browser to render standard elements natively
+                    videoElement.src = source;
+                    // Trigger custom loader suppression if defined in player.js
+                    const loader = document.getElementById('loader');
+                    if (loader) loader.classList.add('hidden');
+                    return;
+                }
+                originalLoadSource.apply(this, arguments);
+            };
+            return instance;
+        };
+        // Re-copy prototype methods across the intercept wrapper
+        window.Hls.prototype = OriginalHls.prototype;
+        window.Hls.isSupported = OriginalHls.isSupported;
+    }
+})();
+
+// Native layout init call sequence
 initPlayer({
     videoId: 'videoPlayer',
-    // PUT THEM HERE INSTEAD:
-    fallbackVideoId: 'videoPlayerFallback',
-    fallbackVideoUrl: 'https://files.catbox.moe/c9z1wf.mp4',
-    iframeId: 'iframePlayer',
-    containerId: 'videoContainer',
+    videoContainerId: 'videoContainer',
     loaderId: 'loader',
-    fallbackOverlayId: 'fallbackOverlay',
     errorId: 'errorMsg',
     btnPlayId: 'btnPlay',
     btnMuteId: 'btnMute',
@@ -462,7 +281,7 @@ initPlayer({
     statusTextId: 'statusText',
     statusOffsetId: 'statusOffset',
     nowTitleId: 'nowTitle',
-    volOverlayId: 'volOverlay',
+    nowPlayingOverlayId: 'nowPlayingOverlay',
     showClock: true,
     clockId: 'clock',
     clockDateId: 'clockDate'

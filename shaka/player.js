@@ -25,7 +25,6 @@ async function fetchPlaylistUpdates() {
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
       
-      // If active track was removed from JSON, force a slot re-calculation
       if (currentTrack) {
         const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
         if (!trackStillExists) {
@@ -90,7 +89,6 @@ function calculateLiveSyncState() {
     }
   }
 
-  // Fallback to first item if time calculations drop out of bounds
   if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
     activeTrack = SCHEDULE_TIMELINE[0];
     trackSeekOffset = 0;
@@ -177,7 +175,8 @@ function loadMediaSeamless(track, offset) {
 
   if (formatType === 'm3u8' || formatType === 'hls') {
     if (typeof Hls === 'undefined') {
-      console.error("HLS.js library missing. Verify CDN script tag in index.html.");
+      console.error("HLS.js library missing or failed to load from CDN.");
+      if (loaderEl) loaderEl.classList.add("hidden");
       if (errorEl) errorEl.classList.add("show");
       isSwitchingTrack = false;
       return;
@@ -193,19 +192,27 @@ function loadMediaSeamless(track, offset) {
         });
         hlsInstance.attachMedia(video);
 
-        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
-          if (data.fatal) {
+        // Safely check for Hls.Events or fallback string
+        const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
+
+        hlsInstance.on(hlsErrorEvent, (event, data) => {
+          if (data && data.fatal) {
             console.warn("Fatal HLS error, attempting recovery:", data.type);
+            const netErr = Hls.ErrorTypes ? Hls.ErrorTypes.NETWORK_ERROR : 'networkError';
+            const medErr = Hls.ErrorTypes ? Hls.ErrorTypes.MEDIA_ERROR : 'mediaError';
+
             switch (data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
+              case netErr:
                 hlsInstance.startLoad();
                 break;
-              case Hls.ErrorTypes.MEDIA_ERROR:
+              case medErr:
                 hlsInstance.recoverMediaError();
                 break;
               default:
-                hlsInstance.destroy();
-                hlsInstance = null;
+                if (hlsInstance) {
+                  hlsInstance.destroy();
+                  hlsInstance = null;
+                }
                 break;
             }
           }
@@ -214,7 +221,7 @@ function loadMediaSeamless(track, offset) {
         hlsInstance.stopLoad();
       }
 
-      const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
+      const manifestParsedEvent = (Hls.Events && Hls.Events.MANIFEST_PARSED) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
       
       hlsInstance.loadSource(track.url);
       hlsInstance.once(manifestParsedEvent, () => {

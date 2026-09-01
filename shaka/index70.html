@@ -211,9 +211,6 @@ body.public-mode .toast { display: none !important; opacity: 0 !important; }
 
 </div>
 
-<div id="syncToast" class="toast">Synced to live frame position</div>
-<div id="updateToast" class="toast">Station playlist updated</div>
-
 <script src="./player.js"></script>
 <script>
 // Auto-detect public mode parameter early
@@ -227,24 +224,16 @@ if (isPublicMode) {
     const videoElement = document.getElementById('videoPlayer');
     if (!videoElement) return;
 
-    // Fix Initial Playback Choppiness (Smooth Startup Sequence)
+    // Fixed: Autoplay fallback without forcing aggressive pause/play stutter loops
     videoElement.addEventListener('canplay', function() {
-        // Trigger a tiny pause/play kick to force-prime the media buffer smoothly
-        setTimeout(() => {
-            if (videoElement.paused) {
-                videoElement.play().catch(() => {
-                    // Handle browser autoplay blocks silently via auto-mute fallback
-                    videoElement.muted = true;
-                    videoElement.play();
-                    const muteBtn = document.getElementById('btnMute');
-                    if (muteBtn) muteBtn.innerText = "🔇";
-                });
-            } else {
-                // Instantly sync buffers like a manual button cycle would
-                videoElement.pause();
-                videoElement.play().catch(e => console.log("Smooth sync handshake error:", e));
-            }
-        }, 150);
+        if (videoElement.paused) {
+            videoElement.play().catch(() => {
+                videoElement.muted = true;
+                videoElement.play();
+                const muteBtn = document.getElementById('btnMute');
+                if (muteBtn) muteBtn.innerText = "🔇";
+            });
+        }
     }, { once: true });
 
     // CORS Interception Architecture
@@ -283,8 +272,10 @@ if (isPublicMode) {
             };
             return instance;
         };
+
+        // Transfer all static properties (including Events) to prevent undefined errors
+        Object.assign(window.Hls, OriginalHls);
         window.Hls.prototype = OriginalHls.prototype;
-        window.Hls.isSupported = OriginalHls.isSupported;
     }
 
     // Completely block Toast notifications if mode=public is active
@@ -324,6 +315,3 @@ initPlayer({
     clockDateId: 'clockDate'
 });
 </script>
-
-</body>
-</html>

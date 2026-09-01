@@ -327,3 +327,391 @@ initPlayer({
 
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Linear TV Stream Platform</title>
+
+<script src="https://jsdelivr.net"></script>
+
+<style>
+body {
+    margin: 0;
+    background: #000;
+    color: #fff;
+    font-family: Arial, sans-serif;
+    overflow-x: hidden;
+}
+
+.player-wrap {
+    max-width: 1200px;
+    margin: auto;
+    padding: 20px;
+}
+body.public-mode .player-wrap {
+    max-width: 100%;
+    padding: 0;
+}
+
+.video-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    overflow: hidden;
+}
+body.public-mode .video-container {
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: auto;
+}
+
+video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    pointer-events: auto;
+}
+
+.channel-logo {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    width: auto;
+    height: 40px;
+    max-width: 120px;
+    object-fit: contain;
+    opacity: 0.6;
+    pointer-events: none;
+    z-index: 15;
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
+}
+
+@media (max-width: 600px) {
+    .channel-logo {
+        height: 25px;
+        top: 10px;
+        right: 10px;
+    }
+}
+
+.now-playing-overlay {
+    position: absolute;
+    top: 12px;
+    left: 15px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+    font-weight: normal;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.9);
+    pointer-events: none;
+    z-index: 15;
+}
+
+/* Centered Interactive Media Core Controller Area */
+.center-hud-container {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* Large Center Action Button styling */
+.center-btn-play {
+    background: rgba(0, 0, 0, 0.6);
+    border: 2px solid rgba(255, 255, 255, 0.8);
+    color: #fff;
+    font-size: 28px;
+    cursor: pointer;
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    transition: transform 0.2s, background-color 0.2s, opacity 0.3s;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+}
+.center-btn-play:active {
+    transform: scale(0.92);
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Hide play button smoothly when actively streaming video content */
+.video-container.playing .center-btn-play {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Centered Text Loader under Action Button */
+.loader {
+    color: #fff;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.5);
+    padding: 6px 14px;
+    border-radius: 20px;
+    pointer-events: none;
+    transition: opacity 0.2s;
+}
+.loader.hidden { 
+    opacity: 0; 
+}
+
+.error {
+    display: none;
+    padding: 10px;
+    background: #900;
+    margin-top: 10px;
+    z-index: 6;
+}
+.error.show { display: block; }
+
+/* Modified Bottom Controls Strip */
+.hls-controls-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 15px;
+    right: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 15px;
+    z-index: 20;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+.fullscreen-right-wrapper {
+    margin-left: auto;
+    pointer-events: auto;
+}
+
+.video-container.show-ui .hls-controls-overlay {
+    opacity: 1;
+}
+
+.control-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.2s;
+}
+.control-btn:active {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+.private-ui-block { display: block; }
+body.public-mode .private-ui-block { display: none !important; }
+
+.schedule {
+    margin-top: 20px;
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid #333;
+}
+.schedule-item { padding: 10px; border-bottom: 1px solid #222; }
+.schedule-item.active { background: #222; border-left: 4px solid #0f0; }
+
+.toast {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    background: #222;
+    padding: 10px 15px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: .3s;
+    z-index: 100;
+}
+.toast.show { opacity: 1; }
+body.public-mode .toast { display: none !important; opacity: 0 !important; }
+</style>
+</head>
+<body>
+
+<div class="player-wrap">
+
+    <div class="private-ui-block">
+        <h2 id="nowTitle">Loading Platform Setup...</h2>
+        <div id="clock"></div>
+        <div id="clockDate"></div>
+    </div>
+
+    <div id="videoContainer" class="video-container">
+
+        <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
+        <img id="channelLogo" class="channel-logo" src="https://jsdelivr.net" alt="Apna TV Logo">
+        <video id="videoPlayer" playsinline></video>
+        
+        <!-- Central Interface Block housing the play button and loader stacked underneath -->
+        <div class="center-hud-container">
+            <button id="btnPlay" class="center-btn-play">⏸</button>
+            <div id="loader" class="loader">Loading...</div>
+        </div>
+
+        <!-- Leftover side controls setup -->
+        <div class="hls-controls-overlay">
+            <button id="btnMute" class="control-btn">🔊</button>
+            <div class="fullscreen-right-wrapper">
+                <button id="btnFullscreen" class="control-btn">⛶</button>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="errorMsg" class="error">Playback routing error. Retrying...</div>
+
+    <div class="private-ui-block">
+        <div id="statusText" style="margin-top:10px; font-size:12px; color:#aaa;"></div>
+        <div id="statusOffset" style="font-size:12px; color:#aaa;"></div>
+        <h3>Station Broadcast Schedule</h3>
+        <div id="scheduleList" class="schedule"></div>
+    </div>
+
+</div>
+
+<div id="syncToast" class="toast">Synced to live frame position</div>
+<div id="updateToast" class="toast">Station playlist updated</div>
+
+<script src="./player.js"></script>
+<script>
+const isPublicMode = window.location.search.includes('mode=public');
+if (isPublicMode) {
+    document.body.classList.add('public-mode');
+}
+
+(function patchVideoEngine() {
+    const videoElement = document.getElementById('videoPlayer');
+    const containerElement = document.getElementById('videoContainer');
+    if (!videoElement || !containerElement) return;
+
+    // Monitor engine play status state transitions to handle showing/hiding center UI
+    videoElement.addEventListener('play', () => containerElement.classList.add('playing'));
+    videoElement.addEventListener('playing', () => containerElement.classList.add('playing'));
+    videoElement.addEventListener('pause', () => containerElement.classList.remove('playing'));
+
+    videoElement.addEventListener('canplay', function() {
+        setTimeout(() => {
+            if (videoElement.paused) {
+                videoElement.play().catch(() => {
+                    videoElement.muted = true;
+                    videoElement.play();
+                    const muteBtn = document.getElementById('btnMute');
+                    if (muteBtn) muteBtn.innerText = "🔇";
+                });
+            } else {
+                videoElement.pause();
+                videoElement.play().catch(e => console.log("Smooth sync handshake error:", e));
+            }
+        }, 150);
+    }, { once: true });
+
+    Object.defineProperty(videoElement, 'src', {
+        set: function(url) {
+            if (typeof url === 'string' && url.includes('.mp4')) {
+                if (window.hlsInstance) {
+                    window.hlsInstance.destroy();
+                    window.hlsInstance = null;
+                }
+                this.setAttribute('src', url);
+            } else {
+                this.setAttribute('src', url);
+            }
+        },
+        get: function() {
+            return this.getAttribute('src');
+        }
+    });
+
+    const OriginalHls = window.Hls;
+    if (OriginalHls) {
+        window.Hls = function(config) {
+            const instance = new OriginalHls(config);
+            window.hlsInstance = instance;
+            
+            const originalLoadSource = instance.loadSource;
+            instance.loadSource = function(source) {
+                if (source.includes('.mp4')) {
+                    videoElement.src = source;
+                    const loader = document.getElementById('loader');
+                    if (loader) loader.classList.add('hidden');
+                    return;
+                }
+                originalLoadSource.apply(this, arguments);
+            };
+            return instance;
+        };
+        window.Hls.prototype = OriginalHls.prototype;
+        window.Hls.isSupported = OriginalHls.isSupported;
+    }
+
+    if (isPublicMode) {
+        const blockToastElement = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            Object.defineProperty(el, 'className', {
+                set: function() { },
+                get: function() { return 'toast'; }
+            });
+            el.style.display = 'none';
+        };
+        blockToastElement('syncToast');
+        blockToastElement('updateToast');
+    }
+})();
+// ... previous code above ...
+
+initPlayer({
+    videoId: 'videoPlayer',
+    videoContainerId: 'videoContainer',
+    loaderId: 'loader',
+    errorId: 'errorMsg',
+    btnPlayId: 'btnPlay',
+    btnMuteId: 'btnMute',
+    btnFullscreenId: 'btnFullscreen',
+    scheduleListId: 'scheduleList',
+    syncToastId: 'syncToast',
+    updateToastId: 'updateToast',
+    statusTextId: 'statusText',
+    statusOffsetId: 'statusOffset',
+    nowTitleId: 'nowTitle',
+    nowPlayingOverlayId: 'nowPlayingOverlay',
+    showClock: true,
+    clockId: 'clock',
+    clockDateId: 'clockDate'
+});
+</script>
+
+</body>
+</html>
+

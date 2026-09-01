@@ -13,8 +13,11 @@ const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
 async function fetchPlaylistUpdates() {
+  if (document.hidden) return; // Prevent background network requests when tab is inactive
+
   try {
     const tStamp = Date.now();
+    // Aggressive cache busting for GitHub Pages and browser edge caches
     const res = await fetch(`${PLAYLIST_JSON_URL}?cb=${tStamp}`, {
       cache: "no-store",
       headers: {
@@ -66,12 +69,12 @@ function generateAbsoluteTimeline() {
 }
 
 function calculateLiveSyncState() {
-  // Prevent sync evaluation if media is actively switching or loading
-  if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
+  // Halt calculations if page is hidden, or if media is currently loading/switching
+  if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
 
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
-  // Active Playback Guard: Don't interrupt playing video
+  // Active Playback Immunity: Let current video finish playing cleanly without cuts
   if (video && !video.paused && video.readyState >= 2 && currentTrack) {
     const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
@@ -301,6 +304,17 @@ function initPlayer(config) {
   container.addEventListener('mousemove', triggerUIReveal);
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
+
+  // Tab wake-up handler via Page Visibility API
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      isMediaLoading = false;
+      isSwitchingTrack = false;
+      fetchPlaylistUpdates().then(() => {
+        calculateLiveSyncState();
+      });
+    }
+  });
   
   setInterval(fetchPlaylistUpdates, 15000);
 

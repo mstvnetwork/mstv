@@ -4,7 +4,8 @@ let hlsInstance = null;
 let currentTrack = null;
 let globalConfig = null;
 let uiTimeout = null;
-let isInternalSeeking = false; // Flag to prevent seeking loops
+let isInternalSeeking = false;
+let isSwitchingTrack = false;
 
 const PLAYLIST_JSON_URL = "./playlist.json"; 
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
@@ -13,9 +14,7 @@ async function fetchPlaylistUpdates() {
   try {
     const tStamp = Date.now();
     const res = await fetch(`${PLAYLIST_JSON_URL}?t=${tStamp}`);
-    if (!res.ok) {
-      throw new Error("Sync drop");
-    }
+    if (!res.ok) throw new Error("Sync drop");
     
     const freshData = await res.json();
     const d1 = JSON.stringify(freshData);
@@ -100,7 +99,7 @@ function initPlayer(config) {
     }
 
     function calculateLiveSyncState() {
-      if (SCHEDULE_TIMELINE.length === 0) return;
+      if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack) return;
 
       const nowMs = Date.now();
       let totalDurationMs = 0;
@@ -132,21 +131,23 @@ function initPlayer(config) {
 
       updateUIHighlighter(activeIndex);
 
-      // Smooth switch: Only reload source if track URL has changed
+      // Seamless track switch trigger
       if (!currentTrack || currentTrack.url !== activeTrack.url) {
         currentTrack = activeTrack;
         if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
         if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
-        loadMedia(currentTrack, trackSeekOffset);
+        
+        loadMediaSeamless(currentTrack, trackSeekOffset);
       } else {
-        // Prevent constant buffer flushing while video is buffering or seeking
-        if (video.readyState >= 2 && !video.seeking) {
+        // Prevent buffer stutter during healthy live video playback
+        if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
           const delta = Math.abs(video.currentTime - trackSeekOffset);
-          if (delta > 5) {
+          // High tolerance window (8s) so natural playback isn't interrupted by sync checks
+          if (delta > 8) {
             isInternalSeeking = true;
             video.currentTime = trackSeekOffset;
             showNotificationToast(syncToast);
-            setTimeout(() => { isInternalSeeking = false; }, 500);
+            setTimeout(() => { isInternalSeeking = false; }, 600);
           }
         }
       }
@@ -159,49 +160,76 @@ function initPlayer(config) {
       }
     }
 
-    function loadMedia(track, offset) {
-      document.getElementById(config.loaderId).classList.remove("hidden");
-      document.getElementById(config.errorId).classList.remove("show");
+    function loadMediaSeamless(track, offset) {
+      isSwitchingTrack = true;
+      const loaderEl = document.getElementById(config.loaderId);
+      const errorEl = document.getElementById(config.errorId);
+      
+      if (loaderEl) loaderEl.classList.remove("hidden");
+      if (errorEl) errorEl.classList.remove("show");
 
-      if (hlsInstance) {
-        hlsInstance.destroy();
-        hlsInstance = null;
-      }
-
+      const isAlreadyPlaying = !video.paused;
       const formatType = (track.type || '').toLowerCase();
-      const manifestParsedEvent = (typeof Hls !== 'undefined' && Hls.Events) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
+
+      // Callback executed when media is ready to be seamlessly handed off
+      const executeSeamlessPlay = () => {
+        isInternalSeeking = true;
+        video.currentTime = offset;
+
+        // Auto-resume continuous playback without requiring user input
+        if (isAlreadyPlaying || video.autoplay || true) {
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.then(() => {
+              if (loaderEl) loaderEl.classList.add("hidden");
+            }).catch(err => {
+              handleAutoplayBlock();
+            });
+          }
+        }
+
+        setTimeout(() => { 
+          isInternalSeeking = false; 
+          isSwitchingTrack = false;
+        }, 500);
+      };
 
       if ((formatType === 'm3u8' || formatType === 'hls') && typeof Hls !== 'undefined' && Hls.isSupported()) {
-        hlsInstance = new Hls({
-          liveSyncDurationCount: 3,
-          maxBufferLength: 30,
-          enableWorker: true
-        });
+        if (!hlsInstance) {
+          hlsInstance = new Hls({
+            liveSyncDurationCount: 3,
+            maxBufferLength: 30,
+            enableWorker: true,
+            lowLatencyMode: true
+          });
+          hlsInstance.attachMedia(video);
+        } else {
+          hlsInstance.stopLoad();
+        }
 
-        hlsInstance.loadSource(track.url);
-        hlsInstance.attachMedia(video);
+        const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
         
-        hlsInstance.on(manifestParsedEvent, () => {
-          isInternalSeeking = true;
-          video.currentTime = offset;
-          video.play().catch(handleAutoplayBlock);
-          setTimeout(() => { isInternalSeeking = false; }, 500);
+        hlsInstance.loadSource(track.url);
+        hlsInstance.once(manifestParsedEvent, () => {
+          executeSeamlessPlay();
         });
 
       } else {
-        // Fallback for native HLS (Safari) or standard MP4
+        // Direct MP4 / Native fallbacks
+        if (hlsInstance) {
+          hlsInstance.destroy();
+          hlsInstance = null;
+        }
+
         video.src = track.url;
         video.addEventListener('loadedmetadata', () => {
-          isInternalSeeking = true;
-          video.currentTime = offset;
-          video.play().catch(handleAutoplayBlock);
-          setTimeout(() => { isInternalSeeking = false; }, 500);
+          executeSeamlessPlay();
         }, { once: true });
       }
     }
 
     const forceLiveSync = () => {
-      if (!currentTrack || isInternalSeeking) return;
+      if (!currentTrack || isInternalSeeking || isSwitchingTrack) return;
       
       const nMs = Date.now();
       let tDurMs = 0;
@@ -224,7 +252,7 @@ function initPlayer(config) {
       }
 
       const drift = Math.abs(video.currentTime - tOffset);
-      if (drift > 3) {
+      if (drift > 5) {
         isInternalSeeking = true;
         video.currentTime = tOffset;
         showNotificationToast(syncToast);
@@ -233,6 +261,11 @@ function initPlayer(config) {
     };
 
     video.addEventListener("seeking", forceLiveSync);
+
+    // Auto-advance seamlessly when a discrete video track ends naturally
+    video.addEventListener("ended", () => {
+      calculateLiveSyncState();
+    });
 
     function handlePlayToggle(e) {
       e.preventDefault();
@@ -277,19 +310,24 @@ function initPlayer(config) {
     video.addEventListener("play", () => { btnPlay.innerText = "⏸"; });
     video.addEventListener("pause", () => { 
       btnPlay.innerText = "▶"; 
-      container.classList.add('show-ui'); 
+      if (!isSwitchingTrack) container.classList.add('show-ui'); 
     });
     
     video.addEventListener("playing", () => {
-      document.getElementById(config.loaderId).classList.add("hidden");
+      const loaderEl = document.getElementById(config.loaderId);
+      if (loaderEl) loaderEl.classList.add("hidden");
     });
     
     video.addEventListener("waiting", () => {
-      document.getElementById(config.loaderId).classList.remove("hidden");
+      if (!isSwitchingTrack) {
+        const loaderEl = document.getElementById(config.loaderId);
+        if (loaderEl) loaderEl.classList.remove("hidden");
+      }
     });
     
     video.addEventListener("error", () => {
-      document.getElementById(config.errorId).classList.add("show");
+      const errorEl = document.getElementById(config.errorId);
+      if (errorEl) errorEl.classList.add("show");
     });
 
     function handleAutoplayBlock() {
@@ -298,7 +336,8 @@ function initPlayer(config) {
       video.play().catch(e => console.warn("Autoplay block manual intervention needed:", e));
     }
 
-    setInterval(calculateLiveSyncState, 3000);
+    // Polling rate adjusted to 1000ms for accurate, immediate automated transitions
+    setInterval(calculateLiveSyncState, 1000);
     calculateLiveSyncState();
     triggerUIReveal();
   });

@@ -10,12 +10,20 @@ let autoRecoveryAttempts = 0;
 
 const PLAYLIST_JSON_URL = "./playlist.json"; 
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
-const SESSION_LOCK_KEY = "apna_active_stream_lock";
 
 async function fetchPlaylistUpdates() {
   try {
     const tStamp = Date.now();
-    const res = await fetch(`${PLAYLIST_JSON_URL}?t=${tStamp}`);
+    // Bypasses browser & GitHub Pages CDN caching aggressively
+    const res = await fetch(`${PLAYLIST_JSON_URL}?cb=${tStamp}`, {
+      cache: "no-store",
+      headers: {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      }
+    });
+    
     if (!res.ok) throw new Error("Sync drop");
     
     const freshData = await res.json();
@@ -32,6 +40,7 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
+      // If no video is currently playing, sync instantly
       const video = conf ? document.getElementById(conf.videoId) : null;
       if (!video || video.paused || video.ended) {
         calculateLiveSyncState();
@@ -62,31 +71,19 @@ function calculateLiveSyncState() {
 
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
-  // 1. ACTIVE MEMORY GUARD (For viewers currently on the page)
+  // ACTIVE PLAYBACK IMMUNITY:
+  // If video 1 is currently playing, let it finish naturally to prevent cuts.
   if (video && !video.paused && video.readyState >= 3 && currentTrack) {
     const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
-      saveSessionLock(currentTrack);
+      const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
+      if (statusOffset) {
+        statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${currentTrack.duration_seconds}s`;
+      }
       return; 
     }
   }
 
-  // 2. REFRESH / NEW SESSION GUARD (For viewers who hit Refresh)
-  const lockedSession = getSessionLock();
-  if (lockedSession && !currentTrack) {
-    const matchedTrack = PLAYLIST.find(t => t.url === lockedSession.url);
-    if (matchedTrack) {
-      const elapsedSec = (Date.now() - lockedSession.startedAtMs) / 1000;
-      if (elapsedSec < (matchedTrack.duration_seconds || 30)) {
-        currentTrack = matchedTrack;
-        updateUIForTrack(currentTrack);
-        loadMediaSeamless(currentTrack, elapsedSec);
-        return;
-      }
-    }
-  }
-
-  // 3. FALLBACK TIMELINE CALCULATION
   const nowMs = Date.now();
   let totalDurationMs = 0;
   PLAYLIST.forEach(t => {
@@ -123,10 +120,17 @@ function calculateLiveSyncState() {
 
   updateUIHighlighter(activeIndex);
 
+  const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
+  const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
+  const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+  const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
+  const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
+
   if (!currentTrack || currentTrack.url !== activeTrack.url) {
     currentTrack = activeTrack;
-    saveSessionLock(currentTrack, trackSeekOffset);
-    updateUIForTrack(currentTrack);
+    if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
+    if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
+    
     loadMediaSeamless(currentTrack, trackSeekOffset);
   } else if (video) {
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
@@ -134,46 +138,18 @@ function calculateLiveSyncState() {
       if (delta > 12) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
+        showNotificationToast(syncToast);
         setTimeout(() => { isInternalSeeking = false; }, 600);
       }
     }
   }
-}
-
-function saveSessionLock(track, offsetSec = 0) {
-  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
-  const currentPos = video ? video.currentTime : offsetSec;
-  const sessionData = {
-    url: track.url,
-    startedAtMs: Date.now() - (currentPos * 1000)
-  };
-  try {
-    localStorage.setItem(SESSION_LOCK_KEY, JSON.stringify(sessionData));
-  } catch (e) {
-    /* Silent local storage quota handling */
+  
+  if (statusText && activeTrack.type) {
+    statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
   }
-}
-
-function getSessionLock() {
-  try {
-    const raw = localStorage.getItem(SESSION_LOCK_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch (e) {
-    return null;
+  if (statusOffset && video) {
+    statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
   }
-}
-
-function clearSessionLock() {
-  try {
-    localStorage.removeItem(SESSION_LOCK_KEY);
-  } catch (e) {}
-}
-
-function updateUIForTrack(track) {
-  const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
-  const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
-  if (nowTitle) nowTitle.innerText = `Playing Now: ${track.name}`;
-  if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${track.name}`;
 }
 
 function loadMediaSeamless(track, offset) {
@@ -317,6 +293,7 @@ function initPlayer(config) {
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
   
+  // Checks playlist every 15s without cache interference
   setInterval(fetchPlaylistUpdates, 15000);
 
   fetchPlaylistUpdates().then(() => {
@@ -333,9 +310,9 @@ function initPlayer(config) {
       }, 1000);
     }
 
+    // ON FINISH: Immediately triggers seamless pickup of video 2
     video.addEventListener("ended", () => {
       currentTrack = null;
-      clearSessionLock();
       calculateLiveSyncState();
     });
 

@@ -6,6 +6,7 @@ let globalConfig = null;
 let uiTimeout = null;
 let isInternalSeeking = false;
 let isSwitchingTrack = false;
+let autoRecoveryAttempts = 0;
 
 const PLAYLIST_JSON_URL = "./playlist.json"; 
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
@@ -24,11 +25,22 @@ async function fetchPlaylistUpdates() {
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
       
+      // If URLs were added/removed, force re-sync immediately without triggering error screen
+      if (currentTrack) {
+        const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
+        if (!trackStillExists) {
+          currentTrack = null; // Force media reload to new valid slot
+        }
+      }
+
       const conf = globalConfig;
       if (conf && document.getElementById(conf.scheduleListId)) {
         renderPlaylistUI(document.getElementById(conf.scheduleListId));
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
+
+      // Re-evaluate current slot dynamically after playlist array structural mutation
+      calculateLiveSyncState();
     }
   } catch (err) {
     console.error("Refresh log error:", err);
@@ -40,7 +52,7 @@ function generateAbsoluteTimeline() {
   
   SCHEDULE_TIMELINE = PLAYLIST.map(track => {
     const trackStartMs = runMs;
-    const trackEndMs = trackStartMs + (track.duration_seconds * 1000);
+    const trackEndMs = trackStartMs + ((track.duration_seconds || 30) * 1000);
     runMs = trackEndMs;
     return { 
       ...track, 
@@ -48,6 +60,150 @@ function generateAbsoluteTimeline() {
       endMs: trackEndMs 
     };
   });
+}
+
+function calculateLiveSyncState() {
+  if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack) return;
+
+  const nowMs = Date.now();
+  let totalDurationMs = 0;
+  PLAYLIST.forEach(t => {
+    totalDurationMs += ((t.duration_seconds || 30) * 1000);
+  });
+
+  if (totalDurationMs === 0) return;
+
+  const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+  const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
+  const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+
+  let activeTrack = null;
+  let trackSeekOffset = 0;
+  let activeIndex = 0;
+
+  for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
+    const track = SCHEDULE_TIMELINE[i];
+    if (targetVirtualTimeMs >= track.startMs && targetVirtualTimeMs < track.endMs) {
+      activeTrack = track;
+      trackSeekOffset = (targetVirtualTimeMs - track.startMs) / 1000;
+      activeIndex = i;
+      break;
+    }
+  }
+
+  // Fallback to first track if bounds calculation fails due to URL additions/deletions
+  if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
+    activeTrack = SCHEDULE_TIMELINE[0];
+    trackSeekOffset = 0;
+    activeIndex = 0;
+  }
+
+  if (!activeTrack) return;
+
+  updateUIHighlighter(activeIndex);
+
+  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
+  const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
+  const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
+  const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+  const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
+  const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
+
+  // Seamless track switch trigger
+  if (!currentTrack || currentTrack.url !== activeTrack.url) {
+    currentTrack = activeTrack;
+    if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
+    if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
+    
+    loadMediaSeamless(currentTrack, trackSeekOffset);
+  } else if (video) {
+    // Smooth time sync
+    if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
+      const delta = Math.abs(video.currentTime - trackSeekOffset);
+      if (delta > 8) {
+        isInternalSeeking = true;
+        video.currentTime = trackSeekOffset;
+        showNotificationToast(syncToast);
+        setTimeout(() => { isInternalSeeking = false; }, 600);
+      }
+    }
+  }
+  
+  if (statusText && activeTrack.type) {
+    statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
+  }
+  if (statusOffset && video) {
+    statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
+  }
+}
+
+function loadMediaSeamless(track, offset) {
+  if (!globalConfig) return;
+  
+  isSwitchingTrack = true;
+  const video = document.getElementById(globalConfig.videoId);
+  const loaderEl = document.getElementById(globalConfig.loaderId);
+  const errorEl = document.getElementById(globalConfig.errorId);
+  
+  if (loaderEl) loaderEl.classList.remove("hidden");
+  // Automatically hide error banner on new load attempt
+  if (errorEl) errorEl.classList.remove("show");
+
+  const isAlreadyPlaying = !video.paused;
+  const formatType = (track.type || '').toLowerCase();
+
+  const executeSeamlessPlay = () => {
+    isInternalSeeking = true;
+    video.currentTime = offset;
+
+    const playPromise = video.play();
+    if (playPromise !== undefined) {
+      playPromise.then(() => {
+        if (loaderEl) loaderEl.classList.add("hidden");
+        if (errorEl) errorEl.classList.remove("show");
+        autoRecoveryAttempts = 0; // Reset recovery counter on success
+      }).catch(err => {
+        handleAutoplayBlock();
+      });
+    }
+
+    setTimeout(() => { 
+      isInternalSeeking = false; 
+      isSwitchingTrack = false;
+    }, 500);
+  };
+
+  if ((formatType === 'm3u8' || formatType === 'hls') && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    if (!hlsInstance) {
+      hlsInstance = new Hls({
+        liveSyncDurationCount: 3,
+        maxBufferLength: 30,
+        enableWorker: true,
+        lowLatencyMode: true
+      });
+      hlsInstance.attachMedia(video);
+    } else {
+      hlsInstance.stopLoad();
+    }
+
+    const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
+    
+    hlsInstance.loadSource(track.url);
+    hlsInstance.once(manifestParsedEvent, () => {
+      executeSeamlessPlay();
+    });
+
+  } else {
+    if (hlsInstance) {
+      hlsInstance.destroy();
+      hlsInstance = null;
+    }
+
+    video.src = track.url;
+    video.addEventListener('loadedmetadata', () => {
+      executeSeamlessPlay();
+    }, { once: true });
+  }
 }
 
 function initPlayer(config) {
@@ -77,14 +233,9 @@ function initPlayer(config) {
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
   
-  setInterval(fetchPlaylistUpdates, 30000);
+  setInterval(fetchPlaylistUpdates, 15000);
 
   fetchPlaylistUpdates().then(() => {
-    const syncToast = document.getElementById(config.syncToastId);
-    const nowTitle = document.getElementById(config.nowTitleId);
-    const nowPlayingOverlay = document.getElementById(config.nowPlayingOverlayId);
-    const statusText = document.getElementById(config.statusTextId);
-    const statusOffset = document.getElementById(config.statusOffsetId);
     const btnPlay = document.getElementById(config.btnPlayId);
     const btnMute = document.getElementById(config.btnMuteId);
     const btnFullscreen = document.getElementById(config.btnFullscreenId);
@@ -98,173 +249,33 @@ function initPlayer(config) {
       }, 1000);
     }
 
-    function calculateLiveSyncState() {
-      if (SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack) return;
-
-      const nowMs = Date.now();
-      let totalDurationMs = 0;
-      PLAYLIST.forEach(t => {
-        totalDurationMs += (t.duration_seconds * 1000);
-      });
-
-      if (totalDurationMs === 0) return;
-
-      const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
-      const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
-      const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
-
-      let activeTrack = null;
-      let trackSeekOffset = 0;
-      let activeIndex = 0;
-
-      for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
-        const track = SCHEDULE_TIMELINE[i];
-        if (targetVirtualTimeMs >= track.startMs && targetVirtualTimeMs < track.endMs) {
-          activeTrack = track;
-          trackSeekOffset = (targetVirtualTimeMs - track.startMs) / 1000;
-          activeIndex = i;
-          break;
-        }
-      }
-
-      if (!activeTrack) return;
-
-      updateUIHighlighter(activeIndex);
-
-      // Seamless track switch trigger
-      if (!currentTrack || currentTrack.url !== activeTrack.url) {
-        currentTrack = activeTrack;
-        if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
-        if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
-        
-        loadMediaSeamless(currentTrack, trackSeekOffset);
-      } else {
-        // Prevent buffer stutter during healthy live video playback
-        if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
-          const delta = Math.abs(video.currentTime - trackSeekOffset);
-          // High tolerance window (8s) so natural playback isn't interrupted by sync checks
-          if (delta > 8) {
-            isInternalSeeking = true;
-            video.currentTime = trackSeekOffset;
-            showNotificationToast(syncToast);
-            setTimeout(() => { isInternalSeeking = false; }, 600);
-          }
-        }
-      }
-      
-      if (statusText) {
-        statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
-      }
-      if (statusOffset) {
-        statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
-      }
-    }
-
-    function loadMediaSeamless(track, offset) {
-      isSwitchingTrack = true;
-      const loaderEl = document.getElementById(config.loaderId);
-      const errorEl = document.getElementById(config.errorId);
-      
-      if (loaderEl) loaderEl.classList.remove("hidden");
-      if (errorEl) errorEl.classList.remove("show");
-
-      const isAlreadyPlaying = !video.paused;
-      const formatType = (track.type || '').toLowerCase();
-
-      // Callback executed when media is ready to be seamlessly handed off
-      const executeSeamlessPlay = () => {
-        isInternalSeeking = true;
-        video.currentTime = offset;
-
-        // Auto-resume continuous playback without requiring user input
-        if (isAlreadyPlaying || video.autoplay || true) {
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.then(() => {
-              if (loaderEl) loaderEl.classList.add("hidden");
-            }).catch(err => {
-              handleAutoplayBlock();
-            });
-          }
-        }
-
-        setTimeout(() => { 
-          isInternalSeeking = false; 
-          isSwitchingTrack = false;
-        }, 500);
-      };
-
-      if ((formatType === 'm3u8' || formatType === 'hls') && typeof Hls !== 'undefined' && Hls.isSupported()) {
-        if (!hlsInstance) {
-          hlsInstance = new Hls({
-            liveSyncDurationCount: 3,
-            maxBufferLength: 30,
-            enableWorker: true,
-            lowLatencyMode: true
-          });
-          hlsInstance.attachMedia(video);
-        } else {
-          hlsInstance.stopLoad();
-        }
-
-        const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
-        
-        hlsInstance.loadSource(track.url);
-        hlsInstance.once(manifestParsedEvent, () => {
-          executeSeamlessPlay();
-        });
-
-      } else {
-        // Direct MP4 / Native fallbacks
-        if (hlsInstance) {
-          hlsInstance.destroy();
-          hlsInstance = null;
-        }
-
-        video.src = track.url;
-        video.addEventListener('loadedmetadata', () => {
-          executeSeamlessPlay();
-        }, { once: true });
-      }
-    }
-
-    const forceLiveSync = () => {
-      if (!currentTrack || isInternalSeeking || isSwitchingTrack) return;
-      
-      const nMs = Date.now();
-      let tDurMs = 0;
-      PLAYLIST.forEach(t => {
-        tDurMs += (t.duration_seconds * 1000);
-      });
-      if (tDurMs === 0) return;
-
-      const bMs = new Date(BASE_ANCHOR_DATE).getTime();
-      const cMs = (nMs - bMs) % tDurMs;
-      const vTimeMs = bMs + cMs;
-      let tOffset = 0;
-
-      for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
-        const t = SCHEDULE_TIMELINE[i];
-        if (vTimeMs >= t.startMs && vTimeMs < t.endMs) {
-          tOffset = (vTimeMs - t.startMs) / 1000;
-          break;
-        }
-      }
-
-      const drift = Math.abs(video.currentTime - tOffset);
-      if (drift > 5) {
-        isInternalSeeking = true;
-        video.currentTime = tOffset;
-        showNotificationToast(syncToast);
-        setTimeout(() => { isInternalSeeking = false; }, 500);
-      }
-    };
-
-    video.addEventListener("seeking", forceLiveSync);
-
     // Auto-advance seamlessly when a discrete video track ends naturally
     video.addEventListener("ended", () => {
       calculateLiveSyncState();
+    });
+
+    // Auto-Recovery Error Interceptor
+    video.addEventListener("error", (e) => {
+      // Ignore temporary errors caused while actively swapping media sources
+      if (isSwitchingTrack) return;
+
+      console.warn("Media error caught. Attempting silent recovery...", e);
+      
+      const errorEl = document.getElementById(config.errorId);
+      
+      // Try to recover automatically up to 3 times before displaying error banner
+      if (autoRecoveryAttempts < 3) {
+        autoRecoveryAttempts++;
+        if (errorEl) errorEl.classList.remove("show");
+        
+        setTimeout(() => {
+          currentTrack = null; // Clear cached track to trigger a fresh rebuild
+          calculateLiveSyncState();
+        }, 1000);
+      } else {
+        // Display error banner only if multiple recovery attempts fail completely
+        if (errorEl) errorEl.classList.add("show");
+      }
     });
 
     function handlePlayToggle(e) {
@@ -315,7 +326,9 @@ function initPlayer(config) {
     
     video.addEventListener("playing", () => {
       const loaderEl = document.getElementById(config.loaderId);
+      const errorEl = document.getElementById(config.errorId);
       if (loaderEl) loaderEl.classList.add("hidden");
+      if (errorEl) errorEl.classList.remove("show");
     });
     
     video.addEventListener("waiting", () => {
@@ -324,23 +337,22 @@ function initPlayer(config) {
         if (loaderEl) loaderEl.classList.remove("hidden");
       }
     });
-    
-    video.addEventListener("error", () => {
-      const errorEl = document.getElementById(config.errorId);
-      if (errorEl) errorEl.classList.add("show");
-    });
 
-    function handleAutoplayBlock() {
-      video.muted = true;
-      btnMute.innerText = "🔇";
-      video.play().catch(e => console.warn("Autoplay block manual intervention needed:", e));
-    }
-
-    // Polling rate adjusted to 1000ms for accurate, immediate automated transitions
     setInterval(calculateLiveSyncState, 1000);
     calculateLiveSyncState();
     triggerUIReveal();
   });
+}
+
+function handleAutoplayBlock() {
+  if (!globalConfig) return;
+  const video = document.getElementById(globalConfig.videoId);
+  const btnMute = document.getElementById(globalConfig.btnMuteId);
+  if (video) {
+    video.muted = true;
+    if (btnMute) btnMute.innerText = "🔇";
+    video.play().catch(e => console.warn("Autoplay manual intervention needed:", e));
+  }
 }
 
 function renderPlaylistUI(container) {

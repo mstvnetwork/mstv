@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Linear TV Stream Platform</title>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<!-- ADD (cdnjs fallback): -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.8/hls.min.js"></script>
 
 <style>
 body {
@@ -25,52 +26,52 @@ body.public-mode .player-wrap {
     max-width: 100%;
     padding: 0;
 }
-
+/* --- UPDATED VIDEO CONTAINER --- */
 .video-container {
     position: relative;
     width: 100%;
     aspect-ratio: 16/9;
     background: #000;
     overflow: hidden;
+    /* Crucial: Establishes a container context so the logo can read its width */
+    container-type: inline-size; 
 }
 body.public-mode .video-container {
     width: 100vw;
     height: 100vh;
     aspect-ratio: auto;
+    /* Keeps the container context active in full-screen public mode */
+    container-type: inline-size; 
 }
 
-video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    pointer-events: auto; /* Ensures tapping video itself works */
-}
-    /* Transparent TV Channel Logo Style */
+/* --- UPDATED UNIFIED LOGO CLASS --- */
 .channel-logo {
     position: absolute;
-    top: 15px;
-    right: 15px;
-    width: auto;
-    height: 40px; /* Adjust height to match your logo asset scale */
-    max-width: 120px;
+    /* Adjust these percents to perfectly match your target placement */
+    top: 2.5cqw;    
+    right: 2.5cqw;  
+    
+    /* Removes standard height constraints and scales dynamically */
+    width: 18cqw;   /* The logo width will always occupy exactly 18% of the player's width */
+    height: auto;   /* Lets the height scale naturally based on the image's proportions */
+    
     object-fit: contain;
-    opacity: 0.6; /* Sets the watermark style transparency */
-    pointer-events: none; /* Prevents clicks from blocking player controls */
+    opacity: 0.8;   /* Slightly increased so the thin 'Entertainment Unlimited' text doesn't wash out over video */
+    pointer-events: none;
     z-index: 15;
-    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5)); /* Makes light logos readable over light scenes */
+    filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
 }
 
-/* Adjust size automatically on smaller mobile portrait views */
+/* --- COMPLETELY REMOVE OR DELETE THIS BLOCK --- */
+/* 
 @media (max-width: 600px) {
-    .channel-logo {
-        height: 25px;
-        top: 10px;
-        right: 10px;
-    }
-}
+    .channel-logo { ... }
+} 
+*/
 
 
-/* Transparent Text Box Overlay matching screenshot placement */
+
+
 .now-playing-overlay {
     position: absolute;
     top: 12px;
@@ -104,7 +105,6 @@ video {
 }
 .error.show { display: block; }
 
-/* Fixed Screenshot Aligned Bottom Controls Panel */
 .hls-controls-overlay {
     position: absolute;
     bottom: 20px;
@@ -112,17 +112,16 @@ video {
     right: 15px;
     display: flex;
     align-items: center;
-    justify-content: flex-start; /* Aligns items to the left */
+    justify-content: flex-start;
     gap: 15px;
     z-index: 20;
     opacity: 0;
-    pointer-events: none; /* Master layer doesn't steal touches */
+    pointer-events: none;
     transition: opacity 0.3s ease;
 }
 
-/* Force layout strip rules for the fullscreen button */
 .fullscreen-right-wrapper {
-    margin-left: auto; /* Pushes fullscreen icon to the far right side */
+    margin-left: auto;
     pointer-events: auto;
 }
 
@@ -130,7 +129,6 @@ video {
     opacity: 1;
 }
 
-/* Pro Circular Semi-Transparent Dark Buttons from screenshot */
 .control-btn {
     background: rgba(255, 255, 255, 0.2);
     border: none;
@@ -143,7 +141,7 @@ video {
     display: flex;
     align-items: center;
     justify-content: center;
-    pointer-events: auto; /* CRUCIAL: Forces mobile touch registration */
+    pointer-events: auto;
     -webkit-tap-highlight-color: transparent;
     transition: background 0.2s;
 }
@@ -175,6 +173,8 @@ body.public-mode .private-ui-block { display: none !important; }
     z-index: 100;
 }
 .toast.show { opacity: 1; }
+/* Force structural hiding when public mode is applied to body engine */
+body.public-mode .toast { display: none !important; opacity: 0 !important; }
 </style>
 </head>
 <body>
@@ -190,12 +190,10 @@ body.public-mode .private-ui-block { display: none !important; }
     <div id="videoContainer" class="video-container">
 
         <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
-        <!-- NEW: Transparent Channel Logo Element -->
-    <img id="channelLogo" class="channel-logo" src="https://cdn.jsdelivr.net/gh/mstvnetwork/mstv2/download.jpeg" alt="TV Logo">
- <video id="videoPlayer" playsinline></video>
- <div id="loader" class="loader">Loading...</div>
+        <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Apna TV Logo">
+        <video id="videoPlayer" playsinline></video>
+        <div id="loader" class="loader">Loading...</div>
 
-        <!-- Clean Control Interface without timelines or sliders -->
         <div class="hls-controls-overlay">
             <button id="btnPlay" class="control-btn">⏸</button>
             <button id="btnMute" class="control-btn">🔊</button>
@@ -218,11 +216,90 @@ body.public-mode .private-ui-block { display: none !important; }
 
 </div>
 
-<div id="syncToast" class="toast">Synced to live frame position</div>
-<div id="updateToast" class="toast">Station playlist updated</div>
-
 <script src="./player.js"></script>
 <script>
+// Auto-detect public mode parameter early
+const isPublicMode = window.location.search.includes('mode=public');
+if (isPublicMode) {
+    document.body.classList.add('public-mode');
+}
+
+// CORS & Smooth Playback Patch Core
+(function patchVideoEngine() {
+    const videoElement = document.getElementById('videoPlayer');
+    if (!videoElement) return;
+
+    // Fixed: Autoplay fallback without forcing aggressive pause/play stutter loops
+    videoElement.addEventListener('canplay', function() {
+        if (videoElement.paused) {
+            videoElement.play().catch(() => {
+                videoElement.muted = true;
+                videoElement.play();
+                const muteBtn = document.getElementById('btnMute');
+                if (muteBtn) muteBtn.innerText = "🔇";
+            });
+        }
+    }, { once: true });
+
+    // CORS Interception Architecture
+    Object.defineProperty(videoElement, 'src', {
+        set: function(url) {
+            if (typeof url === 'string' && url.includes('.mp4')) {
+                if (window.hlsInstance) {
+                    window.hlsInstance.destroy();
+                    window.hlsInstance = null;
+                }
+                this.setAttribute('src', url);
+            } else {
+                this.setAttribute('src', url);
+            }
+        },
+        get: function() {
+            return this.getAttribute('src');
+        }
+    });
+
+    const OriginalHls = window.Hls;
+    if (OriginalHls) {
+        window.Hls = function(config) {
+            const instance = new OriginalHls(config);
+            window.hlsInstance = instance;
+            
+            const originalLoadSource = instance.loadSource;
+            instance.loadSource = function(source) {
+                if (source.includes('.mp4')) {
+                    videoElement.src = source;
+                    const loader = document.getElementById('loader');
+                    if (loader) loader.classList.add('hidden');
+                    return;
+                }
+                originalLoadSource.apply(this, arguments);
+            };
+            return instance;
+        };
+
+        // Transfer all static properties (including Events) to prevent undefined errors
+        Object.assign(window.Hls, OriginalHls);
+        window.Hls.prototype = OriginalHls.prototype;
+    }
+
+    // Completely block Toast notifications if mode=public is active
+    if (isPublicMode) {
+        const blockToastElement = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            Object.defineProperty(el, 'className', {
+                set: function() { /* Intercept and drop showing assignments */ },
+                get: function() { return 'toast'; }
+            });
+            el.style.display = 'none';
+        };
+        blockToastElement('syncToast');
+        blockToastElement('updateToast');
+    }
+})();
+
+// Platform player engine runtime execution
 initPlayer({
     videoId: 'videoPlayer',
     videoContainerId: 'videoContainer',
@@ -243,8 +320,3 @@ initPlayer({
     clockDateId: 'clockDate'
 });
 </script>
-
-</body>
-</html>
-
-

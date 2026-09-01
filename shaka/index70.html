@@ -261,9 +261,6 @@ body.public-mode .toast { display: none !important; opacity: 0 !important; }
 
 </div>
 
-<div id="syncToast" class="toast">Synced to live frame position</div>
-<div id="updateToast" class="toast">Station playlist updated</div>
-
 <script src="./player.js"></script>
 <script>
 const isPublicMode = window.location.search.includes('mode=public');
@@ -271,6 +268,13 @@ if (isPublicMode) {
     document.body.classList.add('public-mode');
 }
 
+// Clean text modification for the overlay layout element
+const playingOverlay = document.getElementById('nowPlayingOverlay');
+if (playingOverlay) {
+    playingOverlay.innerText = "Now: Connecting...";
+}
+
+// CORS, Smooth Playback, and Event Namespace Patch
 (function patchVideoEngine() {
     const videoElement = document.getElementById('videoPlayer');
     const containerElement = document.getElementById('videoContainer');
@@ -316,7 +320,8 @@ if (isPublicMode) {
 
     const OriginalHls = window.Hls;
     if (OriginalHls) {
-        window.Hls = function(config) {
+        // Wrapper Constructor
+        const HlsWrapper = function(config) {
             const instance = new OriginalHls(config);
             window.hlsInstance = instance;
             
@@ -332,8 +337,14 @@ if (isPublicMode) {
             };
             return instance;
         };
-        window.Hls.prototype = OriginalHls.prototype;
-        window.Hls.isSupported = OriginalHls.isSupported;
+
+        // CRITICAL FIX: Explicitly copy over all static namespaces, variables, and Events constants 
+        Object.assign(HlsWrapper, OriginalHls);
+        HlsWrapper.prototype = OriginalHls.prototype;
+        HlsWrapper.isSupported = OriginalHls.isSupported;
+        
+        // Re-assign back to the global layer
+        window.Hls = HlsWrapper;
     }
 
     if (isPublicMode) {
@@ -350,8 +361,8 @@ if (isPublicMode) {
         blockToastElement('updateToast');
     }
 })();
-// ... previous code above ...
 
+// Platform player engine runtime execution
 initPlayer({
     videoId: 'videoPlayer',
     videoContainerId: 'videoContainer',
@@ -372,7 +383,3 @@ initPlayer({
     clockDateId: 'clockDate'
 });
 </script>
-
-</body>
-</html>
-

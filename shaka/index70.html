@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Linear TV Stream Platform</title>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://jsdelivr.net"></script>
 
 <style>
 body {
@@ -45,7 +45,6 @@ video {
     object-fit: contain;
     pointer-events: auto;
 }
-
 .channel-logo {
     position: absolute;
     top: 15px;
@@ -80,62 +79,17 @@ video {
     z-index: 15;
 }
 
-/* Centered Interactive Media Core Controller Area */
-.center-hud-container {
+.loader {
     position: absolute;
     inset: 0;
     display: flex;
-    flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    z-index: 10;
+    background: rgba(0,0,0,0.6);
+    z-index: 5;
     pointer-events: none;
 }
-
-/* Large Center Action Button styling */
-.center-btn-play {
-    background: rgba(0, 0, 0, 0.6);
-    border: 2px solid rgba(255, 255, 255, 0.8);
-    color: #fff;
-    font-size: 28px;
-    cursor: pointer;
-    width: 70px;
-    height: 70px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    pointer-events: auto;
-    transition: transform 0.2s, background-color 0.2s, opacity 0.3s;
-    box-shadow: 0 4px 10px rgba(0,0,0,0.5);
-}
-.center-btn-play:active {
-    transform: scale(0.92);
-    background: rgba(255, 255, 255, 0.3);
-}
-
-/* Hide play button smoothly when actively streaming video content */
-.video-container.playing .center-btn-play {
-    opacity: 0;
-    pointer-events: none;
-}
-
-/* Centered Text Loader under Action Button */
-.loader {
-    color: #fff;
-    font-size: 14px;
-    font-weight: bold;
-    text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
-    background: rgba(0, 0, 0, 0.5);
-    padding: 6px 14px;
-    border-radius: 20px;
-    pointer-events: none;
-    transition: opacity 0.2s;
-}
-.loader.hidden { 
-    opacity: 0; 
-}
+.loader.hidden { display: none; }
 
 .error {
     display: none;
@@ -146,7 +100,6 @@ video {
 }
 .error.show { display: block; }
 
-/* Modified Bottom Controls Strip */
 .hls-controls-overlay {
     position: absolute;
     bottom: 20px;
@@ -215,6 +168,7 @@ body.public-mode .private-ui-block { display: none !important; }
     z-index: 100;
 }
 .toast.show { opacity: 1; }
+/* Force structural hiding when public mode is applied to body engine */
 body.public-mode .toast { display: none !important; opacity: 0 !important; }
 </style>
 </head>
@@ -230,19 +184,15 @@ body.public-mode .toast { display: none !important; opacity: 0 !important; }
 
     <div id="videoContainer" class="video-container">
 
-        <div id="nowPlayingOverlay" class="now-playing-overlay">Now: Connecting...</div>
-        <img id="channelLogo" class="channel-logo" src="https://cdn.jsdelivr.net/gh/mstvnetwork/mstv2/apna.webp" alt="Apna TV Logo">
+        <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
+        <img id="channelLogo" class="channel-logo" src="https://jsdelivr.net" alt="Apna TV Logo">
         <video id="videoPlayer" playsinline></video>
-        
-        <!-- Central Interface Block housing the play button and loader stacked underneath -->
-        <div class="center-hud-container">
-            <button id="btnPlay" class="center-btn-play">⏸</button>
-            <div id="loader" class="loader">Loading...</div>
-        </div>
+        <div id="loader" class="loader">Loading...</div>
 
-        <!-- Leftover side controls setup -->
         <div class="hls-controls-overlay">
+            <button id="btnPlay" class="control-btn">⏸</button>
             <button id="btnMute" class="control-btn">🔊</button>
+            
             <div class="fullscreen-right-wrapper">
                 <button id="btnFullscreen" class="control-btn">⛶</button>
             </div>
@@ -261,46 +211,43 @@ body.public-mode .toast { display: none !important; opacity: 0 !important; }
 
 </div>
 
+<div id="syncToast" class="toast">Synced to live frame position</div>
+<div id="updateToast" class="toast">Station playlist updated</div>
+
 <script src="./player.js"></script>
 <script>
+// Auto-detect public mode parameter early
 const isPublicMode = window.location.search.includes('mode=public');
 if (isPublicMode) {
     document.body.classList.add('public-mode');
 }
 
-// Clean text modification for the overlay layout element
-const playingOverlay = document.getElementById('nowPlayingOverlay');
-if (playingOverlay) {
-    playingOverlay.innerText = "Now: Connecting...";
-}
-
-// CORS, Smooth Playback, and Event Namespace Patch
+// CORS & Smooth Playback Patch Core
 (function patchVideoEngine() {
     const videoElement = document.getElementById('videoPlayer');
-    const containerElement = document.getElementById('videoContainer');
-    if (!videoElement || !containerElement) return;
+    if (!videoElement) return;
 
-    // Monitor engine play status state transitions to handle showing/hiding center UI
-    videoElement.addEventListener('play', () => containerElement.classList.add('playing'));
-    videoElement.addEventListener('playing', () => containerElement.classList.add('playing'));
-    videoElement.addEventListener('pause', () => containerElement.classList.remove('playing'));
-
+    // Fix Initial Playback Choppiness (Smooth Startup Sequence)
     videoElement.addEventListener('canplay', function() {
+        // Trigger a tiny pause/play kick to force-prime the media buffer smoothly
         setTimeout(() => {
             if (videoElement.paused) {
                 videoElement.play().catch(() => {
+                    // Handle browser autoplay blocks silently via auto-mute fallback
                     videoElement.muted = true;
                     videoElement.play();
                     const muteBtn = document.getElementById('btnMute');
                     if (muteBtn) muteBtn.innerText = "🔇";
                 });
             } else {
+                // Instantly sync buffers like a manual button cycle would
                 videoElement.pause();
                 videoElement.play().catch(e => console.log("Smooth sync handshake error:", e));
             }
         }, 150);
     }, { once: true });
 
+    // CORS Interception Architecture
     Object.defineProperty(videoElement, 'src', {
         set: function(url) {
             if (typeof url === 'string' && url.includes('.mp4')) {
@@ -320,8 +267,7 @@ if (playingOverlay) {
 
     const OriginalHls = window.Hls;
     if (OriginalHls) {
-        // Wrapper Constructor
-        const HlsWrapper = function(config) {
+        window.Hls = function(config) {
             const instance = new OriginalHls(config);
             window.hlsInstance = instance;
             
@@ -337,22 +283,17 @@ if (playingOverlay) {
             };
             return instance;
         };
-
-        // CRITICAL FIX: Explicitly copy over all static namespaces, variables, and Events constants 
-        Object.assign(HlsWrapper, OriginalHls);
-        HlsWrapper.prototype = OriginalHls.prototype;
-        HlsWrapper.isSupported = OriginalHls.isSupported;
-        
-        // Re-assign back to the global layer
-        window.Hls = HlsWrapper;
+        window.Hls.prototype = OriginalHls.prototype;
+        window.Hls.isSupported = OriginalHls.isSupported;
     }
 
+    // Completely block Toast notifications if mode=public is active
     if (isPublicMode) {
         const blockToastElement = (id) => {
             const el = document.getElementById(id);
             if (!el) return;
             Object.defineProperty(el, 'className', {
-                set: function() { },
+                set: function() { /* Intercept and drop showing assignments */ },
                 get: function() { return 'toast'; }
             });
             el.style.display = 'none';
@@ -383,3 +324,6 @@ initPlayer({
     clockDateId: 'clockDate'
 });
 </script>
+
+</body>
+</html>

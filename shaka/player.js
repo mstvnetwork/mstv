@@ -25,6 +25,7 @@ async function fetchPlaylistUpdates() {
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
       
+      // If active track was removed from JSON, force a slot re-calculation
       if (currentTrack) {
         const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
         if (!trackStillExists) {
@@ -89,6 +90,7 @@ function calculateLiveSyncState() {
     }
   }
 
+  // Fallback to first item if time calculations drop out of bounds
   if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
     activeTrack = SCHEDULE_TIMELINE[0];
     trackSeekOffset = 0;
@@ -147,7 +149,10 @@ function loadMediaSeamless(track, offset) {
 
   const executeSeamlessPlay = () => {
     isInternalSeeking = true;
-    video.currentTime = offset;
+
+    if (Number.isFinite(offset) && offset >= 0) {
+      video.currentTime = offset;
+    }
 
     const playPromise = video.play();
     if (playPromise !== undefined) {
@@ -170,26 +175,58 @@ function loadMediaSeamless(track, offset) {
     }, 500);
   };
 
-  if ((formatType === 'm3u8' || formatType === 'hls') && typeof Hls !== 'undefined' && Hls.isSupported()) {
-    if (!hlsInstance) {
-      hlsInstance = new Hls({
-        liveSyncDurationCount: 3,
-        maxBufferLength: 30,
-        enableWorker: true,
-        lowLatencyMode: true
-      });
-      hlsInstance.attachMedia(video);
-    } else {
-      hlsInstance.stopLoad();
+  if (formatType === 'm3u8' || formatType === 'hls') {
+    if (typeof Hls === 'undefined') {
+      console.error("HLS.js library missing. Verify CDN script tag in index.html.");
+      if (errorEl) errorEl.classList.add("show");
+      isSwitchingTrack = false;
+      return;
     }
 
-    const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
-    
-    hlsInstance.loadSource(track.url);
-    hlsInstance.once(manifestParsedEvent, () => {
-      executeSeamlessPlay();
-    });
+    if (Hls.isSupported()) {
+      if (!hlsInstance) {
+        hlsInstance = new Hls({
+          liveSyncDurationCount: 3,
+          maxBufferLength: 30,
+          enableWorker: true,
+          lowLatencyMode: true
+        });
+        hlsInstance.attachMedia(video);
 
+        hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            console.warn("Fatal HLS error, attempting recovery:", data.type);
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                hlsInstance.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                hlsInstance.recoverMediaError();
+                break;
+              default:
+                hlsInstance.destroy();
+                hlsInstance = null;
+                break;
+            }
+          }
+        });
+      } else {
+        hlsInstance.stopLoad();
+      }
+
+      const manifestParsedEvent = Hls.Events ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
+      
+      hlsInstance.loadSource(track.url);
+      hlsInstance.once(manifestParsedEvent, () => {
+        executeSeamlessPlay();
+      });
+
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = track.url;
+      video.addEventListener('loadedmetadata', () => {
+        executeSeamlessPlay();
+      }, { once: true });
+    }
   } else {
     if (hlsInstance) {
       hlsInstance.destroy();

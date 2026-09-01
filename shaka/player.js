@@ -12,15 +12,13 @@ let autoRecoveryAttempts = 0;
 const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-const MAX_ALLOWED_DRIFT_SEC = 2.0;
-const SYNC_CHECK_INTERVAL_MS = 1000;
+// Strict low-tolerance drift threshold (0.5 seconds)
+const MAX_ALLOWED_DRIFT_SEC = 0.5;
+const SYNC_CHECK_INTERVAL_MS = 250; // High frequency sync check (4x per sec)
 
 /**
  * Normalizes a playlist array to only the fields that matter for playback
- * scheduling. This prevents false-positive "playlist changed" detections
- * caused by incidental JSON differences (key order, whitespace, extra
- * metadata fields, CDN response variance) that don't actually affect what
- * should be playing.
+ * scheduling.
  */
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
@@ -34,11 +32,10 @@ function normalizePlaylistForCompare(list) {
 }
 
 async function fetchPlaylistUpdates() {
-  if (document.hidden) return; // Prevent background network requests when tab is inactive
+  if (document.hidden) return;
 
   try {
     const tStamp = Date.now();
-    // Aggressive cache busting for GitHub Pages and browser edge caches
     const res = await fetch(`${PLAYLIST_JSON_URL}?cb=${tStamp}`, {
       cache: "no-store",
       headers: {
@@ -58,11 +55,6 @@ async function fetchPlaylistUpdates() {
       const conf = globalConfig;
       const video = conf ? document.getElementById(conf.videoId) : null;
 
-      // Snapshot whether something is actively, healthily playing BEFORE
-      // we mutate PLAYLIST / rebuild the timeline. If so, we won't force
-      // a resync below — the existing 1s interval loop will handle it
-      // via calculateLiveSyncState()'s own immunity check, without
-      // interrupting playback.
       const wasActivelyPlaying =
         video && !video.paused && !video.ended && video.readyState >= 2 && currentTrack;
 
@@ -99,12 +91,10 @@ function generateAbsoluteTimeline() {
 }
 
 function calculateLiveSyncState() {
-  // Halt calculations if page is hidden, or if media is currently loading/switching
   if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
 
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
-  // Active Playback Immunity: Let current video finish playing cleanly without cuts
   if (video && !video.paused && video.readyState >= 2 && currentTrack) {
     const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
@@ -167,11 +157,11 @@ function calculateLiveSyncState() {
   } else if (video) {
     if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
       const delta = Math.abs(video.currentTime - trackSeekOffset);
-      if (delta > 15) {
+      if (delta > MAX_ALLOWED_DRIFT_SEC) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
-        setTimeout(() => { isInternalSeeking = false; }, 800);
+        setTimeout(() => { isInternalSeeking = false; }, 400);
       }
     }
   }
@@ -189,9 +179,6 @@ function loadMediaSeamless(track, offset) {
 
   const video = document.getElementById(globalConfig.videoId);
 
-  // Guard against redundant reloads: if this exact track URL is already
-  // the active <video> source and it's healthy/playing, don't touch
-  // video.src / HLS again — just resync bookkeeping and bail out.
   if (video && video.currentSrc && track.url && video.currentSrc.indexOf(track.url) !== -1 &&
       !video.paused && !video.ended && video.readyState >= 2) {
     currentTrack = track;
@@ -345,7 +332,6 @@ function initPlayer(config) {
   container.addEventListener('click', triggerUIReveal);
   container.addEventListener('touchstart', triggerUIReveal, { passive: true });
 
-  // Tab wake-up handler via Page Visibility API
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
       isMediaLoading = false;
@@ -475,84 +461,86 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // --- Live Drift Check Engine ---
+    // Helper: Gets absolute current live seek target
+    function getLivePosition() {
+      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
+      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+      if (!liveTrack) return null;
+
+      const nowMs = Date.now();
+      const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
+      let totalDurationMs = 0;
+      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+      if (totalDurationMs === 0) return null;
+
+      const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
+      const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+
+      if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
+        return (targetVirtualTimeMs - liveTrack.startMs) / 1000;
+      }
+      return null;
+    }
+
+    // --- High Frequency Aggressive Sync Engine ---
     function syncEngine() {
       if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
 
       const trackType = (currentTrack.type || '').toLowerCase();
       if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
-        const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
-        if (!liveTrack) return;
+        const livePos = getLivePosition();
+        if (livePos === null) return;
 
-        const nowMs = Date.now();
-        const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
-        let totalDurationMs = 0;
-        PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
-        if (totalDurationMs === 0) return;
+        const drift = Math.abs(video.currentTime - livePos);
+        if (drift > MAX_ALLOWED_DRIFT_SEC && !isInternalSeeking) {
+          isInternalSeeking = true;
+          video.style.opacity = '0'; // Hide video during seek to stop visual leak
+          video.currentTime = livePos;
 
-        const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
-        const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+          video.addEventListener("seeked", function releaseFlag() {
+            video.style.opacity = '1'; // Restore video display once seeked
+            isInternalSeeking = false;
+            video.removeEventListener("seeked", releaseFlag);
+          }, { once: true });
+        }
 
-        if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
-          const seekPosition = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
-          const drift = Math.abs(video.currentTime - seekPosition);
-
-          if (drift > MAX_ALLOWED_DRIFT_SEC && !isInternalSeeking) {
-            isInternalSeeking = true;
-            video.currentTime = seekPosition;
-            video.addEventListener("seeked", function releaseFlag() {
-              isInternalSeeking = false;
-              video.removeEventListener("seeked", releaseFlag);
-            }, { once: true });
-          }
-
-          if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
-            video.play().catch(() => {});
-          }
+        if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
+          video.play().catch(() => {});
         }
       }
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- Anti-Bypass Seeking Revert Logic ---
+    // --- Instant Anti-Bypass Seeking Revert (Zero Flashback) ---
     video.addEventListener("seeking", () => {
       if (isInternalSeeking || isSwitchingTrack || isMediaLoading) return;
-      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return;
 
-      const trackType = (currentTrack.type || '').toLowerCase();
+      const trackType = (currentTrack ? currentTrack.type : '').toLowerCase();
       if (trackType === 'mp4' || trackType === 'm3u8' || trackType === 'hls') {
-        const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
-        if (!liveTrack) return;
+        const livePos = getLivePosition();
+        if (livePos === null) return;
 
-        const nowMs = Date.now();
-        const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
-        let totalDurationMs = 0;
-        PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
-        if (totalDurationMs === 0) return;
+        const drift = Math.abs(video.currentTime - livePos);
+        if (drift > MAX_ALLOWED_DRIFT_SEC) {
+          // Instant Visual Lockout: Prevent rendering frame flash
+          video.style.opacity = '0';
+          isInternalSeeking = true;
+          video.currentTime = livePos;
 
-        const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
-        const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
+          video.addEventListener("seeked", function releaseFlag() {
+            video.style.opacity = '1';
+            isInternalSeeking = false;
+            video.removeEventListener("seeked", releaseFlag);
+          }, { once: true });
 
-        if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
-          const seekPosition = (targetVirtualTimeMs - liveTrack.startMs) / 1000;
-          const drift = Math.abs(video.currentTime - seekPosition);
-
-          if (drift > MAX_ALLOWED_DRIFT_SEC) {
-            isInternalSeeking = true;
-            video.currentTime = seekPosition;
-            video.addEventListener("seeked", function releaseFlag() {
-              isInternalSeeking = false;
-              video.removeEventListener("seeked", releaseFlag);
-            }, { once: true });
-
-            const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
-            showNotificationToast(syncToast);
-          }
+          const syncToast = globalConfig ? document.getElementById(globalConfig.syncToastId) : null;
+          showNotificationToast(syncToast);
         }
       }
     });
 
     video.addEventListener("playing", () => {
+      video.style.opacity = '1';
       const loaderEl = document.getElementById(config.loaderId);
       const errorEl = document.getElementById(config.errorId);
       if (loaderEl) loaderEl.classList.add("hidden");

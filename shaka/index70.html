@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Linear TV Stream Platform</title>
 
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://jsdelivr.net"></script>
 
 <style>
 body {
@@ -168,6 +168,8 @@ body.public-mode .private-ui-block { display: none !important; }
     z-index: 100;
 }
 .toast.show { opacity: 1; }
+/* Force structural hiding when public mode is applied to body engine */
+body.public-mode .toast { display: none !important; opacity: 0 !important; }
 </style>
 </head>
 <body>
@@ -183,8 +185,7 @@ body.public-mode .private-ui-block { display: none !important; }
     <div id="videoContainer" class="video-container">
 
         <div id="nowPlayingOverlay" class="now-playing-overlay">Now Playing: Connecting...</div>
-        <!-- APNA TV Brand Watermark Asset -->
-        <img id="channelLogo" class="channel-logo" src="https://cdn.jsdelivr.net/gh/mstvnetwork/mstv2/download.jpeg" alt="Apna TV Logo">
+        <img id="channelLogo" class="channel-logo" src="https://jsdelivr.net" alt="Apna TV Logo">
         <video id="videoPlayer" playsinline></video>
         <div id="loader" class="loader">Loading...</div>
 
@@ -215,16 +216,41 @@ body.public-mode .private-ui-block { display: none !important; }
 
 <script src="./player.js"></script>
 <script>
-// CORS Fix: Overrides video element assignments to intercept .mp4 extensions
-(function patchVideoSrc() {
+// Auto-detect public mode parameter early
+const isPublicMode = window.location.search.includes('mode=public');
+if (isPublicMode) {
+    document.body.classList.add('public-mode');
+}
+
+// CORS & Smooth Playback Patch Core
+(function patchVideoEngine() {
     const videoElement = document.getElementById('videoPlayer');
     if (!videoElement) return;
 
-    // Intercept manual src assignments handled by your player JS engine
+    // Fix Initial Playback Choppiness (Smooth Startup Sequence)
+    videoElement.addEventListener('canplay', function() {
+        // Trigger a tiny pause/play kick to force-prime the media buffer smoothly
+        setTimeout(() => {
+            if (videoElement.paused) {
+                videoElement.play().catch(() => {
+                    // Handle browser autoplay blocks silently via auto-mute fallback
+                    videoElement.muted = true;
+                    videoElement.play();
+                    const muteBtn = document.getElementById('btnMute');
+                    if (muteBtn) muteBtn.innerText = "🔇";
+                });
+            } else {
+                // Instantly sync buffers like a manual button cycle would
+                videoElement.pause();
+                videoElement.play().catch(e => console.log("Smooth sync handshake error:", e));
+            }
+        }, 150);
+    }, { once: true });
+
+    // CORS Interception Architecture
     Object.defineProperty(videoElement, 'src', {
         set: function(url) {
             if (typeof url === 'string' && url.includes('.mp4')) {
-                // Terminate active HLS streaming core pipelines if running
                 if (window.hlsInstance) {
                     window.hlsInstance.destroy();
                     window.hlsInstance = null;
@@ -239,7 +265,6 @@ body.public-mode .private-ui-block { display: none !important; }
         }
     });
 
-    // Intercept Hls.js instance setups to catch cross-origin requests before they run
     const OriginalHls = window.Hls;
     if (OriginalHls) {
         window.Hls = function(config) {
@@ -249,9 +274,7 @@ body.public-mode .private-ui-block { display: none !important; }
             const originalLoadSource = instance.loadSource;
             instance.loadSource = function(source) {
                 if (source.includes('.mp4')) {
-                    // Force the browser to render standard elements natively
                     videoElement.src = source;
-                    // Trigger custom loader suppression if defined in player.js
                     const loader = document.getElementById('loader');
                     if (loader) loader.classList.add('hidden');
                     return;
@@ -260,13 +283,27 @@ body.public-mode .private-ui-block { display: none !important; }
             };
             return instance;
         };
-        // Re-copy prototype methods across the intercept wrapper
         window.Hls.prototype = OriginalHls.prototype;
         window.Hls.isSupported = OriginalHls.isSupported;
     }
+
+    // Completely block Toast notifications if mode=public is active
+    if (isPublicMode) {
+        const blockToastElement = (id) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            Object.defineProperty(el, 'className', {
+                set: function() { /* Intercept and drop showing assignments */ },
+                get: function() { return 'toast'; }
+            });
+            el.style.display = 'none';
+        };
+        blockToastElement('syncToast');
+        blockToastElement('updateToast');
+    }
 })();
 
-// Native layout init call sequence
+// Platform player engine runtime execution
 initPlayer({
     videoId: 'videoPlayer',
     videoContainerId: 'videoContainer',

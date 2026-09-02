@@ -9,18 +9,19 @@ let isSwitchingTrack = false;
 let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
-// Snapshot of the timeline that was active when the current track started.
-// Live sync math always reads from this, never from a freshly-rebuilt
-// SCHEDULE_TIMELINE, so playlist edits never shift the currently playing
-// track's position mid-playback.
-let ACTIVE_SYNC_TIMELINE = [];
-let pendingTimelineSwap = false;
-
-const PLAYLIST_JSON_URL = "./playlist2.json";
+const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold matching original snippet efficiency
+const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold for normal small-drift correction
 const SYNC_CHECK_INTERVAL_MS = 500;
+
+// --- Option 2: Hard cap on correction size ---
+// If a playlist edit causes the "correct" live position to differ from
+// where we currently are by more than this many seconds, we DO NOT jump
+// there. We keep playing uninterrupted and just keep re-checking every
+// tick until the natural passage of time (or the track ending) brings the
+// delta back under the cap, or the track changes naturally.
+const MAX_CORRECTION_JUMP_SEC = 120; // 2 minutes hard cap
 
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
@@ -55,10 +56,6 @@ async function fetchPlaylistUpdates() {
 
     if (d1 !== d2) {
       const conf = globalConfig;
-      const video = conf ? document.getElementById(conf.videoId) : null;
-
-      const wasActivelyPlaying =
-        video && !video.paused && !video.ended && currentTrack;
 
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
@@ -68,16 +65,10 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      if (wasActivelyPlaying) {
-        // Defer adopting the new timeline for sync purposes until the
-        // current track naturally changes (ends / disappears). This is
-        // what prevents the currently playing video from jumping.
-        pendingTimelineSwap = true;
-      } else {
-        ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
-        pendingTimelineSwap = false;
-        calculateLiveSyncState();
-      }
+      // Always live: recalculate immediately. Whether this results in a
+      // visible correction or not is governed by the capped-jump logic
+      // inside calculateLiveSyncState / syncEngine, not here.
+      calculateLiveSyncState();
     }
   } catch (err) {
     console.error("Refresh log error:", err);
@@ -97,52 +88,21 @@ function generateAbsoluteTimeline() {
       endMs: trackEndMs
     };
   });
-
-  if (ACTIVE_SYNC_TIMELINE.length === 0) {
-    ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
-  }
 }
 
-function calculateLiveSyncState() {
-  if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
-
-  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
-
-  // Guard purely on currentTrack existing in ACTIVE_SYNC_TIMELINE and not
-  // having ended. Deliberately NOT gated on video.readyState >= 2 — a brief
-  // buffering dip must never cause this to fall through and trigger a
-  // pending-timeline swap / reselect while the track is still legitimately
-  // playing. That was the source of the jump.
-  if (video && !video.paused && !video.ended && currentTrack) {
-    const trackStillExists = ACTIVE_SYNC_TIMELINE.some(t => t.url === currentTrack.url);
-    if (trackStillExists) {
-      const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
-      if (statusOffset && video.readyState >= 2) {
-        statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${currentTrack.duration_seconds}s`;
-      }
-      return;
-    }
-    // Current track no longer exists in the active timeline (removed) —
-    // fall through so a new valid track gets selected below.
-  }
-
-  // Safe point to adopt a pending playlist swap: either nothing is
-  // currently playing, the video paused/ended, or the previous active
-  // track is gone entirely.
-  if (pendingTimelineSwap) {
-    ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
-    pendingTimelineSwap = false;
-  }
-
-  const timelineForCalc = ACTIVE_SYNC_TIMELINE;
+// Computes what the live schedule currently says should be playing.
+// Pure function of Date.now() and the live SCHEDULE_TIMELINE/PLAYLIST —
+// always reflects the latest playlist.json, per Option B.
+function computeLiveTarget() {
+  if (SCHEDULE_TIMELINE.length === 0) return null;
 
   const nowMs = Date.now();
   let totalDurationMs = 0;
-  timelineForCalc.forEach(t => {
+  PLAYLIST.forEach(t => {
     totalDurationMs += ((t.duration_seconds || 30) * 1000);
   });
 
-  if (totalDurationMs === 0) return;
+  if (totalDurationMs === 0) return null;
 
   const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
   const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
@@ -152,8 +112,8 @@ function calculateLiveSyncState() {
   let trackSeekOffset = 0;
   let activeIndex = 0;
 
-  for (let i = 0; i < timelineForCalc.length; i++) {
-    const track = timelineForCalc[i];
+  for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
+    const track = SCHEDULE_TIMELINE[i];
     if (targetVirtualTimeMs >= track.startMs && targetVirtualTimeMs < track.endMs) {
       activeTrack = track;
       trackSeekOffset = (targetVirtualTimeMs - track.startMs) / 1000;
@@ -162,16 +122,25 @@ function calculateLiveSyncState() {
     }
   }
 
-  if (!activeTrack && timelineForCalc.length > 0) {
-    activeTrack = timelineForCalc[0];
+  if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
+    activeTrack = SCHEDULE_TIMELINE[0];
     trackSeekOffset = 0;
     activeIndex = 0;
   }
 
-  if (!activeTrack) return;
+  if (!activeTrack) return null;
 
-  const uiIndex = SCHEDULE_TIMELINE.findIndex(t => t.url === activeTrack.url);
-  updateUIHighlighter(uiIndex >= 0 ? uiIndex : activeIndex);
+  return { activeTrack, trackSeekOffset, activeIndex };
+}
+
+function calculateLiveSyncState() {
+  if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
+
+  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
+  const target = computeLiveTarget();
+  if (!target) return;
+
+  const { activeTrack, trackSeekOffset, activeIndex } = target;
 
   const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
   const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
@@ -179,29 +148,78 @@ function calculateLiveSyncState() {
   const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
   const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
 
-  if (!currentTrack || currentTrack.url !== activeTrack.url) {
-    currentTrack = activeTrack;
-    if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
-    if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
+  // Case 1: currently playing the same track the live schedule says should
+  // be playing. Handle in-track drift with the capped-jump rule.
+  if (currentTrack && currentTrack.url === activeTrack.url) {
+    if (video && video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
+      const delta = trackSeekOffset - video.currentTime;
+      const absDelta = Math.abs(delta);
 
-    loadMediaSeamless(currentTrack, trackSeekOffset);
-  } else if (video) {
-    if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
-      const delta = Math.abs(video.currentTime - trackSeekOffset);
-      if (delta > 15) {
+      if (absDelta > MAX_CORRECTION_JUMP_SEC) {
+        // Correction would exceed the hard cap (e.g. a big playlist edit
+        // shifted this track's position a lot). Do NOT jump. Keep playing
+        // uninterrupted; we'll keep re-checking every tick and only ever
+        // correct once the required delta naturally shrinks under the cap,
+        // or the track changes.
+      } else if (absDelta > 15) {
+        // Normal-size catch-up correction (small enough to not be jarring
+        // beyond the allowed cap) — apply directly, same as before.
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
         setTimeout(() => { isInternalSeeking = false; }, 800);
       }
+      // else: within normal tolerance band, syncEngine's fine-grained
+      // 200ms drift correction handles it.
     }
+
+    updateUIHighlighter(activeIndex);
+    if (statusText && activeTrack.type) {
+      statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
+    }
+    if (statusOffset && video) {
+      statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
+    }
+    return;
   }
+
+  // Case 2: the live schedule says a DIFFERENT track should be playing
+  // than what's currently on screen. This happens either because nothing
+  // was playing yet, the current track ended/was removed, or the shift is
+  // so large the live target has moved to a different track entirely.
+  //
+  // We still respect the cap here in spirit: only force a track switch if
+  // there's no currently-playing track, or the current one has genuinely
+  // finished/disappeared. If something is actively playing and still
+  // exists in the schedule, we do not yank viewers onto a different track
+  // just because the running order shifted — that would be a far worse
+  // jump than a large in-track offset.
+  const stillActivelyPlayingSomething =
+    video && !video.paused && !video.ended && currentTrack;
+
+  if (stillActivelyPlayingSomething) {
+    const currentTrackStillInSchedule = SCHEDULE_TIMELINE.some(t => t.url === currentTrack.url);
+    if (currentTrackStillInSchedule) {
+      // Current track still exists in the live playlist, just not at the
+      // "right now" slot anymore (order shifted). Leave it playing;
+      // in-track drift handling above will keep catching up within the
+      // cap on every tick. Nothing more to do this cycle.
+      const idx = SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url);
+      updateUIHighlighter(idx >= 0 ? idx : activeIndex);
+      return;
+    }
+    // else: current track was removed entirely — fall through and switch.
+  }
+
+  currentTrack = activeTrack;
+  if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
+  if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
+
+  updateUIHighlighter(activeIndex);
+  loadMediaSeamless(currentTrack, trackSeekOffset);
 
   if (statusText && activeTrack.type) {
     statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
-  }
-  if (statusOffset && video) {
-    statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
   }
 }
 
@@ -392,22 +410,15 @@ function initPlayer(config) {
     video.addEventListener("ended", () => {
       isMediaLoading = false;
 
-      // Safe point to adopt a pending playlist swap — the previous track
-      // has genuinely finished.
-      if (pendingTimelineSwap) {
-        ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
-        pendingTimelineSwap = false;
-      }
-
-      if (ACTIVE_SYNC_TIMELINE.length > 0) {
+      if (SCHEDULE_TIMELINE.length > 0) {
         const endedIndex = currentTrack
-          ? ACTIVE_SYNC_TIMELINE.findIndex(t => t.url === currentTrack.url)
+          ? SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url)
           : -1;
         const nextIndex = endedIndex >= 0
-          ? (endedIndex + 1) % ACTIVE_SYNC_TIMELINE.length
+          ? (endedIndex + 1) % SCHEDULE_TIMELINE.length
           : 0;
 
-        const nextTrack = ACTIVE_SYNC_TIMELINE[nextIndex];
+        const nextTrack = SCHEDULE_TIMELINE[nextIndex];
         currentTrack = nextTrack;
 
         if (globalConfig) {
@@ -417,8 +428,7 @@ function initPlayer(config) {
           if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${nextTrack.name}`;
         }
 
-        const uiIndex = SCHEDULE_TIMELINE.findIndex(t => t.url === nextTrack.url);
-        updateUIHighlighter(uiIndex >= 0 ? uiIndex : nextIndex);
+        updateUIHighlighter(nextIndex);
         loadMediaSeamless(nextTrack, 0);
       } else {
         currentTrack = null;
@@ -542,29 +552,39 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Pure, direct position calculation — anchored to ACTIVE_SYNC_TIMELINE
-    // so it never shifts under a currently-playing track.
+    // Returns the seek offset within the CURRENT track according to the
+    // live schedule, or null if the current track isn't the "right now"
+    // slot (in which case syncEngine/seeking-guard should not force a
+    // jump beyond the cap).
     function getExactSeekPosition() {
-      if (!currentTrack || ACTIVE_SYNC_TIMELINE.length === 0) return null;
-      const liveTrack = ACTIVE_SYNC_TIMELINE.find(t => t.url === currentTrack.url);
+      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
+      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
       if (!liveTrack) return null;
 
       const nowMs = Date.now();
       const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
       let totalDurationMs = 0;
-      ACTIVE_SYNC_TIMELINE.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
       if (totalDurationMs === 0) return null;
 
       const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
       const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
 
+      // Even if the live cycle has moved on to a different slot (track
+      // reordered by an edit), still report an offset relative to this
+      // track's own window using a clamped projection, so fine drift
+      // correction can keep operating. If the virtual time is outside this
+      // track's start/end window entirely, we fall back to treating the
+      // track's own elapsed playback time as "correct" (i.e. don't force
+      // anything) by returning null — no forced correction beyond the cap
+      // logic in calculateLiveSyncState.
       if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
         return (targetVirtualTimeMs - liveTrack.startMs) / 1000;
       }
       return null;
     }
 
-    // --- Direct Live Drift Check Engine ---
+    // --- Live Drift Check Engine (capped) ---
     function syncEngine() {
       if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
 
@@ -573,8 +593,14 @@ function initPlayer(config) {
         const seekPosition = getExactSeekPosition();
         if (seekPosition === null) return;
 
-        const drift = Math.abs(video.currentTime - seekPosition);
-        if (drift > MAX_ALLOWED_DRIFT_SEC) {
+        const drift = seekPosition - video.currentTime;
+        const absDrift = Math.abs(drift);
+
+        if (absDrift > MAX_CORRECTION_JUMP_SEC) {
+          // Exceeds hard cap — do not jump. Let playback continue; this
+          // will keep being re-evaluated every tick and will resolve
+          // naturally as time passes or the track changes.
+        } else if (absDrift > MAX_ALLOWED_DRIFT_SEC) {
           video.currentTime = seekPosition;
         }
 
@@ -585,7 +611,10 @@ function initPlayer(config) {
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- Direct Anti-Bypass Seeking Revert (Matches original snippet behavior) ---
+    // --- Anti-Bypass Seeking Revert (capped) ---
+    // Still reverts manual/unexpected seeks back to the live position, but
+    // respects the same hard cap so a large legitimate schedule shift
+    // doesn't get force-corrected either.
     video.addEventListener('seeking', () => {
       if (!currentTrack) return;
       const itemType = (currentTrack.type || '').toLowerCase();
@@ -595,10 +624,10 @@ function initPlayer(config) {
         if (seekPosition === null) return;
 
         const drift = Math.abs(video.currentTime - seekPosition);
-        if (drift > MAX_ALLOWED_DRIFT_SEC) {
-          // Instant synchronous reset without conditional flag checks
+        if (drift > MAX_ALLOWED_DRIFT_SEC && drift <= MAX_CORRECTION_JUMP_SEC) {
           video.currentTime = seekPosition;
         }
+        // If drift exceeds the cap, allow it — do not force revert.
       }
     });
 

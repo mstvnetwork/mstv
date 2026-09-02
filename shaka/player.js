@@ -9,6 +9,13 @@ let isSwitchingTrack = false;
 let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
+// Snapshot of the timeline that was active when the current track started.
+// Live sync math always reads from this, never from a freshly-rebuilt
+// SCHEDULE_TIMELINE, so playlist edits never shift the currently playing
+// track's position mid-playback.
+let ACTIVE_SYNC_TIMELINE = [];
+let pendingTimelineSwap = false;
+
 const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
@@ -61,7 +68,14 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      if (!wasActivelyPlaying) {
+      if (wasActivelyPlaying) {
+        // Defer adopting the new timeline for sync purposes until the
+        // current track naturally changes (ends / disappears). This is
+        // what prevents the currently playing video from jumping.
+        pendingTimelineSwap = true;
+      } else {
+        ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
+        pendingTimelineSwap = false;
         calculateLiveSyncState();
       }
     }
@@ -83,6 +97,10 @@ function generateAbsoluteTimeline() {
       endMs: trackEndMs
     };
   });
+
+  if (ACTIVE_SYNC_TIMELINE.length === 0) {
+    ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
+  }
 }
 
 function calculateLiveSyncState() {
@@ -91,7 +109,7 @@ function calculateLiveSyncState() {
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
   if (video && !video.paused && video.readyState >= 2 && currentTrack) {
-    const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
+    const trackStillExists = ACTIVE_SYNC_TIMELINE.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
       const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
       if (statusOffset) {
@@ -99,11 +117,22 @@ function calculateLiveSyncState() {
       }
       return;
     }
+    // Current track no longer exists in the active timeline (removed) —
+    // fall through so a new valid track gets selected below.
   }
+
+  // Safe point to adopt a pending playlist swap: either nothing is
+  // currently playing, or the previous active track is gone/ended.
+  if (pendingTimelineSwap) {
+    ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
+    pendingTimelineSwap = false;
+  }
+
+  const timelineForCalc = ACTIVE_SYNC_TIMELINE;
 
   const nowMs = Date.now();
   let totalDurationMs = 0;
-  PLAYLIST.forEach(t => {
+  timelineForCalc.forEach(t => {
     totalDurationMs += ((t.duration_seconds || 30) * 1000);
   });
 
@@ -117,8 +146,8 @@ function calculateLiveSyncState() {
   let trackSeekOffset = 0;
   let activeIndex = 0;
 
-  for (let i = 0; i < SCHEDULE_TIMELINE.length; i++) {
-    const track = SCHEDULE_TIMELINE[i];
+  for (let i = 0; i < timelineForCalc.length; i++) {
+    const track = timelineForCalc[i];
     if (targetVirtualTimeMs >= track.startMs && targetVirtualTimeMs < track.endMs) {
       activeTrack = track;
       trackSeekOffset = (targetVirtualTimeMs - track.startMs) / 1000;
@@ -127,15 +156,16 @@ function calculateLiveSyncState() {
     }
   }
 
-  if (!activeTrack && SCHEDULE_TIMELINE.length > 0) {
-    activeTrack = SCHEDULE_TIMELINE[0];
+  if (!activeTrack && timelineForCalc.length > 0) {
+    activeTrack = timelineForCalc[0];
     trackSeekOffset = 0;
     activeIndex = 0;
   }
 
   if (!activeTrack) return;
 
-  updateUIHighlighter(activeIndex);
+  const uiIndex = SCHEDULE_TIMELINE.findIndex(t => t.url === activeTrack.url);
+  updateUIHighlighter(uiIndex >= 0 ? uiIndex : activeIndex);
 
   const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
   const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
@@ -356,15 +386,22 @@ function initPlayer(config) {
     video.addEventListener("ended", () => {
       isMediaLoading = false;
 
-      if (SCHEDULE_TIMELINE.length > 0) {
+      // Safe point to adopt a pending playlist swap — the previous track
+      // has genuinely finished.
+      if (pendingTimelineSwap) {
+        ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
+        pendingTimelineSwap = false;
+      }
+
+      if (ACTIVE_SYNC_TIMELINE.length > 0) {
         const endedIndex = currentTrack
-          ? SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url)
+          ? ACTIVE_SYNC_TIMELINE.findIndex(t => t.url === currentTrack.url)
           : -1;
         const nextIndex = endedIndex >= 0
-          ? (endedIndex + 1) % SCHEDULE_TIMELINE.length
+          ? (endedIndex + 1) % ACTIVE_SYNC_TIMELINE.length
           : 0;
 
-        const nextTrack = SCHEDULE_TIMELINE[nextIndex];
+        const nextTrack = ACTIVE_SYNC_TIMELINE[nextIndex];
         currentTrack = nextTrack;
 
         if (globalConfig) {
@@ -374,7 +411,8 @@ function initPlayer(config) {
           if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${nextTrack.name}`;
         }
 
-        updateUIHighlighter(nextIndex);
+        const uiIndex = SCHEDULE_TIMELINE.findIndex(t => t.url === nextTrack.url);
+        updateUIHighlighter(uiIndex >= 0 ? uiIndex : nextIndex);
         loadMediaSeamless(nextTrack, 0);
       } else {
         currentTrack = null;
@@ -426,10 +464,10 @@ function initPlayer(config) {
     async function handleFullscreenToggle(e) {
       e.preventDefault();
       e.stopPropagation();
-      
+
       try {
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
-        
+
         if (!isFullscreen) {
           // iOS Safari Video Native Fullscreen Fallback
           if (video.webkitEnterFullscreen && !container.requestFullscreen) {
@@ -498,16 +536,17 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Pure, direct position calculation mirroring your exact snippet's seek logic
+    // Pure, direct position calculation — now anchored to ACTIVE_SYNC_TIMELINE
+    // so it never shifts under a currently-playing track.
     function getExactSeekPosition() {
-      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
-      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+      if (!currentTrack || ACTIVE_SYNC_TIMELINE.length === 0) return null;
+      const liveTrack = ACTIVE_SYNC_TIMELINE.find(t => t.url === currentTrack.url);
       if (!liveTrack) return null;
 
       const nowMs = Date.now();
       const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
       let totalDurationMs = 0;
-      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
+      ACTIVE_SYNC_TIMELINE.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
       if (totalDurationMs === 0) return null;
 
       const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;

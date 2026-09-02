@@ -424,41 +424,80 @@ function initPlayer(config) {
     }
 
     async function handleFullscreenToggle(e) {
-  e.preventDefault();
-  e.stopPropagation();
+      e.preventDefault();
+      e.stopPropagation();
+      
+      try {
+        const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
+        
+        if (!isFullscreen) {
+          // iOS Safari Video Native Fullscreen Fallback
+          if (video.webkitEnterFullscreen && !container.requestFullscreen) {
+            video.webkitEnterFullscreen();
+            return;
+          }
 
-  try {
-    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-      // 1. Enter Fullscreen on container (or fallback to element/video)
-      if (container.requestFullscreen) {
-        await container.requestFullscreen();
-      } else if (container.webkitRequestFullscreen) {
-        await container.webkitRequestFullscreen();
-      }
+          // Request browser fullscreen for the player container
+          if (container.requestFullscreen) {
+            await container.requestFullscreen();
+          } else if (container.webkitRequestFullscreen) {
+            await container.webkitRequestFullscreen();
+          }
 
-      // 2. Lock to Landscape Orientation (Supported on mobile browsers like Android Chrome)
-      if (screen.orientation && screen.orientation.lock) {
-        await screen.orientation.lock("landscape").catch(err => {
-          console.warn("Orientation lock failed/unsupported on this device:", err);
-        });
-      }
-    } else {
-      // Exit Fullscreen
-      if (document.exitFullscreen) {
-        await document.exitFullscreen();
-      } else if (document.webkitExitFullscreen) {
-        await document.webkitExitFullscreen();
-      }
+          // Force Landscape Orientation on Android/Modern Mobile Browsers
+          if (screen.orientation && screen.orientation.lock) {
+            await screen.orientation.lock("landscape").catch(err => {
+              console.warn("Orientation lock warning/unsupported:", err);
+            });
+          }
+        } else {
+          // Exit Fullscreen Mode
+          if (document.exitFullscreen) {
+            await document.exitFullscreen();
+          } else if (document.webkitExitFullscreen) {
+            await document.webkitExitFullscreen();
+          }
 
-      // Unlock orientation back to default
-      if (screen.orientation && screen.orientation.unlock) {
+          // Release Orientation Lock back to system setting
+          if (screen.orientation && screen.orientation.unlock) {
+            screen.orientation.unlock();
+          }
+        }
+      } catch (err) {
+        console.error("Fullscreen/Orientation toggle error:", err);
+      }
+    }
+
+    // Automatically release landscape orientation if the user exits fullscreen via system gestures
+    document.addEventListener("fullscreenchange", () => {
+      if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock();
       }
+    });
+
+    if (btnPlay) {
+      btnPlay.addEventListener("click", handlePlayToggle);
+      btnPlay.addEventListener("touchstart", handlePlayToggle);
     }
-  } catch (err) {
-    console.error("Fullscreen/Orientation error:", err);
-  }
+
+    if (btnMute) {
+      btnMute.addEventListener("click", handleMuteToggle);
+      btnMute.addEventListener("touchstart", handleMuteToggle);
     }
+
+    if (btnFullscreen) {
+      btnFullscreen.addEventListener("click", handleFullscreenToggle);
+      btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
+    }
+
+    video.addEventListener("play", () => {
+      if (btnPlay) btnPlay.innerText = "⏸";
+    });
+    video.addEventListener("pause", () => {
+      if (btnPlay) btnPlay.innerText = "▶";
+      if (!isSwitchingTrack) container.classList.add('show-ui');
+    });
+
     // Pure, direct position calculation mirroring your exact snippet's seek logic
     function getExactSeekPosition() {
       if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
@@ -581,4 +620,4 @@ function showNotificationToast(el) {
   if (!el || document.body.classList.contains('public-mode')) return;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2500);
-}
+       }

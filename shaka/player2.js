@@ -16,7 +16,7 @@ let autoRecoveryAttempts = 0;
 let ACTIVE_SYNC_TIMELINE = [];
 let pendingTimelineSwap = false;
 
-const PLAYLIST_JSON_URL = "./playlist.json";
+const PLAYLIST_JSON_URL = "./playlist2.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
 const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold matching original snippet efficiency

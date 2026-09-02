@@ -116,7 +116,6 @@ function loadMediaSource(item, seekPosition) {
     videoElem.play().then(() => {
       if (loaderEl) loaderEl.classList.add("hidden");
     }).catch(() => {
-      // Force mute-play fallback if autoplay policy blocks initial unmuted play
       videoElem.muted = true;
       videoElem.play().catch(() => {});
       if (loaderEl) loaderEl.classList.add("hidden");
@@ -132,7 +131,9 @@ function loadMediaSource(item, seekPosition) {
       hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true });
       hlsInstance.attachMedia(videoElem);
       hlsInstance.loadSource(item.url);
-      hlsInstance.once(Hls.Events.MANIFEST_PARSED, applyPlayback);
+      
+      // FIXED: String literal event name avoids undefined Hls.Events runtime crash
+      hlsInstance.once('hlsManifestParsed', applyPlayback);
     } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
       videoElem.src = item.url;
       videoElem.addEventListener('loadedmetadata', applyPlayback, { once: true });
@@ -156,13 +157,13 @@ function initPlayer(config) {
   const btnFullscreen = document.getElementById(config.btnFullscreenId);
   const debugElem = document.getElementById(config.nowPlayingOverlayId);
 
-  // UI Icons
-  const iconPlay = btnPlay ? btnPlay.querySelector('.icon-play') || btnPlay : null;
+  const iconPlay = btnPlay ? btnPlay.querySelector('.icon-play') : null;
   const iconPause = btnPlay ? btnPlay.querySelector('.icon-pause') : null;
-  const iconMuted = btnMute ? btnMute.querySelector('.icon-muted') || btnMute : null;
+  const iconMuted = btnMute ? btnMute.querySelector('.icon-muted') : null;
   const iconUnmuted = btnMute ? btnMute.querySelector('.icon-unmuted') : null;
 
   function showControls() {
+    if (!container) return;
     container.classList.remove('ui-hidden');
     clearTimeout(uiHideTimer);
     uiHideTimer = setTimeout(() => {
@@ -172,16 +173,17 @@ function initPlayer(config) {
     }, UI_HIDE_TIMEOUT_MS);
   }
 
-  container.addEventListener('mousemove', showControls);
-  container.addEventListener('click', showControls);
-  container.addEventListener('touchstart', showControls, { passive: true });
-  container.addEventListener('pointerdown', showControls, { passive: true });
-  container.addEventListener('pointermove', showControls, { passive: true });
+  if (container) {
+    container.addEventListener('mousemove', showControls);
+    container.addEventListener('click', showControls);
+    container.addEventListener('touchstart', showControls, { passive: true });
+    container.addEventListener('pointerdown', showControls, { passive: true });
+    container.addEventListener('pointermove', showControls, { passive: true });
+  }
   document.addEventListener('mousemove', showControls);
   document.addEventListener('pointerdown', showControls, { passive: true });
   showControls();
 
-  // --- Working Sync Engine Integration ---
   function syncEngine() {
     if (document.hidden) return;
 
@@ -195,7 +197,6 @@ function initPlayer(config) {
       debugElem.textContent = `Now Playing : ${displayName}`;
     }
 
-    // Single source of truth for track switching
     if (!currentItem || currentItem.url !== item.url) {
       currentItem = item;
       currentItemIndex = itemIndex;
@@ -205,7 +206,6 @@ function initPlayer(config) {
       return;
     }
 
-    // Live Drift Check
     const itemType = (item.type || '').toLowerCase();
     if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
       const drift = Math.abs(videoElem.currentTime - seekPosition);
@@ -213,7 +213,6 @@ function initPlayer(config) {
         videoElem.currentTime = seekPosition;
       }
 
-      // Maintain playback state smoothly without inspecting outer UI strings
       const isPlayIconHidden = iconPlay && iconPlay.style.display === 'none';
       if (videoElem.paused && (isPlayIconHidden || !btnPlay)) {
         videoElem.play().catch(() => {});
@@ -224,7 +223,6 @@ function initPlayer(config) {
   setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
   setInterval(fetchPlaylistUpdates, 15000);
 
-  // Seeking Guard
   videoElem.addEventListener('seeking', () => {
     const state = getGlobalTimeState();
     if (state) {
@@ -238,7 +236,6 @@ function initPlayer(config) {
     }
   });
 
-  // --- Button Listeners ---
   if (btnPlay) {
     btnPlay.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -261,11 +258,11 @@ function initPlayer(config) {
       if (videoElem.muted) {
         if (iconMuted) iconMuted.style.display = 'block';
         if (iconUnmuted) iconUnmuted.style.display = 'none';
-        if (btnMute && !iconMuted) btnMute.innerText = "🔇";
+        if (!iconMuted) btnMute.innerText = "Mute";
       } else {
         if (iconMuted) iconMuted.style.display = 'none';
         if (iconUnmuted) iconUnmuted.style.display = 'block';
-        if (btnMute && !iconUnmuted) btnMute.innerText = "🔊";
+        if (!iconUnmuted) btnMute.innerText = "Unmute";
       }
     });
   }
@@ -274,9 +271,9 @@ function initPlayer(config) {
     btnFullscreen.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-        if (container.requestFullscreen) {
+        if (container && container.requestFullscreen) {
           container.requestFullscreen();
-        } else if (container.webkitRequestFullscreen) {
+        } else if (container && container.webkitRequestFullscreen) {
           container.webkitRequestFullscreen();
         } else if (videoElem.webkitEnterFullscreen) {
           videoElem.webkitEnterFullscreen();
@@ -291,7 +288,6 @@ function initPlayer(config) {
     });
   }
 
-  // Initial load
   fetchPlaylistUpdates().then(() => {
     syncEngine();
   });

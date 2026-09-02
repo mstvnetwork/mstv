@@ -7,14 +7,15 @@ let uiTimeout = null;
 let isInternalSeeking = false;
 let isSwitchingTrack = false;
 let isMediaLoading = false;
+let isRevertingSeek = false; // Dedicated atomic lock to allow strict aggressive reverts without infinite event feedback loops
 let autoRecoveryAttempts = 0;
 
 const PLAYLIST_JSON_URL = "./playlist2.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-const MAX_ALLOWED_DRIFT_SEC = 0.5; // Relaxed slightly to prevent constant micro-adjustments
-const SYNC_CHECK_INTERVAL_MS = 1000;
-const MAX_CORRECTION_JUMP_SEC = 120;
+const MAX_ALLOWED_DRIFT_SEC = 0.2; // Original strict 200ms threshold
+const SYNC_CHECK_INTERVAL_MS = 500; // Original 500ms interval
+const MAX_CORRECTION_JUMP_SEC = 120; // 2 minutes hard cap
 
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
@@ -134,9 +135,9 @@ function calculateLiveSyncState() {
   const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
   const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
 
-  // Case 1: Same track currently playing
+  // Case 1: currently playing the same track
   if (currentTrack && currentTrack.url === activeTrack.url) {
-    if (video && video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
+    if (video && video.readyState >= 2 && !video.seeking && !isInternalSeeking && !isRevertingSeek) {
       const delta = trackSeekOffset - video.currentTime;
       const absDelta = Math.abs(delta);
 
@@ -158,7 +159,7 @@ function calculateLiveSyncState() {
     return;
   }
 
-  // Case 2: Schedule target moved to another track slot
+  // Case 2: active target moved to another track slot
   const stillActivelyPlayingSomething = video && !video.paused && !video.ended && currentTrack;
 
   if (stillActivelyPlayingSomething) {
@@ -199,7 +200,6 @@ function loadMediaSeamless(track, offset) {
   const loaderEl = document.getElementById(globalConfig.loaderId);
   const errorEl = document.getElementById(globalConfig.errorId);
 
-  // Keep loader hidden during soft track switches to prevent UI flash
   if (errorEl) errorEl.classList.remove("show");
 
   const formatType = (track.type || '').toLowerCase();
@@ -520,9 +520,9 @@ function initPlayer(config) {
       return null;
     }
 
-    // Fixed: Throttled engine prevents rapid micro-seeks causing buffer flushes
+    // Strict 0.2s live sync engine (500ms check interval)
     function syncEngine() {
-      if (document.hidden || isSwitchingTrack || isMediaLoading || isInternalSeeking || video.seeking || !currentTrack) return;
+      if (document.hidden || isSwitchingTrack || isMediaLoading || isInternalSeeking || isRevertingSeek || !currentTrack) return;
 
       const itemType = (currentTrack.type || '').toLowerCase();
       if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
@@ -533,9 +533,9 @@ function initPlayer(config) {
         const absDrift = Math.abs(drift);
 
         if (absDrift > MAX_ALLOWED_DRIFT_SEC && absDrift <= MAX_CORRECTION_JUMP_SEC) {
-          isInternalSeeking = true;
+          isRevertingSeek = true;
           video.currentTime = seekPosition;
-          setTimeout(() => { isInternalSeeking = false; }, 500);
+          setTimeout(() => { isRevertingSeek = false; }, 300);
         }
 
         if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
@@ -545,9 +545,9 @@ function initPlayer(config) {
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // Fixed: Guarded seeking event listener prevents recursive seek loops
+    // Strict Anti-Bypass Seeking Revert Logic (Original behavior preserved without loops)
     video.addEventListener('seeking', () => {
-      if (!currentTrack || isInternalSeeking || isSwitchingTrack) return;
+      if (!currentTrack || isInternalSeeking || isSwitchingTrack || isRevertingSeek) return;
       const itemType = (currentTrack.type || '').toLowerCase();
 
       if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
@@ -556,9 +556,9 @@ function initPlayer(config) {
 
         const drift = Math.abs(video.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC && drift <= MAX_CORRECTION_JUMP_SEC) {
-          isInternalSeeking = true;
+          isRevertingSeek = true;
           video.currentTime = seekPosition;
-          setTimeout(() => { isInternalSeeking = false; }, 500);
+          setTimeout(() => { isRevertingSeek = false; }, 300);
         }
       }
     });
@@ -571,9 +571,9 @@ function initPlayer(config) {
       isMediaLoading = false;
     });
 
-    // Fixed: Suppress loading spinner during brief buffers/internal seeks
+    // Suppress loader element flashes during fast seek reverts
     video.addEventListener("waiting", () => {
-      if (!isSwitchingTrack && !isMediaLoading && !isInternalSeeking) {
+      if (!isSwitchingTrack && !isMediaLoading && !isInternalSeeking && !isRevertingSeek) {
         const loaderEl = document.getElementById(config.loaderId);
         if (loaderEl) loaderEl.classList.remove("hidden");
       }
@@ -627,4 +627,4 @@ function showNotificationToast(el) {
   if (!el || document.body.classList.contains('public-mode')) return;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2500);
-  }
+}

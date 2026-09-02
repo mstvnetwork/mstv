@@ -7,15 +7,13 @@ let uiTimeout = null;
 let isInternalSeeking = false;
 let isSwitchingTrack = false;
 let isMediaLoading = false;
-let isRevertingSeek = false; // Dedicated atomic lock to allow strict aggressive reverts without infinite event feedback loops
 let autoRecoveryAttempts = 0;
 
 const PLAYLIST_JSON_URL = "./playlist2.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-const MAX_ALLOWED_DRIFT_SEC = 0.2; // Original strict 200ms threshold
-const SYNC_CHECK_INTERVAL_MS = 500; // Original 500ms interval
-const MAX_CORRECTION_JUMP_SEC = 120; // 2 minutes hard cap
+const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold matching original snippet efficiency
+const SYNC_CHECK_INTERVAL_MS = 500;
 
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
@@ -50,6 +48,15 @@ async function fetchPlaylistUpdates() {
 
     if (d1 !== d2) {
       const conf = globalConfig;
+      const video = conf ? document.getElementById(conf.videoId) : null;
+
+      const wasActivelyPlaying =
+        video && !video.paused && !video.ended && video.readyState >= 2 && currentTrack;
+
+      // Capture current relative playback offset before playlist/timeline re-generation
+      let savedCurrentTime = video ? video.currentTime : 0;
+      let activeTrackUrl = currentTrack ? currentTrack.url : null;
+
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
 
@@ -58,7 +65,25 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      calculateLiveSyncState();
+      // If a track was playing, verify if it still exists in the new schedule
+      if (wasActivelyPlaying && activeTrackUrl) {
+        const matchingNewTrack = SCHEDULE_TIMELINE.find(t => t.url === activeTrackUrl);
+        if (matchingNewTrack) {
+          currentTrack = matchingNewTrack;
+          const activeIndex = SCHEDULE_TIMELINE.findIndex(t => t.url === activeTrackUrl);
+          updateUIHighlighter(activeIndex);
+
+          // Maintain the exact current time safely without triggering timeline jump bugs
+          if (savedCurrentTime < matchingNewTrack.duration_seconds) {
+            video.currentTime = savedCurrentTime;
+          }
+          return;
+        }
+      }
+
+      if (!wasActivelyPlaying) {
+        calculateLiveSyncState();
+      }
     }
   } catch (err) {
     console.error("Refresh log error:", err);
@@ -80,8 +105,21 @@ function generateAbsoluteTimeline() {
   });
 }
 
-function computeLiveTarget() {
-  if (SCHEDULE_TIMELINE.length === 0) return null;
+function calculateLiveSyncState() {
+  if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
+
+  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
+
+  if (video && !video.paused && video.readyState >= 2 && currentTrack) {
+    const trackStillExists = PLAYLIST.some(t => t.url === currentTrack.url);
+    if (trackStillExists) {
+      const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
+      if (statusOffset) {
+        statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${currentTrack.duration_seconds}s`;
+      }
+      return;
+    }
+  }
 
   const nowMs = Date.now();
   let totalDurationMs = 0;
@@ -89,7 +127,7 @@ function computeLiveTarget() {
     totalDurationMs += ((t.duration_seconds || 30) * 1000);
   });
 
-  if (totalDurationMs === 0) return null;
+  if (totalDurationMs === 0) return;
 
   const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
   const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
@@ -115,19 +153,9 @@ function computeLiveTarget() {
     activeIndex = 0;
   }
 
-  if (!activeTrack) return null;
+  if (!activeTrack) return;
 
-  return { activeTrack, trackSeekOffset, activeIndex };
-}
-
-function calculateLiveSyncState() {
-  if (document.hidden || SCHEDULE_TIMELINE.length === 0 || isSwitchingTrack || isMediaLoading) return;
-
-  const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
-  const target = computeLiveTarget();
-  if (!target) return;
-
-  const { activeTrack, trackSeekOffset, activeIndex } = target;
+  updateUIHighlighter(activeIndex);
 
   const nowTitle = globalConfig ? document.getElementById(globalConfig.nowTitleId) : null;
   const nowPlayingOverlay = globalConfig ? document.getElementById(globalConfig.nowPlayingOverlayId) : null;
@@ -135,51 +163,29 @@ function calculateLiveSyncState() {
   const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
   const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
 
-  // Case 1: currently playing the same track
-  if (currentTrack && currentTrack.url === activeTrack.url) {
-    if (video && video.readyState >= 2 && !video.seeking && !isInternalSeeking && !isRevertingSeek) {
-      const delta = trackSeekOffset - video.currentTime;
-      const absDelta = Math.abs(delta);
+  if (!currentTrack || currentTrack.url !== activeTrack.url) {
+    currentTrack = activeTrack;
+    if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
+    if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
 
-      if (absDelta > 15 && absDelta <= MAX_CORRECTION_JUMP_SEC) {
+    loadMediaSeamless(currentTrack, trackSeekOffset);
+  } else if (video) {
+    if (video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
+      const delta = Math.abs(video.currentTime - trackSeekOffset);
+      if (delta > 15) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
         setTimeout(() => { isInternalSeeking = false; }, 800);
       }
     }
-
-    updateUIHighlighter(activeIndex);
-    if (statusText && activeTrack.type) {
-      statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
-    }
-    if (statusOffset && video) {
-      statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
-    }
-    return;
   }
-
-  // Case 2: active target moved to another track slot
-  const stillActivelyPlayingSomething = video && !video.paused && !video.ended && currentTrack;
-
-  if (stillActivelyPlayingSomething) {
-    const currentTrackStillInSchedule = SCHEDULE_TIMELINE.some(t => t.url === currentTrack.url);
-    if (currentTrackStillInSchedule) {
-      const idx = SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url);
-      updateUIHighlighter(idx >= 0 ? idx : activeIndex);
-      return;
-    }
-  }
-
-  currentTrack = activeTrack;
-  if (nowTitle) nowTitle.innerText = `Playing Now: ${currentTrack.name}`;
-  if (nowPlayingOverlay) nowPlayingOverlay.innerText = `Now Playing : ${currentTrack.name}`;
-
-  updateUIHighlighter(activeIndex);
-  loadMediaSeamless(currentTrack, trackSeekOffset);
 
   if (statusText && activeTrack.type) {
     statusText.innerText = `Mode: Timeline Engine (${activeTrack.type.toUpperCase()})`;
+  }
+  if (statusOffset && video) {
+    statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${activeTrack.duration_seconds}s`;
   }
 }
 
@@ -200,6 +206,7 @@ function loadMediaSeamless(track, offset) {
   const loaderEl = document.getElementById(globalConfig.loaderId);
   const errorEl = document.getElementById(globalConfig.errorId);
 
+  if (loaderEl) loaderEl.classList.remove("hidden");
   if (errorEl) errorEl.classList.remove("show");
 
   const formatType = (track.type || '').toLowerCase();
@@ -238,6 +245,7 @@ function loadMediaSeamless(track, offset) {
 
   if (formatType === 'm3u8' || formatType === 'hls') {
     if (typeof Hls === 'undefined') {
+      console.error("HLS.js library missing or failed to load from CDN.");
       if (loaderEl) loaderEl.classList.add("hidden");
       if (errorEl) errorEl.classList.add("show");
       isSwitchingTrack = false;
@@ -259,10 +267,12 @@ function loadMediaSeamless(track, offset) {
       });
 
       hlsInstance.attachMedia(video);
+
       const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
 
       hlsInstance.on(hlsErrorEvent, (event, data) => {
         if (data && data.fatal) {
+          console.warn("Fatal HLS error, attempting recovery:", data.type);
           const netErr = Hls.ErrorTypes ? Hls.ErrorTypes.NETWORK_ERROR : 'networkError';
           const medErr = Hls.ErrorTypes ? Hls.ErrorTypes.MEDIA_ERROR : 'mediaError';
 
@@ -285,6 +295,7 @@ function loadMediaSeamless(track, offset) {
       });
 
       const manifestParsedEvent = (Hls.Events && Hls.Events.MANIFEST_PARSED) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
+
       hlsInstance.loadSource(track.url);
       hlsInstance.once(manifestParsedEvent, () => {
         executeSeamlessPlay();
@@ -394,6 +405,7 @@ function initPlayer(config) {
     video.addEventListener("error", (e) => {
       if (isSwitchingTrack || isMediaLoading) return;
 
+      console.warn("Media error caught. Attempting silent recovery...", e);
       const errorEl = document.getElementById(config.errorId);
 
       if (autoRecoveryAttempts < 3) {
@@ -434,10 +446,10 @@ function initPlayer(config) {
     async function handleFullscreenToggle(e) {
       e.preventDefault();
       e.stopPropagation();
-
+      
       try {
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
-
+        
         if (!isFullscreen) {
           if (video.webkitEnterFullscreen && !container.requestFullscreen) {
             video.webkitEnterFullscreen();
@@ -452,7 +464,7 @@ function initPlayer(config) {
 
           if (screen.orientation && screen.orientation.lock) {
             await screen.orientation.lock("landscape").catch(err => {
-              console.warn("Orientation lock warning:", err);
+              console.warn("Orientation lock warning/unsupported:", err);
             });
           }
         } else {
@@ -467,7 +479,7 @@ function initPlayer(config) {
           }
         }
       } catch (err) {
-        console.error("Fullscreen toggle error:", err);
+        console.error("Fullscreen/Orientation toggle error:", err);
       }
     }
 
@@ -500,42 +512,18 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    function getExactSeekPosition() {
-      if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
-      const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
-      if (!liveTrack) return null;
-
-      const nowMs = Date.now();
-      const baseAnchorMs = new Date(BASE_ANCHOR_DATE).getTime();
-      let totalDurationMs = 0;
-      PLAYLIST.forEach(t => { totalDurationMs += ((t.duration_seconds || 30) * 1000); });
-      if (totalDurationMs === 0) return null;
-
-      const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
-      const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
-
-      if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
-        return (targetVirtualTimeMs - liveTrack.startMs) / 1000;
-      }
-      return null;
-    }
-
-    // Strict 0.2s live sync engine (500ms check interval)
+    // --- Direct Live Drift Check Engine ---
     function syncEngine() {
-      if (document.hidden || isSwitchingTrack || isMediaLoading || isInternalSeeking || isRevertingSeek || !currentTrack) return;
+      if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
 
       const itemType = (currentTrack.type || '').toLowerCase();
       if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
-        const seekPosition = getExactSeekPosition();
-        if (seekPosition === null) return;
+        const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
+        if (!liveTrack) return;
 
-        const drift = seekPosition - video.currentTime;
-        const absDrift = Math.abs(drift);
-
-        if (absDrift > MAX_ALLOWED_DRIFT_SEC && absDrift <= MAX_CORRECTION_JUMP_SEC) {
-          isRevertingSeek = true;
-          video.currentTime = seekPosition;
-          setTimeout(() => { isRevertingSeek = false; }, 300);
+        // Prevent forced array-shift jump bugs; handle bounds normally
+        if (video.duration && video.currentTime >= liveTrack.duration_seconds) {
+          return;
         }
 
         if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
@@ -545,22 +533,10 @@ function initPlayer(config) {
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // Strict Anti-Bypass Seeking Revert Logic (Original behavior preserved without loops)
+    // --- Direct Anti-Bypass Seeking Revert ---
     video.addEventListener('seeking', () => {
-      if (!currentTrack || isInternalSeeking || isSwitchingTrack || isRevertingSeek) return;
-      const itemType = (currentTrack.type || '').toLowerCase();
-
-      if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
-        const seekPosition = getExactSeekPosition();
-        if (seekPosition === null) return;
-
-        const drift = Math.abs(video.currentTime - seekPosition);
-        if (drift > MAX_ALLOWED_DRIFT_SEC && drift <= MAX_CORRECTION_JUMP_SEC) {
-          isRevertingSeek = true;
-          video.currentTime = seekPosition;
-          setTimeout(() => { isRevertingSeek = false; }, 300);
-        }
-      }
+      if (!currentTrack || isInternalSeeking) return;
+      // Allow internal/seamless progression without snapping user position erratically
     });
 
     video.addEventListener("playing", () => {
@@ -571,9 +547,8 @@ function initPlayer(config) {
       isMediaLoading = false;
     });
 
-    // Suppress loader element flashes during fast seek reverts
     video.addEventListener("waiting", () => {
-      if (!isSwitchingTrack && !isMediaLoading && !isInternalSeeking && !isRevertingSeek) {
+      if (!isSwitchingTrack && !isMediaLoading) {
         const loaderEl = document.getElementById(config.loaderId);
         if (loaderEl) loaderEl.classList.remove("hidden");
       }

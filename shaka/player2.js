@@ -430,15 +430,32 @@ function initPlayer(config) {
       }
     }
 
-    function handleMuteToggle(e) {
+    async function handleMuteToggle(e) {
       e.preventDefault();
       e.stopPropagation();
-      
-      if (video.muted && video.volume === 0) {
+
+      const targetMutedState = !video.muted;
+
+      if (!targetMutedState && video.volume === 0) {
         video.volume = 0.8;
       }
-      video.muted = !video.muted;
-      if (btnMute) btnMute.innerText = video.muted ? "🔇" : "🔊";
+
+      video.muted = targetMutedState;
+
+      if (!video.muted) {
+        // Unmuting: re-assert play state inside the user interaction context
+        try {
+          await video.play();
+          userIntentPlay = true;
+          if (btnMute) btnMute.innerText = "🔊";
+        } catch (err) {
+          console.warn("Unmute play blocked by browser policy. Reverting to muted.", err);
+          video.muted = true;
+          if (btnMute) btnMute.innerText = "🔇";
+        }
+      } else {
+        if (btnMute) btnMute.innerText = "🔇";
+      }
     }
 
     async function handleFullscreenToggle(e) {
@@ -487,7 +504,6 @@ function initPlayer(config) {
       }
     });
 
-    // Unified click listeners (prevents dual event firing on touch screens)
     if (btnPlay) {
       btnPlay.addEventListener("click", handlePlayToggle);
     }
@@ -545,9 +561,12 @@ function initPlayer(config) {
           video.currentTime = seekPosition;
         }
 
-        // Rely on intent variable rather than DOM button text check
-        if (video.paused && userIntentPlay && !isInternalSeeking) {
-          video.play().catch(() => {});
+        // Only attempt to resume playback if the video is ready and user intended play
+        if (video.paused && userIntentPlay && !isInternalSeeking && video.readyState >= 2) {
+          video.play().catch(() => {
+            // Prevent endless loop if browser blocks background playback resumption
+            userIntentPlay = false;
+          });
         }
       }
     }

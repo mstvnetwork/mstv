@@ -9,19 +9,12 @@ let isSwitchingTrack = false;
 let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
-const PLAYLIST_JSON_URL = "./playlist.json";
+const PLAYLIST_JSON_URL = "./playlist2.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
-const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold for normal small-drift correction
-const SYNC_CHECK_INTERVAL_MS = 500;
-
-// --- Option 2: Hard cap on correction size ---
-// If a playlist edit causes the "correct" live position to differ from
-// where we currently are by more than this many seconds, we DO NOT jump
-// there. We keep playing uninterrupted and just keep re-checking every
-// tick until the natural passage of time (or the track ending) brings the
-// delta back under the cap, or the track changes naturally.
-const MAX_CORRECTION_JUMP_SEC = 120; // 2 minutes hard cap
+const MAX_ALLOWED_DRIFT_SEC = 0.5; // Relaxed slightly to prevent constant micro-adjustments
+const SYNC_CHECK_INTERVAL_MS = 1000;
+const MAX_CORRECTION_JUMP_SEC = 120;
 
 function normalizePlaylistForCompare(list) {
   return JSON.stringify(
@@ -56,7 +49,6 @@ async function fetchPlaylistUpdates() {
 
     if (d1 !== d2) {
       const conf = globalConfig;
-
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
 
@@ -65,9 +57,6 @@ async function fetchPlaylistUpdates() {
         showNotificationToast(document.getElementById(conf.updateToastId));
       }
 
-      // Always live: recalculate immediately. Whether this results in a
-      // visible correction or not is governed by the capped-jump logic
-      // inside calculateLiveSyncState / syncEngine, not here.
       calculateLiveSyncState();
     }
   } catch (err) {
@@ -90,9 +79,6 @@ function generateAbsoluteTimeline() {
   });
 }
 
-// Computes what the live schedule currently says should be playing.
-// Pure function of Date.now() and the live SCHEDULE_TIMELINE/PLAYLIST —
-// always reflects the latest playlist.json, per Option B.
 function computeLiveTarget() {
   if (SCHEDULE_TIMELINE.length === 0) return null;
 
@@ -148,29 +134,18 @@ function calculateLiveSyncState() {
   const statusText = globalConfig ? document.getElementById(globalConfig.statusTextId) : null;
   const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
 
-  // Case 1: currently playing the same track the live schedule says should
-  // be playing. Handle in-track drift with the capped-jump rule.
+  // Case 1: Same track currently playing
   if (currentTrack && currentTrack.url === activeTrack.url) {
     if (video && video.readyState >= 2 && !video.seeking && !isInternalSeeking) {
       const delta = trackSeekOffset - video.currentTime;
       const absDelta = Math.abs(delta);
 
-      if (absDelta > MAX_CORRECTION_JUMP_SEC) {
-        // Correction would exceed the hard cap (e.g. a big playlist edit
-        // shifted this track's position a lot). Do NOT jump. Keep playing
-        // uninterrupted; we'll keep re-checking every tick and only ever
-        // correct once the required delta naturally shrinks under the cap,
-        // or the track changes.
-      } else if (absDelta > 15) {
-        // Normal-size catch-up correction (small enough to not be jarring
-        // beyond the allowed cap) — apply directly, same as before.
+      if (absDelta > 15 && absDelta <= MAX_CORRECTION_JUMP_SEC) {
         isInternalSeeking = true;
         video.currentTime = trackSeekOffset;
         showNotificationToast(syncToast);
         setTimeout(() => { isInternalSeeking = false; }, 800);
       }
-      // else: within normal tolerance band, syncEngine's fine-grained
-      // 200ms drift correction handles it.
     }
 
     updateUIHighlighter(activeIndex);
@@ -183,32 +158,16 @@ function calculateLiveSyncState() {
     return;
   }
 
-  // Case 2: the live schedule says a DIFFERENT track should be playing
-  // than what's currently on screen. This happens either because nothing
-  // was playing yet, the current track ended/was removed, or the shift is
-  // so large the live target has moved to a different track entirely.
-  //
-  // We still respect the cap here in spirit: only force a track switch if
-  // there's no currently-playing track, or the current one has genuinely
-  // finished/disappeared. If something is actively playing and still
-  // exists in the schedule, we do not yank viewers onto a different track
-  // just because the running order shifted — that would be a far worse
-  // jump than a large in-track offset.
-  const stillActivelyPlayingSomething =
-    video && !video.paused && !video.ended && currentTrack;
+  // Case 2: Schedule target moved to another track slot
+  const stillActivelyPlayingSomething = video && !video.paused && !video.ended && currentTrack;
 
   if (stillActivelyPlayingSomething) {
     const currentTrackStillInSchedule = SCHEDULE_TIMELINE.some(t => t.url === currentTrack.url);
     if (currentTrackStillInSchedule) {
-      // Current track still exists in the live playlist, just not at the
-      // "right now" slot anymore (order shifted). Leave it playing;
-      // in-track drift handling above will keep catching up within the
-      // cap on every tick. Nothing more to do this cycle.
       const idx = SCHEDULE_TIMELINE.findIndex(t => t.url === currentTrack.url);
       updateUIHighlighter(idx >= 0 ? idx : activeIndex);
       return;
     }
-    // else: current track was removed entirely — fall through and switch.
   }
 
   currentTrack = activeTrack;
@@ -240,7 +199,7 @@ function loadMediaSeamless(track, offset) {
   const loaderEl = document.getElementById(globalConfig.loaderId);
   const errorEl = document.getElementById(globalConfig.errorId);
 
-  if (loaderEl) loaderEl.classList.remove("hidden");
+  // Keep loader hidden during soft track switches to prevent UI flash
   if (errorEl) errorEl.classList.remove("show");
 
   const formatType = (track.type || '').toLowerCase();
@@ -279,7 +238,6 @@ function loadMediaSeamless(track, offset) {
 
   if (formatType === 'm3u8' || formatType === 'hls') {
     if (typeof Hls === 'undefined') {
-      console.error("HLS.js library missing or failed to load from CDN.");
       if (loaderEl) loaderEl.classList.add("hidden");
       if (errorEl) errorEl.classList.add("show");
       isSwitchingTrack = false;
@@ -301,12 +259,10 @@ function loadMediaSeamless(track, offset) {
       });
 
       hlsInstance.attachMedia(video);
-
       const hlsErrorEvent = (Hls.Events && Hls.Events.ERROR) ? Hls.Events.ERROR : 'hlsError';
 
       hlsInstance.on(hlsErrorEvent, (event, data) => {
         if (data && data.fatal) {
-          console.warn("Fatal HLS error, attempting recovery:", data.type);
           const netErr = Hls.ErrorTypes ? Hls.ErrorTypes.NETWORK_ERROR : 'networkError';
           const medErr = Hls.ErrorTypes ? Hls.ErrorTypes.MEDIA_ERROR : 'mediaError';
 
@@ -329,7 +285,6 @@ function loadMediaSeamless(track, offset) {
       });
 
       const manifestParsedEvent = (Hls.Events && Hls.Events.MANIFEST_PARSED) ? Hls.Events.MANIFEST_PARSED : 'hlsManifestParsed';
-
       hlsInstance.loadSource(track.url);
       hlsInstance.once(manifestParsedEvent, () => {
         executeSeamlessPlay();
@@ -439,7 +394,6 @@ function initPlayer(config) {
     video.addEventListener("error", (e) => {
       if (isSwitchingTrack || isMediaLoading) return;
 
-      console.warn("Media error caught. Attempting silent recovery...", e);
       const errorEl = document.getElementById(config.errorId);
 
       if (autoRecoveryAttempts < 3) {
@@ -485,44 +439,38 @@ function initPlayer(config) {
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
 
         if (!isFullscreen) {
-          // iOS Safari Video Native Fullscreen Fallback
           if (video.webkitEnterFullscreen && !container.requestFullscreen) {
             video.webkitEnterFullscreen();
             return;
           }
 
-          // Request browser fullscreen for the player container
           if (container.requestFullscreen) {
             await container.requestFullscreen();
           } else if (container.webkitRequestFullscreen) {
             await container.webkitRequestFullscreen();
           }
 
-          // Force Landscape Orientation on Android/Modern Mobile Browsers
           if (screen.orientation && screen.orientation.lock) {
             await screen.orientation.lock("landscape").catch(err => {
-              console.warn("Orientation lock warning/unsupported:", err);
+              console.warn("Orientation lock warning:", err);
             });
           }
         } else {
-          // Exit Fullscreen Mode
           if (document.exitFullscreen) {
             await document.exitFullscreen();
           } else if (document.webkitExitFullscreen) {
             await document.webkitExitFullscreen();
           }
 
-          // Release Orientation Lock back to system setting
           if (screen.orientation && screen.orientation.unlock) {
             screen.orientation.unlock();
           }
         }
       } catch (err) {
-        console.error("Fullscreen/Orientation toggle error:", err);
+        console.error("Fullscreen toggle error:", err);
       }
     }
 
-    // Automatically release landscape orientation if the user exits fullscreen via system gestures
     document.addEventListener("fullscreenchange", () => {
       if (!document.fullscreenElement && screen.orientation && screen.orientation.unlock) {
         screen.orientation.unlock();
@@ -552,10 +500,6 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Returns the seek offset within the CURRENT track according to the
-    // live schedule, or null if the current track isn't the "right now"
-    // slot (in which case syncEngine/seeking-guard should not force a
-    // jump beyond the cap).
     function getExactSeekPosition() {
       if (!currentTrack || SCHEDULE_TIMELINE.length === 0) return null;
       const liveTrack = SCHEDULE_TIMELINE.find(t => t.url === currentTrack.url);
@@ -570,23 +514,15 @@ function initPlayer(config) {
       const currentLoopCycleMs = (nowMs - baseAnchorMs) % totalDurationMs;
       const targetVirtualTimeMs = baseAnchorMs + currentLoopCycleMs;
 
-      // Even if the live cycle has moved on to a different slot (track
-      // reordered by an edit), still report an offset relative to this
-      // track's own window using a clamped projection, so fine drift
-      // correction can keep operating. If the virtual time is outside this
-      // track's start/end window entirely, we fall back to treating the
-      // track's own elapsed playback time as "correct" (i.e. don't force
-      // anything) by returning null — no forced correction beyond the cap
-      // logic in calculateLiveSyncState.
       if (targetVirtualTimeMs >= liveTrack.startMs && targetVirtualTimeMs < liveTrack.endMs) {
         return (targetVirtualTimeMs - liveTrack.startMs) / 1000;
       }
       return null;
     }
 
-    // --- Live Drift Check Engine (capped) ---
+    // Fixed: Throttled engine prevents rapid micro-seeks causing buffer flushes
     function syncEngine() {
-      if (document.hidden || isSwitchingTrack || isMediaLoading || !currentTrack) return;
+      if (document.hidden || isSwitchingTrack || isMediaLoading || isInternalSeeking || video.seeking || !currentTrack) return;
 
       const itemType = (currentTrack.type || '').toLowerCase();
       if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
@@ -596,12 +532,10 @@ function initPlayer(config) {
         const drift = seekPosition - video.currentTime;
         const absDrift = Math.abs(drift);
 
-        if (absDrift > MAX_CORRECTION_JUMP_SEC) {
-          // Exceeds hard cap — do not jump. Let playback continue; this
-          // will keep being re-evaluated every tick and will resolve
-          // naturally as time passes or the track changes.
-        } else if (absDrift > MAX_ALLOWED_DRIFT_SEC) {
+        if (absDrift > MAX_ALLOWED_DRIFT_SEC && absDrift <= MAX_CORRECTION_JUMP_SEC) {
+          isInternalSeeking = true;
           video.currentTime = seekPosition;
+          setTimeout(() => { isInternalSeeking = false; }, 500);
         }
 
         if (video.paused && btnPlay && btnPlay.innerText === "⏸") {
@@ -611,12 +545,9 @@ function initPlayer(config) {
     }
     setInterval(syncEngine, SYNC_CHECK_INTERVAL_MS);
 
-    // --- Anti-Bypass Seeking Revert (capped) ---
-    // Still reverts manual/unexpected seeks back to the live position, but
-    // respects the same hard cap so a large legitimate schedule shift
-    // doesn't get force-corrected either.
+    // Fixed: Guarded seeking event listener prevents recursive seek loops
     video.addEventListener('seeking', () => {
-      if (!currentTrack) return;
+      if (!currentTrack || isInternalSeeking || isSwitchingTrack) return;
       const itemType = (currentTrack.type || '').toLowerCase();
 
       if (itemType === 'mp4' || itemType === 'm3u8' || itemType === 'hls') {
@@ -625,9 +556,10 @@ function initPlayer(config) {
 
         const drift = Math.abs(video.currentTime - seekPosition);
         if (drift > MAX_ALLOWED_DRIFT_SEC && drift <= MAX_CORRECTION_JUMP_SEC) {
+          isInternalSeeking = true;
           video.currentTime = seekPosition;
+          setTimeout(() => { isInternalSeeking = false; }, 500);
         }
-        // If drift exceeds the cap, allow it — do not force revert.
       }
     });
 
@@ -639,8 +571,9 @@ function initPlayer(config) {
       isMediaLoading = false;
     });
 
+    // Fixed: Suppress loading spinner during brief buffers/internal seeks
     video.addEventListener("waiting", () => {
-      if (!isSwitchingTrack && !isMediaLoading) {
+      if (!isSwitchingTrack && !isMediaLoading && !isInternalSeeking) {
         const loaderEl = document.getElementById(config.loaderId);
         if (loaderEl) loaderEl.classList.remove("hidden");
       }
@@ -694,4 +627,4 @@ function showNotificationToast(el) {
   if (!el || document.body.classList.contains('public-mode')) return;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2500);
-}
+  }

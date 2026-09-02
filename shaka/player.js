@@ -58,7 +58,7 @@ async function fetchPlaylistUpdates() {
       const video = conf ? document.getElementById(conf.videoId) : null;
 
       const wasActivelyPlaying =
-        video && !video.paused && !video.ended && video.readyState >= 2 && currentTrack;
+        video && !video.paused && !video.ended && currentTrack;
 
       PLAYLIST = freshData;
       generateAbsoluteTimeline();
@@ -108,11 +108,16 @@ function calculateLiveSyncState() {
 
   const video = globalConfig ? document.getElementById(globalConfig.videoId) : null;
 
-  if (video && !video.paused && video.readyState >= 2 && currentTrack) {
+  // Guard purely on currentTrack existing in ACTIVE_SYNC_TIMELINE and not
+  // having ended. Deliberately NOT gated on video.readyState >= 2 — a brief
+  // buffering dip must never cause this to fall through and trigger a
+  // pending-timeline swap / reselect while the track is still legitimately
+  // playing. That was the source of the jump.
+  if (video && !video.paused && !video.ended && currentTrack) {
     const trackStillExists = ACTIVE_SYNC_TIMELINE.some(t => t.url === currentTrack.url);
     if (trackStillExists) {
       const statusOffset = globalConfig ? document.getElementById(globalConfig.statusOffsetId) : null;
-      if (statusOffset) {
+      if (statusOffset && video.readyState >= 2) {
         statusOffset.innerText = `Sync: ${Math.floor(video.currentTime || 0)}s / ${currentTrack.duration_seconds}s`;
       }
       return;
@@ -122,7 +127,8 @@ function calculateLiveSyncState() {
   }
 
   // Safe point to adopt a pending playlist swap: either nothing is
-  // currently playing, or the previous active track is gone/ended.
+  // currently playing, the video paused/ended, or the previous active
+  // track is gone entirely.
   if (pendingTimelineSwap) {
     ACTIVE_SYNC_TIMELINE = SCHEDULE_TIMELINE;
     pendingTimelineSwap = false;
@@ -536,7 +542,7 @@ function initPlayer(config) {
       if (!isSwitchingTrack) container.classList.add('show-ui');
     });
 
-    // Pure, direct position calculation — now anchored to ACTIVE_SYNC_TIMELINE
+    // Pure, direct position calculation — anchored to ACTIVE_SYNC_TIMELINE
     // so it never shifts under a currently-playing track.
     function getExactSeekPosition() {
       if (!currentTrack || ACTIVE_SYNC_TIMELINE.length === 0) return null;
@@ -659,4 +665,4 @@ function showNotificationToast(el) {
   if (!el || document.body.classList.contains('public-mode')) return;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 2500);
-       }
+}

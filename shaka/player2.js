@@ -10,7 +10,7 @@ let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 let userIntentPlay = true; // Tracks playback intent state cleanly without inspecting DOM buttons
 
-const PLAYLIST_JSON_URL = "./playlist.json";
+const PLAYLIST_JSON_URL = "./playlist2.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
 const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold for normal small-drift correction

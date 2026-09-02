@@ -530,19 +530,16 @@ function initPlayer(config) {
     });
 
     if (btnPlay) {
-      btnPlay.addEventListener("click", handlePlayToggle);
-      btnPlay.addEventListener("touchstart", handlePlayToggle);
-    }
+  btnPlay.addEventListener("click", handlePlayToggle);
+}
 
-    if (btnMute) {
-      btnMute.addEventListener("click", handleMuteToggle);
-      btnMute.addEventListener("touchstart", handleMuteToggle);
-    }
+if (btnMute) {
+  btnMute.addEventListener("click", handleMuteToggle);
+}
 
-    if (btnFullscreen) {
-      btnFullscreen.addEventListener("click", handleFullscreenToggle);
-      btnFullscreen.addEventListener("touchstart", handleFullscreenToggle);
-    }
+if (btnFullscreen) {
+  btnFullscreen.addEventListener("click", handleFullscreenToggle);
+}
 
     video.addEventListener("play", () => {
       if (btnPlay) btnPlay.innerText = "⏸";

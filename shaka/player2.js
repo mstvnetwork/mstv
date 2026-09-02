@@ -9,7 +9,7 @@ let isSwitchingTrack = false;
 let isMediaLoading = false;
 let autoRecoveryAttempts = 0;
 
-const PLAYLIST_JSON_URL = "./playlist2.json";
+const PLAYLIST_JSON_URL = "./playlist.json";
 const BASE_ANCHOR_DATE = "2026-01-01T00:00:00Z";
 
 const MAX_ALLOWED_DRIFT_SEC = 0.2; // Strict 200ms threshold matching original snippet efficiency

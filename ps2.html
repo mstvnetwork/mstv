@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+    <title>MSTV Live Broadcast</title>
+
+    <style>
+
+        :root {
+            --control-bg: rgba(0, 0, 0, 0.65);
+            --control-bg-hover: rgba(0, 0, 0, 0.85);
+            --icon: #fff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #000;
+
+            font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                sans-serif;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+
+            height: 100vh;
+            height: 100dvh;
+
+            color: #fff;
+            overflow: hidden;
+        }
+
+        .tv-frame {
+            position: relative;
+
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+
+            background: #000;
+
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .video-layer {
+            position: absolute;
+
+            top: 0;
+            left: 0;
+
+            width: 100%;
+            height: 100%;
+
+            object-fit: contain;
+
+            opacity: 0;
+
+            transition:
+                opacity 0.25s ease-in-out;
+
+            pointer-events: none;
+        }
+
+        .video-layer.active {
+            opacity: 1;
+            z-index: 1;
+        }
+
+        /* =====================================================
+           LOGO
+           ===================================================== */
+
+        .logo-container-context {
+            position: absolute;
+            inset: 0;
+
+            pointer-events: none;
+
+            z-index: 15;
+
+            container-type: inline-size;
+        }
+
+        .channel-logo {
+            position: absolute;
+
+            top: -1.3cqw;
+            right: 2.5cqw;
+
+            width: 18cqw;
+            height: auto;
+
+            object-fit: contain;
+
+            opacity: 0.8;
+
+            pointer-events: none;
+
+            filter:
+                drop-shadow(
+                    1px 1px 2px rgba(0,0,0,0.5)
+                );
+        }
+
+        /* =====================================================
+           TITLE
+           ===================================================== */
+
+        .title-box {
+            position: absolute;
+
+            top:
+                max(
+                    16px,
+                    env(safe-area-inset-top)
+                );
+
+            left:
+                max(
+                    16px,
+                    env(safe-area-inset-left)
+                );
+
+            font-size: 14px;
+
+            font-weight: 600;
+
+            color: #f1f1f1;
+
+            text-shadow:
+                0 1px 3px rgba(0, 0, 0, 0.9);
+
+            z-index: 100;
+
+            max-width: 80vw;
+
+            white-space: nowrap;
+
+            overflow: hidden;
+
+            text-overflow: ellipsis;
+
+            pointer-events: none;
+        }
+
+        /* =====================================================
+           CONTROLS
+           ===================================================== */
+
+        .ui-overlay {
+            position: absolute;
+
+            bottom:
+                max(
+                    16px,
+                    env(safe-area-inset-bottom)
+                );
+
+            right:
+                max(
+                    16px,
+                    env(safe-area-inset-right)
+                );
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 12px;
+
+            z-index: 100;
+        }
+
+        .ctrl-btn {
+            width: 42px;
+            height: 42px;
+
+            border-radius: 50%;
+
+            border: none;
+
+            background:
+                var(--control-bg);
+
+            backdrop-filter: blur(6px);
+
+            -webkit-backdrop-filter: blur(6px);
+
+            display: flex;
+
+            align-items: center;
+            justify-content: center;
+
+            cursor: pointer;
+
+            flex-shrink: 0;
+
+            transition:
+                background .15s ease,
+                transform .1s ease;
+
+            -webkit-tap-highlight-color:
+                transparent;
+        }
+
+        .ctrl-btn:hover {
+            background:
+                var(--control-bg-hover);
+        }
+
+        .ctrl-btn:active {
+            transform:
+                scale(.92);
+        }
+
+        .ctrl-btn svg {
+            width: 20px;
+            height: 20px;
+
+            fill: var(--icon);
+        }
+
+        @media (max-width: 360px) {
+
+            .title-box {
+                font-size: 11px;
+                padding: 6px 10px;
+            }
+
+            .ctrl-btn {
+                width: 38px;
+                height: 38px;
+            }
+
+            .ctrl-btn svg {
+                width: 18px;
+                height: 18px;
+            }
+
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<div
+    class="tv-frame"
+    id="tv-frame">
+
+
+    <!-- =====================================================
+         VIDEO PLAYER 1
+         ===================================================== -->
+
+    <video
+        id="player-1"
+        class="video-layer active"
+        muted
+        autoplay
+        playsinline>
+    </video>
+
+
+    <!-- =====================================================
+         VIDEO PLAYER 2
+         ===================================================== -->
+
+    <video
+        id="player-2"
+        class="video-layer"
+        muted
+        autoplay
+        playsinline>
+    </video>
+
+
+    <!-- =====================================================
+         TITLE
+         ===================================================== -->
+
+    <div
+        id="title-box"
+        class="title-box">
+
+        Now: Connecting...
+
+    </div>
+
+
+    <!-- =====================================================
+         LOGO
+         ===================================================== -->
+
+    <div class="logo-container-context">
+
+        <img
+            id="channelLogo"
+            class="channel-logo"
+            src="https://crickethd.pages.dev/apna3.webp"
+            alt="Apna TV Logo">
+
+    </div>
+
+
+    <!-- =====================================================
+         UI
+         ===================================================== -->
+
+    <div class="ui-overlay">
+
+
+        <!-- MUTE -->
+
+        <button
+            id="mute-btn"
+            class="ctrl-btn"
+            title="Unmute">
+
+            <svg
+                id="mute-icon"
+                viewBox="0 0 24 24">
+
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+
+            </svg>
+
+        </button>
+
+
+        <!-- FULLSCREEN -->
+
+        <button
+            id="fullscreen-btn"
+            class="ctrl-btn"
+            title="Fullscreen">
+
+            <svg
+                viewBox="0 0 24 24">
+
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+
+            </svg>
+
+        </button>
+
+    </div>
+
+
+</div>
+
+
+<script>
+
+
+/* =========================================================
+   ELEMENTS
+   ========================================================= */
+
+const player1 =
+    document.getElementById(
+        'player-1'
+    );
+
+
+const player2 =
+    document.getElementById(
+        'player-2'
+    );
+
+
+const titleBox =
+    document.getElementById(
+        'title-box'
+    );
+
+
+const muteBtn =
+    document.getElementById(
+        'mute-btn'
+    );
+
+
+const muteIcon =
+    document.getElementById(
+        'mute-icon'
+    );
+
+
+const fullscreenBtn =
+    document.getElementById(
+        'fullscreen-btn'
+    );
+
+
+const tvFrame =
+    document.getElementById(
+        'tv-frame'
+    );
+
+
+/* =========================================================
+   CONFIG
+   ========================================================= */
+
+const endpoint =
+    '/get-live-stream';
+
+
+/* =========================================================
+   PLAYER STATE
+   ========================================================= */
+
+let activePlayerSlot = 1;
+
+let currentStreamUrl = "";
+
+let isMasterMuted = true;
+
+
+/* =========================================================
+   PLAYLIST STATE
+   ========================================================= */
+
+let playlist = [];
+
+let playlistIndex = 0;
+
+let playlistInitialized = false;
+
+let lastPlaylistSignature = "";
+
+
+/*
+ * Unique number for every playlist transition.
+ */
+let transitionGeneration = 0;
+
+
+/*
+ * True while the new player is being prepared.
+ */
+let transitionInProgress = false;
+
+
+/*
+ * Expected active playlist URL.
+ */
+let activePlaylistUrl = "";
+
+
+/* =========================================================
+   TIMING STATE
+   ========================================================= */
+
+let fetchTimestamp = 0;
+
+let basePlayed = 0;
+
+
+/* =========================================================
+   END WATCHDOG
+   ========================================================= */
+
+let endWatchdog = null;
+
+let endWatchdogGeneration = 0;
+
+
+/* =========================================================
+   STRICT SEEK GUARD STATE
+   ========================================================= */
+
+/*
+ * Each video gets its own independent state.
+ *
+ * This is important because player1 and player2 are
+ * simultaneously involved during double buffering.
+ */
+const playerGuardState =
+    new WeakMap();
+
+
+function getGuardState(
+    playerInstance
+) {
+
+    if (
+        !playerGuardState.has(
+            playerInstance
+        )
+    ) {
+
+        playerGuardState.set(
+            playerInstance,
+            {
+                locked: false,
+                correcting: false,
+                allowSeek: true,
+                lastValidTime: 0
+            }
+        );
+
+    }
+
+
+    return playerGuardState.get(
+        playerInstance
+    );
+}
+
+
+/* =========================================================
+   EXPECTED PLAYBACK POSITION
+   ========================================================= */
+
+function getExpectedTime() {
+
+    const elapsed =
+        (
+            performance.now() -
+            fetchTimestamp
+        ) / 1000;
+
+
+    return Math.max(
+        0,
+        basePlayed + elapsed
+    );
+}
+
+
+/* =========================================================
+   STRICT POSITION CORRECTION
+   ========================================================= */
+
+function forceCorrectTime(
+    playerInstance
+) {
+
+    const state =
+        getGuardState(
+            playerInstance
+        );
+
+
+    if (
+        !state.locked ||
+        state.allowSeek ||
+        state.correcting
+    ) {
+        return;
+    }
+
+
+    if (
+        playerInstance.paused ||
+        playerInstance.ended
+    ) {
+        return;
+    }
+
+
+    if (
+        !Number.isFinite(
+            playerInstance.duration
+        )
+    ) {
+        return;
+    }
+
+
+    if (
+        playerInstance.duration <= 0
+    ) {
+        return;
+    }
+
+
+    let expected =
+        getExpectedTime();
+
+
+    /*
+     * If the authoritative position has reached the
+     * natural end, DO NOT loop it back.
+     *
+     * Normal ended-event logic will handle the transition.
+     */
+    if (
+        expected >=
+        playerInstance.duration
+    ) {
+        return;
+    }
+
+
+    expected =
+        Math.max(
+            0,
+            expected
+        );
+
+
+    /*
+     * Very small tolerance only for floating point
+     * precision.
+     *
+     * There is NO 2.5 second leak anymore.
+     */
+    const difference =
+        Math.abs(
+            playerInstance.currentTime -
+            expected
+        );
+
+
+    if (
+        difference > 0.05
+    ) {
+
+        state.correcting =
+            true;
+
+
+        try {
+
+            playerInstance.currentTime =
+                expected;
+
+        } catch (error) {
+
+            console.warn(
+                "Strict seek correction failed:",
+                error
+            );
+
+        }
+
+
+        requestAnimationFrame(
+            () => {
+
+                state.correcting =
+                    false;
+
+            }
+        );
+
+    }
+
+
+    state.lastValidTime =
+        expected;
+}
+
+
+/* =========================================================
+   LOCK SEEKING
+   ========================================================= */
+
+function lockPlayerSeeking(
+    playerInstance
+) {
+
+    const state =
+        getGuardState(
+            playerInstance
+        );
+
+
+    state.locked =
+        true;
+
+
+    state.allowSeek =
+        false;
+
+
+    state.correcting =
+        false;
+
+
+    state.lastValidTime =
+        playerInstance.currentTime || 0;
+}
+
+
+/* =========================================================
+   UNLOCK SEEKING
+   ========================================================= */
+
+function unlockPlayerSeeking(
+    playerInstance
+) {
+
+    const state =
+        getGuardState(
+            playerInstance
+        );
+
+
+    state.locked =
+        false;
+
+
+    state.allowSeek =
+        true;
+
+
+    state.correcting =
+        false;
+}
+
+
+/* =========================================================
+   STRICT ANTI-SEEK EVENTS
+   ========================================================= */
+
+function attachStrictSeekGuard(
+    playerInstance
+) {
+
+    const state =
+        getGuardState(
+            playerInstance
+        );
+
+
+    /* =====================================================
+       SEEKING
+       ===================================================== */
+
+    playerInstance.addEventListener(
+        'seeking',
+        () => {
+
+            /*
+             * Ignore our own initial synchronization seek.
+             */
+            if (
+                !state.locked ||
+                state.allowSeek ||
+                state.correcting
+            ) {
+                return;
+            }
+
+
+            /*
+             * User tried to seek.
+             *
+             * Correct immediately.
+             */
+            forceCorrectTime(
+                playerInstance
+            );
+
+        }
+    );
+
+
+    /* =====================================================
+       SEEKED
+       ===================================================== */
+
+    playerInstance.addEventListener(
+        'seeked',
+        () => {
+
+            if (
+                !state.locked ||
+                state.allowSeek ||
+                state.correcting
+            ) {
+                return;
+            }
+
+
+            /*
+             * Second line of defense.
+             */
+            forceCorrectTime(
+                playerInstance
+            );
+
+        }
+    );
+
+
+    /* =====================================================
+       TIMEUPDATE
+       ===================================================== */
+
+    playerInstance.addEventListener(
+        'timeupdate',
+        () => {
+
+            if (
+                !state.locked ||
+                state.allowSeek
+            ) {
+                return;
+            }
+
+
+            /*
+             * Continuous backup verification.
+             */
+            forceCorrectTime(
+                playerInstance
+            );
+
+        }
+    );
+
+
+    /* =====================================================
+       RATE CHANGE
+       ===================================================== */
+
+    playerInstance.addEventListener(
+        'ratechange',
+        () => {
+
+            if (
+                state.locked &&
+                !state.correcting &&
+                playerInstance.playbackRate !== 1
+            ) {
+
+                playerInstance.playbackRate =
+                    1;
+
+            }
+
+        }
+    );
+
+
+    /* =====================================================
+       PAUSE
+       ===================================================== */
+
+    playerInstance.addEventListener(
+        'pause',
+        () => {
+
+            if (
+                !state.locked ||
+                state.allowSeek ||
+                playerInstance.ended
+            ) {
+                return;
+            }
+
+
+            const activePlayer =
+                activePlayerSlot === 1
+                    ? player1
+                    : player2;
+
+
+            /*
+             * Only automatically resume the currently
+             * active player.
+             */
+            if (
+                playerInstance ===
+                activePlayer
+            ) {
+
+                playerInstance
+                    .play()
+                    .catch(
+                        () => {}
+                    );
+
+            }
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   ATTACH STRICT GUARDS
+   ========================================================= */
+
+attachStrictSeekGuard(
+    player1
+);
+
+attachStrictSeekGuard(
+    player2
+);
+
+
+/* =========================================================
+   MUTE
+   ========================================================= */
+
+muteBtn.addEventListener(
+    'click',
+    () => {
+
+        isMasterMuted =
+            !isMasterMuted;
+
+
+        player1.muted =
+            isMasterMuted;
+
+
+        player2.muted =
+            isMasterMuted;
+
+
+        if (
+            isMasterMuted
+        ) {
+
+            muteIcon.innerHTML = `
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            `;
+
+            muteBtn.title =
+                "Unmute";
+
+        } else {
+
+            muteIcon.innerHTML = `
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            `;
+
+            muteBtn.title =
+                "Mute";
+
+        }
+
+    }
+);
+
+
+/* =========================================================
+   FULLSCREEN
+   ========================================================= */
+
+fullscreenBtn.addEventListener(
+    'click',
+    () => {
+
+        if (
+            !document.fullscreenElement
+        ) {
+
+            if (
+                tvFrame.requestFullscreen
+            ) {
+
+                tvFrame.requestFullscreen();
+
+            } else if (
+                tvFrame.webkitRequestFullscreen
+            ) {
+
+                tvFrame.webkitRequestFullscreen();
+
+            }
+
+        } else {
+
+            if (
+                document.exitFullscreen
+            ) {
+
+                document.exitFullscreen();
+
+            } else if (
+                document.webkitExitFullscreen
+            ) {
+
+                document.webkitExitFullscreen();
+
+            }
+
+        }
+
+    }
+);
+
+
+/* =========================================================
+   CLEAR END WATCHDOG
+   ========================================================= */
+
+function clearEndWatchdog() {
+
+    if (
+        endWatchdog
+    ) {
+
+        clearInterval(
+            endWatchdog
+        );
+
+        endWatchdog =
+            null;
+
+    }
+
+
+    endWatchdogGeneration =
+        0;
+}
+
+
+/* =========================================================
+   START END WATCHDOG
+   ========================================================= */
+
+function startEndWatchdog(
+    playerInstance,
+    generation
+) {
+
+    clearEndWatchdog();
+
+
+    endWatchdogGeneration =
+        generation;
+
+
+    endWatchdog =
+        setInterval(
+            () => {
+
+                /*
+                 * Old watchdog.
+                 */
+                if (
+                    generation !==
+                    transitionGeneration
+                ) {
+
+                    clearEndWatchdog();
+
+                    return;
+
+                }
+
+
+                /*
+                 * Make sure this is still the active player.
+                 */
+                const currentActivePlayer =
+                    activePlayerSlot === 1
+                        ? player1
+                        : player2;
+
+
+                if (
+                    playerInstance !==
+                    currentActivePlayer
+                ) {
+                    return;
+                }
+
+
+                if (
+                    !playerInstance.classList.contains(
+                        'active'
+                    )
+                ) {
+                    return;
+                }
+
+
+                if (
+                    !playlistInitialized ||
+                    playlist.length === 0
+                ) {
+                    return;
+                }
+
+
+                /*
+                 * NORMAL END.
+                 */
+                if (
+                    playerInstance.ended
+                ) {
+
+                    clearEndWatchdog();
+
+
+                    advancePlaylist(
+                        generation
+                    );
+
+
+                    return;
+                }
+
+
+                /*
+                 * BACKUP END DETECTION.
+                 */
+                if (
+                    Number.isFinite(
+                        playerInstance.duration
+                    ) &&
+
+                    playerInstance.duration > 0 &&
+
+                    playerInstance.currentTime >=
+                        playerInstance.duration -
+                        0.15
+                ) {
+
+                    clearEndWatchdog();
+
+
+                    advancePlaylist(
+                        generation
+                    );
+
+                }
+
+            },
+            250
+        );
+}
+
+
+/* =========================================================
+   GET NEXT PLAYLIST ITEM
+   ========================================================= */
+
+function getNextPlaylistItem() {
+
+    if (
+        !playlist ||
+        playlist.length === 0
+    ) {
+        return null;
+    }
+
+
+    playlistIndex =
+        (
+            playlistIndex + 1
+        ) %
+        playlist.length;
+
+
+    return playlist[
+        playlistIndex
+    ];
+}
+
+
+/* =========================================================
+   PLAY PLAYLIST ITEM
+   ========================================================= */
+
+function playPlaylistItem(
+    item,
+    startTime = 0
+) {
+
+    if (
+        !item ||
+        !item.url
+    ) {
+
+        console.warn(
+            "Invalid playlist item:",
+            item
+        );
+
+        return;
+
+    }
+
+
+    /*
+     * New generation.
+     */
+    transitionGeneration++;
+
+
+    const generation =
+        transitionGeneration;
+
+
+    transitionInProgress =
+        true;
+
+
+    clearEndWatchdog();
+
+
+    currentStreamUrl =
+        item.url;
+
+
+    activePlaylistUrl =
+        item.url;
+
+
+    titleBox.innerText =
+        "Now: " +
+        (
+            item.title || ""
+        );
+
+
+    fetchTimestamp =
+        performance.now();
+
+
+    basePlayed =
+        Number(startTime) || 0;
+
+
+    console.log(
+        "PLAYING:",
+        playlistIndex,
+        item.title,
+        item.url,
+        "generation:",
+        generation
+    );
+
+
+    switchVideoInstantly(
+        item.url,
+        basePlayed,
+        generation
+    );
+}
+
+
+/* =========================================================
+   ADVANCE PLAYLIST
+   ========================================================= */
+
+function advancePlaylist(
+    sourceGeneration = null
+) {
+
+    /*
+     * Ignore stale transition.
+     */
+    if (
+        sourceGeneration !== null &&
+        sourceGeneration !==
+            transitionGeneration
+    ) {
+
+        console.log(
+            "IGNORED OLD TRANSITION:",
+            sourceGeneration,
+            "current:",
+            transitionGeneration
+        );
+
+        return;
+
+    }
+
+
+    /*
+     * Never advance while switching.
+     */
+    if (
+        transitionInProgress
+    ) {
+
+        console.log(
+            "IGNORED ADVANCE DURING TRANSITION"
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !playlist ||
+        playlist.length === 0
+    ) {
+        return;
+    }
+
+
+    const nextItem =
+        getNextPlaylistItem();
+
+
+    if (
+        !nextItem ||
+        !nextItem.url
+    ) {
+
+        console.warn(
+            "No valid next playlist item."
+        );
+
+        return;
+
+    }
+
+
+    console.log(
+        "NEXT PLAYLIST ITEM:",
+        playlistIndex,
+        nextItem.title
+    );
+
+
+    playPlaylistItem(
+        nextItem,
+        0
+    );
+}
+
+
+/* =========================================================
+   ENDED EVENT
+   ========================================================= */
+
+function attachPlaylistEndedHandler(
+    playerInstance
+) {
+
+    playerInstance.addEventListener(
+        'ended',
+        () => {
+
+            console.log(
+                "ENDED:",
+                playerInstance.id,
+                "URL:",
+                playerInstance.currentSrc
+            );
+
+
+            /*
+             * Ignore inactive player.
+             */
+            if (
+                !playerInstance.classList.contains(
+                    'active'
+                )
+            ) {
+                return;
+            }
+
+
+            /*
+             * Ignore unexpected URL.
+             */
+            if (
+                currentStreamUrl &&
+                playerInstance.currentSrc !==
+                    currentStreamUrl
+            ) {
+
+                console.log(
+                    "IGNORED ENDED FROM OLD URL"
+                );
+
+                return;
+            }
+
+
+            if (
+                !playlistInitialized ||
+                playlist.length === 0
+            ) {
+                return;
+            }
+
+
+            clearEndWatchdog();
+
+
+            advancePlaylist(
+                transitionGeneration
+            );
+
+        }
+    );
+}
+
+
+attachPlaylistEndedHandler(
+    player1
+);
+
+attachPlaylistEndedHandler(
+    player2
+);
+
+
+/* =========================================================
+   PLAYLIST SIGNATURE
+   ========================================================= */
+
+function createPlaylistSignature(
+    items
+) {
+
+    if (
+        !Array.isArray(items)
+    ) {
+        return "";
+    }
+
+
+    return items
+        .map(
+            item =>
+                (
+                    item.url || ""
+                ) +
+                "|" +
+                (
+                    item.title || ""
+                ) +
+                "|" +
+                (
+                    item.startHour || 0
+                ) +
+                ":" +
+                (
+                    item.startMinute || 0
+                ) +
+                ":" +
+                (
+                    item.startSecond || 0
+                )
+        )
+        .join("||");
+}
+
+
+/* =========================================================
+   POLL SERVER
+   ========================================================= */
+
+function pollLiveConfig() {
+
+    fetch(
+        endpoint +
+        '?t=' +
+        Date.now(),
+        {
+            cache: 'no-store'
+        }
+    )
+
+    .then(
+        response => {
+
+            if (
+                !response.ok
+            ) {
+
+                throw new Error(
+                    "HTTP " +
+                    response.status
+                );
+
+            }
+
+
+            return response.json();
+
+        }
+    )
+
+    .then(
+        data => {
+
+            /* =================================================
+               PLAYLIST RESPONSE
+               ================================================= */
+
+            if (
+                Array.isArray(
+                    data.playlist
+                ) &&
+                data.playlist.length > 0
+            ) {
+
+                const newPlaylist =
+                    data.playlist;
+
+
+                const newSignature =
+                    createPlaylistSignature(
+                        newPlaylist
+                    );
+
+
+                const playlistChanged =
+                    newSignature !==
+                    lastPlaylistSignature;
+
+
+                playlist =
+                    newPlaylist;
+
+
+                /* =============================================
+                   FIRST CONNECTION
+                   ============================================= */
+
+                if (
+                    !playlistInitialized
+                ) {
+
+                    playlistIndex =
+                        Number.isInteger(
+                            data.playlistIndex
+                        )
+                            ? data.playlistIndex
+                            : 0;
+
+
+                    if (
+                        playlistIndex < 0 ||
+                        playlistIndex >=
+                            playlist.length
+                    ) {
+
+                        playlistIndex =
+                            0;
+
+                    }
+
+
+                    const initialItem =
+                        playlist[
+                            playlistIndex
+                        ];
+
+
+                    if (
+                        initialItem &&
+                        initialItem.url
+                    ) {
+
+                        playlistInitialized =
+                            true;
+
+
+                        lastPlaylistSignature =
+                            newSignature;
+
+
+                        console.log(
+                            "INITIAL PLAYLIST ITEM:",
+                            playlistIndex,
+                            initialItem.title
+                        );
+
+
+                        playPlaylistItem(
+                            initialItem,
+                            Number(
+                                data.played
+                            ) || 0
+                        );
+
+                    }
+
+
+                    return;
+                }
+
+
+                /* =============================================
+                   REFRESH PLAYLIST
+                   ============================================= */
+
+                if (
+                    playlistChanged
+                ) {
+
+                    console.log(
+                        "PLAYLIST UPDATED FROM SERVER"
+                    );
+
+
+                    const currentIndex =
+                        playlist.findIndex(
+                            item =>
+                                item &&
+                                item.url ===
+                                    currentStreamUrl
+                        );
+
+
+                    if (
+                        currentIndex !== -1
+                    ) {
+
+                        playlistIndex =
+                            currentIndex;
+
+                    } else {
+
+                        playlistIndex =
+                            Math.min(
+                                playlistIndex,
+                                playlist.length - 1
+                            );
+
+                    }
+
+
+                    lastPlaylistSignature =
+                        newSignature;
+
+                }
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * After playback begins we intentionally
+                 * ignore server playlistIndex and played.
+                 *
+                 * Browser-side playback controls progression.
+                 */
+
+            }
+
+
+            /* =================================================
+               SINGLE STREAM FALLBACK
+               ================================================= */
+
+            else if (
+                data.url
+            ) {
+
+                playlist = [];
+
+                playlistIndex =
+                    0;
+
+                playlistInitialized =
+                    false;
+
+                lastPlaylistSignature =
+                    "";
+
+
+                clearEndWatchdog();
+
+
+                if (
+                    data.url !==
+                    currentStreamUrl
+                ) {
+
+                    currentStreamUrl =
+                        data.url;
+
+
+                    activePlaylistUrl =
+                        "";
+
+
+                    titleBox.innerText =
+                        "Now: " +
+                        (
+                            data.title || ""
+                        );
+
+
+                    fetchTimestamp =
+                        performance.now();
+
+
+                    basePlayed =
+                        Number(
+                            data.played
+                        ) || 0;
+
+
+                    transitionGeneration++;
+
+
+                    switchVideoInstantly(
+                        data.url,
+                        basePlayed,
+                        transitionGeneration
+                    );
+
+                }
+
+            }
+
+        }
+    )
+
+    .catch(
+        error => {
+
+            console.warn(
+                "Polling sync notice:",
+                error
+            );
+
+        }
+    )
+
+    .finally(
+        () => {
+
+            setTimeout(
+                pollLiveConfig,
+                1000
+            );
+
+        }
+    );
+
+}
+
+
+/* =========================================================
+   DOUBLE BUFFER SWITCH
+   ========================================================= */
+
+function switchVideoInstantly(
+    newUrl,
+    targetTime,
+    generation
+) {
+
+    const activePlayer =
+        activePlayerSlot === 1
+            ? player1
+            : player2;
+
+
+    const standbyPlayer =
+        activePlayerSlot === 1
+            ? player2
+            : player1;
+
+
+    /*
+     * Calculate network/fetch delay.
+     */
+    const elapsed =
+        (
+            performance.now() -
+            fetchTimestamp
+        ) / 1000;
+
+
+    let startPos =
+        Number(targetTime || 0) +
+        elapsed;
+
+
+    /* =====================================================
+       RESET STANDBY PLAYER
+       ===================================================== */
+
+    standbyPlayer.onloadedmetadata =
+        null;
+
+    standbyPlayer.oncanplay =
+        null;
+
+
+    /*
+     * Temporarily allow our own initial synchronization seek.
+     */
+    unlockPlayerSeeking(
+        standbyPlayer
+    );
+
+
+    standbyPlayer.pause();
+
+
+    standbyPlayer.removeAttribute(
+        'src'
+    );
+
+
+    standbyPlayer.load();
+
+
+    /* =====================================================
+       SET NEW URL
+       ===================================================== */
+
+    standbyPlayer.src =
+        newUrl;
+
+
+    standbyPlayer.muted =
+        isMasterMuted;
+
+
+    standbyPlayer.playbackRate =
+        1;
+
+
+    /* =====================================================
+       METADATA
+       ===================================================== */
+
+    standbyPlayer.onloadedmetadata =
+        () => {
+
+            /*
+             * Stale transition.
+             */
+            if (
+                generation !==
+                transitionGeneration
+            ) {
+                return;
+            }
+
+
+            if (
+                standbyPlayer.duration &&
+                standbyPlayer.duration > 0
+            ) {
+
+                /*
+                 * DO NOT modulo here.
+                 *
+                 * If the server position is already at/past
+                 * the end, stay at the end and allow the normal
+                 * playlist transition to handle it.
+                 */
+                if (
+                    startPos >=
+                    standbyPlayer.duration
+                ) {
+
+                    console.warn(
+                        "Initial position reached video end:",
+                        startPos,
+                        "duration:",
+                        standbyPlayer.duration
+                    );
+
+
+                    startPos =
+                        Math.max(
+                            0,
+                            standbyPlayer.duration -
+                            0.05
+                        );
+
+                }
+
+            }
+
+
+            try {
+
+                /*
+                 * Explicitly allow OUR initial seek.
+                 */
+                const state =
+                    getGuardState(
+                        standbyPlayer
+                    );
+
+
+                state.allowSeek =
+                    true;
+
+
+                standbyPlayer.currentTime =
+                    Math.max(
+                        0,
+                        startPos
+                    );
+
+            } catch (error) {
+
+                console.warn(
+                    "Initial seek failed:",
+                    error
+                );
+
+            }
+
+        };
+
+
+    /* =====================================================
+       LOAD
+       ===================================================== */
+
+    standbyPlayer.load();
+
+
+    /* =====================================================
+       CAN PLAY
+       ===================================================== */
+
+    standbyPlayer.oncanplay =
+        () => {
+
+            /*
+             * Ignore stale buffer.
+             */
+            if (
+                generation !==
+                transitionGeneration
+            ) {
+                return;
+            }
+
+
+            standbyPlayer
+                .play()
+
+                .then(
+                    () => {
+
+                        /*
+                         * Still current?
+                         */
+                        if (
+                            generation !==
+                            transitionGeneration
+                        ) {
+                            return;
+                        }
+
+
+                        /* =====================================
+                           NEW PLAYER BECOMES ACTIVE
+                           ===================================== */
+
+                        standbyPlayer.classList.add(
+                            'active'
+                        );
+
+
+                        activePlayer.classList.remove(
+                            'active'
+                        );
+
+
+                        /* =====================================
+                           STOP OLD PLAYER
+                           ===================================== */
+
+                        activePlayer.pause();
+
+
+                        activePlayer.removeAttribute(
+                            'src'
+                        );
+
+
+                        activePlayer.load();
+
+
+                        /* =====================================
+                           SWAP ACTIVE SLOT
+                           ===================================== */
+
+                        activePlayerSlot =
+                            activePlayerSlot === 1
+                                ? 2
+                                : 1;
+
+
+                        /* =====================================
+                           STRICT SEEK LOCK
+                           ===================================== */
+
+                        /*
+                         * Old player is no longer active.
+                         */
+                        unlockPlayerSeeking(
+                            activePlayer
+                        );
+
+
+                        /*
+                         * New player is now permanently
+                         * protected against user seeking.
+                         */
+                        lockPlayerSeeking(
+                            standbyPlayer
+                        );
+
+
+                        /*
+                         * Force normal speed.
+                         */
+                        standbyPlayer.playbackRate =
+                            1;
+
+
+                        /* =====================================
+                           TRANSITION COMPLETE
+                           ===================================== */
+
+                        transitionInProgress =
+                            false;
+
+
+                        /* =====================================
+                           START WATCHDOG
+                           ===================================== */
+
+                        if (
+                            playlistInitialized &&
+                            playlist.length > 0
+                        ) {
+
+                            startEndWatchdog(
+                                standbyPlayer,
+                                generation
+                            );
+
+                        }
+
+
+                        console.log(
+                            "ACTIVE PLAYER:",
+                            standbyPlayer.id,
+                            "generation:",
+                            generation,
+                            "locked:",
+                            true
+                        );
+
+                    }
+                )
+
+                .catch(
+                    error => {
+
+                        console.log(
+                            "Playback deferred:",
+                            error
+                        );
+
+                    }
+                );
+
+        };
+
+}
+
+
+/* =========================================================
+   START
+   ========================================================= */
+
+console.log(
+    "MSTV player starting..."
+);
+
+
+pollLiveConfig();
+
+
+</script>
+
+</body>
+
+</html>

@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MSTV Live Broadcast</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
     <style>
         :root {
             --control-bg: rgba(0, 0, 0, 0.65);
@@ -34,10 +33,22 @@
             justify-content: center; 
             align-items: center; 
         }
-        video { 
+        
+        /* Dual-buffer video layers for seamless real-time switching */
+        .video-layer { 
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%; 
             height: 100%; 
             object-fit: contain; 
+            opacity: 0;
+            transition: opacity 0.25s ease-in-out;
+            pointer-events: none;
+        }
+        .video-layer.active { 
+            opacity: 1;
+            z-index: 1;
         }
         
         .ui-overlay { 
@@ -113,7 +124,6 @@
         .ctrl-btn:active { transform: scale(.92); }
         .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
         
-        #spacer { flex: 1; }
         #fullscreen-btn { margin-left: 8px; }
 
         @media (max-width: 360px) {
@@ -127,13 +137,16 @@
 <body>
 
 <div class="tv-frame" id="tv-frame">
-    <video id="tv-player" muted autoplay playsinline></video>
+    <!-- Double-buffered video players for instant switching without user refreshes -->
+    <video id="player-1" class="video-layer active" muted autoplay playsinline></video>
+    <video id="player-2" class="video-layer" muted autoplay playsinline></video>
+
     <div class="ui-overlay">
         <div class="info-container">
             <div class="live-row">
                 <span class="live-dot">● LIVE</span>
             </div>
-            <span id="show-title">Tuning Broadcast Channel...</span>
+            <span id="show-title">Connecting to Broadcast...</span>
         </div>
         <button id="mute-btn" class="ctrl-btn" title="Unmute">
             <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
@@ -145,25 +158,30 @@
 </div>
 
 <script>
-    const video = document.getElementById('tv-player');
+    const player1 = document.getElementById('player-1');
+    const player2 = document.getElementById('player-2');
     const titleText = document.getElementById('show-title');
     const muteBtn = document.getElementById('mute-btn');
     const muteIcon = document.getElementById('mute-icon');
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
+
+    // Point this to your configuration JSON file or API endpoint
+    // Structure expected: { "url": "https://...", "title": "Show Title", "played": 0 }
     const endpoint = '/get-live-stream'; 
 
-    let activeHls = null;
-    let expectedTime = 0;
-    let isReverting = false;
-    let fetchTimestamp = 0;
-    let basePlayed = 0;
+    let activePlayerSlot = 1; // Tracks whether player-1 or player-2 is currently live
+    let currentStreamUrl = "";
+    let isMasterMuted = true;
 
-    // Mute / Unmute Toggle Logic
+    // Master Mute Sync across both buffers
     muteBtn.addEventListener('click', () => {
-        video.muted = !video.muted;
-        if (video.muted) {
-            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+        isMasterMuted = !isMasterMuted;
+        player1.muted = isMasterMuted;
+        player2.muted = isMasterMuted;
+
+        if (isMasterMuted) {
+            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4 z"/>';
             muteBtn.title = "Unmute";
         } else {
             muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
@@ -171,7 +189,7 @@
         }
     });
 
-    // Fullscreen Toggle Logic
+    // Fullscreen Toggle
     fullscreenBtn.addEventListener('click', () => {
         if (!document.fullscreenElement) {
             if (tvFrame.requestFullscreen) tvFrame.requestFullscreen();
@@ -182,83 +200,56 @@
         }
     });
 
-    // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
-    video.addEventListener('timeupdate', () => {
-        if (isReverting || video.paused || !video.duration) return;
-
-        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-        let target = basePlayed + elapsed;
-        if (video.duration && video.duration > 0) {
-            target = target % video.duration; // Handle looping safely
-        }
-
-        // If user deviates more than 2 seconds from the calculated schedule position
-        if (Math.abs(video.currentTime - target) > 2.5) {
-            isReverting = true;
-            video.currentTime = target;
-            setTimeout(() => { isReverting = false; }, 300);
-        }
-    });
-
-    function tuneIn() {
-        fetch(endpoint)
+    // Real-Time Polling Loop (Checks for JSON changes every 1 second)
+    function pollLiveConfig() {
+        fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
             .then(res => res.json())
             .then(data => {
-                titleText.innerText = data.title;
-                basePlayed = data.played;
-                fetchTimestamp = performance.now();
-
-                if (Hls.isSupported()) {
-                    if (activeHls) activeHls.destroy();
-                    
-                    const hls = new Hls({ enableWorker: true });
-                    activeHls = hls;
-                    hls.loadSource(data.url);
-                    hls.attachMedia(video);
-                    
-                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-                        let startPos = data.played + elapsed;
-                        
-                        if (video.duration && video.duration > 0) {
-                            startPos = startPos % video.duration;
-                        }
-                        
-                        try {
-                            video.currentTime = startPos;
-                        } catch (e) {
-                            console.warn("Seek bounds error, defaulting to start", e);
-                        }
-                        video.play().catch(() => {});
-                    });
-                } 
-                else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = data.url;
-                    video.addEventListener('loadedmetadata', () => {
-                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-                        let startPos = data.played + elapsed;
-                        
-                        if (video.duration && video.duration > 0) {
-                            startPos = startPos % video.duration;
-                        }
-                        
-                        video.currentTime = startPos;
-                        video.play().catch(() => {});
-                    });
+                if (data.url && data.url !== currentStreamUrl) {
+                    currentStreamUrl = data.url;
+                    titleText.innerText = data.title || "Live Broadcast";
+                    switchVideoInstantly(data.url, data.played || 0);
                 }
             })
             .catch(err => {
-                titleText.innerText = "Signal Interrupted. Retrying...";
-                console.error(err);
-                setTimeout(tuneIn, 4000);
+                console.warn("Polling sync notice:", err);
+            })
+            .finally(() => {
+                setTimeout(pollLiveConfig, 1000); // Check configuration every 1 second
             });
     }
 
-    tuneIn();
-    
-    video.addEventListener('pause', () => {
-        if (!video.ended) video.play().catch(() => {});
-    });
+    // Double-buffering transition handler
+    function switchVideoInstantly(newUrl, targetTime) {
+        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
+        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
+
+        // Prepare the standby player in the background
+        standbyPlayer.src = newUrl;
+        standbyPlayer.muted = isMasterMuted;
+        standbyPlayer.currentTime = targetTime;
+        standbyPlayer.load();
+
+        standbyPlayer.oncanplay = () => {
+            standbyPlayer.play().then(() => {
+                // Instantly crossfade to the new stream buffer
+                standbyPlayer.classList.add('active');
+                activePlayer.classList.remove('active');
+
+                // Stop the old player to free hardware memory
+                activePlayer.pause();
+                activePlayer.src = "";
+
+                // Swap active slot pointer
+                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+            }).catch(e => {
+                console.log("Playback constraint deferred:", e);
+            });
+        };
+    }
+
+    // Kick off automatic polling right away
+    pollLiveConfig();
 </script>
 
 </body>

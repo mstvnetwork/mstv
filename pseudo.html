@@ -4,54 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MSTV Live Broadcast</title>
+
     <style>
         :root {
             --control-bg: rgba(0, 0, 0, 0.65);
             --control-bg-hover: rgba(0, 0, 0, 0.85);
             --icon: #fff;
         }
+
         * { box-sizing: border-box; }
-        body { 
-            margin: 0; 
-            background: #000; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            height: 100dvh; 
-            color: #fff; 
-            overflow: hidden; 
+
+        body {
+            margin: 0;
+            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            color: #fff;
+            overflow: hidden;
         }
-        .tv-frame { 
-            position: relative; 
-            width: 100vw; 
-            height: 100vh; 
-            height: 100dvh; 
-            background: #000; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
+
+        .tv-frame {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        
-        /* Dual-buffer video layers for seamless real-time switching */
-        .video-layer { 
+
+        /* Dual-buffer video layers */
+        .video-layer {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             opacity: 0;
             transition: opacity 0.25s ease-in-out;
             pointer-events: none;
         }
-        .video-layer.active { 
+
+        .video-layer.active {
             opacity: 1;
             z-index: 1;
         }
-        
-         /* Top-Left Title Text (Background-free) */
+
+        /* Top-Left Title Text */
         .title-box {
             position: absolute;
             top: max(16px, env(safe-area-inset-top));
@@ -68,12 +73,11 @@
             pointer-events: none;
         }
 
-
         /* Bottom Controls Overlay */
-        .ui-overlay { 
-            position: absolute; 
-            bottom: max(16px, env(safe-area-inset-bottom)); 
-            right: max(16px, env(safe-area-inset-right)); 
+        .ui-overlay {
+            position: absolute;
+            bottom: max(16px, env(safe-area-inset-bottom));
+            right: max(16px, env(safe-area-inset-right));
             display: flex;
             align-items: center;
             gap: 12px;
@@ -81,120 +85,249 @@
         }
 
         .ctrl-btn {
-            width: 42px; 
+            width: 42px;
             height: 42px;
             border-radius: 50%;
             border: none;
             background: var(--control-bg);
             backdrop-filter: blur(6px);
             -webkit-backdrop-filter: blur(6px);
-            display: flex; 
-            align-items: center; 
+            display: flex;
+            align-items: center;
             justify-content: center;
             cursor: pointer;
             flex-shrink: 0;
             transition: background .15s ease, transform .1s ease;
             -webkit-tap-highlight-color: transparent;
         }
-        .ctrl-btn:hover { background: var(--control-bg-hover); }
-        .ctrl-btn:active { transform: scale(.92); }
-        .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
-        
-        #fullscreen-btn { margin-left: 0px; }
+
+        .ctrl-btn:hover {
+            background: var(--control-bg-hover);
+        }
+
+        .ctrl-btn:active {
+            transform: scale(.92);
+        }
+
+        .ctrl-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--icon);
+        }
+
+        #fullscreen-btn {
+            margin-left: 0;
+        }
 
         @media (max-width: 360px) {
-            .title-box { font-size: 11px; padding: 6px 10px; }
-            .ctrl-btn { width: 38px; height: 38px; }
-            .ctrl-btn svg { width: 18px; height: 18px; }
+            .title-box {
+                font-size: 11px;
+                padding: 6px 10px;
+            }
+
+            .ctrl-btn {
+                width: 38px;
+                height: 38px;
+            }
+
+            .ctrl-btn svg {
+                width: 18px;
+                height: 18px;
+            }
         }
     </style>
 </head>
+
 <body>
 
 <div class="tv-frame" id="tv-frame">
-    <!-- Double-buffered video players for instant switching without user refreshes -->
-    <video id="player-1" class="video-layer active" muted autoplay playsinline></video>
-    <video id="player-2" class="video-layer" muted autoplay playsinline></video>
 
-    <!-- Top-Left Real-Time Program Box -->
-    <div id="title-box" class="title-box">Now: Connecting...</div>
+    <!-- Double-buffered video players -->
+    <video id="player-1"
+           class="video-layer active"
+           muted
+           autoplay
+           playsinline></video>
 
-    <!-- Bottom Controls Overlay -->
+    <video id="player-2"
+           class="video-layer"
+           muted
+           autoplay
+           playsinline></video>
+
+    <!-- Top-Left Program Box -->
+    <div id="title-box" class="title-box">
+        Now: Connecting...
+    </div>
+
+    <!-- Bottom Controls -->
     <div class="ui-overlay">
-        <button id="mute-btn" class="ctrl-btn" title="Unmute">
-            <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+
+        <button id="mute-btn"
+                class="ctrl-btn"
+                title="Unmute">
+
+            <svg id="mute-icon" viewBox="0 0 24 24">
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            </svg>
+
         </button>
-        <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
-            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+
+        <button id="fullscreen-btn"
+                class="ctrl-btn"
+                title="Fullscreen">
+
+            <svg viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+
         </button>
+
     </div>
 </div>
+
 <script>
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
+
     const titleBox = document.getElementById('title-box');
     const muteBtn = document.getElementById('mute-btn');
     const muteIcon = document.getElementById('mute-icon');
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
 
-    const endpoint = '/get-live-stream'; 
+    const endpoint = '/get-live-stream';
 
-    let activePlayerSlot = 1; 
+    let activePlayerSlot = 1;
+
     let currentStreamUrl = "";
     let isMasterMuted = true;
 
-    // Playlist state variables for auto-looping
+    /* =========================================================
+       PLAYLIST STATE
+       ========================================================= */
+
     let playlist = [];
     let playlistIndex = 0;
 
-    // Tracking state for anti-scrub guard and scheduling
+    /*
+     * Prevents multiple transition calls from happening at
+     * exactly the same time.
+     */
+    let playlistTransitionInProgress = false;
+
+    /*
+     * Used to identify the currently playing playlist item.
+     */
+    let currentPlaylistItem = null;
+
+
+    /* =========================================================
+       PLAYBACK / ANTI-SCRUB STATE
+       ========================================================= */
+
     let fetchTimestamp = 0;
     let basePlayed = 0;
     let isReverting = false;
 
-    // Master Mute Sync across both buffers
+
+    /* =========================================================
+       MASTER MUTE SYNC
+       ========================================================= */
+
     muteBtn.addEventListener('click', () => {
+
         isMasterMuted = !isMasterMuted;
+
         player1.muted = isMasterMuted;
         player2.muted = isMasterMuted;
 
         if (isMasterMuted) {
-            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+
+            muteIcon.innerHTML = `
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+            `;
+
             muteBtn.title = "Unmute";
+
         } else {
-            muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+
+            muteIcon.innerHTML = `
+                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+            `;
+
             muteBtn.title = "Mute";
         }
     });
 
-    // Fullscreen Toggle
+
+    /* =========================================================
+       FULLSCREEN
+       ========================================================= */
+
     fullscreenBtn.addEventListener('click', () => {
+
         if (!document.fullscreenElement) {
-            if (tvFrame.requestFullscreen) tvFrame.requestFullscreen();
-            else if (tvFrame.webkitRequestFullscreen) tvFrame.webkitRequestFullscreen();
+
+            if (tvFrame.requestFullscreen) {
+                tvFrame.requestFullscreen();
+            } else if (tvFrame.webkitRequestFullscreen) {
+                tvFrame.webkitRequestFullscreen();
+            }
+
         } else {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            }
         }
     });
 
-    // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
-    function attachTimeupdateGuard(playerInstance) {
-        playerInstance.addEventListener('timeupdate', () => {
-            if (isReverting || playerInstance.paused || !playerInstance.duration) return;
 
-            const elapsed = (performance.now() - fetchTimestamp) / 1000;
-            let target = basePlayed + elapsed;
-            if (playerInstance.duration && playerInstance.duration > 0) {
-                target = target % playerInstance.duration; // Handle looping safely
+    /* =========================================================
+       ANTI-SCRUB GUARD
+       ========================================================= */
+
+    function attachTimeupdateGuard(playerInstance) {
+
+        playerInstance.addEventListener('timeupdate', () => {
+
+            if (
+                isReverting ||
+                playerInstance.paused ||
+                !playerInstance.duration
+            ) {
+                return;
             }
 
-            // If user deviates more than 2.5 seconds from the calculated schedule position
-            if (Math.abs(playerInstance.currentTime - target) > 2.5) {
+            const elapsed =
+                (performance.now() - fetchTimestamp) / 1000;
+
+            let target = basePlayed + elapsed;
+
+            if (
+                playerInstance.duration &&
+                playerInstance.duration > 0
+            ) {
+                target = target % playerInstance.duration;
+            }
+
+            /*
+             * Keep the original anti-scrubbing behavior.
+             */
+            if (
+                Math.abs(playerInstance.currentTime - target) > 2.5
+            ) {
+
                 isReverting = true;
+
                 playerInstance.currentTime = target;
-                setTimeout(() => { isReverting = false; }, 300);
+
+                setTimeout(() => {
+                    isReverting = false;
+                }, 300);
             }
         });
     }
@@ -202,110 +335,465 @@
     attachTimeupdateGuard(player1);
     attachTimeupdateGuard(player2);
 
-    // Auto-Loop Playlist Handler: Automatically loops from the last object back to the first when a video ends
+
+    /* =========================================================
+       GET NEXT PLAYLIST ITEM
+       ========================================================= */
+
+    function getNextPlaylistItem() {
+
+        if (!playlist || playlist.length === 0) {
+            return null;
+        }
+
+        /*
+         * This is the actual loop:
+         *
+         * 0 -> 1 -> 2 -> ... -> last -> 0
+         */
+        playlistIndex =
+            (playlistIndex + 1) % playlist.length;
+
+        return playlist[playlistIndex];
+    }
+
+
+    /* =========================================================
+       PLAY PLAYLIST ITEM
+       ========================================================= */
+
+    function playPlaylistItem(item, startTime = 0) {
+
+        if (!item || !item.url) {
+            return;
+        }
+
+        currentPlaylistItem = item;
+
+        currentStreamUrl = item.url;
+
+        titleBox.innerText =
+            "Now: " + (item.title || "");
+
+        fetchTimestamp = performance.now();
+
+        basePlayed = Number(startTime) || 0;
+
+        switchVideoInstantly(
+            item.url,
+            basePlayed
+        );
+    }
+
+
+    /* =========================================================
+       ADVANCE PLAYLIST
+       ========================================================= */
+
+    function advancePlaylist() {
+
+        /*
+         * Prevent duplicate ended events / transitions.
+         */
+        if (playlistTransitionInProgress) {
+            return;
+        }
+
+        if (!playlist || playlist.length === 0) {
+            return;
+        }
+
+        playlistTransitionInProgress = true;
+
+        const nextItem = getNextPlaylistItem();
+
+        if (nextItem && nextItem.url) {
+
+            /*
+             * Always start the next playlist object at the
+             * beginning.
+             */
+            playPlaylistItem(nextItem, 0);
+
+        }
+
+        /*
+         * Release the lock shortly after initiating the
+         * transition.
+         */
+        setTimeout(() => {
+            playlistTransitionInProgress = false;
+        }, 500);
+    }
+
+
+    /* =========================================================
+       VIDEO ENDED HANDLER
+       ========================================================= */
+
     function attachPlaylistEndedHandler(playerInstance) {
+
         playerInstance.addEventListener('ended', () => {
-            if (playlist.length > 0) {
-                // Increment playlist index and modulo wrap back to 0 at the end of the array
-                playlistIndex = (playlistIndex + 1) % playlist.length;
-                const nextItem = playlist[playlistIndex];
 
-                currentStreamUrl = nextItem.url;
-                titleBox.innerText = "Now: " + (nextItem.title || '');
-                fetchTimestamp = performance.now();
-                basePlayed = 0; // Restart new playlist item from beginning
-
-                switchVideoInstantly(nextItem.url, 0);
+            /*
+             * Only the active player is allowed to advance
+             * the playlist.
+             *
+             * This is important because both video elements
+             * have an ended event.
+             */
+            if (
+                !playerInstance.classList.contains('active')
+            ) {
+                return;
             }
+
+            /*
+             * Ignore single-stream mode.
+             */
+            if (!playlist || playlist.length === 0) {
+                return;
+            }
+
+            advancePlaylist();
         });
     }
 
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
-    // Real-Time Polling Loop (Checks for JSON playlist updates every 1 second)
-    function pollLiveConfig() {
-        fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
-            .then(res => res.json())
-            .then(data => {
-                // Handle JSON data if it's structured as a playlist array or contains a playlist property
-                const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
 
-                if (newPlaylist && newPlaylist.length > 0) {
+    /* =========================================================
+       POLL SERVERLESS JSON CONFIG
+       ========================================================= */
+
+    function pollLiveConfig() {
+
+        fetch(endpoint + '?t=' + Date.now())
+
+            .then(res => res.json())
+
+            .then(data => {
+
+                /*
+                 * Support both:
+                 *
+                 * [
+                 *   { url: "...", title: "..." },
+                 *   { url: "...", title: "..." }
+                 * ]
+                 *
+                 * and:
+                 *
+                 * {
+                 *   playlist: [...]
+                 * }
+                 */
+                const newPlaylist =
+                    Array.isArray(data)
+                        ? data
+                        : (Array.isArray(data.playlist)
+                            ? data.playlist
+                            : null);
+
+
+                /* =================================================
+                   PLAYLIST MODE
+                   ================================================= */
+
+                if (
+                    newPlaylist &&
+                    newPlaylist.length > 0
+                ) {
+
+                    /*
+                     * Preserve the currently playing item when the
+                     * server refreshes the JSON.
+                     */
+                    const oldCurrentUrl =
+                        currentStreamUrl;
+
                     playlist = newPlaylist;
-                    // If initial stream hasn't been set yet, initialize the first playlist object
-                    if (!currentStreamUrl) {
+
+                    /*
+                     * If nothing is currently playing, start at
+                     * the first JSON object.
+                     */
+                    if (!oldCurrentUrl) {
+
                         playlistIndex = 0;
-                        const initialItem = playlist[playlistIndex];
-                        currentStreamUrl = initialItem.url;
-                        titleBox.innerText = "Now: " + (initialItem.title || '');
-                        fetchTimestamp = performance.now();
-                        basePlayed = initialItem.played || 0;
-                        switchVideoInstantly(initialItem.url, basePlayed);
+
+                        const initialItem =
+                            playlist[playlistIndex];
+
+                        if (initialItem && initialItem.url) {
+
+                            playPlaylistItem(
+                                initialItem,
+                                initialItem.played || 0
+                            );
+                        }
+
+                    } else {
+
+                        /*
+                         * Find the currently playing URL in the
+                         * refreshed playlist.
+                         *
+                         * This prevents the index from becoming
+                         * incorrect if the server refreshes the
+                         * JSON array.
+                         */
+                        const refreshedIndex =
+                            playlist.findIndex(
+                                item =>
+                                    item &&
+                                    item.url === oldCurrentUrl
+                            );
+
+                        if (refreshedIndex !== -1) {
+
+                            playlistIndex =
+                                refreshedIndex;
+
+                        } else {
+
+                            /*
+                             * If the currently playing item was
+                             * removed from the refreshed JSON,
+                             * keep the index safely inside bounds.
+                             */
+                            playlistIndex =
+                                Math.min(
+                                    playlistIndex,
+                                    playlist.length - 1
+                                );
+                        }
                     }
-                } else if (data.url && data.url !== currentStreamUrl) {
-                    // Fallback support for single stream JSON responses
-                    currentStreamUrl = data.url;
-                    if (data.title) titleBox.innerText = "Now: " + data.title;
-                    basePlayed = data.played || 0;
-                    fetchTimestamp = performance.now();
-                    switchVideoInstantly(data.url, basePlayed);
+
                 }
+
+                /* =================================================
+                   SINGLE STREAM FALLBACK
+                   ================================================= */
+
+                else if (
+                    data.url &&
+                    data.url !== currentStreamUrl
+                ) {
+
+                    /*
+                     * Empty playlist means normal single-stream
+                     * behavior.
+                     */
+                    playlist = [];
+                    playlistIndex = 0;
+
+                    currentStreamUrl =
+                        data.url;
+
+                    if (data.title) {
+                        titleBox.innerText =
+                            "Now: " + data.title;
+                    }
+
+                    basePlayed =
+                        Number(data.played) || 0;
+
+                    fetchTimestamp =
+                        performance.now();
+
+                    switchVideoInstantly(
+                        data.url,
+                        basePlayed
+                    );
+                }
+
             })
+
             .catch(err => {
-                console.warn("Polling sync notice:", err);
+
+                console.warn(
+                    "Polling sync notice:",
+                    err
+                );
+
             })
+
             .finally(() => {
-                setTimeout(pollLiveConfig, 1000); // Check configuration every 1 second
+
+                /*
+                 * Continue polling every second.
+                 */
+                setTimeout(
+                    pollLiveConfig,
+                    1000
+                );
             });
     }
 
-    // Double-buffering transition handler
-    function switchVideoInstantly(newUrl, targetTime) {
-        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-        // Calculate offset time based on fetch lag
-        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-        let startPos = targetTime + elapsed;
-        
-        // Prepare the standby player in the background
+    /* =========================================================
+       DOUBLE-BUFFER VIDEO SWITCH
+       ========================================================= */
+
+    function switchVideoInstantly(
+        newUrl,
+        targetTime
+    ) {
+
+        const activePlayer =
+            activePlayerSlot === 1
+                ? player1
+                : player2;
+
+        const standbyPlayer =
+            activePlayerSlot === 1
+                ? player2
+                : player1;
+
+
+        /*
+         * Calculate playback offset caused by fetch/network
+         * delay.
+         */
+        const elapsed =
+            (performance.now() - fetchTimestamp) / 1000;
+
+        let startPos =
+            targetTime + elapsed;
+
+
+        /*
+         * Prepare standby player.
+         */
         standbyPlayer.src = newUrl;
-        standbyPlayer.muted = isMasterMuted;
-        
+
+        standbyPlayer.muted =
+            isMasterMuted;
+
+
         standbyPlayer.onloadedmetadata = () => {
-            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-                startPos = startPos % standbyPlayer.duration;
+
+            if (
+                standbyPlayer.duration &&
+                standbyPlayer.duration > 0
+            ) {
+
+                /*
+                 * Safety modulo for target position.
+                 */
+                startPos =
+                    startPos %
+                    standbyPlayer.duration;
             }
-            standbyPlayer.currentTime = startPos;
+
+            try {
+                standbyPlayer.currentTime =
+                    startPos;
+            } catch (e) {
+                console.warn(
+                    "Unable to set playback position:",
+                    e
+                );
+            }
         };
+
 
         standbyPlayer.load();
 
+
         standbyPlayer.oncanplay = () => {
-            standbyPlayer.play().then(() => {
-                // Instantly crossfade to the new stream buffer
-                standbyPlayer.classList.add('active');
-                activePlayer.classList.remove('active');
 
-                // Stop the old player to free hardware memory
-                activePlayer.pause();
-                activePlayer.src = "";
+            standbyPlayer
+                .play()
+                .then(() => {
 
-                // Swap active slot pointer
-                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
-            }).catch(e => {
-                console.log("Playback constraint deferred:", e);
-            });
+                    /*
+                     * Activate the new buffer.
+                     */
+                    standbyPlayer.classList.add(
+                        'active'
+                    );
+
+                    activePlayer.classList.remove(
+                        'active'
+                    );
+
+
+                    /*
+                     * Stop the old buffer.
+                     */
+                    activePlayer.pause();
+
+                    activePlayer.src = "";
+
+
+                    /*
+                     * Swap active player slot.
+                     */
+                    activePlayerSlot =
+                        activePlayerSlot === 1
+                            ? 2
+                            : 1;
+
+                })
+
+                .catch(e => {
+
+                    console.log(
+                        "Playback constraint deferred:",
+                        e
+                    );
+                });
         };
     }
 
-    // Ensure fallback video pause handler keeps it playing live
-    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
-    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
 
-    // Kick off automatic polling right away
+    /* =========================================================
+       KEEP ACTIVE PLAYER PLAYING
+       ========================================================= */
+
+    player1.addEventListener(
+        'pause',
+        () => {
+
+            if (
+                !player1.ended &&
+                player1.classList.contains('active')
+            ) {
+
+                player1
+                    .play()
+                    .catch(() => {});
+            }
+        }
+    );
+
+
+    player2.addEventListener(
+        'pause',
+        () => {
+
+            if (
+                !player2.ended &&
+                player2.classList.contains('active')
+            ) {
+
+                player2
+                    .play()
+                    .catch(() => {});
+            }
+        }
+    );
+
+
+    /* =========================================================
+       START
+       ========================================================= */
+
     pollLiveConfig();
+
 </script>
 
 </body>

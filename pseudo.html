@@ -129,7 +129,8 @@
         </button>
     </div>
 </div>
-<script>
+
+                <script>
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
     const titleBox = document.getElementById('title-box');
@@ -144,11 +145,12 @@
     let currentStreamUrl = "";
     let isMasterMuted = true;
 
-    // Playlist state variables for auto-looping
+    // Playlist state variables
     let playlist = [];
     let playlistIndex = 0;
+    let isPlaylistLoaded = false;
 
-    // Tracking state for anti-scrub guard and scheduling
+    // Tracking state for anti-scrub guard
     let fetchTimestamp = 0;
     let basePlayed = 0;
     let isReverting = false;
@@ -179,7 +181,7 @@
         }
     });
 
-    // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
+    // Strict Anti-Scrubbing Guard
     function attachTimeupdateGuard(playerInstance) {
         playerInstance.addEventListener('timeupdate', () => {
             if (isReverting || playerInstance.paused || !playerInstance.duration) return;
@@ -187,10 +189,9 @@
             const elapsed = (performance.now() - fetchTimestamp) / 1000;
             let target = basePlayed + elapsed;
             if (playerInstance.duration && playerInstance.duration > 0) {
-                target = target % playerInstance.duration; // Handle looping safely
+                target = target % playerInstance.duration;
             }
 
-            // If user deviates more than 2.5 seconds from the calculated schedule position
             if (Math.abs(playerInstance.currentTime - target) > 2.5) {
                 isReverting = true;
                 playerInstance.currentTime = target;
@@ -202,20 +203,28 @@
     attachTimeupdateGuard(player1);
     attachTimeupdateGuard(player2);
 
-    // Auto-Loop Playlist Handler: Automatically loops from the last object back to the first when a video ends
+    // Playback Controller for Playlist Items
+    function playPlaylistItem(index) {
+        if (playlist.length === 0) return;
+        
+        playlistIndex = index;
+        const currentItem = playlist[playlistIndex];
+
+        currentStreamUrl = currentItem.url;
+        titleBox.innerText = "Now: " + (currentItem.title || '');
+        fetchTimestamp = performance.now();
+        basePlayed = 0; // Always start new loop item from 0
+
+        switchVideoInstantly(currentItem.url, 0);
+    }
+
+    // Attach Ended Event Handler for Auto-Looping to First Video
     function attachPlaylistEndedHandler(playerInstance) {
         playerInstance.addEventListener('ended', () => {
             if (playlist.length > 0) {
-                // Increment playlist index and modulo wrap back to 0 at the end of the array
-                playlistIndex = (playlistIndex + 1) % playlist.length;
-                const nextItem = playlist[playlistIndex];
-
-                currentStreamUrl = nextItem.url;
-                titleBox.innerText = "Now: " + (nextItem.title || '');
-                fetchTimestamp = performance.now();
-                basePlayed = 0; // Restart new playlist item from beginning
-
-                switchVideoInstantly(nextItem.url, 0);
+                // Increment index and loop back to 0 using modulo operator when hitting the end
+                const nextIndex = (playlistIndex + 1) % playlist.length;
+                playPlaylistItem(nextIndex);
             }
         });
     }
@@ -223,28 +232,21 @@
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
-    // Real-Time Polling Loop (Checks for JSON playlist updates every 1 second)
-    function pollLiveConfig() {
-        fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
+    // Fetch Playlist Once on Startup (Prevents 1-sec poll overrides)
+    function loadPlaylistConfig() {
+        fetch(endpoint + '?t=' + Date.now())
             .then(res => res.json())
             .then(data => {
-                // Handle JSON data if it's structured as a playlist array or contains a playlist property
-                const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
+                const fetchedList = Array.isArray(data) ? data : (data.playlist || null);
 
-                if (newPlaylist && newPlaylist.length > 0) {
-                    playlist = newPlaylist;
-                    // If initial stream hasn't been set yet, initialize the first playlist object
-                    if (!currentStreamUrl) {
-                        playlistIndex = 0;
-                        const initialItem = playlist[playlistIndex];
-                        currentStreamUrl = initialItem.url;
-                        titleBox.innerText = "Now: " + (initialItem.title || '');
-                        fetchTimestamp = performance.now();
-                        basePlayed = initialItem.played || 0;
-                        switchVideoInstantly(initialItem.url, basePlayed);
+                if (fetchedList && fetchedList.length > 0) {
+                    playlist = fetchedList;
+                    if (!isPlaylistLoaded) {
+                        isPlaylistLoaded = true;
+                        playPlaylistItem(0); // Start from the first object
                     }
-                } else if (data.url && data.url !== currentStreamUrl) {
-                    // Fallback support for single stream JSON responses
+                } else if (data.url) {
+                    // Fallback if endpoint returns a single object instead of an array
                     currentStreamUrl = data.url;
                     if (data.title) titleBox.innerText = "Now: " + data.title;
                     basePlayed = data.played || 0;
@@ -253,10 +255,7 @@
                 }
             })
             .catch(err => {
-                console.warn("Polling sync notice:", err);
-            })
-            .finally(() => {
-                setTimeout(pollLiveConfig, 1000); // Check configuration every 1 second
+                console.warn("Playlist load notice:", err);
             });
     }
 
@@ -265,11 +264,9 @@
         const activePlayer = activePlayerSlot === 1 ? player1 : player2;
         const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-        // Calculate offset time based on fetch lag
         const elapsed = (performance.now() - fetchTimestamp) / 1000;
         let startPos = targetTime + elapsed;
         
-        // Prepare the standby player in the background
         standbyPlayer.src = newUrl;
         standbyPlayer.muted = isMasterMuted;
         
@@ -284,15 +281,12 @@
 
         standbyPlayer.oncanplay = () => {
             standbyPlayer.play().then(() => {
-                // Instantly crossfade to the new stream buffer
                 standbyPlayer.classList.add('active');
                 activePlayer.classList.remove('active');
 
-                // Stop the old player to free hardware memory
                 activePlayer.pause();
                 activePlayer.src = "";
 
-                // Swap active slot pointer
                 activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
             }).catch(e => {
                 console.log("Playback constraint deferred:", e);
@@ -300,14 +294,12 @@
         };
     }
 
-    // Ensure fallback video pause handler keeps it playing live
     player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
     player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
 
-    // Kick off automatic polling right away
-    pollLiveConfig();
+    // Initialize playlist load
+    loadPlaylistConfig();
 </script>
 
 </body>
 </html>
-                    

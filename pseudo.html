@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
     <title>MSTV Live Broadcast</title>
 
     <style>
@@ -12,7 +13,9 @@
             --icon: #fff;
         }
 
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
             margin: 0;
@@ -56,7 +59,7 @@
             z-index: 1;
         }
 
-        /* Top-Left Title Text */
+        /* Top-left title */
         .title-box {
             position: absolute;
             top: max(16px, env(safe-area-inset-top));
@@ -73,7 +76,7 @@
             pointer-events: none;
         }
 
-        /* Bottom Controls Overlay */
+        /* Bottom controls */
         .ui-overlay {
             position: absolute;
             bottom: max(16px, env(safe-area-inset-bottom));
@@ -142,40 +145,46 @@
 
 <div class="tv-frame" id="tv-frame">
 
-    <!-- Double-buffered video players -->
-    <video id="player-1"
-           class="video-layer active"
-           muted
-           autoplay
-           playsinline></video>
+    <!-- Double-buffered players -->
+    <video
+        id="player-1"
+        class="video-layer active"
+        muted
+        autoplay
+        playsinline>
+    </video>
 
-    <video id="player-2"
-           class="video-layer"
-           muted
-           autoplay
-           playsinline></video>
+    <video
+        id="player-2"
+        class="video-layer"
+        muted
+        autoplay
+        playsinline>
+    </video>
 
-    <!-- Top-Left Program Box -->
+    <!-- Program title -->
     <div id="title-box" class="title-box">
         Now: Connecting...
     </div>
 
-    <!-- Bottom Controls -->
+    <!-- Controls -->
     <div class="ui-overlay">
 
-        <button id="mute-btn"
-                class="ctrl-btn"
-                title="Unmute">
+        <button
+            id="mute-btn"
+            class="ctrl-btn"
+            title="Unmute">
 
             <svg id="mute-icon" viewBox="0 0 24 24">
-                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
             </svg>
 
         </button>
 
-        <button id="fullscreen-btn"
-                class="ctrl-btn"
-                title="Fullscreen">
+        <button
+            id="fullscreen-btn"
+            class="ctrl-btn"
+            title="Fullscreen">
 
             <svg viewBox="0 0 24 24">
                 <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
@@ -184,42 +193,66 @@
         </button>
 
     </div>
+
 </div>
 
 <script>
+
+    /* =========================================================
+       ELEMENTS
+       ========================================================= */
+
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
 
     const titleBox = document.getElementById('title-box');
+
     const muteBtn = document.getElementById('mute-btn');
     const muteIcon = document.getElementById('mute-icon');
-    const fullscreenBtn = document.getElementById('fullscreen-btn');
-    const tvFrame = document.getElementById('tv-frame');
+
+    const fullscreenBtn =
+        document.getElementById('fullscreen-btn');
+
+    const tvFrame =
+        document.getElementById('tv-frame');
+
+
+    /* =========================================================
+       CONFIG
+       ========================================================= */
 
     const endpoint = '/get-live-stream';
+
+
+    /* =========================================================
+       PLAYER STATE
+       ========================================================= */
 
     let activePlayerSlot = 1;
 
     let currentStreamUrl = "";
+
     let isMasterMuted = true;
+
 
     /* =========================================================
        PLAYLIST STATE
        ========================================================= */
 
     let playlist = [];
+
     let playlistIndex = 0;
 
     /*
-     * Prevents multiple transition calls from happening at
-     * exactly the same time.
+     * True while switching from one playlist item
+     * to another.
      */
     let playlistTransitionInProgress = false;
 
     /*
-     * Used to identify the currently playing playlist item.
+     * Identifies the currently playing playlist URL.
      */
-    let currentPlaylistItem = null;
+    let currentPlaylistUrl = "";
 
 
     /* =========================================================
@@ -227,12 +260,25 @@
        ========================================================= */
 
     let fetchTimestamp = 0;
+
     let basePlayed = 0;
+
     let isReverting = false;
 
 
     /* =========================================================
-       MASTER MUTE SYNC
+       END WATCHDOG STATE
+       ========================================================= */
+
+    /*
+     * The watchdog is a backup for browsers/codecs that
+     * don't reliably fire the "ended" event.
+     */
+    let endWatchdog = null;
+
+
+    /* =========================================================
+       MUTE BUTTON
        ========================================================= */
 
     muteBtn.addEventListener('click', () => {
@@ -292,48 +338,167 @@
 
     function attachTimeupdateGuard(playerInstance) {
 
-        playerInstance.addEventListener('timeupdate', () => {
+        playerInstance.addEventListener(
+            'timeupdate',
+            () => {
 
+                if (
+                    isReverting ||
+                    playerInstance.paused ||
+                    !playerInstance.duration ||
+                    playerInstance.ended
+                ) {
+                    return;
+                }
+
+
+                const elapsed =
+                    (performance.now() - fetchTimestamp) / 1000;
+
+
+                /*
+                 * IMPORTANT:
+                 *
+                 * There is intentionally NO:
+                 *
+                 * target % duration
+                 *
+                 * here.
+                 *
+                 * Wrapping the currentTime back to zero would
+                 * prevent the natural "ended" event and cause
+                 * the last video to repeat.
+                 */
+                const target =
+                    basePlayed + elapsed;
+
+
+                /*
+                 * Once we reach the end, leave the player
+                 * alone so the browser can fire "ended".
+                 */
+                if (
+                    target >= playerInstance.duration
+                ) {
+                    return;
+                }
+
+
+                /*
+                 * Anti-scrubbing protection.
+                 */
+                if (
+                    Math.abs(
+                        playerInstance.currentTime - target
+                    ) > 2.5
+                ) {
+
+                    isReverting = true;
+
+                    try {
+                        playerInstance.currentTime =
+                            target;
+                    } catch (e) {
+                        console.warn(
+                            "Seek correction failed:",
+                            e
+                        );
+                    }
+
+                    setTimeout(() => {
+                        isReverting = false;
+                    }, 300);
+                }
+
+            }
+        );
+    }
+
+
+    attachTimeupdateGuard(player1);
+    attachTimeupdateGuard(player2);
+
+
+    /* =========================================================
+       CLEAR END WATCHDOG
+       ========================================================= */
+
+    function clearEndWatchdog() {
+
+        if (endWatchdog) {
+
+            clearInterval(endWatchdog);
+
+            endWatchdog = null;
+        }
+    }
+
+
+    /* =========================================================
+       START END WATCHDOG
+       ========================================================= */
+
+    function startEndWatchdog(playerInstance) {
+
+        clearEndWatchdog();
+
+
+        /*
+         * Check approximately 4 times per second.
+         */
+        endWatchdog = setInterval(() => {
+
+            /*
+             * Only watch the active player.
+             */
             if (
-                isReverting ||
-                playerInstance.paused ||
-                !playerInstance.duration
+                !playerInstance.classList.contains('active')
             ) {
                 return;
             }
 
-            const elapsed =
-                (performance.now() - fetchTimestamp) / 1000;
-
-            let target = basePlayed + elapsed;
 
             if (
-                playerInstance.duration &&
-                playerInstance.duration > 0
+                !playlist ||
+                playlist.length === 0
             ) {
-                target = target % playerInstance.duration;
+                return;
             }
+
+
+            if (
+                playerInstance.ended
+            ) {
+
+                clearEndWatchdog();
+
+                advancePlaylist();
+
+                return;
+            }
+
 
             /*
-             * Keep the original anti-scrubbing behavior.
+             * Backup detection.
+             *
+             * If currentTime has reached essentially the
+             * end of the file, advance even if "ended" hasn't
+             * fired yet.
              */
             if (
-                Math.abs(playerInstance.currentTime - target) > 2.5
+                Number.isFinite(playerInstance.duration) &&
+                playerInstance.duration > 0 &&
+                playerInstance.currentTime >=
+                    playerInstance.duration - 0.15
             ) {
 
-                isReverting = true;
+                clearEndWatchdog();
 
-                playerInstance.currentTime = target;
-
-                setTimeout(() => {
-                    isReverting = false;
-                }, 300);
+                advancePlaylist();
             }
-        });
-    }
 
-    attachTimeupdateGuard(player1);
-    attachTimeupdateGuard(player2);
+        }, 250);
+    }
 
 
     /* =========================================================
@@ -342,17 +507,31 @@
 
     function getNextPlaylistItem() {
 
-        if (!playlist || playlist.length === 0) {
+        if (
+            !playlist ||
+            playlist.length === 0
+        ) {
             return null;
         }
 
+
         /*
-         * This is the actual loop:
+         * THE LOOP:
          *
-         * 0 -> 1 -> 2 -> ... -> last -> 0
+         * 0 -> 1 -> 2 -> 0 -> 1 -> 2 ...
+         *
+         * Example:
+         *
+         * playlist.length = 3
+         *
+         * (0 + 1) % 3 = 1
+         * (1 + 1) % 3 = 2
+         * (2 + 1) % 3 = 0
          */
         playlistIndex =
-            (playlistIndex + 1) % playlist.length;
+            (playlistIndex + 1) %
+            playlist.length;
+
 
         return playlist[playlistIndex];
     }
@@ -362,22 +541,47 @@
        PLAY PLAYLIST ITEM
        ========================================================= */
 
-    function playPlaylistItem(item, startTime = 0) {
+    function playPlaylistItem(
+        item,
+        startTime = 0
+    ) {
 
-        if (!item || !item.url) {
+        if (
+            !item ||
+            !item.url
+        ) {
+            console.warn(
+                "Invalid playlist item:",
+                item
+            );
+
             return;
         }
 
-        currentPlaylistItem = item;
 
-        currentStreamUrl = item.url;
+        currentPlaylistUrl =
+            item.url;
+
+        currentStreamUrl =
+            item.url;
+
 
         titleBox.innerText =
-            "Now: " + (item.title || "");
+            "Now: " +
+            (item.title || "");
 
-        fetchTimestamp = performance.now();
 
-        basePlayed = Number(startTime) || 0;
+        /*
+         * New playlist object always gets a fresh timing
+         * reference.
+         */
+        fetchTimestamp =
+            performance.now();
+
+
+        basePlayed =
+            Number(startTime) || 0;
+
 
         switchVideoInstantly(
             item.url,
@@ -393,243 +597,334 @@
     function advancePlaylist() {
 
         /*
-         * Prevent duplicate ended events / transitions.
+         * Protect against duplicate calls caused by:
+         *
+         * - ended event
+         * - watchdog
+         *
+         * firing at nearly the same time.
          */
-        if (playlistTransitionInProgress) {
+        if (
+            playlistTransitionInProgress
+        ) {
             return;
         }
 
-        if (!playlist || playlist.length === 0) {
+
+        if (
+            !playlist ||
+            playlist.length === 0
+        ) {
             return;
         }
 
-        playlistTransitionInProgress = true;
 
-        const nextItem = getNextPlaylistItem();
+        playlistTransitionInProgress =
+            true;
 
-        if (nextItem && nextItem.url) {
+
+        const nextItem =
+            getNextPlaylistItem();
+
+
+        if (
+            nextItem &&
+            nextItem.url
+        ) {
+
+            console.log(
+                "Playlist advance:",
+                playlistIndex,
+                nextItem.title,
+                nextItem.url
+            );
+
 
             /*
-             * Always start the next playlist object at the
-             * beginning.
+             * New item starts from zero.
              */
-            playPlaylistItem(nextItem, 0);
+            playPlaylistItem(
+                nextItem,
+                0
+            );
 
+        } else {
+
+            console.warn(
+                "Could not find next playlist item."
+            );
         }
 
+
         /*
-         * Release the lock shortly after initiating the
-         * transition.
+         * Release transition lock.
          */
         setTimeout(() => {
-            playlistTransitionInProgress = false;
-        }, 500);
+
+            playlistTransitionInProgress =
+                false;
+
+        }, 750);
     }
 
 
     /* =========================================================
-       VIDEO ENDED HANDLER
+       ENDED EVENT
        ========================================================= */
 
-    function attachPlaylistEndedHandler(playerInstance) {
+    function attachPlaylistEndedHandler(
+        playerInstance
+    ) {
 
-        playerInstance.addEventListener('ended', () => {
+        playerInstance.addEventListener(
+            'ended',
+            () => {
 
-            /*
-             * Only the active player is allowed to advance
-             * the playlist.
-             *
-             * This is important because both video elements
-             * have an ended event.
-             */
-            if (
-                !playerInstance.classList.contains('active')
-            ) {
-                return;
+                console.log(
+                    "VIDEO ENDED:",
+                    playerInstance.id
+                );
+
+
+                /*
+                 * Ignore ended events from the inactive
+                 * buffer.
+                 */
+                if (
+                    !playerInstance.classList.contains(
+                        'active'
+                    )
+                ) {
+                    return;
+                }
+
+
+                /*
+                 * Ignore ended in single-stream mode.
+                 */
+                if (
+                    !playlist ||
+                    playlist.length === 0
+                ) {
+                    return;
+                }
+
+
+                advancePlaylist();
             }
-
-            /*
-             * Ignore single-stream mode.
-             */
-            if (!playlist || playlist.length === 0) {
-                return;
-            }
-
-            advancePlaylist();
-        });
+        );
     }
+
 
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
 
     /* =========================================================
-       POLL SERVERLESS JSON CONFIG
+       POLL SERVERLESS JSON
        ========================================================= */
 
     function pollLiveConfig() {
 
-        fetch(endpoint + '?t=' + Date.now())
+        fetch(
+            endpoint +
+            '?t=' +
+            Date.now(),
+            {
+                cache: 'no-store'
+            }
+        )
 
-            .then(res => res.json())
+        .then(res => {
 
-            .then(data => {
+            if (!res.ok) {
+                throw new Error(
+                    "HTTP " + res.status
+                );
+            }
+
+            return res.json();
+        })
+
+        .then(data => {
+
+
+            /* =================================================
+               DETECT PLAYLIST
+               ================================================= */
+
+            const newPlaylist =
+                Array.isArray(data)
+                    ? data
+                    : (
+                        Array.isArray(data.playlist)
+                            ? data.playlist
+                            : null
+                    );
+
+
+            /* =================================================
+               PLAYLIST MODE
+               ================================================= */
+
+            if (
+                newPlaylist &&
+                newPlaylist.length > 0
+            ) {
 
                 /*
-                 * Support both:
-                 *
-                 * [
-                 *   { url: "...", title: "..." },
-                 *   { url: "...", title: "..." }
-                 * ]
-                 *
-                 * and:
-                 *
-                 * {
-                 *   playlist: [...]
-                 * }
+                 * Remember what was playing before refreshing
+                 * the JSON.
                  */
-                const newPlaylist =
-                    Array.isArray(data)
-                        ? data
-                        : (Array.isArray(data.playlist)
-                            ? data.playlist
-                            : null);
+                const oldCurrentUrl =
+                    currentStreamUrl;
 
 
-                /* =================================================
-                   PLAYLIST MODE
-                   ================================================= */
+                /*
+                 * Replace playlist with latest server data.
+                 */
+                playlist =
+                    newPlaylist;
 
-                if (
-                    newPlaylist &&
-                    newPlaylist.length > 0
-                ) {
+
+                /*
+                 * FIRST LOAD
+                 */
+                if (!oldCurrentUrl) {
+
+                    playlistIndex = 0;
+
+                    const initialItem =
+                        playlist[0];
+
+
+                    if (
+                        initialItem &&
+                        initialItem.url
+                    ) {
+
+                        console.log(
+                            "Starting playlist:",
+                            initialItem.title
+                        );
+
+
+                        playPlaylistItem(
+                            initialItem,
+                            initialItem.played || 0
+                        );
+                    }
+
+                } else {
 
                     /*
-                     * Preserve the currently playing item when the
-                     * server refreshes the JSON.
+                     * Find currently playing object in the
+                     * refreshed JSON.
                      */
-                    const oldCurrentUrl =
-                        currentStreamUrl;
+                    const refreshedIndex =
+                        playlist.findIndex(
+                            item =>
+                                item &&
+                                item.url === oldCurrentUrl
+                        );
 
-                    playlist = newPlaylist;
 
-                    /*
-                     * If nothing is currently playing, start at
-                     * the first JSON object.
-                     */
-                    if (!oldCurrentUrl) {
+                    if (
+                        refreshedIndex !== -1
+                    ) {
 
-                        playlistIndex = 0;
-
-                        const initialItem =
-                            playlist[playlistIndex];
-
-                        if (initialItem && initialItem.url) {
-
-                            playPlaylistItem(
-                                initialItem,
-                                initialItem.played || 0
-                            );
-                        }
+                        /*
+                         * Preserve current position in the
+                         * refreshed playlist.
+                         */
+                        playlistIndex =
+                            refreshedIndex;
 
                     } else {
 
                         /*
-                         * Find the currently playing URL in the
-                         * refreshed playlist.
+                         * Current object no longer exists.
                          *
-                         * This prevents the index from becoming
-                         * incorrect if the server refreshes the
-                         * JSON array.
+                         * Keep index valid.
                          */
-                        const refreshedIndex =
-                            playlist.findIndex(
-                                item =>
-                                    item &&
-                                    item.url === oldCurrentUrl
+                        playlistIndex =
+                            Math.min(
+                                playlistIndex,
+                                playlist.length - 1
                             );
-
-                        if (refreshedIndex !== -1) {
-
-                            playlistIndex =
-                                refreshedIndex;
-
-                        } else {
-
-                            /*
-                             * If the currently playing item was
-                             * removed from the refreshed JSON,
-                             * keep the index safely inside bounds.
-                             */
-                            playlistIndex =
-                                Math.min(
-                                    playlistIndex,
-                                    playlist.length - 1
-                                );
-                        }
                     }
-
                 }
 
-                /* =================================================
-                   SINGLE STREAM FALLBACK
-                   ================================================= */
+            }
 
-                else if (
-                    data.url &&
-                    data.url !== currentStreamUrl
-                ) {
 
-                    /*
-                     * Empty playlist means normal single-stream
-                     * behavior.
-                     */
-                    playlist = [];
-                    playlistIndex = 0;
+            /* =================================================
+               SINGLE STREAM FALLBACK
+               ================================================= */
 
-                    currentStreamUrl =
-                        data.url;
-
-                    if (data.title) {
-                        titleBox.innerText =
-                            "Now: " + data.title;
-                    }
-
-                    basePlayed =
-                        Number(data.played) || 0;
-
-                    fetchTimestamp =
-                        performance.now();
-
-                    switchVideoInstantly(
-                        data.url,
-                        basePlayed
-                    );
-                }
-
-            })
-
-            .catch(err => {
-
-                console.warn(
-                    "Polling sync notice:",
-                    err
-                );
-
-            })
-
-            .finally(() => {
+            else if (
+                data.url &&
+                data.url !== currentStreamUrl
+            ) {
 
                 /*
-                 * Continue polling every second.
+                 * Disable playlist mode.
                  */
-                setTimeout(
-                    pollLiveConfig,
-                    1000
+                playlist = [];
+
+                playlistIndex = 0;
+
+                clearEndWatchdog();
+
+
+                currentStreamUrl =
+                    data.url;
+
+
+                currentPlaylistUrl =
+                    "";
+
+
+                if (data.title) {
+
+                    titleBox.innerText =
+                        "Now: " +
+                        data.title;
+                }
+
+
+                basePlayed =
+                    Number(data.played) || 0;
+
+
+                fetchTimestamp =
+                    performance.now();
+
+
+                switchVideoInstantly(
+                    data.url,
+                    basePlayed
                 );
-            });
+            }
+
+        })
+
+        .catch(err => {
+
+            console.warn(
+                "Polling sync notice:",
+                err
+            );
+
+        })
+
+        .finally(() => {
+
+            setTimeout(
+                pollLiveConfig,
+                1000
+            );
+        });
     }
 
 
@@ -647,6 +942,7 @@
                 ? player1
                 : player2;
 
+
         const standbyPlayer =
             activePlayerSlot === 1
                 ? player2
@@ -654,99 +950,172 @@
 
 
         /*
-         * Calculate playback offset caused by fetch/network
-         * delay.
+         * Calculate fetch/network delay.
          */
         const elapsed =
-            (performance.now() - fetchTimestamp) / 1000;
+            (
+                performance.now() -
+                fetchTimestamp
+            ) / 1000;
+
 
         let startPos =
-            targetTime + elapsed;
+            Number(targetTime || 0) +
+            elapsed;
 
 
         /*
-         * Prepare standby player.
+         * Clear previous handlers.
          */
-        standbyPlayer.src = newUrl;
+        standbyPlayer.onloadedmetadata =
+            null;
+
+        standbyPlayer.oncanplay =
+            null;
+
+
+        /*
+         * Set new source.
+         */
+        standbyPlayer.src =
+            newUrl;
+
 
         standbyPlayer.muted =
             isMasterMuted;
 
 
-        standbyPlayer.onloadedmetadata = () => {
+        /* =====================================================
+           METADATA
+           ===================================================== */
 
-            if (
-                standbyPlayer.duration &&
-                standbyPlayer.duration > 0
-            ) {
+        standbyPlayer.onloadedmetadata =
+            () => {
 
-                /*
-                 * Safety modulo for target position.
-                 */
-                startPos =
-                    startPos %
-                    standbyPlayer.duration;
-            }
+                if (
+                    standbyPlayer.duration &&
+                    standbyPlayer.duration > 0
+                ) {
 
-            try {
-                standbyPlayer.currentTime =
-                    startPos;
-            } catch (e) {
-                console.warn(
-                    "Unable to set playback position:",
-                    e
-                );
-            }
-        };
+                    /*
+                     * For normal starting positions, keep the
+                     * calculated position.
+                     *
+                     * This modulo is ONLY for initial seeking.
+                     * It does NOT run during timeupdate and
+                     * therefore cannot interfere with "ended".
+                     */
+                    if (
+                        startPos >=
+                        standbyPlayer.duration
+                    ) {
+
+                        startPos =
+                            startPos %
+                            standbyPlayer.duration;
+                    }
+                }
 
 
+                try {
+
+                    standbyPlayer.currentTime =
+                        Math.max(
+                            0,
+                            startPos
+                        );
+
+                } catch (e) {
+
+                    console.warn(
+                        "Unable to set playback position:",
+                        e
+                    );
+                }
+            };
+
+
+        /*
+         * Load standby buffer.
+         */
         standbyPlayer.load();
 
 
-        standbyPlayer.oncanplay = () => {
+        /* =====================================================
+           CAN PLAY
+           ===================================================== */
 
-            standbyPlayer
-                .play()
-                .then(() => {
+        standbyPlayer.oncanplay =
+            () => {
 
-                    /*
-                     * Activate the new buffer.
-                     */
-                    standbyPlayer.classList.add(
-                        'active'
-                    );
+                standbyPlayer
+                    .play()
 
-                    activePlayer.classList.remove(
-                        'active'
-                    );
+                    .then(() => {
 
-
-                    /*
-                     * Stop the old buffer.
-                     */
-                    activePlayer.pause();
-
-                    activePlayer.src = "";
+                        /*
+                         * Activate new buffer.
+                         */
+                        standbyPlayer.classList.add(
+                            'active'
+                        );
 
 
-                    /*
-                     * Swap active player slot.
-                     */
-                    activePlayerSlot =
-                        activePlayerSlot === 1
-                            ? 2
-                            : 1;
+                        /*
+                         * Remove old buffer from screen.
+                         */
+                        activePlayer.classList.remove(
+                            'active'
+                        );
 
-                })
 
-                .catch(e => {
+                        /*
+                         * Stop old player.
+                         */
+                        activePlayer.pause();
 
-                    console.log(
-                        "Playback constraint deferred:",
-                        e
-                    );
-                });
-        };
+
+                        activePlayer.removeAttribute(
+                            'src'
+                        );
+
+
+                        activePlayer.load();
+
+
+                        /*
+                         * Swap active slot.
+                         */
+                        activePlayerSlot =
+                            activePlayerSlot === 1
+                                ? 2
+                                : 1;
+
+
+                        /*
+                         * Start watching this new active
+                         * playlist item for its end.
+                         */
+                        if (
+                            playlist &&
+                            playlist.length > 0
+                        ) {
+
+                            startEndWatchdog(
+                                standbyPlayer
+                            );
+                        }
+
+                    })
+
+                    .catch(e => {
+
+                        console.log(
+                            "Playback constraint deferred:",
+                            e
+                        );
+                    });
+            };
     }
 
 
@@ -789,7 +1158,7 @@
 
 
     /* =========================================================
-       START
+       START PLAYER
        ========================================================= */
 
     pollLiveConfig();

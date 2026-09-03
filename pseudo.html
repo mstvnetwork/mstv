@@ -199,6 +199,83 @@
             else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
         }
     });
+     // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
+    video.addEventListener('timeupdate', () => {
+        if (isReverting || video.paused || !video.duration) return;
+
+        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+        let target = basePlayed + elapsed;
+        if (video.duration && video.duration > 0) {
+            target = target % video.duration; // Handle looping safely
+        }
+
+        // If user deviates more than 2 seconds from the calculated schedule position
+        if (Math.abs(video.currentTime - target) > 2.5) {
+            isReverting = true;
+            video.currentTime = target;
+            setTimeout(() => { isReverting = false; }, 300);
+        }
+    });
+
+    function tuneIn() {
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+                titleText.innerText = data.title;
+                basePlayed = data.played;
+                fetchTimestamp = performance.now();
+
+                if (Hls.isSupported()) {
+                    if (activeHls) activeHls.destroy();
+                    
+                    const hls = new Hls({ enableWorker: true });
+                    activeHls = hls;
+                    hls.loadSource(data.url);
+                    hls.attachMedia(video);
+                    
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+                        let startPos = data.played + elapsed;
+                        
+                        if (video.duration && video.duration > 0) {
+                            startPos = startPos % video.duration;
+                        }
+                        
+                        try {
+                            video.currentTime = startPos;
+                        } catch (e) {
+                            console.warn("Seek bounds error, defaulting to start", e);
+                        }
+                        video.play().catch(() => {});
+                    });
+                } 
+                else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = data.url;
+                    video.addEventListener('loadedmetadata', () => {
+                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+                        let startPos = data.played + elapsed;
+                        
+                        if (video.duration && video.duration > 0) {
+                            startPos = startPos % video.duration;
+                        }
+                        
+                        video.currentTime = startPos;
+                        video.play().catch(() => {});
+                    });
+                }
+            })
+            .catch(err => {
+                titleText.innerText = "Signal Interrupted. Retrying...";
+                console.error(err);
+                setTimeout(tuneIn, 4000);
+            });
+    }
+
+    tuneIn();
+    
+    video.addEventListener('pause', () => {
+        if (!video.ended) video.play().catch(() => {});
+    });
 
     // Real-Time Polling Loop (Checks for JSON changes every 1 second)
     function pollLiveConfig() {

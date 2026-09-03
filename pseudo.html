@@ -129,7 +129,6 @@
         </button>
     </div>
 </div>
-
 <script>
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
@@ -144,6 +143,10 @@
     let activePlayerSlot = 1; 
     let currentStreamUrl = "";
     let isMasterMuted = true;
+
+    // Playlist state variables for auto-looping
+    let playlist = [];
+    let playlistIndex = 0;
 
     // Tracking state for anti-scrub guard and scheduling
     let fetchTimestamp = 0;
@@ -199,18 +202,51 @@
     attachTimeupdateGuard(player1);
     attachTimeupdateGuard(player2);
 
-    // Real-Time Polling Loop (Checks for JSON changes every 1 second)
+    // Auto-Loop Playlist Handler: Automatically loops from the last object back to the first when a video ends
+    function attachPlaylistEndedHandler(playerInstance) {
+        playerInstance.addEventListener('ended', () => {
+            if (playlist.length > 0) {
+                // Increment playlist index and modulo wrap back to 0 at the end of the array
+                playlistIndex = (playlistIndex + 1) % playlist.length;
+                const nextItem = playlist[playlistIndex];
+
+                currentStreamUrl = nextItem.url;
+                titleBox.innerText = "Now: " + (nextItem.title || '');
+                fetchTimestamp = performance.now();
+                basePlayed = 0; // Restart new playlist item from beginning
+
+                switchVideoInstantly(nextItem.url, 0);
+            }
+        });
+    }
+
+    attachPlaylistEndedHandler(player1);
+    attachPlaylistEndedHandler(player2);
+
+    // Real-Time Polling Loop (Checks for JSON playlist updates every 1 second)
     function pollLiveConfig() {
         fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
             .then(res => res.json())
             .then(data => {
-                // Update title box instantly if title changes
-                if (data.title) {
-                    titleBox.innerText = "Now: " + data.title;
-                }
+                // Handle JSON data if it's structured as a playlist array or contains a playlist property
+                const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
 
-                if (data.url && data.url !== currentStreamUrl) {
+                if (newPlaylist && newPlaylist.length > 0) {
+                    playlist = newPlaylist;
+                    // If initial stream hasn't been set yet, initialize the first playlist object
+                    if (!currentStreamUrl) {
+                        playlistIndex = 0;
+                        const initialItem = playlist[playlistIndex];
+                        currentStreamUrl = initialItem.url;
+                        titleBox.innerText = "Now: " + (initialItem.title || '');
+                        fetchTimestamp = performance.now();
+                        basePlayed = initialItem.played || 0;
+                        switchVideoInstantly(initialItem.url, basePlayed);
+                    }
+                } else if (data.url && data.url !== currentStreamUrl) {
+                    // Fallback support for single stream JSON responses
                     currentStreamUrl = data.url;
+                    if (data.title) titleBox.innerText = "Now: " + data.title;
                     basePlayed = data.played || 0;
                     fetchTimestamp = performance.now();
                     switchVideoInstantly(data.url, basePlayed);
@@ -274,3 +310,4 @@
 
 </body>
 </html>
+                    

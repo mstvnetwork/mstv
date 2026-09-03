@@ -20,15 +20,14 @@
             --icon: #fff;
         }
 
-
         * {
             box-sizing: border-box;
         }
 
-
         body {
             margin: 0;
             background: #000;
+
             font-family:
                 -apple-system,
                 BlinkMacSystemFont,
@@ -47,7 +46,6 @@
             overflow: hidden;
         }
 
-
         .tv-frame {
             position: relative;
 
@@ -61,11 +59,6 @@
             justify-content: center;
             align-items: center;
         }
-
-
-        /* =====================================================
-           VIDEO LAYERS
-           ===================================================== */
 
         .video-layer {
             position: absolute;
@@ -86,16 +79,10 @@
             pointer-events: none;
         }
 
-
         .video-layer.active {
             opacity: 1;
             z-index: 1;
         }
-
-
-        /* =====================================================
-           TITLE
-           ===================================================== */
 
         .title-box {
             position: absolute;
@@ -131,11 +118,6 @@
             pointer-events: none;
         }
 
-
-        /* =====================================================
-           CONTROLS
-           ===================================================== */
-
         .ui-overlay {
             position: absolute;
 
@@ -158,7 +140,6 @@
 
             z-index: 100;
         }
-
 
         .ctrl-btn {
             width: 42px;
@@ -189,18 +170,15 @@
                 transparent;
         }
 
-
         .ctrl-btn:hover {
             background:
                 var(--control-bg-hover);
         }
 
-
         .ctrl-btn:active {
             transform:
                 scale(.92);
         }
-
 
         .ctrl-btn svg {
             width: 20px;
@@ -209,7 +187,6 @@
             fill: var(--icon);
         }
 
-
         @media (max-width: 360px) {
 
             .title-box {
@@ -217,12 +194,10 @@
                 padding: 6px 10px;
             }
 
-
             .ctrl-btn {
                 width: 38px;
                 height: 38px;
             }
-
 
             .ctrl-btn svg {
                 width: 18px;
@@ -243,10 +218,6 @@
     id="tv-frame">
 
 
-    <!-- =====================================================
-         DOUBLE BUFFER
-         ===================================================== -->
-
     <video
         id="player-1"
         class="video-layer active"
@@ -265,10 +236,6 @@
     </video>
 
 
-    <!-- =====================================================
-         TITLE
-         ===================================================== -->
-
     <div
         id="title-box"
         class="title-box">
@@ -278,10 +245,6 @@
     </div>
 
 
-    <!-- =====================================================
-         CONTROLS
-         ===================================================== -->
-
     <div class="ui-overlay">
 
 
@@ -289,7 +252,6 @@
             id="mute-btn"
             class="ctrl-btn"
             title="Unmute">
-
 
             <svg
                 id="mute-icon"
@@ -307,7 +269,6 @@
             class="ctrl-btn"
             title="Fullscreen">
 
-
             <svg
                 viewBox="0 0 24 24">
 
@@ -316,7 +277,6 @@
             </svg>
 
         </button>
-
 
     </div>
 
@@ -381,9 +341,29 @@
 
     let playlistInitialized = false;
 
-    let playlistTransitionInProgress = false;
-
     let lastPlaylistSignature = "";
+
+
+    /*
+     * Unique number for every playlist transition.
+     *
+     * This is the important protection against old events
+     * advancing the playlist a second time.
+     */
+    let transitionGeneration = 0;
+
+
+    /*
+     * True while the new player is being prepared.
+     */
+    let transitionInProgress = false;
+
+
+    /*
+     * Which URL is expected to be playing on the active
+     * player.
+     */
+    let activePlaylistUrl = "";
 
 
     /* =========================================================
@@ -398,10 +378,12 @@
 
 
     /* =========================================================
-       END WATCHDOG
+       WATCHDOG
        ========================================================= */
 
     let endWatchdog = null;
+
+    let endWatchdogGeneration = 0;
 
 
     /* =========================================================
@@ -426,7 +408,7 @@
             if (isMasterMuted) {
 
                 muteIcon.innerHTML = `
-                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 14.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
                 `;
 
                 muteBtn.title =
@@ -519,23 +501,17 @@
 
 
                 /*
-                 * IMPORTANT:
+                 * NEVER modulo this value.
                  *
-                 * NEVER modulo this value here.
-                 *
-                 * Doing:
-                 *
-                 * target % duration
-                 *
-                 * would reset the current video to 0 before
-                 * "ended" and prevent playlist progression.
+                 * The browser must be allowed to reach
+                 * the natural end of the video.
                  */
                 const target =
                     basePlayed + elapsed;
 
 
                 /*
-                 * Let the browser reach the natural end.
+                 * Don't interfere with the final moment.
                  */
                 if (
                     target >=
@@ -545,9 +521,6 @@
                 }
 
 
-                /*
-                 * Anti-scrubbing correction.
-                 */
                 if (
                     Math.abs(
                         playerInstance.currentTime -
@@ -574,7 +547,9 @@
 
                     setTimeout(
                         () => {
+
                             isReverting = false;
+
                         },
                         300
                     );
@@ -591,7 +566,7 @@
 
 
     /* =========================================================
-       CLEAR WATCHDOG
+       CLEAR END WATCHDOG
        ========================================================= */
 
     function clearEndWatchdog() {
@@ -604,27 +579,57 @@
 
             endWatchdog = null;
         }
+
+        endWatchdogGeneration = 0;
     }
 
 
     /* =========================================================
-       START WATCHDOG
+       START END WATCHDOG
        ========================================================= */
 
     function startEndWatchdog(
-        playerInstance
+        playerInstance,
+        generation
     ) {
 
         clearEndWatchdog();
+
+
+        endWatchdogGeneration =
+            generation;
 
 
         endWatchdog =
             setInterval(
                 () => {
 
+                    /*
+                     * If another transition has happened,
+                     * this watchdog is obsolete.
+                     */
                     if (
-                        !playlistInitialized ||
-                        playlist.length === 0
+                        generation !==
+                        transitionGeneration
+                    ) {
+
+                        clearEndWatchdog();
+
+                        return;
+                    }
+
+
+                    /*
+                     * Watchdog must belong to the active
+                     * player.
+                     */
+                    if (
+                        playerInstance !==
+                        (
+                            activePlayerSlot === 1
+                                ? player1
+                                : player2
+                        )
                     ) {
                         return;
                     }
@@ -639,8 +644,16 @@
                     }
 
 
+                    if (
+                        !playlistInitialized ||
+                        playlist.length === 0
+                    ) {
+                        return;
+                    }
+
+
                     /*
-                     * Normal ended event fallback.
+                     * NORMAL ENDED.
                      */
                     if (
                         playerInstance.ended
@@ -648,17 +661,19 @@
 
                         clearEndWatchdog();
 
-                        advancePlaylist();
+                        advancePlaylist(
+                            generation
+                        );
 
                         return;
                     }
 
 
                     /*
-                     * Backup end detection.
+                     * BACKUP END DETECTION.
                      *
-                     * 0.15 sec is close enough to the actual
-                     * end that the transition feels natural.
+                     * Only trigger if this exact player and
+                     * exact transition are still active.
                      */
                     if (
                         Number.isFinite(
@@ -674,7 +689,9 @@
 
                         clearEndWatchdog();
 
-                        advancePlaylist();
+                        advancePlaylist(
+                            generation
+                        );
                     }
 
                 },
@@ -684,7 +701,7 @@
 
 
     /* =========================================================
-       NEXT PLAYLIST ITEM
+       GET NEXT PLAYLIST ITEM
        ========================================================= */
 
     function getNextPlaylistItem() {
@@ -697,11 +714,6 @@
         }
 
 
-        /*
-         * THE LOOP
-         *
-         * 0 -> 1 -> 2 -> 0 -> 1 -> 2...
-         */
         playlistIndex =
             (
                 playlistIndex + 1
@@ -738,13 +750,37 @@
         }
 
 
+        /*
+         * Every new playlist item gets a completely new
+         * transition generation.
+         */
+        transitionGeneration++;
+
+
+        const generation =
+            transitionGeneration;
+
+
+        transitionInProgress =
+            true;
+
+
+        clearEndWatchdog();
+
+
         currentStreamUrl =
+            item.url;
+
+
+        activePlaylistUrl =
             item.url;
 
 
         titleBox.innerText =
             "Now: " +
-            (item.title || "");
+            (
+                item.title || ""
+            );
 
 
         fetchTimestamp =
@@ -759,13 +795,16 @@
             "PLAYING:",
             playlistIndex,
             item.title,
-            item.url
+            item.url,
+            "generation:",
+            generation
         );
 
 
         switchVideoInstantly(
             item.url,
-            basePlayed
+            basePlayed,
+            generation
         );
     }
 
@@ -774,11 +813,43 @@
        ADVANCE PLAYLIST
        ========================================================= */
 
-    function advancePlaylist() {
+    function advancePlaylist(
+        sourceGeneration = null
+    ) {
 
+        /*
+         * If the call came from an old watchdog/event,
+         * completely ignore it.
+         */
         if (
-            playlistTransitionInProgress
+            sourceGeneration !== null &&
+            sourceGeneration !==
+                transitionGeneration
         ) {
+
+            console.log(
+                "IGNORED OLD TRANSITION:",
+                sourceGeneration,
+                "current:",
+                transitionGeneration
+            );
+
+            return;
+        }
+
+
+        /*
+         * Never advance while another item is still
+         * being switched in.
+         */
+        if (
+            transitionInProgress
+        ) {
+
+            console.log(
+                "IGNORED ADVANCE DURING TRANSITION"
+            );
+
             return;
         }
 
@@ -791,51 +862,42 @@
         }
 
 
-        playlistTransitionInProgress =
-            true;
-
-
         const nextItem =
             getNextPlaylistItem();
 
 
         if (
-            nextItem &&
-            nextItem.url
+            !nextItem ||
+            !nextItem.url
         ) {
 
-            console.log(
-                "NEXT PLAYLIST ITEM:",
-                playlistIndex,
-                nextItem.title
+            console.warn(
+                "No valid next playlist item."
             );
 
-
-            /*
-             * ALWAYS start next item at zero.
-             */
-            playPlaylistItem(
-                nextItem,
-                0
-            );
-
+            return;
         }
 
 
-        setTimeout(
-            () => {
+        console.log(
+            "NEXT PLAYLIST ITEM:",
+            playlistIndex,
+            nextItem.title
+        );
 
-                playlistTransitionInProgress =
-                    false;
 
-            },
-            750
+        /*
+         * Start next object from the beginning.
+         */
+        playPlaylistItem(
+            nextItem,
+            0
         );
     }
 
 
     /* =========================================================
-       ENDED EVENTS
+       ENDED EVENT
        ========================================================= */
 
     function attachPlaylistEndedHandler(
@@ -848,18 +910,38 @@
 
                 console.log(
                     "ENDED:",
-                    playerInstance.id
+                    playerInstance.id,
+                    "URL:",
+                    playerInstance.currentSrc
                 );
 
 
                 /*
-                 * Ignore inactive buffer.
+                 * Ignore inactive player.
                  */
                 if (
                     !playerInstance.classList.contains(
                         'active'
                     )
                 ) {
+                    return;
+                }
+
+
+                /*
+                 * Ignore if this is not actually the
+                 * currently expected playlist URL.
+                 */
+                if (
+                    currentStreamUrl &&
+                    playerInstance.currentSrc !==
+                        currentStreamUrl
+                ) {
+
+                    console.log(
+                        "IGNORED ENDED FROM OLD URL"
+                    );
+
                     return;
                 }
 
@@ -875,7 +957,13 @@
                 clearEndWatchdog();
 
 
-                advancePlaylist();
+                /*
+                 * The active player's current generation
+                 * is the only generation allowed to advance.
+                 */
+                advancePlaylist(
+                    transitionGeneration
+                );
             }
         );
     }
@@ -910,6 +998,18 @@
                     "|" +
                     (
                         item.title || ""
+                    ) +
+                    "|" +
+                    (
+                        item.startHour || 0
+                    ) +
+                    ":" +
+                    (
+                        item.startMinute || 0
+                    ) +
+                    ":" +
+                    (
+                        item.startSecond || 0
                     )
             )
             .join("||");
@@ -951,7 +1051,7 @@
             data => {
 
                 /* =================================================
-                   NEW PLAYLIST FORMAT
+                   PLAYLIST RESPONSE
                    ================================================= */
 
                 if (
@@ -976,24 +1076,17 @@
                         lastPlaylistSignature;
 
 
-                    /*
-                     * Update playlist data.
-                     */
                     playlist =
                         newPlaylist;
 
 
                     /*
-                     * FIRST LOAD
+                     * FIRST CONNECTION
                      */
                     if (
                         !playlistInitialized
                     ) {
 
-                        /*
-                         * Server tells us which show should
-                         * currently be playing according to UTC.
-                         */
                         playlistIndex =
                             Number.isInteger(
                                 data.playlistIndex
@@ -1002,9 +1095,6 @@
                                 : 0;
 
 
-                        /*
-                         * Safety.
-                         */
                         if (
                             playlistIndex < 0 ||
                             playlistIndex >=
@@ -1026,13 +1116,6 @@
                             initialItem.url
                         ) {
 
-                            console.log(
-                                "INITIAL PLAYLIST ITEM:",
-                                playlistIndex,
-                                initialItem.title
-                            );
-
-
                             playlistInitialized =
                                 true;
 
@@ -1041,19 +1124,31 @@
                                 newSignature;
 
 
-                            playPlaylistItem(
-                                initialItem,
-                                Number(data.played) || 0
+                            console.log(
+                                "INITIAL PLAYLIST ITEM:",
+                                playlistIndex,
+                                initialItem.title
                             );
 
+
+                            playPlaylistItem(
+                                initialItem,
+                                Number(
+                                    data.played
+                                ) || 0
+                            );
                         }
+
 
                         return;
                     }
 
 
                     /*
-                     * PLAYLIST HAS CHANGED ON SERVER
+                     * REFRESH PLAYLIST DATA.
+                     *
+                     * Do NOT restart the current video every
+                     * second.
                      */
                     if (
                         playlistChanged
@@ -1064,10 +1159,6 @@
                         );
 
 
-                        /*
-                         * Find currently playing URL in the
-                         * new playlist.
-                         */
                         const currentIndex =
                             playlist.findIndex(
                                 item =>
@@ -1081,19 +1172,11 @@
                             currentIndex !== -1
                         ) {
 
-                            /*
-                             * Preserve current program.
-                             */
                             playlistIndex =
                                 currentIndex;
 
                         } else {
 
-                            /*
-                             * Current program was removed.
-                             *
-                             * Safely keep index valid.
-                             */
                             playlistIndex =
                                 Math.min(
                                     playlistIndex,
@@ -1108,39 +1191,33 @@
 
 
                     /*
-                     * VERY IMPORTANT:
+                     * IMPORTANT:
                      *
-                     * We do NOT use data.playlistIndex or
-                     * data.played on every poll.
+                     * Once playback has started, we IGNORE
+                     * data.playlistIndex and data.played.
                      *
-                     * Otherwise the server clock would
-                     * repeatedly force us back to the
-                     * scheduled item and destroy the local
-                     * playlist loop.
+                     * The browser controls playlist progression.
                      */
-
                 }
 
 
                 /* =================================================
-                   OLD SINGLE-STREAM FALLBACK
+                   SINGLE STREAM FALLBACK
                    ================================================= */
 
                 else if (
                     data.url
                 ) {
 
-                    /*
-                     * This means the endpoint is still returning
-                     * the old single-object format.
-                     */
                     playlist = [];
 
                     playlistIndex = 0;
 
-                    playlistInitialized = false;
+                    playlistInitialized =
+                        false;
 
-                    lastPlaylistSignature = "";
+                    lastPlaylistSignature =
+                        "";
 
                     clearEndWatchdog();
 
@@ -1152,6 +1229,10 @@
 
                         currentStreamUrl =
                             data.url;
+
+
+                        activePlaylistUrl =
+                            "";
 
 
                         titleBox.innerText =
@@ -1166,12 +1247,18 @@
 
 
                         basePlayed =
-                            Number(data.played) || 0;
+                            Number(
+                                data.played
+                            ) || 0;
+
+
+                        transitionGeneration++;
 
 
                         switchVideoInstantly(
                             data.url,
-                            basePlayed
+                            basePlayed,
+                            transitionGeneration
                         );
                     }
 
@@ -1209,7 +1296,8 @@
 
     function switchVideoInstantly(
         newUrl,
-        targetTime
+        targetTime,
+        generation
     ) {
 
         const activePlayer =
@@ -1240,7 +1328,7 @@
 
 
         /*
-         * Remove old handlers.
+         * Clear old event handlers.
          */
         standbyPlayer.onloadedmetadata =
             null;
@@ -1250,7 +1338,19 @@
 
 
         /*
-         * Set new source.
+         * Clear the old standby source.
+         */
+        standbyPlayer.pause();
+
+        standbyPlayer.removeAttribute(
+            'src'
+        );
+
+        standbyPlayer.load();
+
+
+        /*
+         * Set new URL.
          */
         standbyPlayer.src =
             newUrl;
@@ -1267,16 +1367,25 @@
         standbyPlayer.onloadedmetadata =
             () => {
 
+                /*
+                 * If another transition happened while this
+                 * video was loading, abandon this event.
+                 */
+                if (
+                    generation !==
+                    transitionGeneration
+                ) {
+                    return;
+                }
+
+
                 if (
                     standbyPlayer.duration &&
                     standbyPlayer.duration > 0
                 ) {
 
                     /*
-                     * Only protect initial seek position.
-                     *
-                     * This is NOT used by timeupdate, so it
-                     * cannot interfere with "ended".
+                     * Only initial seek uses modulo.
                      */
                     if (
                         startPos >=
@@ -1309,7 +1418,7 @@
 
 
         /*
-         * Load standby buffer.
+         * Load new video.
          */
         standbyPlayer.load();
 
@@ -1321,6 +1430,17 @@
         standbyPlayer.oncanplay =
             () => {
 
+                /*
+                 * Ignore stale buffer.
+                 */
+                if (
+                    generation !==
+                    transitionGeneration
+                ) {
+                    return;
+                }
+
+
                 standbyPlayer
                     .play()
 
@@ -1328,16 +1448,24 @@
                         () => {
 
                             /*
-                             * New player becomes visible.
+                             * Still current?
+                             */
+                            if (
+                                generation !==
+                                transitionGeneration
+                            ) {
+                                return;
+                            }
+
+
+                            /*
+                             * New player becomes active.
                              */
                             standbyPlayer.classList.add(
                                 'active'
                             );
 
 
-                            /*
-                             * Hide old player.
-                             */
                             activePlayer.classList.remove(
                                 'active'
                             );
@@ -1367,7 +1495,20 @@
 
 
                             /*
-                             * Watch new active video.
+                             * Transition is COMPLETE.
+                             *
+                             * This is important:
+                             * we do NOT allow another playlist
+                             * advance until the new player is
+                             * actually active.
+                             */
+                            transitionInProgress =
+                                false;
+
+
+                            /*
+                             * Start watchdog ONLY after the
+                             * new player is active.
                              */
                             if (
                                 playlistInitialized &&
@@ -1375,9 +1516,18 @@
                             ) {
 
                                 startEndWatchdog(
-                                    standbyPlayer
+                                    standbyPlayer,
+                                    generation
                                 );
                             }
+
+
+                            console.log(
+                                "ACTIVE PLAYER:",
+                                standbyPlayer.id,
+                                "generation:",
+                                generation
+                            );
 
                         }
                     )
@@ -1393,52 +1543,6 @@
                     );
             };
     }
-
-
-    /* =========================================================
-       KEEP ACTIVE VIDEO PLAYING
-       ========================================================= */
-
-    player1.addEventListener(
-        'pause',
-        () => {
-
-            if (
-                !player1.ended &&
-                player1.classList.contains(
-                    'active'
-                )
-            ) {
-
-                player1
-                    .play()
-                    .catch(
-                        () => {}
-                    );
-            }
-        }
-    );
-
-
-    player2.addEventListener(
-        'pause',
-        () => {
-
-            if (
-                !player2.ended &&
-                player2.classList.contains(
-                    'active'
-                )
-            ) {
-
-                player2
-                    .play()
-                    .catch(
-                        () => {}
-                    );
-            }
-        }
-    );
 
 
     /* =========================================================

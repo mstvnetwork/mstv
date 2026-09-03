@@ -116,7 +116,6 @@
         #spacer { flex: 1; }
         #fullscreen-btn { margin-left: 8px; }
 
-        /* Compact adjustments for very small portrait screens */
         @media (max-width: 360px) {
             .ui-overlay { padding: 10px 14px; }
             .ctrl-btn { width: 38px; height: 38px; }
@@ -154,9 +153,11 @@
     const tvFrame = document.getElementById('tv-frame');
     const endpoint = '/get-live-stream'; 
 
-    let baseServerTimeOffset = 0;
+    let activeHls = null;
+    let expectedTime = 0;
+    let isReverting = false;
     let fetchTimestamp = 0;
-    let isSyncing = false;
+    let basePlayed = 0;
 
     // Mute / Unmute Toggle Logic
     muteBtn.addEventListener('click', () => {
@@ -173,29 +174,29 @@
     // Fullscreen Toggle Logic
     fullscreenBtn.addEventListener('click', () => {
         if (!document.fullscreenElement) {
-            if (tvFrame.requestFullscreen) {
-                tvFrame.requestFullscreen();
-            } else if (tvFrame.webkitRequestFullscreen) {
-                tvFrame.webkitRequestFullscreen();
-            }
+            if (tvFrame.requestFullscreen) tvFrame.requestFullscreen();
+            else if (tvFrame.webkitRequestFullscreen) tvFrame.webkitRequestFullscreen();
         } else {
-            if (document.exitFullscreen) {
-                document.exitFullscreen();
-            } else if (document.webkitExitFullscreen) {
-                document.webkitExitFullscreen();
-            }
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
         }
     });
 
-    // Strict Anti-Seek & Live Sync Guard (Prevents scrubbing / leaking out of live sync)
-    video.addEventListener('seeking', () => {
-        if (isSyncing) return;
-        const currentLiveTarget = baseServerTimeOffset + (performance.now() - fetchTimestamp) / 1000;
-        // If user tries to jump more than 3 seconds away from the real-time live position, snap back strictly
-        if (Math.abs(video.currentTime - currentLiveTarget) > 3) {
-            isSyncing = true;
-            video.currentTime = currentLiveTarget;
-            setTimeout(() => { isSyncing = false; }, 400);
+    // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
+    video.addEventListener('timeupdate', () => {
+        if (isReverting || video.paused || !video.duration) return;
+
+        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+        let target = basePlayed + elapsed;
+        if (video.duration && video.duration > 0) {
+            target = target % video.duration; // Handle looping safely
+        }
+
+        // If user deviates more than 2 seconds from the calculated schedule position
+        if (Math.abs(video.currentTime - target) > 2.5) {
+            isReverting = true;
+            video.currentTime = target;
+            setTimeout(() => { isReverting = false; }, 300);
         }
     });
 
@@ -204,24 +205,44 @@
             .then(res => res.json())
             .then(data => {
                 titleText.innerText = data.title;
-                baseServerTimeOffset = data.played;
+                basePlayed = data.played;
                 fetchTimestamp = performance.now();
 
                 if (Hls.isSupported()) {
-                    const hls = new Hls();
+                    if (activeHls) activeHls.destroy();
+                    
+                    const hls = new Hls({ enableWorker: true });
+                    activeHls = hls;
                     hls.loadSource(data.url);
                     hls.attachMedia(video);
+                    
                     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        const elapsedSinceFetch = (performance.now() - fetchTimestamp) / 1000;
-                        video.currentTime = data.played + elapsedSinceFetch; 
+                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+                        let startPos = data.played + elapsed;
+                        
+                        if (video.duration && video.duration > 0) {
+                            startPos = startPos % video.duration;
+                        }
+                        
+                        try {
+                            video.currentTime = startPos;
+                        } catch (e) {
+                            console.warn("Seek bounds error, defaulting to start", e);
+                        }
                         video.play().catch(() => {});
                     });
                 } 
                 else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = data.url;
                     video.addEventListener('loadedmetadata', () => {
-                        const elapsedSinceFetch = (performance.now() - fetchTimestamp) / 1000;
-                        video.currentTime = data.played + elapsedSinceFetch;
+                        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+                        let startPos = data.played + elapsed;
+                        
+                        if (video.duration && video.duration > 0) {
+                            startPos = startPos % video.duration;
+                        }
+                        
+                        video.currentTime = startPos;
                         video.play().catch(() => {});
                     });
                 }
@@ -234,8 +255,9 @@
     }
 
     tuneIn();
+    
     video.addEventListener('pause', () => {
-        if (video.paused) video.play().catch(() => {});
+        if (!video.ended) video.play().catch(() => {});
     });
 </script>
 

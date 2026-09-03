@@ -6,28 +6,108 @@
     <title>MSTV Live Broadcast</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
     <style>
+        :root {
+            --control-bg: rgba(0, 0, 0, 0.6);
+            --control-bg-hover: rgba(0, 0, 0, 0.8);
+            --icon: #fff;
+        }
         body { margin: 0; background: #000; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; overflow: hidden; }
-        .tv-frame { position: relative; width: 100vw; height: 100vh; background: #000; }
+        .tv-frame { position: relative; width: 100vw; height: 100vh; background: #000; display: flex; justify-content: center; align-items: center; }
         video { width: 100%; height: 100%; object-fit: contain; }
-        .ui-overlay { position: absolute; bottom: 30px; left: 30px; background: rgba(0,0,0,0.8); padding: 15px 25px; border-radius: 8px; pointer-events: none; border-left: 5px solid red; }
+        
+        .ui-overlay { 
+            position: absolute; 
+            bottom: 30px; 
+            left: 30px; 
+            right: 30px;
+            background: rgba(0,0,0,0.8); 
+            padding: 15px 25px; 
+            border-radius: 8px; 
+            border-left: 5px solid red; 
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
         .live-dot { color: #ff3b30; font-weight: 900; animation: blink 1.5s infinite; margin-right: 8px; }
         @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+
+        .ctrl-btn {
+            width: 42px; height: 42px;
+            border-radius: 50%;
+            border: none;
+            background: var(--control-bg);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background .15s ease, transform .1s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .ctrl-btn:hover { background: var(--control-bg-hover); }
+        .ctrl-btn:active { transform: scale(.92); }
+        .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
+        #spacer { flex: 1; }
+        #fullscreen-btn { margin-left: auto; }
     </style>
 </head>
 <body>
 
-<div class="tv-frame">
+<div class="tv-frame" id="tv-frame">
     <video id="tv-player" muted autoplay playsinline></video>
     <div class="ui-overlay">
-        <span class="live-dot">● LIVE</span>
-        <span id="show-title">Tuning Broadcast Channel...</span>
+        <div>
+            <span class="live-dot">● LIVE</span>
+            <span id="show-title">Tuning Broadcast Channel...</span>
+        </div>
+        <div id="spacer"></div>
+        <button id="mute-btn" class="ctrl-btn" title="Unmute">
+            <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+        </button>
+        <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
+            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
     </div>
 </div>
 
 <script>
     const video = document.getElementById('tv-player');
     const titleText = document.getElementById('show-title');
+    const muteBtn = document.getElementById('mute-btn');
+    const muteIcon = document.getElementById('mute-icon');
+    const fullscreenBtn = document.getElementById('fullscreen-btn');
+    const tvFrame = document.getElementById('tv-frame');
     const endpoint = '/get-live-stream'; 
+
+    // Mute / Unmute Toggle Logic
+    muteBtn.addEventListener('click', () => {
+        video.muted = !video.muted;
+        if (video.muted) {
+            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
+            muteBtn.title = "Unmute";
+        } else {
+            muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
+            muteBtn.title = "Mute";
+        }
+    });
+
+    // Fullscreen Toggle Logic
+    fullscreenBtn.addEventListener('click', () => {
+        if (!document.fullscreenElement) {
+            if (tvFrame.requestFullscreen) {
+                tvFrame.requestFullscreen();
+            } else if (tvFrame.webkitRequestFullscreen) {
+                tvFrame.webkitRequestFullscreen();
+            }
+        } else {
+            if (document.exitFullscreen) {
+                document.exitFullscreen();
+            } else if (document.webkitExitFullscreen) {
+                document.webkitExitFullscreen();
+            }
+        }
+    });
 
     function tuneIn() {
         fetch(endpoint)

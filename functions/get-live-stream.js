@@ -7,7 +7,7 @@ export async function onRequest(context) {
     const response = await fetch(rawJsonUrl);
     schedule = await response.json();
   } catch (err) {
-    schedule = [{ startHour: 0, startMinute: 0, title: "Offline Loop", url: "https://mux.dev" }];
+    schedule = [{ startHour: 0, startMinute: 0, startSecond: 0, title: "Offline Loop", url: "https://mux.dev" }];
   }
 
   // Pure UTC Clock scheduling calculations
@@ -18,7 +18,10 @@ export async function onRequest(context) {
   let showStartSecondsInDay = 0;
 
   for (let i = 0; i < schedule.length; i++) {
-    const showSeconds = (schedule[i].startHour * 3600) + (schedule[i].startMinute * 60);
+    // Safely account for startSecond, falling back to 0 if it's missing on older playlist items
+    const startSec = schedule[i].startSecond || 0;
+    const showSeconds = (schedule[i].startHour * 3600) + (schedule[i].startMinute * 60) + startSec;
+    
     if (currentSecondsInDay >= showSeconds) {
       currentShow = schedule[i];
       showStartSecondsInDay = showSeconds;

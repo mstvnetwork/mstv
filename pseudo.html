@@ -2,44 +2,108 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MSTV Live Broadcast</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
     <style>
         :root {
-            --control-bg: rgba(0, 0, 0, 0.6);
-            --control-bg-hover: rgba(0, 0, 0, 0.8);
+            --control-bg: rgba(0, 0, 0, 0.65);
+            --control-bg-hover: rgba(0, 0, 0, 0.85);
             --icon: #fff;
         }
-        body { margin: 0; background: #000; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; overflow: hidden; }
-        .tv-frame { position: relative; width: 100vw; height: 100vh; background: #000; display: flex; justify-content: center; align-items: center; }
-        video { width: 100%; height: 100%; object-fit: contain; }
+        * { box-sizing: border-box; }
+        body { 
+            margin: 0; 
+            background: #000; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            height: 100dvh; 
+            color: #fff; 
+            overflow: hidden; 
+        }
+        .tv-frame { 
+            position: relative; 
+            width: 100vw; 
+            height: 100vh; 
+            height: 100dvh; 
+            background: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+        }
+        video { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+        }
         
         .ui-overlay { 
             position: absolute; 
-            bottom: 30px; 
-            left: 30px; 
-            right: 30px;
-            background: rgba(0,0,0,0.8); 
-            padding: 15px 25px; 
-            border-radius: 8px; 
-            border-left: 5px solid red; 
+            bottom: max(16px, env(safe-area-inset-bottom)); 
+            left: max(16px, env(safe-area-inset-left)); 
+            right: max(16px, env(safe-area-inset-right)); 
+            background: rgba(0, 0, 0, 0.8); 
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            padding: 12px 18px; 
+            border-radius: 12px; 
+            border-left: 5px solid #ff3b30; 
             display: flex;
             align-items: center;
-            gap: 15px;
+            gap: 12px;
+            z-index: 100;
         }
 
-        .live-dot { color: #ff3b30; font-weight: 900; animation: blink 1.5s infinite; margin-right: 8px; }
-        @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+        .info-container {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .live-row {
+            display: flex;
+            align-items: center;
+        }
+
+        .live-dot { 
+            color: #ff3b30; 
+            font-weight: 900; 
+            font-size: 12px;
+            letter-spacing: 0.5px;
+            animation: blink 1.5s infinite; 
+            margin-right: 6px; 
+        }
+
+        #show-title {
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #f1f1f1;
+        }
+
+        @keyframes blink { 
+            0% { opacity: 0.3; } 
+            50% { opacity: 1; } 
+            100% { opacity: 0.3; } 
+        }
 
         .ctrl-btn {
-            width: 42px; height: 42px;
+            width: 42px; 
+            height: 42px;
             border-radius: 50%;
             border: none;
             background: var(--control-bg);
             backdrop-filter: blur(6px);
             -webkit-backdrop-filter: blur(6px);
-            display: flex; align-items: center; justify-content: center;
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
             cursor: pointer;
             flex-shrink: 0;
             transition: background .15s ease, transform .1s ease;
@@ -48,8 +112,17 @@
         .ctrl-btn:hover { background: var(--control-bg-hover); }
         .ctrl-btn:active { transform: scale(.92); }
         .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
+        
         #spacer { flex: 1; }
-        #fullscreen-btn { margin-left: auto; }
+        #fullscreen-btn { margin-left: 8px; }
+
+        /* Compact adjustments for very small portrait screens */
+        @media (max-width: 360px) {
+            .ui-overlay { padding: 10px 14px; }
+            .ctrl-btn { width: 38px; height: 38px; }
+            .ctrl-btn svg { width: 18px; height: 18px; }
+            #show-title { font-size: 12px; }
+        }
     </style>
 </head>
 <body>
@@ -57,11 +130,12 @@
 <div class="tv-frame" id="tv-frame">
     <video id="tv-player" muted autoplay playsinline></video>
     <div class="ui-overlay">
-        <div>
-            <span class="live-dot">● LIVE</span>
+        <div class="info-container">
+            <div class="live-row">
+                <span class="live-dot">● LIVE</span>
+            </div>
             <span id="show-title">Tuning Broadcast Channel...</span>
         </div>
-        <div id="spacer"></div>
         <button id="mute-btn" class="ctrl-btn" title="Unmute">
             <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
         </button>
@@ -79,6 +153,10 @@
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
     const endpoint = '/get-live-stream'; 
+
+    let baseServerTimeOffset = 0;
+    let fetchTimestamp = 0;
+    let isSyncing = false;
 
     // Mute / Unmute Toggle Logic
     muteBtn.addEventListener('click', () => {
@@ -109,37 +187,56 @@
         }
     });
 
+    // Strict Anti-Seek & Live Sync Guard (Prevents scrubbing / leaking out of live sync)
+    video.addEventListener('seeking', () => {
+        if (isSyncing) return;
+        const currentLiveTarget = baseServerTimeOffset + (performance.now() - fetchTimestamp) / 1000;
+        // If user tries to jump more than 3 seconds away from the real-time live position, snap back strictly
+        if (Math.abs(video.currentTime - currentLiveTarget) > 3) {
+            isSyncing = true;
+            video.currentTime = currentLiveTarget;
+            setTimeout(() => { isSyncing = false; }, 400);
+        }
+    });
+
     function tuneIn() {
         fetch(endpoint)
             .then(res => res.json())
             .then(data => {
                 titleText.innerText = data.title;
+                baseServerTimeOffset = data.played;
+                fetchTimestamp = performance.now();
 
                 if (Hls.isSupported()) {
                     const hls = new Hls();
                     hls.loadSource(data.url);
                     hls.attachMedia(video);
                     hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                        video.currentTime = data.played; 
-                        video.play();
+                        const elapsedSinceFetch = (performance.now() - fetchTimestamp) / 1000;
+                        video.currentTime = data.played + elapsedSinceFetch; 
+                        video.play().catch(() => {});
                     });
                 } 
                 else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                     video.src = data.url;
                     video.addEventListener('loadedmetadata', () => {
-                        video.currentTime = data.played;
-                        video.play();
+                        const elapsedSinceFetch = (performance.now() - fetchTimestamp) / 1000;
+                        video.currentTime = data.played + elapsedSinceFetch;
+                        video.play().catch(() => {});
                     });
                 }
             })
             .catch(err => {
                 titleText.innerText = "Signal Interrupted. Retrying...";
                 console.error(err);
+                setTimeout(tuneIn, 4000);
             });
     }
 
     tuneIn();
-    video.addEventListener('pause', () => video.play());
+    video.addEventListener('pause', () => {
+        if (video.paused) video.play().catch(() => {});
+    });
 </script>
 
 </body>

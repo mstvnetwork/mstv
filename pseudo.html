@@ -68,7 +68,6 @@
             pointer-events: none;
         }
 
-
         /* Bottom Controls Overlay */
         .ui-overlay { 
             position: absolute; 
@@ -147,6 +146,7 @@
     // Playlist state variables for auto-looping
     let playlist = [];
     let playlistIndex = 0;
+    let isPlaylistInitialized = false;
 
     // Tracking state for anti-scrub guard and scheduling
     let fetchTimestamp = 0;
@@ -228,13 +228,14 @@
         fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
             .then(res => res.json())
             .then(data => {
-                // Handle JSON data if it's structured as a playlist array or contains a playlist property
                 const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
 
                 if (newPlaylist && newPlaylist.length > 0) {
                     playlist = newPlaylist;
-                    // If initial stream hasn't been set yet, initialize the first playlist object
-                    if (!currentStreamUrl) {
+                    
+                    // Initialize playlist only once upon first load so manual looping isn't overridden
+                    if (!isPlaylistInitialized) {
+                        isPlaylistInitialized = true;
                         playlistIndex = 0;
                         const initialItem = playlist[playlistIndex];
                         currentStreamUrl = initialItem.url;
@@ -310,4 +311,3 @@
 
 </body>
 </html>
-                    

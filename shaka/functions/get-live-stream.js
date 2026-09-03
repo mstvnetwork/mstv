@@ -1,6 +1,6 @@
 export async function onRequest(context) {
   // ⚠️ REPLACE WITH YOUR ACTUAL GITHUB USERNAME AND REPO NAME
-  const rawJsonUrl = "https://crickethd.pages.dev/playlist500.json";
+  const rawJsonUrl = "https://crickethd.pages.dev/shaka/playlist500.json";
   
   let schedule = [];
   try {

@@ -368,55 +368,33 @@
 
 
 </div>
-
-
+                
 <script>
-
 
 /* =========================================================
    ELEMENTS
    ========================================================= */
 
 const player1 =
-    document.getElementById(
-        'player-1'
-    );
-
+    document.getElementById('player-1');
 
 const player2 =
-    document.getElementById(
-        'player-2'
-    );
-
+    document.getElementById('player-2');
 
 const titleBox =
-    document.getElementById(
-        'title-box'
-    );
-
+    document.getElementById('title-box');
 
 const muteBtn =
-    document.getElementById(
-        'mute-btn'
-    );
-
+    document.getElementById('mute-btn');
 
 const muteIcon =
-    document.getElementById(
-        'mute-icon'
-    );
-
+    document.getElementById('mute-icon');
 
 const fullscreenBtn =
-    document.getElementById(
-        'fullscreen-btn'
-    );
-
+    document.getElementById('fullscreen-btn');
 
 const tvFrame =
-    document.getElementById(
-        'tv-frame'
-    );
+    document.getElementById('tv-frame');
 
 
 /* =========================================================
@@ -425,6 +403,21 @@ const tvFrame =
 
 const endpoint =
     '/get-live-stream';
+
+
+/*
+ * How close the actual player position must be to the
+ * authoritative position before we consider synchronization
+ * successful.
+ */
+const SYNC_TOLERANCE = 0.25;
+
+
+/*
+ * How frequently the strict anti-seek watchdog verifies the
+ * active player's position.
+ */
+const POSITION_CHECK_INTERVAL = 100;
 
 
 /* =========================================================
@@ -452,13 +445,13 @@ let lastPlaylistSignature = "";
 
 
 /*
- * Unique number for every playlist transition.
+ * Unique number for every transition.
  */
 let transitionGeneration = 0;
 
 
 /*
- * True while the new player is being prepared.
+ * True while a new player is being prepared.
  */
 let transitionInProgress = false;
 
@@ -470,12 +463,19 @@ let activePlaylistUrl = "";
 
 
 /* =========================================================
-   TIMING STATE
+   SERVER SYNCHRONIZATION STATE
    ========================================================= */
 
 let fetchTimestamp = 0;
 
 let basePlayed = 0;
+
+
+/*
+ * Exact performance timestamp when the server response
+ * was received.
+ */
+let syncReceivedAt = 0;
 
 
 /* =========================================================
@@ -488,35 +488,41 @@ let endWatchdogGeneration = 0;
 
 
 /* =========================================================
-   STRICT SEEK GUARD STATE
+   STRICT PLAYER STATE
    ========================================================= */
 
-/*
- * Each video gets its own independent state.
- *
- * This is important because player1 and player2 are
- * simultaneously involved during double buffering.
- */
 const playerGuardState =
     new WeakMap();
 
 
 function getGuardState(
-    playerInstance
+    player
 ) {
 
     if (
-        !playerGuardState.has(
-            playerInstance
-        )
+        !playerGuardState.has(player)
     ) {
 
         playerGuardState.set(
-            playerInstance,
+            player,
             {
                 locked: false,
+
+                /*
+                 * true while WE are performing the initial
+                 * synchronization seek.
+                 */
+                syncing: false,
+
+                /*
+                 * true while we are correcting an illegal
+                 * seek.
+                 */
                 correcting: false,
-                allowSeek: true,
+
+                /*
+                 * Last known valid position.
+                 */
                 lastValidTime: 0
             }
         );
@@ -525,13 +531,13 @@ function getGuardState(
 
 
     return playerGuardState.get(
-        playerInstance
+        player
     );
 }
 
 
 /* =========================================================
-   EXPECTED PLAYBACK POSITION
+   EXPECTED LIVE POSITION
    ========================================================= */
 
 function getExpectedTime() {
@@ -539,7 +545,7 @@ function getExpectedTime() {
     const elapsed =
         (
             performance.now() -
-            fetchTimestamp
+            syncReceivedAt
         ) / 1000;
 
 
@@ -551,22 +557,35 @@ function getExpectedTime() {
 
 
 /* =========================================================
+   GET ACTIVE PLAYER
+   ========================================================= */
+
+function getActivePlayer() {
+
+    return activePlayerSlot === 1
+        ? player1
+        : player2;
+}
+
+
+/* =========================================================
    STRICT POSITION CORRECTION
    ========================================================= */
 
 function forceCorrectTime(
-    playerInstance
+    player
 ) {
 
     const state =
-        getGuardState(
-            playerInstance
-        );
+        getGuardState(player);
 
 
+    /*
+     * Never interfere with our initial synchronization.
+     */
     if (
         !state.locked ||
-        state.allowSeek ||
+        state.syncing ||
         state.correcting
     ) {
         return;
@@ -574,8 +593,8 @@ function forceCorrectTime(
 
 
     if (
-        playerInstance.paused ||
-        playerInstance.ended
+        player.paused ||
+        player.ended
     ) {
         return;
     }
@@ -583,61 +602,57 @@ function forceCorrectTime(
 
     if (
         !Number.isFinite(
-            playerInstance.duration
-        )
+            player.duration
+        ) ||
+        player.duration <= 0
     ) {
         return;
     }
 
 
-    if (
-        playerInstance.duration <= 0
-    ) {
-        return;
-    }
-
-
-    let expected =
+    const expected =
         getExpectedTime();
 
 
     /*
-     * If the authoritative position has reached the
-     * natural end, DO NOT loop it back.
-     *
-     * Normal ended-event logic will handle the transition.
+     * Natural end is handled by the playlist system.
      */
     if (
         expected >=
-        playerInstance.duration
+        player.duration
     ) {
         return;
     }
 
 
-    expected =
-        Math.max(
-            0,
-            expected
+    const actual =
+        player.currentTime;
+
+
+    const difference =
+        Math.abs(
+            actual - expected
         );
 
 
     /*
-     * Very small tolerance only for floating point
-     * precision.
-     *
-     * There is NO 2.5 second leak anymore.
+     * Strict correction.
      */
-    const difference =
-        Math.abs(
-            playerInstance.currentTime -
-            expected
+    if (
+        difference >
+        SYNC_TOLERANCE
+    ) {
+
+        console.log(
+            "ILLEGAL SEEK DETECTED:",
+            {
+                player: player.id,
+                actual: actual,
+                expected: expected,
+                difference: difference
+            }
         );
 
-
-    if (
-        difference > 0.05
-    ) {
 
         state.correcting =
             true;
@@ -645,13 +660,13 @@ function forceCorrectTime(
 
         try {
 
-            playerInstance.currentTime =
+            player.currentTime =
                 expected;
 
         } catch (error) {
 
             console.warn(
-                "Strict seek correction failed:",
+                "Seek correction failed:",
                 error
             );
 
@@ -676,24 +691,22 @@ function forceCorrectTime(
 
 
 /* =========================================================
-   LOCK SEEKING
+   LOCK PLAYER
    ========================================================= */
 
-function lockPlayerSeeking(
-    playerInstance
+function lockPlayer(
+    player
 ) {
 
     const state =
-        getGuardState(
-            playerInstance
-        );
+        getGuardState(player);
 
 
     state.locked =
         true;
 
 
-    state.allowSeek =
+    state.syncing =
         false;
 
 
@@ -702,78 +715,133 @@ function lockPlayerSeeking(
 
 
     state.lastValidTime =
-        playerInstance.currentTime || 0;
+        player.currentTime || 0;
+
+
+    player.playbackRate =
+        1;
+
+
+    console.log(
+        "SEEK LOCK ENABLED:",
+        player.id,
+        "position:",
+        player.currentTime
+    );
 }
 
 
 /* =========================================================
-   UNLOCK SEEKING
+   UNLOCK PLAYER
    ========================================================= */
 
-function unlockPlayerSeeking(
-    playerInstance
+function unlockPlayer(
+    player
 ) {
 
     const state =
-        getGuardState(
-            playerInstance
-        );
+        getGuardState(player);
 
 
     state.locked =
         false;
 
 
-    state.allowSeek =
+    state.syncing =
+        false;
+
+
+    state.correcting =
+        false;
+
+}
+
+
+/* =========================================================
+   INITIAL SYNC MODE
+   ========================================================= */
+
+function beginInitialSync(
+    player
+) {
+
+    const state =
+        getGuardState(player);
+
+
+    state.locked =
+        false;
+
+
+    state.syncing =
         true;
 
 
     state.correcting =
         false;
+
 }
 
 
 /* =========================================================
-   STRICT ANTI-SEEK EVENTS
+   STRICT SEEK EVENTS
    ========================================================= */
 
 function attachStrictSeekGuard(
-    playerInstance
+    player
 ) {
 
     const state =
-        getGuardState(
-            playerInstance
-        );
+        getGuardState(player);
 
 
     /* =====================================================
        SEEKING
        ===================================================== */
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'seeking',
         () => {
 
             /*
-             * Ignore our own initial synchronization seek.
+             * Initial synchronization seek is allowed.
              */
             if (
-                !state.locked ||
-                state.allowSeek ||
-                state.correcting
+                state.syncing
             ) {
                 return;
             }
 
 
             /*
-             * User tried to seek.
-             *
-             * Correct immediately.
+             * Player isn't protected.
              */
+            if (
+                !state.locked
+            ) {
+                return;
+            }
+
+
+            /*
+             * Our own correction.
+             */
+            if (
+                state.correcting
+            ) {
+                return;
+            }
+
+
+            console.log(
+                "SEEK EVENT:",
+                player.id,
+                player.currentTime
+            );
+
+
             forceCorrectTime(
-                playerInstance
+                player
             );
 
         }
@@ -784,24 +852,33 @@ function attachStrictSeekGuard(
        SEEKED
        ===================================================== */
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'seeked',
         () => {
 
             if (
-                !state.locked ||
-                state.allowSeek ||
+                state.syncing
+            ) {
+                return;
+            }
+
+
+            if (
+                !state.locked
+            ) {
+                return;
+            }
+
+
+            if (
                 state.correcting
             ) {
                 return;
             }
 
 
-            /*
-             * Second line of defense.
-             */
             forceCorrectTime(
-                playerInstance
+                player
             );
 
         }
@@ -812,23 +889,20 @@ function attachStrictSeekGuard(
        TIMEUPDATE
        ===================================================== */
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'timeupdate',
         () => {
 
             if (
                 !state.locked ||
-                state.allowSeek
+                state.syncing
             ) {
                 return;
             }
 
 
-            /*
-             * Continuous backup verification.
-             */
             forceCorrectTime(
-                playerInstance
+                player
             );
 
         }
@@ -839,17 +913,17 @@ function attachStrictSeekGuard(
        RATE CHANGE
        ===================================================== */
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'ratechange',
         () => {
 
             if (
                 state.locked &&
-                !state.correcting &&
-                playerInstance.playbackRate !== 1
+                !state.syncing &&
+                player.playbackRate !== 1
             ) {
 
-                playerInstance.playbackRate =
+                player.playbackRate =
                     1;
 
             }
@@ -862,35 +936,28 @@ function attachStrictSeekGuard(
        PAUSE
        ===================================================== */
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'pause',
         () => {
 
             if (
                 !state.locked ||
-                state.allowSeek ||
-                playerInstance.ended
+                state.syncing ||
+                player.ended
             ) {
                 return;
             }
 
 
-            const activePlayer =
-                activePlayerSlot === 1
-                    ? player1
-                    : player2;
+            const active =
+                getActivePlayer();
 
 
-            /*
-             * Only automatically resume the currently
-             * active player.
-             */
             if (
-                playerInstance ===
-                activePlayer
+                player === active
             ) {
 
-                playerInstance
+                player
                     .play()
                     .catch(
                         () => {}
@@ -905,7 +972,7 @@ function attachStrictSeekGuard(
 
 
 /* =========================================================
-   ATTACH STRICT GUARDS
+   ATTACH GUARDS
    ========================================================= */
 
 attachStrictSeekGuard(
@@ -931,7 +998,6 @@ muteBtn.addEventListener(
 
         player1.muted =
             isMasterMuted;
-
 
         player2.muted =
             isMasterMuted;
@@ -1041,7 +1107,7 @@ function clearEndWatchdog() {
    ========================================================= */
 
 function startEndWatchdog(
-    playerInstance,
+    player,
     generation
 ) {
 
@@ -1056,9 +1122,6 @@ function startEndWatchdog(
         setInterval(
             () => {
 
-                /*
-                 * Old watchdog.
-                 */
                 if (
                     generation !==
                     transitionGeneration
@@ -1071,25 +1134,16 @@ function startEndWatchdog(
                 }
 
 
-                /*
-                 * Make sure this is still the active player.
-                 */
-                const currentActivePlayer =
-                    activePlayerSlot === 1
-                        ? player1
-                        : player2;
-
-
                 if (
-                    playerInstance !==
-                    currentActivePlayer
+                    player !==
+                    getActivePlayer()
                 ) {
                     return;
                 }
 
 
                 if (
-                    !playerInstance.classList.contains(
+                    !player.classList.contains(
                         'active'
                     )
                 ) {
@@ -1105,11 +1159,8 @@ function startEndWatchdog(
                 }
 
 
-                /*
-                 * NORMAL END.
-                 */
                 if (
-                    playerInstance.ended
+                    player.ended
                 ) {
 
                     clearEndWatchdog();
@@ -1121,22 +1172,19 @@ function startEndWatchdog(
 
 
                     return;
+
                 }
 
 
-                /*
-                 * BACKUP END DETECTION.
-                 */
                 if (
                     Number.isFinite(
-                        playerInstance.duration
+                        player.duration
                     ) &&
 
-                    playerInstance.duration > 0 &&
+                    player.duration > 0 &&
 
-                    playerInstance.currentTime >=
-                        playerInstance.duration -
-                        0.15
+                    player.currentTime >=
+                        player.duration - 0.15
                 ) {
 
                     clearEndWatchdog();
@@ -1205,9 +1253,6 @@ function playPlaylistItem(
     }
 
 
-    /*
-     * New generation.
-     */
     transitionGeneration++;
 
 
@@ -1237,12 +1282,25 @@ function playPlaylistItem(
         );
 
 
-    fetchTimestamp =
+    /*
+     * Authoritative server position.
+     */
+    basePlayed =
+        Math.max(
+            0,
+            Number(startTime) || 0
+        );
+
+
+    /*
+     * Start the authoritative clock NOW.
+     */
+    syncReceivedAt =
         performance.now();
 
 
-    basePlayed =
-        Number(startTime) || 0;
+    fetchTimestamp =
+        syncReceivedAt;
 
 
     console.log(
@@ -1251,7 +1309,9 @@ function playPlaylistItem(
         item.title,
         item.url,
         "generation:",
-        generation
+        generation,
+        "serverPlayed:",
+        basePlayed
     );
 
 
@@ -1271,9 +1331,6 @@ function advancePlaylist(
     sourceGeneration = null
 ) {
 
-    /*
-     * Ignore stale transition.
-     */
     if (
         sourceGeneration !== null &&
         sourceGeneration !==
@@ -1292,9 +1349,6 @@ function advancePlaylist(
     }
 
 
-    /*
-     * Never advance while switching.
-     */
     if (
         transitionInProgress
     ) {
@@ -1353,26 +1407,23 @@ function advancePlaylist(
    ========================================================= */
 
 function attachPlaylistEndedHandler(
-    playerInstance
+    player
 ) {
 
-    playerInstance.addEventListener(
+    player.addEventListener(
         'ended',
         () => {
 
             console.log(
                 "ENDED:",
-                playerInstance.id,
+                player.id,
                 "URL:",
-                playerInstance.currentSrc
+                player.currentSrc
             );
 
 
-            /*
-             * Ignore inactive player.
-             */
             if (
-                !playerInstance.classList.contains(
+                !player.classList.contains(
                     'active'
                 )
             ) {
@@ -1380,12 +1431,9 @@ function attachPlaylistEndedHandler(
             }
 
 
-            /*
-             * Ignore unexpected URL.
-             */
             if (
                 currentStreamUrl &&
-                playerInstance.currentSrc !==
+                player.currentSrc !==
                     currentStreamUrl
             ) {
 
@@ -1394,6 +1442,7 @@ function attachPlaylistEndedHandler(
                 );
 
                 return;
+
             }
 
 
@@ -1414,6 +1463,7 @@ function attachPlaylistEndedHandler(
 
         }
     );
+
 }
 
 
@@ -1465,6 +1515,765 @@ function createPlaylistSignature(
                 )
         )
         .join("||");
+}
+
+
+/* =========================================================
+   WAIT FOR REAL SEEK
+   ========================================================= */
+
+function seekAndVerify(
+    player,
+    target,
+    generation
+) {
+
+    return new Promise(
+        resolve => {
+
+            if (
+                generation !==
+                transitionGeneration
+            ) {
+
+                resolve(false);
+
+                return;
+
+            }
+
+
+            /*
+             * If target is already essentially where we want
+             * to be, no seek is required.
+             */
+            if (
+                Math.abs(
+                    player.currentTime -
+                    target
+                ) <=
+                SYNC_TOLERANCE
+            ) {
+
+                resolve(true);
+
+                return;
+
+            }
+
+
+            let finished =
+                false;
+
+
+            let timeoutId =
+                null;
+
+
+            const cleanup =
+                () => {
+
+                    player.removeEventListener(
+                        'seeked',
+                        onSeeked
+                    );
+
+
+                    if (
+                        timeoutId
+                    ) {
+
+                        clearTimeout(
+                            timeoutId
+                        );
+
+                    }
+
+                };
+
+
+            const finish =
+                success => {
+
+                    if (
+                        finished
+                    ) {
+                        return;
+                    }
+
+
+                    finished =
+                        true;
+
+
+                    cleanup();
+
+
+                    resolve(
+                        success
+                    );
+
+                };
+
+
+            const onSeeked =
+                () => {
+
+                    if (
+                        generation !==
+                        transitionGeneration
+                    ) {
+
+                        finish(false);
+
+                        return;
+
+                    }
+
+
+                    const difference =
+                        Math.abs(
+                            player.currentTime -
+                            target
+                        );
+
+
+                    console.log(
+                        "SEEK COMPLETE:",
+                        {
+                            requested: target,
+                            actual: player.currentTime,
+                            difference: difference
+                        }
+                    );
+
+
+                    finish(
+                        difference <=
+                        SYNC_TOLERANCE
+                    );
+
+                };
+
+
+            player.addEventListener(
+                'seeked',
+                onSeeked
+            );
+
+
+            try {
+
+                player.currentTime =
+                    target;
+
+            } catch (error) {
+
+                console.warn(
+                    "Initial synchronization seek failed:",
+                    error
+                );
+
+
+                finish(false);
+
+                return;
+
+            }
+
+
+            /*
+             * Some browsers do not reliably fire seeked for
+             * every HLS/proxy situation.
+             *
+             * Verify after a short delay as a fallback.
+             */
+            timeoutId =
+                setTimeout(
+                    () => {
+
+                        if (
+                            generation !==
+                            transitionGeneration
+                        ) {
+
+                            finish(false);
+
+                            return;
+
+                        }
+
+
+                        const difference =
+                            Math.abs(
+                                player.currentTime -
+                                target
+                            );
+
+
+                        console.log(
+                            "SEEK FALLBACK CHECK:",
+                            {
+                                requested: target,
+                                actual: player.currentTime,
+                                difference: difference
+                            }
+                        );
+
+
+                        finish(
+                            difference <=
+                            SYNC_TOLERANCE
+                        );
+
+                    },
+                    1500
+                );
+
+        }
+    );
+}
+
+
+/* =========================================================
+   DOUBLE BUFFER SWITCH
+   ========================================================= */
+
+async function switchVideoInstantly(
+    newUrl,
+    targetTime,
+    generation
+) {
+
+    const activePlayer =
+        getActivePlayer();
+
+
+    const standbyPlayer =
+        activePlayerSlot === 1
+            ? player2
+            : player1;
+
+
+    /*
+     * This player is going to perform an initial
+     * synchronization seek.
+     */
+    beginInitialSync(
+        standbyPlayer
+    );
+
+
+    /*
+     * Calculate the elapsed time between receiving the
+     * authoritative server position and beginning playback.
+     */
+    const elapsedBeforeLoad =
+        (
+            performance.now() -
+            syncReceivedAt
+        ) / 1000;
+
+
+    let startPos =
+        Number(targetTime || 0) +
+        elapsedBeforeLoad;
+
+
+    console.log(
+        "PREPARING SYNC:",
+        {
+            player: standbyPlayer.id,
+            serverPosition: targetTime,
+            elapsedBeforeLoad: elapsedBeforeLoad,
+            requestedPosition: startPos,
+            generation: generation
+        }
+    );
+
+
+    /* =====================================================
+       RESET STANDBY PLAYER
+       ===================================================== */
+
+    standbyPlayer.onloadedmetadata =
+        null;
+
+    standbyPlayer.oncanplay =
+        null;
+
+
+    standbyPlayer.pause();
+
+
+    standbyPlayer.removeAttribute(
+        'src'
+    );
+
+
+    standbyPlayer.load();
+
+
+    /* =====================================================
+       URL
+       ===================================================== */
+
+    standbyPlayer.src =
+        newUrl;
+
+
+    standbyPlayer.muted =
+        isMasterMuted;
+
+
+    standbyPlayer.playbackRate =
+        1;
+
+
+    /* =====================================================
+       LOAD
+       ===================================================== */
+
+    standbyPlayer.load();
+
+
+    /* =====================================================
+       WAIT FOR METADATA
+       ===================================================== */
+
+    await new Promise(
+        resolve => {
+
+            if (
+                generation !==
+                transitionGeneration
+            ) {
+
+                resolve();
+
+                return;
+
+            }
+
+
+            const onMetadata =
+                () => {
+
+                    standbyPlayer.removeEventListener(
+                        'loadedmetadata',
+                        onMetadata
+                    );
+
+
+                    resolve();
+
+                };
+
+
+            standbyPlayer.addEventListener(
+                'loadedmetadata',
+                onMetadata
+            );
+
+        }
+    );
+
+
+    /*
+     * Transition may have become obsolete while loading.
+     */
+    if (
+        generation !==
+        transitionGeneration
+    ) {
+
+        return;
+    }
+
+
+    console.log(
+        "METADATA READY:",
+        {
+            player: standbyPlayer.id,
+            duration: standbyPlayer.duration,
+            requestedPosition: startPos
+        }
+    );
+
+
+    /* =====================================================
+       VALIDATE TARGET
+       ===================================================== */
+
+    if (
+        Number.isFinite(
+            standbyPlayer.duration
+        ) &&
+        standbyPlayer.duration > 0
+    ) {
+
+        /*
+         * Never wrap around.
+         */
+        if (
+            startPos >=
+            standbyPlayer.duration
+        ) {
+
+            console.warn(
+                "SERVER POSITION IS AT END:",
+                {
+                    requested: startPos,
+                    duration: standbyPlayer.duration
+                }
+            );
+
+
+            startPos =
+                Math.max(
+                    0,
+                    standbyPlayer.duration -
+                    0.05
+                );
+
+        }
+
+    }
+
+
+    /* =====================================================
+       PERFORM INITIAL SYNC SEEK
+       ===================================================== */
+
+    const syncSuccess =
+        await seekAndVerify(
+            standbyPlayer,
+            startPos,
+            generation
+        );
+
+
+    if (
+        generation !==
+        transitionGeneration
+    ) {
+
+        return;
+    }
+
+
+    console.log(
+        "SYNC RESULT:",
+        {
+            player: standbyPlayer.id,
+            success: syncSuccess,
+            requested: startPos,
+            actual: standbyPlayer.currentTime,
+            duration: standbyPlayer.duration
+        }
+    );
+
+
+    /*
+     * If the browser failed to seek, try one more explicit
+     * assignment before giving up.
+     */
+    if (
+        !syncSuccess
+    ) {
+
+        console.warn(
+            "FIRST SYNC FAILED - RETRYING:",
+            {
+                target: startPos,
+                actual: standbyPlayer.currentTime
+            }
+        );
+
+
+        try {
+
+            standbyPlayer.currentTime =
+                startPos;
+
+        } catch (error) {
+
+            console.warn(
+                "Second synchronization seek failed:",
+                error
+            );
+
+        }
+
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    300
+                )
+        );
+
+
+        if (
+            generation !==
+            transitionGeneration
+        ) {
+
+            return;
+        }
+
+
+        const retryDifference =
+            Math.abs(
+                standbyPlayer.currentTime -
+                startPos
+            );
+
+
+        console.log(
+            "SYNC RETRY RESULT:",
+            {
+                target: startPos,
+                actual: standbyPlayer.currentTime,
+                difference: retryDifference
+            }
+        );
+
+    }
+
+
+    /* =====================================================
+       CAN PLAY
+       ===================================================== */
+
+    await new Promise(
+        resolve => {
+
+            if (
+                standbyPlayer.readyState >= 3
+            ) {
+
+                resolve();
+
+                return;
+
+            }
+
+
+            const onCanPlay =
+                () => {
+
+                    standbyPlayer.removeEventListener(
+                        'canplay',
+                        onCanPlay
+                    );
+
+
+                    resolve();
+
+                };
+
+
+            standbyPlayer.addEventListener(
+                'canplay',
+                onCanPlay
+            );
+
+        }
+    );
+
+
+    if (
+        generation !==
+        transitionGeneration
+    ) {
+
+        return;
+    }
+
+
+    /* =====================================================
+       FINAL POSITION CHECK
+       ===================================================== */
+
+    console.log(
+        "FINAL PRE-PLAY POSITION:",
+        {
+            requested: startPos,
+            actual: standbyPlayer.currentTime,
+            difference:
+                Math.abs(
+                    standbyPlayer.currentTime -
+                    startPos
+                )
+        }
+    );
+
+
+    /*
+     * If the browser moved away from our requested position
+     * while buffering, restore it once more.
+     */
+    if (
+        Math.abs(
+            standbyPlayer.currentTime -
+            startPos
+        ) >
+        SYNC_TOLERANCE
+    ) {
+
+        try {
+
+            standbyPlayer.currentTime =
+                startPos;
+
+        } catch (error) {
+
+            console.warn(
+                "Final sync correction failed:",
+                error
+            );
+
+        }
+
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    150
+                )
+        );
+
+    }
+
+
+    if (
+        generation !==
+        transitionGeneration
+    ) {
+
+        return;
+    }
+
+
+    /* =====================================================
+       PLAY
+       ===================================================== */
+
+    try {
+
+        await standbyPlayer.play();
+
+    } catch (error) {
+
+        console.warn(
+            "Playback deferred:",
+            error
+        );
+
+
+        return;
+    }
+
+
+    if (
+        generation !==
+        transitionGeneration
+    ) {
+
+        return;
+    }
+
+
+    /* =====================================================
+       ACTIVATE NEW PLAYER
+       ===================================================== */
+
+    standbyPlayer.classList.add(
+        'active'
+    );
+
+
+    activePlayer.classList.remove(
+        'active'
+    );
+
+
+    /*
+     * Stop old player.
+     */
+    activePlayer.pause();
+
+
+    activePlayer.removeAttribute(
+        'src'
+    );
+
+
+    activePlayer.load();
+
+
+    /* =====================================================
+       SWAP ACTIVE PLAYER
+       ===================================================== */
+
+    activePlayerSlot =
+        activePlayerSlot === 1
+            ? 2
+            : 1;
+
+
+    /* =====================================================
+       LOCK NEW PLAYER
+       ===================================================== */
+
+    lockPlayer(
+        standbyPlayer
+    );
+
+
+    /*
+     * Old player is no longer protected.
+     */
+    unlockPlayer(
+        activePlayer
+    );
+
+
+    transitionInProgress =
+        false;
+
+
+    /* =====================================================
+       WATCHDOG
+       ===================================================== */
+
+    if (
+        playlistInitialized &&
+        playlist.length > 0
+    ) {
+
+        startEndWatchdog(
+            standbyPlayer,
+            generation
+        );
+
+    }
+
+
+    console.log(
+        "ACTIVE PLAYER:",
+        standbyPlayer.id,
+        "generation:",
+        generation,
+        "FINAL POSITION:",
+        standbyPlayer.currentTime,
+        "EXPECTED:",
+        getExpectedTime()
+    );
+
 }
 
 
@@ -1575,6 +2384,60 @@ function pollLiveConfig() {
                         initialItem.url
                     ) {
 
+                        /*
+                         * IMPORTANT:
+                         *
+                         * Capture the server response time
+                         * BEFORE starting the video.
+                         */
+                        syncReceivedAt =
+                            performance.now();
+
+
+                        basePlayed =
+                            Math.max(
+                                0,
+                                Number(
+                                    data.played
+                                ) || 0
+                            );
+
+
+                        console.log(
+                            "===================================="
+                        );
+
+
+                        console.log(
+                            "INITIAL SERVER SYNC:"
+                        );
+
+
+                        console.log(
+                            {
+                                playlistIndex:
+                                    playlistIndex,
+
+                                played:
+                                    data.played,
+
+                                numericPlayed:
+                                    basePlayed,
+
+                                title:
+                                    initialItem.title,
+
+                                url:
+                                    initialItem.url
+                            }
+                        );
+
+
+                        console.log(
+                            "===================================="
+                        );
+
+
                         playlistInitialized =
                             true;
 
@@ -1583,29 +2446,21 @@ function pollLiveConfig() {
                             newSignature;
 
 
-                        console.log(
-                            "INITIAL PLAYLIST ITEM:",
-                            playlistIndex,
-                            initialItem.title
-                        );
-
-
                         playPlaylistItem(
                             initialItem,
-                            Number(
-                                data.played
-                            ) || 0
+                            basePlayed
                         );
 
                     }
 
 
                     return;
+
                 }
 
 
                 /* =============================================
-                   REFRESH PLAYLIST
+                   PLAYLIST UPDATE
                    ============================================= */
 
                 if (
@@ -1649,15 +2504,6 @@ function pollLiveConfig() {
 
                 }
 
-                /*
-                 * IMPORTANT:
-                 *
-                 * After playback begins we intentionally
-                 * ignore server playlistIndex and played.
-                 *
-                 * Browser-side playback controls progression.
-                 */
-
             }
 
 
@@ -1671,15 +2517,13 @@ function pollLiveConfig() {
 
                 playlist = [];
 
-                playlistIndex =
-                    0;
+                playlistIndex = 0;
 
                 playlistInitialized =
                     false;
 
                 lastPlaylistSignature =
                     "";
-
 
                 clearEndWatchdog();
 
@@ -1704,14 +2548,17 @@ function pollLiveConfig() {
                         );
 
 
-                    fetchTimestamp =
+                    syncReceivedAt =
                         performance.now();
 
 
                     basePlayed =
-                        Number(
-                            data.played
-                        ) || 0;
+                        Math.max(
+                            0,
+                            Number(
+                                data.played
+                            ) || 0
+                        );
 
 
                     transitionGeneration++;
@@ -1756,339 +2603,6 @@ function pollLiveConfig() {
 
 
 /* =========================================================
-   DOUBLE BUFFER SWITCH
-   ========================================================= */
-
-function switchVideoInstantly(
-    newUrl,
-    targetTime,
-    generation
-) {
-
-    const activePlayer =
-        activePlayerSlot === 1
-            ? player1
-            : player2;
-
-
-    const standbyPlayer =
-        activePlayerSlot === 1
-            ? player2
-            : player1;
-
-
-    /*
-     * Calculate network/fetch delay.
-     */
-    const elapsed =
-        (
-            performance.now() -
-            fetchTimestamp
-        ) / 1000;
-
-
-    let startPos =
-        Number(targetTime || 0) +
-        elapsed;
-
-
-    /* =====================================================
-       RESET STANDBY PLAYER
-       ===================================================== */
-
-    standbyPlayer.onloadedmetadata =
-        null;
-
-    standbyPlayer.oncanplay =
-        null;
-
-
-    /*
-     * Temporarily allow our own initial synchronization seek.
-     */
-    unlockPlayerSeeking(
-        standbyPlayer
-    );
-
-
-    standbyPlayer.pause();
-
-
-    standbyPlayer.removeAttribute(
-        'src'
-    );
-
-
-    standbyPlayer.load();
-
-
-    /* =====================================================
-       SET NEW URL
-       ===================================================== */
-
-    standbyPlayer.src =
-        newUrl;
-
-
-    standbyPlayer.muted =
-        isMasterMuted;
-
-
-    standbyPlayer.playbackRate =
-        1;
-
-
-    /* =====================================================
-       METADATA
-       ===================================================== */
-
-    standbyPlayer.onloadedmetadata =
-        () => {
-
-            /*
-             * Stale transition.
-             */
-            if (
-                generation !==
-                transitionGeneration
-            ) {
-                return;
-            }
-
-
-            if (
-                standbyPlayer.duration &&
-                standbyPlayer.duration > 0
-            ) {
-
-                /*
-                 * DO NOT modulo here.
-                 *
-                 * If the server position is already at/past
-                 * the end, stay at the end and allow the normal
-                 * playlist transition to handle it.
-                 */
-                if (
-                    startPos >=
-                    standbyPlayer.duration
-                ) {
-
-                    console.warn(
-                        "Initial position reached video end:",
-                        startPos,
-                        "duration:",
-                        standbyPlayer.duration
-                    );
-
-
-                    startPos =
-                        Math.max(
-                            0,
-                            standbyPlayer.duration -
-                            0.05
-                        );
-
-                }
-
-            }
-
-
-            try {
-
-                /*
-                 * Explicitly allow OUR initial seek.
-                 */
-                const state =
-                    getGuardState(
-                        standbyPlayer
-                    );
-
-
-                state.allowSeek =
-                    true;
-
-
-                standbyPlayer.currentTime =
-                    Math.max(
-                        0,
-                        startPos
-                    );
-
-            } catch (error) {
-
-                console.warn(
-                    "Initial seek failed:",
-                    error
-                );
-
-            }
-
-        };
-
-
-    /* =====================================================
-       LOAD
-       ===================================================== */
-
-    standbyPlayer.load();
-
-
-    /* =====================================================
-       CAN PLAY
-       ===================================================== */
-
-    standbyPlayer.oncanplay =
-        () => {
-
-            /*
-             * Ignore stale buffer.
-             */
-            if (
-                generation !==
-                transitionGeneration
-            ) {
-                return;
-            }
-
-
-            standbyPlayer
-                .play()
-
-                .then(
-                    () => {
-
-                        /*
-                         * Still current?
-                         */
-                        if (
-                            generation !==
-                            transitionGeneration
-                        ) {
-                            return;
-                        }
-
-
-                        /* =====================================
-                           NEW PLAYER BECOMES ACTIVE
-                           ===================================== */
-
-                        standbyPlayer.classList.add(
-                            'active'
-                        );
-
-
-                        activePlayer.classList.remove(
-                            'active'
-                        );
-
-
-                        /* =====================================
-                           STOP OLD PLAYER
-                           ===================================== */
-
-                        activePlayer.pause();
-
-
-                        activePlayer.removeAttribute(
-                            'src'
-                        );
-
-
-                        activePlayer.load();
-
-
-                        /* =====================================
-                           SWAP ACTIVE SLOT
-                           ===================================== */
-
-                        activePlayerSlot =
-                            activePlayerSlot === 1
-                                ? 2
-                                : 1;
-
-
-                        /* =====================================
-                           STRICT SEEK LOCK
-                           ===================================== */
-
-                        /*
-                         * Old player is no longer active.
-                         */
-                        unlockPlayerSeeking(
-                            activePlayer
-                        );
-
-
-                        /*
-                         * New player is now permanently
-                         * protected against user seeking.
-                         */
-                        lockPlayerSeeking(
-                            standbyPlayer
-                        );
-
-
-                        /*
-                         * Force normal speed.
-                         */
-                        standbyPlayer.playbackRate =
-                            1;
-
-
-                        /* =====================================
-                           TRANSITION COMPLETE
-                           ===================================== */
-
-                        transitionInProgress =
-                            false;
-
-
-                        /* =====================================
-                           START WATCHDOG
-                           ===================================== */
-
-                        if (
-                            playlistInitialized &&
-                            playlist.length > 0
-                        ) {
-
-                            startEndWatchdog(
-                                standbyPlayer,
-                                generation
-                            );
-
-                        }
-
-
-                        console.log(
-                            "ACTIVE PLAYER:",
-                            standbyPlayer.id,
-                            "generation:",
-                            generation,
-                            "locked:",
-                            true
-                        );
-
-                    }
-                )
-
-                .catch(
-                    error => {
-
-                        console.log(
-                            "Playback deferred:",
-                            error
-                        );
-
-                    }
-                );
-
-        };
-
-}
-
-
-/* =========================================================
    START
    ========================================================= */
 
@@ -2099,9 +2613,12 @@ console.log(
 
 pollLiveConfig();
 
-
 </script>
-
 </body>
-
 </html>
+
+
+    
+    
+        
+            

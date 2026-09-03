@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MSTV Live Broadcast</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+    <style>
+        body { margin: 0; background: #000; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; color: #fff; overflow: hidden; }
+        .tv-frame { position: relative; width: 100vw; height: 100vh; background: #000; }
+        video { width: 100%; height: 100%; object-fit: contain; }
+        .ui-overlay { position: absolute; bottom: 30px; left: 30px; background: rgba(0,0,0,0.8); padding: 15px 25px; border-radius: 8px; pointer-events: none; border-left: 5px solid red; }
+        .live-dot { color: #ff3b30; font-weight: 900; animation: blink 1.5s infinite; margin-right: 8px; }
+        @keyframes blink { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+    </style>
+</head>
+<body>
+
+<div class="tv-frame">
+    <video id="tv-player" muted autoplay playsinline></video>
+    <div class="ui-overlay">
+        <span class="live-dot">● LIVE</span>
+        <span id="show-title">Tuning Broadcast Channel...</span>
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('tv-player');
+    const titleText = document.getElementById('show-title');
+    const endpoint = '/functions/get-live-stream.js'; 
+
+    function tuneIn() {
+        fetch(endpoint)
+            .then(res => res.json())
+            .then(data => {
+                titleText.innerText = data.title;
+
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(data.url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                        video.currentTime = data.played; 
+                        video.play();
+                    });
+                } 
+                else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = data.url;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.currentTime = data.played;
+                        video.play();
+                    });
+                }
+            })
+            .catch(err => {
+                titleText.innerText = "Signal Interrupted. Retrying...";
+                console.error(err);
+            });
+    }
+
+    tuneIn();
+    video.addEventListener('pause', () => video.play());
+</script>
+
+</body>
+</html>

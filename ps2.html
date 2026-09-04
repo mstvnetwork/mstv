@@ -125,10 +125,13 @@
     const muteIcon = document.getElementById('mute-icon');
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
-        ['loadstart','loadedmetadata','canplay','playing','pause','ended','error','stalled','waiting'].forEach(evt => {
-    player1.addEventListener(evt, () => console.log('P1', evt, 'currentTime:', player1.currentTime.toFixed(1), 'duration:', player1.duration));
-    player2.addEventListener(evt, () => console.log('P2', evt, 'currentTime:', player2.currentTime.toFixed(1), 'duration:', player2.duration));
-});
+
+    // Diagnostic logging — safe to remove once you've confirmed the loop
+    // runs cleanly end-to-end; harmless to leave in otherwise.
+    ['loadstart','loadedmetadata','canplay','playing','pause','ended','error','stalled','waiting'].forEach(evt => {
+        player1.addEventListener(evt, () => console.log('P1', evt, 'currentTime:', player1.currentTime.toFixed(1), 'duration:', player1.duration));
+        player2.addEventListener(evt, () => console.log('P2', evt, 'currentTime:', player2.currentTime.toFixed(1), 'duration:', player2.duration));
+    });
 
     const endpoint = '/get-live-stream';
 
@@ -172,6 +175,10 @@
 
     function attachTimeupdateGuard(playerInstance) {
         playerInstance.addEventListener('timeupdate', () => {
+            // Ignore until the first poll has actually initialized timing —
+            // otherwise elapsed = performance.now() - 0, a huge number, and
+            // this fires a spurious seek attempt on page load.
+            if (!playlistInitialized) return;
             if (isReverting || playerInstance.paused || !playerInstance.duration) return;
 
             const elapsed = (performance.now() - fetchTimestamp) / 1000;
@@ -193,9 +200,9 @@
 
     // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 3 -> 0 ...)
     // This is the ONLY thing that changes playlistIndex once initialized.
-     function playNextInPlaylist() {
-    console.log("ADVANCE CALLED. current index:", playlistIndex, "playlist length:", playlist.length, "transitionInFlight:", transitionInFlight);
-    if (playlist.length === 0 || transitionInFlight) return;
+    function playNextInPlaylist() {
+        console.log("ADVANCE CALLED. current index:", playlistIndex, "playlist length:", playlist.length, "transitionInFlight:", transitionInFlight);
+        if (playlist.length === 0 || transitionInFlight) return;
         transitionInFlight = true;
 
         playlistIndex = (playlistIndex + 1) % playlist.length;
@@ -271,60 +278,65 @@
             .finally(() => {
                 setTimeout(pollLiveConfig, 1000);
             });
-        
     }
-  function switchVideoInstantly(newUrl, targetTime, onDone) {
-    const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-    const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-    const elapsed = (performance.now() - fetchTimestamp) / 1000;
-    let startPos = targetTime + elapsed;
+    function switchVideoInstantly(newUrl, targetTime, onDone) {
+        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
+        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-    // Clear any previous handler before attaching a new one, so a delayed
-    // error event from a prior cycle can't land on this cycle's handler.
-    standbyPlayer.onerror = null;
-    standbyPlayer.onerror = () => {
-        console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
-        if (typeof onDone === 'function') onDone();
-    };
+        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+        let startPos = targetTime + elapsed;
 
-    standbyPlayer.src = newUrl;
-    standbyPlayer.muted = isMasterMuted;
-
-    standbyPlayer.onloadedmetadata = () => {
-        if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-            startPos = startPos % standbyPlayer.duration;
-        }
-        standbyPlayer.currentTime = startPos;
-    };
-
-    standbyPlayer.load();
-
-    standbyPlayer.oncanplay = () => {
-        standbyPlayer.play().then(() => {
-            standbyPlayer.classList.add('active');
-            activePlayer.classList.remove('active');
-
-            activePlayer.pause();
-            // src is intentionally NOT cleared here. Setting src = "" makes
-            // the browser attempt to load an empty resource, which fires an
-            // async 'error' event on this element later — right as it's
-            // being reused as next cycle's standby player. That poisoned
-            // P1 permanently in your test: every future load on it failed
-            // instantly, so only P2 ever played, looping on itself forever
-            // ("last -> last -> last"). The element gets overwritten with a
-            // real src on its next use anyway, so clearing it first was
-            // pure downside.
-
-            activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
-
+        // Clear any previous handler before attaching a new one, so a delayed
+        // error event from a prior cycle can't land on this cycle's handler.
+        standbyPlayer.onerror = null;
+        standbyPlayer.onerror = () => {
+            console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
             if (typeof onDone === 'function') onDone();
-        }).catch(e => {
-            console.log("Playback constraint deferred:", e);
-            if (typeof onDone === 'function') onDone();
-        });
-    };
-}
+        };
+
+        standbyPlayer.src = newUrl;
+        standbyPlayer.muted = isMasterMuted;
+
+        standbyPlayer.onloadedmetadata = () => {
+            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
+                startPos = startPos % standbyPlayer.duration;
+            }
+            standbyPlayer.currentTime = startPos;
+        };
+
+        standbyPlayer.load();
+
+        standbyPlayer.oncanplay = () => {
+            standbyPlayer.play().then(() => {
+                standbyPlayer.classList.add('active');
+                activePlayer.classList.remove('active');
+
+                activePlayer.pause();
+                // src is intentionally NOT cleared here. Setting src = "" makes
+                // the browser attempt to load an empty resource, which fires an
+                // async 'error' event on this element later — right as it's
+                // being reused as next cycle's standby player. That poisoned
+                // one buffer permanently in earlier testing: every future load
+                // on it failed instantly, so only the other buffer ever played,
+                // looping on itself forever. The element gets overwritten with
+                // a real src on its next use anyway, so clearing it first was
+                // pure downside.
+
+                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+
+                if (typeof onDone === 'function') onDone();
+            }).catch(e => {
+                console.log("Playback constraint deferred:", e);
+                if (typeof onDone === 'function') onDone();
+            });
+        };
+    }
+
+    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
+    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
+
+    pollLiveConfig();
 </script>
 </body>
 </html>

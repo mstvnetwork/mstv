@@ -33,7 +33,6 @@
             justify-content: center; 
             align-items: center; 
         }
-        
         .video-layer { 
             position: absolute;
             top: 0;
@@ -49,7 +48,6 @@
             opacity: 1;
             z-index: 1;
         }
-        
         .title-box {
             position: absolute;
             top: max(16px, env(safe-area-inset-top));
@@ -65,7 +63,6 @@
             text-overflow: ellipsis;
             pointer-events: none;
         }
-
         .ui-overlay { 
             position: absolute; 
             bottom: max(16px, env(safe-area-inset-bottom)); 
@@ -75,7 +72,6 @@
             gap: 12px;
             z-index: 100;
         }
-
         .ctrl-btn {
             width: 42px; 
             height: 42px;
@@ -95,9 +91,7 @@
         .ctrl-btn:hover { background: var(--control-bg-hover); }
         .ctrl-btn:active { transform: scale(.92); }
         .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
-        
         #fullscreen-btn { margin-left: 0px; }
-
         @media (max-width: 360px) {
             .title-box { font-size: 11px; padding: 6px 10px; }
             .ctrl-btn { width: 38px; height: 38px; }
@@ -131,14 +125,15 @@
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
 
-    const endpoint = '/get-live-stream'; 
+    const endpoint = '/get-live-stream';
 
-    let activePlayerSlot = 1; 
+    let activePlayerSlot = 1;
     let currentStreamUrl = "";
     let isMasterMuted = true;
 
+    // Playlist + schedule sync state
     let playlist = [];
-    let playlistIndex = 0;
+    let playlistIndex = -1;
     let playlistInitialized = false;
     let transitionInFlight = false;
 
@@ -191,6 +186,7 @@
     attachTimeupdateGuard(player1);
     attachTimeupdateGuard(player2);
 
+    // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 0 ...)
     function playNextInPlaylist() {
         if (playlist.length === 0 || transitionInFlight) return;
         transitionInFlight = true;
@@ -218,6 +214,11 @@
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
+    // Poll the backend. First response initializes playback at the server's
+    // computed schedule position. After that, looping is driven locally by
+    // 'ended' events (sequential 0->1->2->0...), while each poll re-syncs
+    // playlistIndex/basePlayed to the server's authoritative position if
+    // they've drifted apart (e.g. tab was backgrounded, network hiccup).
     function pollLiveConfig() {
         fetch(endpoint + '?t=' + Date.now())
             .then(res => res.json())
@@ -227,15 +228,28 @@
                 if (newPlaylist && newPlaylist.length > 0) {
                     playlist = newPlaylist;
 
+                    const serverIndex = Number.isInteger(data.playlistIndex) ? data.playlistIndex : 0;
+                    const serverPlayed = Number(data.played) || 0;
+
                     if (!playlistInitialized) {
                         playlistInitialized = true;
-                        playlistIndex = 0;
+                        playlistIndex = serverIndex;
                         const initialItem = playlist[playlistIndex];
                         currentStreamUrl = initialItem.url;
                         titleBox.innerText = "Now: " + (initialItem.title || '');
                         fetchTimestamp = performance.now();
-                        basePlayed = initialItem.played || 0;
+                        basePlayed = serverPlayed;
                         switchVideoInstantly(initialItem.url, basePlayed);
+                    } else if (serverIndex !== playlistIndex && !transitionInFlight) {
+                        // Server says a different item should be live (e.g. we
+                        // drifted, or the schedule itself changed) — resync.
+                        playlistIndex = serverIndex;
+                        const item = playlist[playlistIndex];
+                        currentStreamUrl = item.url;
+                        titleBox.innerText = "Now: " + (item.title || '');
+                        fetchTimestamp = performance.now();
+                        basePlayed = serverPlayed;
+                        switchVideoInstantly(item.url, basePlayed);
                     }
 
                 } else if (data.url && data.url !== currentStreamUrl) {
@@ -255,42 +269,51 @@
     }
 
     function switchVideoInstantly(newUrl, targetTime, onDone) {
-    const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-    const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
+        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
+        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-    const elapsed = (performance.now() - fetchTimestamp) / 1000;
-    let startPos = targetTime + elapsed;
+        const elapsed = (performance.now() - fetchTimestamp) / 1000;
+        let startPos = targetTime + elapsed;
 
-    standbyPlayer.onerror = () => {
-        console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
-    };
-
-    standbyPlayer.src = newUrl;
-    standbyPlayer.muted = isMasterMuted;
-
-    standbyPlayer.onloadedmetadata = () => {
-        if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-            startPos = startPos % standbyPlayer.duration;
-        }
-        standbyPlayer.currentTime = startPos;
-    };
-
-    standbyPlayer.load();
-
-    standbyPlayer.oncanplay = () => {
-        standbyPlayer.play().then(() => {
-            standbyPlayer.classList.add('active');
-            activePlayer.classList.remove('active');
-            activePlayer.pause();
-            activePlayer.src = "";
-            activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+        standbyPlayer.onerror = () => {
+            console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
             if (typeof onDone === 'function') onDone();
-        }).catch(e => {
-            console.log("Playback constraint deferred:", e);
-            if (typeof onDone === 'function') onDone();
-        });
-    };
+        };
+
+        standbyPlayer.src = newUrl;
+        standbyPlayer.muted = isMasterMuted;
+
+        standbyPlayer.onloadedmetadata = () => {
+            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
+                startPos = startPos % standbyPlayer.duration;
+            }
+            standbyPlayer.currentTime = startPos;
+        };
+
+        standbyPlayer.load();
+
+        standbyPlayer.oncanplay = () => {
+            standbyPlayer.play().then(() => {
+                standbyPlayer.classList.add('active');
+                activePlayer.classList.remove('active');
+
+                activePlayer.pause();
+                activePlayer.src = "";
+
+                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+
+                if (typeof onDone === 'function') onDone();
+            }).catch(e => {
+                console.log("Playback constraint deferred:", e);
+                if (typeof onDone === 'function') onDone();
+            });
+        };
     }
+
+    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
+    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
+
+    pollLiveConfig();
 </script>
 
 </body>

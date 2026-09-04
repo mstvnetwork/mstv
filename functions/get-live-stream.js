@@ -3,10 +3,6 @@ export async function onRequest(context) {
     const rawJsonUrl =
         "https://crickethd.pages.dev/playlist200.json";
 
-    /* =========================================================
-       LOAD PLAYLIST
-       ========================================================= */
-
     let schedule = [];
 
     try {
@@ -34,11 +30,6 @@ export async function onRequest(context) {
             );
         }
 
-        /*
-         * Filter out any entries missing a usable url, so a bad
-         * entry doesn't get selected as "currentShow" and break
-         * the frontend player.
-         */
         schedule = parsed.filter(
             item => item && typeof item.url === "string" && item.url.trim() !== ""
         );
@@ -56,9 +47,6 @@ export async function onRequest(context) {
             err
         );
 
-        /*
-         * Emergency fallback.
-         */
         schedule = [
             {
                 startHour: 0,
@@ -69,12 +57,6 @@ export async function onRequest(context) {
             }
         ];
     }
-
-    /* =========================================================
-       EMPTY PLAYLIST SAFETY
-       (kept for defense-in-depth; schedule is never empty above,
-       but this guarantees a consistent response shape either way)
-       ========================================================= */
 
     if (schedule.length === 0) {
 
@@ -96,10 +78,6 @@ export async function onRequest(context) {
         );
     }
 
-    /* =========================================================
-       CURRENT UTC TIME
-       ========================================================= */
-
     const now =
         new Date();
 
@@ -107,10 +85,6 @@ export async function onRequest(context) {
         (now.getUTCHours() * 3600) +
         (now.getUTCMinutes() * 60) +
         now.getUTCSeconds();
-
-    /* =========================================================
-       FIND CURRENT SCHEDULE ITEM
-       ========================================================= */
 
     let currentIndex = 0;
 
@@ -155,17 +129,10 @@ export async function onRequest(context) {
         }
     }
 
-    /* =========================================================
-       CALCULATE PLAYED TIME
-       ========================================================= */
-
     let playedSeconds =
         currentSecondsInDay -
         showStartSecondsInDay;
 
-    /*
-     * Safety.
-     */
     if (
         !Number.isFinite(playedSeconds) ||
         playedSeconds < 0
@@ -173,43 +140,15 @@ export async function onRequest(context) {
         playedSeconds = 0;
     }
 
-    /* =========================================================
-       RETURN PLAYLIST + CURRENT POSITION
-       ========================================================= */
-
     return new Response(
 
         JSON.stringify({
-
-            /*
-             * COMPLETE PLAYLIST
-             *
-             * The frontend uses playlistIndex to sync to the
-             * server's schedule position, then advances locally
-             * on each video's 'ended' event:
-             *
-             * 0 -> 1 -> 2 -> 0 -> 1 -> 2 ...
-             */
             playlist: schedule,
-
-            /*
-             * Current item according to UTC schedule.
-             */
             playlistIndex: currentIndex,
-
-            /*
-             * Current program information.
-             */
             title:
                 currentShow.title || "",
-
             url:
                 currentShow.url || "",
-
-            /*
-             * How far into the current scheduled item
-             * playback should begin.
-             */
             played:
                 playedSeconds
         }),
@@ -222,4 +161,4 @@ export async function onRequest(context) {
             }
         }
     );
-          }
+}

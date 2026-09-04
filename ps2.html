@@ -116,7 +116,7 @@
         </button>
     </div>
 </div>
-<script>
+             <script>
 
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
@@ -178,8 +178,11 @@
             // Ignore until the first poll has actually initialized timing —
             // otherwise elapsed = performance.now() - 0, a huge number, and
             // this fires a spurious seek attempt on page load.
-            if (!playlistInitialized) return;
+            if (!playlistInitialized || transitionInFlight) return;
             if (isReverting || playerInstance.paused || !playerInstance.duration) return;
+
+            // Avoid time corrections near video end so completion transition is smooth
+            if (playerInstance.duration - playerInstance.currentTime < 1.0) return;
 
             const elapsed = (performance.now() - fetchTimestamp) / 1000;
             let target = basePlayed + elapsed;
@@ -267,10 +270,6 @@
                         }
                     }
                 }
-                // Deliberately no 'else if data.url' fallback branch here:
-                // once schedule-based, single-object fallback responses
-                // would re-trigger switchVideoInstantly every second and
-                // fight the loop the same way playlistIndex did.
             })
             .catch(err => {
                 console.warn("Polling sync notice:", err);
@@ -313,15 +312,6 @@
                 activePlayer.classList.remove('active');
 
                 activePlayer.pause();
-                // src is intentionally NOT cleared here. Setting src = "" makes
-                // the browser attempt to load an empty resource, which fires an
-                // async 'error' event on this element later — right as it's
-                // being reused as next cycle's standby player. That poisoned
-                // one buffer permanently in earlier testing: every future load
-                // on it failed instantly, so only the other buffer ever played,
-                // looping on itself forever. The element gets overwritten with
-                // a real src on its next use anyway, so clearing it first was
-                // pure downside.
 
                 activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
 
@@ -333,10 +323,21 @@
         };
     }
 
-    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
-    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
+    function enforceActivePlay(player) {
+        player.addEventListener('pause', () => {
+            // Prevent forced replay if the video has ended or is near the end (0.5s boundary)
+            const isNearEnd = player.duration && (player.duration - player.currentTime < 0.5);
+            
+            if (!player.ended && !isNearEnd && player.classList.contains('active')) {
+                player.play().catch(() => {});
+            }
+        });
+    }
+
+    enforceActivePlay(player1);
+    enforceActivePlay(player2);
 
     pollLiveConfig();
-</script>
+    </script>
 </body>
 </html>

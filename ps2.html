@@ -28,12 +28,15 @@
             justify-content: center;
             background: #000;
         }
-        /* Strip native controls completely */
+        /* Strip native controls completely and block touch/context callouts */
         video {
             width: 100%;
             height: 100%;
             object-fit: contain;
             pointer-events: none; /* Prevents native interactions and scrubbing */
+            -webkit-touch-callout: none; /* Disables Samsung Internet/iOS long-press context overlays */
+            -webkit-user-select: none;
+            user-select: none;
         }
         /* Bottom Right Floating Controls Container */
         .controls-overlay {
@@ -112,157 +115,163 @@
             <button id="fullscreenBtn" class="control-btn">FULLSCREEN</button>
         </div>
     </div>
-        <script>
-    const REPO_PLAYLIST_URL = './playlist200.json'; 
-    const POLL_INTERVAL = 10000; // Check for JSON updates every 10 seconds
 
-    const videoElem = document.getElementById('tvPlayer');
-    const muteBtn = document.getElementById('muteBtn');
-    const fullscreenBtn = document.getElementById('fullscreenBtn');
-    const playerContainer = document.getElementById('playerContainer');
+    <script>
+        const REPO_PLAYLIST_URL = './playlist200.json'; 
+        const POLL_INTERVAL = 10000; // Check for JSON updates every 10 seconds
 
-    let playlist = [];
-    let currentPlaylistHash = '';
-    let hlsInstance = null;
-    let expectedTargetTime = 0; // AI Super-Brain telemetry tracker
+        const videoElem = document.getElementById('tvPlayer');
+        const muteBtn = document.getElementById('muteBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const playerContainer = document.getElementById('playerContainer');
 
-    // 1. Fetch Playlist via Serverless Endpoint
-    async function fetchPlaylist() {
-        try {
-            const response = await fetch(REPO_PLAYLIST_URL + '?t=' + new Date().getTime());
-            const data = await response.json();
-            
-            const newHash = JSON.stringify(data);
-            if (newHash !== currentPlaylistHash) {
-                currentPlaylistHash = newHash;
-                playlist = data.videos; 
-                console.log("AI Super Brain: Playlist synchronized.", playlist);
-            }
-        } catch (error) {
-            console.error("Error fetching playlist:", error);
-        }
-    }
+        let playlist = [];
+        let currentPlaylistHash = '';
+        let hlsInstance = null;
+        let expectedTargetTime = 0; // Telemetry tracker
 
-    // Load source and lock it to the correct wall-clock offset
-    function loadVideoSource(url, targetOffset) {
-        const isSameSource = (videoElem.dataset.activeUrl === url);
-        videoElem.dataset.activeUrl = url;
-
-        if (url.endsWith('.m3u8')) {
-            if (Hls.isSupported()) {
-                if (!isSameSource) {
-                    if (hlsInstance) hlsInstance.destroy();
-                    hlsInstance = new Hls({ startPosition: targetOffset });
-                    hlsInstance.loadSource(url);
-                    hlsInstance.attachMedia(videoElem);
-                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                        videoElem.play().catch(e => console.log("Autoplay blocked:", e));
-                    });
+        // 1. Fetch Playlist via Serverless Endpoint
+        async function fetchPlaylist() {
+            try {
+                const response = await fetch(REPO_PLAYLIST_URL + '?t=' + new Date().getTime());
+                const data = await response.json();
+                
+                const newHash = JSON.stringify(data);
+                if (newHash !== currentPlaylistHash) {
+                    currentPlaylistHash = newHash;
+                    playlist = data.videos; 
+                    console.log("Playlist synchronized.", playlist);
                 }
-            } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
+            } catch (error) {
+                console.error("Error fetching playlist:", error);
+            }
+        }
+
+        // Load source and lock it to the correct wall-clock offset (Supports HLS & MP4)
+        function loadVideoSource(url, targetOffset) {
+            const isSameSource = (videoElem.dataset.activeUrl === url);
+            videoElem.dataset.activeUrl = url;
+
+            if (url.endsWith('.m3u8')) {
+                if (Hls.isSupported()) {
+                    if (!isSameSource) {
+                        if (hlsInstance) hlsInstance.destroy();
+                        hlsInstance = new Hls({ 
+                            startPosition: targetOffset,
+                            liveSyncDurationCount: 3
+                        });
+                        hlsInstance.loadSource(url);
+                        hlsInstance.attachMedia(videoElem);
+                        hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                            videoElem.play().catch(e => console.log("Autoplay blocked:", e));
+                        });
+                    } else if (hlsInstance) {
+                        // Enforce position check for active HLS streams if drifted
+                        if (Math.abs(videoElem.currentTime - targetOffset) > 2.0) {
+                            videoElem.currentTime = targetOffset;
+                        }
+                    }
+                } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
+                    if (!isSameSource) {
+                        videoElem.src = url;
+                    }
+                    if (Math.abs(videoElem.currentTime - targetOffset) > 2.0) {
+                        videoElem.currentTime = targetOffset;
+                    }
+                    videoElem.play().catch(e => console.log("Autoplay blocked:", e));
+                }
+            } else {
+                if (hlsInstance) {
+                    hlsInstance.destroy();
+                    hlsInstance = null;
+                }
                 if (!isSameSource) {
                     videoElem.src = url;
                 }
-                videoElem.currentTime = targetOffset;
+                if (videoElem.readyState >= 1) {
+                    if (Math.abs(videoElem.currentTime - targetOffset) > 1.0) {
+                        videoElem.currentTime = targetOffset;
+                    }
+                } else {
+                    videoElem.onloadedmetadata = () => {
+                        videoElem.currentTime = targetOffset;
+                        videoElem.onloadedmetadata = null;
+                    };
+                }
                 videoElem.play().catch(e => console.log("Autoplay blocked:", e));
             }
-        } else {
-            if (hlsInstance) {
-                hlsInstance.destroy();
-                hlsInstance = null;
-            }
-            if (!isSameSource) {
-                videoElem.src = url;
-            }
-            if (videoElem.readyState >= 1) {
-                if (Math.abs(videoElem.currentTime - targetOffset) > 1.0) {
-                    videoElem.currentTime = targetOffset;
+        }
+
+        // 2. Wall-Clock Synchronization & Universal Anti-Scrubbing Guard
+        function synchronizeBroadcast() {
+            if (!playlist || playlist.length === 0) return;
+
+            const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+            const currentEpochSeconds = Math.floor(Date.now() / 1000);
+            const currentGlobalPosition = currentEpochSeconds % totalPlaylistDuration;
+
+            let accumulatedTime = 0;
+            let activeIndex = 0;
+            let targetOffset = 0;
+
+            for (let i = 0; i < playlist.length; i++) {
+                accumulatedTime += playlist[i].duration;
+                if (currentGlobalPosition < accumulatedTime) {
+                    activeIndex = i;
+                    targetOffset = playlist[i].duration - (accumulatedTime - currentGlobalPosition);
+                    break;
                 }
-            } else {
-                videoElem.onloadedmetadata = () => {
-                    videoElem.currentTime = targetOffset;
-                    videoElem.onloadedmetadata = null;
-                };
             }
-            videoElem.play().catch(e => console.log("Autoplay blocked:", e));
-        }
-    }
 
-    // 2. Wall-Clock Synchronization & AI Anti-Scrubbing Enforcement Engine
-    function synchronizeBroadcast() {
-        if (!playlist || playlist.length === 0) return;
+            const activeVideo = playlist[activeIndex];
+            expectedTargetTime = targetOffset; // Cache expected telemetry position
 
-        const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
-        const currentEpochSeconds = Math.floor(Date.now() / 1000);
-        const currentGlobalPosition = currentEpochSeconds % totalPlaylistDuration;
+            loadVideoSource(activeVideo.url, targetOffset);
 
-        let accumulatedTime = 0;
-        let activeIndex = 0;
-        let targetOffset = 0;
-
-        for (let i = 0; i < playlist.length; i++) {
-            accumulatedTime += playlist[i].duration;
-            if (currentGlobalPosition < accumulatedTime) {
-                activeIndex = i;
-                targetOffset = playlist[i].duration - (accumulatedTime - currentGlobalPosition);
-                break;
-            }
-        }
-
-        const activeVideo = playlist[activeIndex];
-        expectedTargetTime = targetOffset; // Cache expected telemetry position
-
-        loadVideoSource(activeVideo.url, targetOffset);
-
-        // 3. Strict Aggressive Revert Protection (AI Anti-Scrubbing Guard)
-        // If a viewer attempts to skip forward/backward, drift exceeds 1.2 seconds, or manual scrubbing is detected:
-        if (!activeVideo.url.endsWith('.m3u8')) {
+            // 3. Strict Aggressive Revert Protection (Enforced across ALL formats, including HLS)
             const timeDiff = Math.abs(videoElem.currentTime - expectedTargetTime);
-            if (timeDiff > 1.2) {
-                console.warn(`AI Super-Brain: Scrubbing attempt detected! Snapping back from ${videoElem.currentTime.toFixed(2)}s to live broadcast position ${expectedTargetTime.toFixed(2)}s`);
+            if (timeDiff > 1.5) {
+                console.warn(`Anti-Scrub: Scrubbing attempt detected! Snapping back from ${videoElem.currentTime.toFixed(2)}s to live broadcast position ${expectedTargetTime.toFixed(2)}s`);
                 videoElem.currentTime = expectedTargetTime;
             }
         }
-    }
 
-    // Instant hardware intercept listeners to block touch/mouse scrub events completely
-    videoElem.addEventListener('seeking', (e) => {
-        if (!videoElem.dataset.activeUrl?.endsWith('.m3u8')) {
+        // Instant hardware intercept listeners to block scrubbing attempts
+        videoElem.addEventListener('seeking', (e) => {
             if (Math.abs(videoElem.currentTime - expectedTargetTime) > 0.8) {
                 videoElem.currentTime = expectedTargetTime;
             }
+        });
+
+        videoElem.addEventListener('contextmenu', e => e.preventDefault());
+
+        // 4. Control Handlers
+        muteBtn.addEventListener('click', () => {
+            videoElem.muted = !videoElem.muted;
+            muteBtn.textContent = videoElem.muted ? "UNMUTE" : "MUTE";
+        });
+
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                playerContainer.requestFullscreen().catch(err => console.error(err));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        document.addEventListener('fullscreenchange', () => {
+            fullscreenBtn.textContent = document.fullscreenElement ? "EXIT FS" : "FULLSCREEN";
+        });
+
+        // Initialize Loop Cycles immediately on load
+        async function init() {
+            await fetchPlaylist();
+            synchronizeBroadcast(); 
+            setInterval(fetchPlaylist, POLL_INTERVAL);
+            setInterval(synchronizeBroadcast, 500); // High-frequency heartbeat check (every 0.5s) for zero-tolerance anti-scrubbing
         }
-    });
 
-    videoElem.addEventListener('contextmenu', e => e.preventDefault());
-
-    // 4. Control Handlers
-    muteBtn.addEventListener('click', () => {
-        videoElem.muted = !videoElem.muted;
-        muteBtn.textContent = videoElem.muted ? "UNMUTE" : "MUTE";
-    });
-
-    fullscreenBtn.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-            playerContainer.requestFullscreen().catch(err => console.error(err));
-        } else {
-            document.exitFullscreen();
-        }
-    });
-
-    document.addEventListener('fullscreenchange', () => {
-        fullscreenBtn.textContent = document.fullscreenElement ? "EXIT FS" : "FULLSCREEN";
-    });
-
-    // Initialize Loop Cycles immediately on load
-    async function init() {
-        await fetchPlaylist();
-        synchronizeBroadcast(); 
-        setInterval(fetchPlaylist, POLL_INTERVAL);
-        setInterval(synchronizeBroadcast, 500); // High-frequency heartbeat check (every 0.5s) for zero-tolerance anti-scrubbing
-    }
-
-    init();
-        </script>
+        init();
+    </script>
 </body>
 </html>

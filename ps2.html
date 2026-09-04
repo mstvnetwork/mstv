@@ -11,40 +11,40 @@
             --icon: #fff;
         }
         * { box-sizing: border-box; }
-        body { 
-            margin: 0; 
-            background: #000; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            height: 100dvh; 
-            color: #fff; 
-            overflow: hidden; 
+        body {
+            margin: 0;
+            background: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            height: 100dvh;
+            color: #fff;
+            overflow: hidden;
         }
-        .tv-frame { 
-            position: relative; 
-            width: 100vw; 
-            height: 100vh; 
-            height: 100dvh; 
-            background: #000; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
+        .tv-frame {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            height: 100dvh;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
-        .video-layer { 
+        .video-layer {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
             opacity: 0;
             transition: opacity 0.25s ease-in-out;
             pointer-events: none;
         }
-        .video-layer.active { 
+        .video-layer.active {
             opacity: 1;
             z-index: 1;
         }
@@ -63,25 +63,25 @@
             text-overflow: ellipsis;
             pointer-events: none;
         }
-        .ui-overlay { 
-            position: absolute; 
-            bottom: max(16px, env(safe-area-inset-bottom)); 
-            right: max(16px, env(safe-area-inset-right)); 
+        .ui-overlay {
+            position: absolute;
+            bottom: max(16px, env(safe-area-inset-bottom));
+            right: max(16px, env(safe-area-inset-right));
             display: flex;
             align-items: center;
             gap: 12px;
             z-index: 100;
         }
         .ctrl-btn {
-            width: 42px; 
+            width: 42px;
             height: 42px;
             border-radius: 50%;
             border: none;
             background: var(--control-bg);
             backdrop-filter: blur(6px);
             -webkit-backdrop-filter: blur(6px);
-            display: flex; 
-            align-items: center; 
+            display: flex;
+            align-items: center;
             justify-content: center;
             cursor: pointer;
             flex-shrink: 0;
@@ -131,7 +131,7 @@
     let currentStreamUrl = "";
     let isMasterMuted = true;
 
-    // Playlist + schedule sync state
+    // Playlist + local sequencing state
     let playlist = [];
     let playlistIndex = -1;
     let playlistInitialized = false;
@@ -186,7 +186,8 @@
     attachTimeupdateGuard(player1);
     attachTimeupdateGuard(player2);
 
-    // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 0 ...)
+    // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 3 -> 0 ...)
+    // This is the ONLY thing that changes playlistIndex once initialized.
     function playNextInPlaylist() {
         if (playlist.length === 0 || transitionInFlight) return;
         transitionInFlight = true;
@@ -214,11 +215,13 @@
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
-    // Poll the backend. First response initializes playback at the server's
-    // computed schedule position. After that, looping is driven locally by
-    // 'ended' events (sequential 0->1->2->0...), while each poll re-syncs
-    // playlistIndex/basePlayed to the server's authoritative position if
-    // they've drifted apart (e.g. tab was backgrounded, network hiccup).
+    // Poll the backend purely to (a) do the very first sync so the channel
+    // joins "already in progress" at the right item/offset, and (b) pick up
+    // playlist CONTENT changes (items added/removed/reordered). Once
+    // initialized, position/looping is owned entirely by the frontend via
+    // 'ended' events — the server's playlistIndex/played are never used
+    // again, so there's no fight between server schedule state and local
+    // playback looping.
     function pollLiveConfig() {
         fetch(endpoint + '?t=' + Date.now())
             .then(res => res.json())
@@ -226,39 +229,35 @@
                 const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
 
                 if (newPlaylist && newPlaylist.length > 0) {
+                    const playlistChanged = JSON.stringify(newPlaylist) !== JSON.stringify(playlist);
                     playlist = newPlaylist;
-
-                    const serverIndex = Number.isInteger(data.playlistIndex) ? data.playlistIndex : 0;
-                    const serverPlayed = Number(data.played) || 0;
 
                     if (!playlistInitialized) {
                         playlistInitialized = true;
-                        playlistIndex = serverIndex;
+                        const serverIndex = Number.isInteger(data.playlistIndex) ? data.playlistIndex : 0;
+                        const serverPlayed = Number(data.played) || 0;
+
+                        playlistIndex = Math.min(serverIndex, playlist.length - 1);
                         const initialItem = playlist[playlistIndex];
                         currentStreamUrl = initialItem.url;
                         titleBox.innerText = "Now: " + (initialItem.title || '');
                         fetchTimestamp = performance.now();
                         basePlayed = serverPlayed;
                         switchVideoInstantly(initialItem.url, basePlayed);
-                    } else if (serverIndex !== playlistIndex && !transitionInFlight) {
-                        // Server says a different item should be live (e.g. we
-                        // drifted, or the schedule itself changed) — resync.
-                        playlistIndex = serverIndex;
-                        const item = playlist[playlistIndex];
-                        currentStreamUrl = item.url;
-                        titleBox.innerText = "Now: " + (item.title || '');
-                        fetchTimestamp = performance.now();
-                        basePlayed = serverPlayed;
-                        switchVideoInstantly(item.url, basePlayed);
-                    }
 
-                } else if (data.url && data.url !== currentStreamUrl) {
-                    currentStreamUrl = data.url;
-                    if (data.title) titleBox.innerText = "Now: " + data.title;
-                    basePlayed = data.played || 0;
-                    fetchTimestamp = performance.now();
-                    switchVideoInstantly(data.url, basePlayed);
+                    } else if (playlistChanged) {
+                        // Content changed underneath us (new items pushed).
+                        // Keep playing the current item uninterrupted; just
+                        // clamp the index in case the new list is shorter.
+                        if (playlistIndex > playlist.length - 1) {
+                            playlistIndex = playlist.length - 1;
+                        }
+                    }
                 }
+                // Deliberately no 'else if data.url' fallback branch here:
+                // once schedule-based, single-object fallback responses
+                // would re-trigger switchVideoInstantly every second and
+                // fight the loop the same way playlistIndex did.
             })
             .catch(err => {
                 console.warn("Polling sync notice:", err);

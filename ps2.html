@@ -112,8 +112,8 @@
             <button id="fullscreenBtn" class="control-btn">FULLSCREEN</button>
         </div>
     </div>
-<script>
-    const REPO_PLAYLIST_URL = './playlist200.json'; // Use relative path if hosted on GitHub Pages
+        <script>
+    const REPO_PLAYLIST_URL = './playlist.json'; 
     const POLL_INTERVAL = 10000; // Check for JSON updates every 10 seconds
 
     const videoElem = document.getElementById('tvPlayer');
@@ -124,6 +124,7 @@
     let playlist = [];
     let currentPlaylistHash = '';
     let hlsInstance = null;
+    let expectedTargetTime = 0; // AI Super-Brain telemetry tracker
 
     // 1. Fetch Playlist via Serverless Endpoint
     async function fetchPlaylist() {
@@ -142,7 +143,7 @@
         }
     }
 
-    // Load source and immediately lock it to the correct wall-clock offset
+    // Load source and lock it to the correct wall-clock offset
     function loadVideoSource(url, targetOffset) {
         const isSameSource = (videoElem.dataset.activeUrl === url);
         videoElem.dataset.activeUrl = url;
@@ -151,7 +152,6 @@
             if (Hls.isSupported()) {
                 if (!isSameSource) {
                     if (hlsInstance) hlsInstance.destroy();
-                    // Pass startPosition directly to HLS.js so it starts at the right global timestamp
                     hlsInstance = new Hls({ startPosition: targetOffset });
                     hlsInstance.loadSource(url);
                     hlsInstance.attachMedia(videoElem);
@@ -160,7 +160,6 @@
                     });
                 }
             } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
-                // Native Safari HLS fallback
                 if (!isSameSource) {
                     videoElem.src = url;
                 }
@@ -168,7 +167,6 @@
                 videoElem.play().catch(e => console.log("Autoplay blocked:", e));
             }
         } else {
-            // Standard MP4 / WebM handling
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
@@ -176,9 +174,8 @@
             if (!isSameSource) {
                 videoElem.src = url;
             }
-            // Ensure currentTime sticks once metadata is loaded
             if (videoElem.readyState >= 1) {
-                if (Math.abs(videoElem.currentTime - targetOffset) > 1.5) {
+                if (Math.abs(videoElem.currentTime - targetOffset) > 1.0) {
                     videoElem.currentTime = targetOffset;
                 }
             } else {
@@ -191,7 +188,7 @@
         }
     }
 
-    // 2. Wall-Clock Synchronization Engine
+    // 2. Wall-Clock Synchronization & AI Anti-Scrubbing Enforcement Engine
     function synchronizeBroadcast() {
         if (!playlist || playlist.length === 0) return;
 
@@ -213,17 +210,28 @@
         }
 
         const activeVideo = playlist[activeIndex];
+        expectedTargetTime = targetOffset; // Cache expected telemetry position
+
         loadVideoSource(activeVideo.url, targetOffset);
 
-        // Continuous Anti-Drift check for standard files
-        if (!activeVideo.url.endsWith('.m3u8') && Math.abs(videoElem.currentTime - targetOffset) > 1.5) {
-            videoElem.currentTime = targetOffset;
+        // 3. Strict Aggressive Revert Protection (AI Anti-Scrubbing Guard)
+        // If a viewer attempts to skip forward/backward, drift exceeds 1.2 seconds, or manual scrubbing is detected:
+        if (!activeVideo.url.endsWith('.m3u8')) {
+            const timeDiff = Math.abs(videoElem.currentTime - expectedTargetTime);
+            if (timeDiff > 1.2) {
+                console.warn(`AI Super-Brain: Scrubbing attempt detected! Snapping back from ${videoElem.currentTime.toFixed(2)}s to live broadcast position ${expectedTargetTime.toFixed(2)}s`);
+                videoElem.currentTime = expectedTargetTime;
+            }
         }
     }
 
-    // 3. Strict Aggressive Revert Protection Against Seeking
-    videoElem.addEventListener('seeking', () => {
-        synchronizeBroadcast();
+    // Instant hardware intercept listeners to block touch/mouse scrub events completely
+    videoElem.addEventListener('seeking', (e) => {
+        if (!videoElem.dataset.activeUrl?.endsWith('.m3u8')) {
+            if (Math.abs(videoElem.currentTime - expectedTargetTime) > 0.8) {
+                videoElem.currentTime = expectedTargetTime;
+            }
+        }
     });
 
     videoElem.addEventListener('contextmenu', e => e.preventDefault());
@@ -249,13 +257,12 @@
     // Initialize Loop Cycles immediately on load
     async function init() {
         await fetchPlaylist();
-        synchronizeBroadcast(); // Run instantly on startup/refresh
+        synchronizeBroadcast(); 
         setInterval(fetchPlaylist, POLL_INTERVAL);
-        setInterval(synchronizeBroadcast, 1000);   
+        setInterval(synchronizeBroadcast, 500); // High-frequency heartbeat check (every 0.5s) for zero-tolerance anti-scrubbing
     }
 
     init();
-</script>
+        </script>
 </body>
 </html>
-                        

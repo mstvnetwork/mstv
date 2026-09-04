@@ -2,338 +2,244 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV Live Broadcast</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pseudo-Live Global HLS TV Channel</title>
+    <!-- Include HLS.js for cross-browser .m3u8 playback support -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        :root {
-            --control-bg: rgba(0, 0, 0, 0.65);
-            --control-bg-hover: rgba(0, 0, 0, 0.85);
-            --icon: #fff;
-        }
-        * { box-sizing: border-box; }
-        body {
+        * {
+            box-sizing: border-box;
             margin: 0;
-            background: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            height: 100dvh;
-            color: #fff;
-            overflow: hidden;
+            padding: 0;
         }
-        .tv-frame {
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        .player-container {
             position: relative;
             width: 100vw;
             height: 100vh;
-            height: 100dvh;
-            background: #000;
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
+            background: #000;
         }
-        .video-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
+        /* Strip native controls completely */
+        video {
             width: 100%;
             height: 100%;
             object-fit: contain;
-            opacity: 0;
-            transition: opacity 0.25s ease-in-out;
-            pointer-events: none;
+            pointer-events: none; /* Prevents native interactions and scrubbing */
         }
-        .video-layer.active {
-            opacity: 1;
-            z-index: 1;
-        }
-        .title-box {
+        /* Bottom Right Floating Controls Container */
+        .controls-overlay {
             position: absolute;
-            top: max(16px, env(safe-area-inset-top));
-            left: max(16px, env(safe-area-inset-left));
-            font-size: 14px;
-            font-weight: 600;
-            color: #f1f1f1;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-            z-index: 100;
-            max-width: 80vw;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            pointer-events: none;
-        }
-        .ui-overlay {
-            position: absolute;
-            bottom: max(16px, env(safe-area-inset-bottom));
-            right: max(16px, env(safe-area-inset-right));
+            bottom: 20px;
+            right: 20px;
             display: flex;
-            align-items: center;
             gap: 12px;
-            z-index: 100;
+            z-index: 9999;
+            background: rgba(0, 0, 0, 0.4);
+            padding: 8px 12px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
         }
-        .ctrl-btn {
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
+        .control-btn {
+            background: transparent;
             border: none;
-            background: var(--control-bg);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            padding: 6px 10px;
+            border-radius: 4px;
+            transition: background 0.2s;
             display: flex;
             align-items: center;
             justify-content: center;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: background .15s ease, transform .1s ease;
-            -webkit-tap-highlight-color: transparent;
         }
-        .ctrl-btn:hover { background: var(--control-bg-hover); }
-        .ctrl-btn:active { transform: scale(.92); }
-        .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
-        #fullscreen-btn { margin-left: 0px; }
-        @media (max-width: 360px) {
-            .title-box { font-size: 11px; padding: 6px 10px; }
-            .ctrl-btn { width: 38px; height: 38px; }
-            .ctrl-btn svg { width: 18px; height: 18px; }
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        /* Live Badge Indicator */
+        .live-badge {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: #ff0000;
+            color: white;
+            padding: 4px 10px;
+            font-size: 12px;
+            font-weight: bold;
+            border-radius: 4px;
+            letter-spacing: 1px;
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .live-dot {
+            width: 8px;
+            height: 8px;
+            background: white;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.3; }
+            100% { opacity: 1; }
         }
     </style>
 </head>
 <body>
 
-<div class="tv-frame" id="tv-frame">
-    <video id="player-1" class="video-layer active" muted autoplay playsinline></video>
-    <video id="player-2" class="video-layer" muted autoplay playsinline></video>
+    <div class="player-container" id="playerContainer">
+        <div class="live-badge">
+            <div class="live-dot"></div> LIVE TV
+        </div>
 
-    <div id="title-box" class="title-box">Now: Connecting...</div>
+        <!-- Video element with native controls stripped -->
+        <video id="tvPlayer" playsinline webkit-playsinline muted></video>
 
-    <div class="ui-overlay">
-        <button id="mute-btn" class="ctrl-btn" title="Unmute">
-            <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-        </button>
-        <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
-            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
+        <!-- Transparent Bottom Right Controls -->
+        <div class="controls-overlay">
+            <button id="muteBtn" class="control-btn">UNMUTE</button>
+            <button id="fullscreenBtn" class="control-btn">FULLSCREEN</button>
+        </div>
     </div>
-</div>
-                 <script>
 
-    const player1 = document.getElementById('player-1');
-    const player2 = document.getElementById('player-2');
-    const titleBox = document.getElementById('title-box');
-    const muteBtn = document.getElementById('mute-btn');
-    const muteIcon = document.getElementById('mute-icon');
-    const fullscreenBtn = document.getElementById('fullscreen-btn');
-    const tvFrame = document.getElementById('tv-frame');
+    <script>
+        const REPO_PLAYLIST_URL = '/playlist200.json';
+        const POLL_INTERVAL = 10000; // Check for JSON updates every 10 seconds
 
-    // Force loop disabled on both elements
-    player1.loop = false;
-    player2.loop = false;
+        const videoElem = document.getElementById('tvPlayer');
+        const muteBtn = document.getElementById('muteBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const playerContainer = document.getElementById('playerContainer');
 
-    // Diagnostic logging — safe to remove once you've confirmed the loop
-    // runs cleanly end-to-end; harmless to leave in otherwise.
-    ['loadstart','loadedmetadata','canplay','playing','pause','ended','error','stalled','waiting'].forEach(evt => {
-        player1.addEventListener(evt, () => console.log('P1', evt, 'currentTime:', player1.currentTime.toFixed(1), 'duration:', player1.duration));
-        player2.addEventListener(evt, () => console.log('P2', evt, 'currentTime:', player2.currentTime.toFixed(1), 'duration:', player2.duration));
-    });
+        let playlist = [];
+        let currentPlaylistHash = '';
+        let hlsInstance = null;
 
-    const endpoint = '/get-live-stream';
-
-    let activePlayerSlot = 1;
-    let currentStreamUrl = "";
-    let isMasterMuted = true;
-
-    // Playlist + local sequencing state
-    let playlist = [];
-    let playlistIndex = -1;
-    let playlistInitialized = false;
-    let transitionInFlight = false;
-
-    let fetchTimestamp = 0;
-    let basePlayed = 0;
-    let isReverting = false;
-
-    muteBtn.addEventListener('click', () => {
-        isMasterMuted = !isMasterMuted;
-        player1.muted = isMasterMuted;
-        player2.muted = isMasterMuted;
-
-        if (isMasterMuted) {
-            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
-            muteBtn.title = "Unmute";
-        } else {
-            muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
-            muteBtn.title = "Mute";
-        }
-    });
-
-    fullscreenBtn.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-            if (tvFrame.requestFullscreen) tvFrame.requestFullscreen();
-            else if (tvFrame.webkitRequestFullscreen) tvFrame.webkitRequestFullscreen();
-        } else {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
-        }
-    });
-
-    function attachTimeupdateGuard(playerInstance) {
-        playerInstance.addEventListener('timeupdate', () => {
-            if (!playlistInitialized) return;
-
-            // Trigger next video transition as soon as we hit the end threshold
-            // even if the native 'ended' event failed to fire.
-            if (playerInstance.classList.contains('active') && !transitionInFlight && playerInstance.duration > 0) {
-                if (playerInstance.currentTime >= playerInstance.duration - 0.3 || playerInstance.ended) {
-                    console.log("END THRESHOLD REACHED VIA TIMEUPDATE. Advancing playlist...");
-                    playNextInPlaylist();
-                    return;
+        // 1. Fetch Playlist via Serverless/Raw Endpoint with Real-Time JSON Updates
+        async function fetchPlaylist() {
+            try {
+                const response = await fetch(REPO_PLAYLIST_URL + '?t=' + new Date().getTime());
+                const data = await response.json();
+                
+                const newHash = JSON.stringify(data);
+                if (newHash !== currentPlaylistHash) {
+                    currentPlaylistHash = newHash;
+                    playlist = data.videos; // Supports .m3u8 or standard MP4 formats
+                    console.log("AI Super Brain: Playlist updated in real-time.", playlist);
                 }
+            } catch (error) {
+                console.error("Error fetching playlist:", error);
             }
+        }
 
-            if (transitionInFlight || isReverting || playerInstance.paused || !playerInstance.duration) return;
+        // Helper function to load sources supporting both HLS (.m3u8) and standard formats
+        function loadVideoSource(url) {
+            if (videoElem.dataset.activeUrl === url) return;
+            videoElem.dataset.activeUrl = url;
 
-            const elapsed = (performance.now() - fetchTimestamp) / 1000;
-            let target = basePlayed + elapsed;
-            if (playerInstance.duration && playerInstance.duration > 0) {
-                target = target % playerInstance.duration;
-            }
-
-            if (Math.abs(playerInstance.currentTime - target) > 2.5) {
-                isReverting = true;
-                playerInstance.currentTime = target;
-                setTimeout(() => { isReverting = false; }, 300);
-            }
-        });
-    }
-
-    attachTimeupdateGuard(player1);
-    attachTimeupdateGuard(player2);
-
-    // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 3 -> 0 ...)
-    function playNextInPlaylist() {
-        console.log("ADVANCE CALLED. current index:", playlistIndex, "playlist length:", playlist.length, "transitionInFlight:", transitionInFlight);
-        if (playlist.length === 0 || transitionInFlight) return;
-        transitionInFlight = true;
-
-        playlistIndex = (playlistIndex + 1) % playlist.length;
-        const nextItem = playlist[playlistIndex];
-
-        currentStreamUrl = nextItem.url;
-        titleBox.innerText = "Now: " + (nextItem.title || '');
-        fetchTimestamp = performance.now();
-        basePlayed = 0;
-
-        switchVideoInstantly(nextItem.url, 0, () => {
-            transitionInFlight = false;
-        });
-    }
-
-    function attachPlaylistEndedHandler(playerInstance) {
-        playerInstance.addEventListener('ended', () => {
-            if (!playerInstance.classList.contains('active')) return;
-            playNextInPlaylist();
-        });
-    }
-
-    attachPlaylistEndedHandler(player1);
-    attachPlaylistEndedHandler(player2);
-
-    function pollLiveConfig() {
-        fetch(endpoint + '?t=' + Date.now())
-            .then(res => res.json())
-            .then(data => {
-                const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
-
-                if (newPlaylist && newPlaylist.length > 0) {
-                    const playlistChanged = JSON.stringify(newPlaylist) !== JSON.stringify(playlist);
-                    playlist = newPlaylist;
-
-                    if (!playlistInitialized) {
-                        playlistInitialized = true;
-                        const serverIndex = Number.isInteger(data.playlistIndex) ? data.playlistIndex : 0;
-                        const serverPlayed = Number(data.played) || 0;
-
-                        playlistIndex = Math.min(serverIndex, playlist.length - 1);
-                        const initialItem = playlist[playlistIndex];
-                        currentStreamUrl = initialItem.url;
-                        titleBox.innerText = "Now: " + (initialItem.title || '');
-                        fetchTimestamp = performance.now();
-                        basePlayed = serverPlayed;
-                        switchVideoInstantly(initialItem.url, basePlayed);
-
-                    } else if (playlistChanged) {
-                        if (playlistIndex > playlist.length - 1) {
-                            playlistIndex = playlist.length - 1;
-                        }
+            if (url.endsWith('.m3u8')) {
+                if (Hls.isSupported()) {
+                    if (hlsInstance) {
+                        hlsInstance.destroy();
                     }
+                    hlsInstance = new Hls();
+                    hlsInstance.loadSource(url);
+                    hlsInstance.attachMedia(videoElem);
+                    hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                        videoElem.play().catch(e => console.log("Autoplay blocked:", e));
+                    });
+                } else if (videoElem.canPlayType('application/vnd.apple.mpegurl')) {
+                    // Native Safari fallback for HLS
+                    videoElem.src = url;
+                    videoElem.play().catch(e => console.log("Autoplay blocked:", e));
                 }
-            })
-            .catch(err => {
-                console.warn("Polling sync notice:", err);
-            })
-            .finally(() => {
-                setTimeout(pollLiveConfig, 1000);
-            });
-    }
-
-    function switchVideoInstantly(newUrl, targetTime, onDone) {
-        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
-
-        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-        let startPos = targetTime + elapsed;
-
-        standbyPlayer.onerror = null;
-        standbyPlayer.onerror = () => {
-            console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
-            if (typeof onDone === 'function') onDone();
-        };
-
-        standbyPlayer.src = newUrl;
-        standbyPlayer.muted = isMasterMuted;
-
-        standbyPlayer.onloadedmetadata = () => {
-            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-                startPos = startPos % standbyPlayer.duration;
+            } else {
+                // Standard MP4 / WebM handling
+                if (hlsInstance) {
+                    hlsInstance.destroy();
+                    hlsInstance = null;
+                }
+                videoElem.src = url;
+                videoElem.play().catch(e => console.log("Autoplay blocked:", e));
             }
-            standbyPlayer.currentTime = startPos;
-        };
+        }
 
-        standbyPlayer.load();
+        // 2. Wall-Clock Synchronization Engine
+        function synchronizeBroadcast() {
+            if (!playlist || playlist.length === 0) return;
 
-        standbyPlayer.oncanplay = () => {
-            standbyPlayer.play().then(() => {
-                standbyPlayer.classList.add('active');
-                activePlayer.classList.remove('active');
+            const totalPlaylistDuration = playlist.reduce((acc, item) => acc + item.duration, 0);
+            const currentEpochSeconds = Math.floor(Date.now() / 1000);
+            const currentGlobalPosition = currentEpochSeconds % totalPlaylistDuration;
 
-                activePlayer.pause();
+            let accumulatedTime = 0;
+            let activeIndex = 0;
+            let targetOffset = 0;
 
-                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+            for (let i = 0; i < playlist.length; i++) {
+                accumulatedTime += playlist[i].duration;
+                if (currentGlobalPosition < accumulatedTime) {
+                    activeIndex = i;
+                    targetOffset = playlist[i].duration - (accumulatedTime - currentGlobalPosition);
+                    break;
+                }
+            }
 
-                if (typeof onDone === 'function') onDone();
-            }).catch(e => {
-                console.log("Playback constraint deferred:", e);
-                if (typeof onDone === 'function') onDone();
-            });
-        };
-    }
+            const activeVideo = playlist[activeIndex];
+            loadVideoSource(activeVideo.url);
 
-    function enforceActivePlay(player) {
-        player.addEventListener('pause', () => {
-            const isNearEnd = player.duration && (player.duration - player.currentTime < 0.5);
-            
-            if (!player.ended && !isNearEnd && player.classList.contains('active')) {
-                player.play().catch(() => {});
+            // 3. Anti-Drift & Revert Logic (Skipping sync adjustment if playing dynamic live HLS manifests where exact seek bounds vary)
+            if (!activeVideo.url.endsWith('.m3u8') && Math.abs(videoElem.currentTime - targetOffset) > 1.5) {
+                videoElem.currentTime = targetOffset;
+            }
+        }
+
+        // 4. Strict Aggressive Revert Protection Against Seeking
+        videoElem.addEventListener('seeking', () => {
+            synchronizeBroadcast();
+        });
+
+        videoElem.addEventListener('contextmenu', e => e.preventDefault());
+
+        // 5. Control Handlers (Unmute/Mute & Fullscreen)
+        muteBtn.addEventListener('click', () => {
+            videoElem.muted = !videoElem.muted;
+            muteBtn.textContent = videoElem.muted ? "UNMUTE" : "MUTE";
+        });
+
+        fullscreenBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                playerContainer.requestFullscreen().catch(err => {
+                    console.error("Error attempting to enable fullscreen:", err);
+                });
+            } else {
+                document.exitFullscreen();
             }
         });
-    }
 
-    enforceActivePlay(player1);
-    enforceActivePlay(player2);
+        document.addEventListener('fullscreenchange', () => {
+            fullscreenBtn.textContent = document.fullscreenElement ? "EXIT FS" : "FULLSCREEN";
+        });
 
-    pollLiveConfig();
-            
+        // Initialize Loop Cycles
+        async function init() {
+            await fetchPlaylist();
+            setInterval(fetchPlaylist, POLL_INTERVAL);
+            setInterval(synchronizeBroadcast, 1000);
+        }
+
+        init();
     </script>
 </body>
 </html>

@@ -116,7 +116,7 @@
         </button>
     </div>
 </div>
-             <script>
+                 <script>
 
     const player1 = document.getElementById('player-1');
     const player2 = document.getElementById('player-2');
@@ -125,6 +125,10 @@
     const muteIcon = document.getElementById('mute-icon');
     const fullscreenBtn = document.getElementById('fullscreen-btn');
     const tvFrame = document.getElementById('tv-frame');
+
+    // Force loop disabled on both elements
+    player1.loop = false;
+    player2.loop = false;
 
     // Diagnostic logging — safe to remove once you've confirmed the loop
     // runs cleanly end-to-end; harmless to leave in otherwise.
@@ -175,14 +179,19 @@
 
     function attachTimeupdateGuard(playerInstance) {
         playerInstance.addEventListener('timeupdate', () => {
-            // Ignore until the first poll has actually initialized timing —
-            // otherwise elapsed = performance.now() - 0, a huge number, and
-            // this fires a spurious seek attempt on page load.
-            if (!playlistInitialized || transitionInFlight) return;
-            if (isReverting || playerInstance.paused || !playerInstance.duration) return;
+            if (!playlistInitialized) return;
 
-            // Avoid time corrections near video end so completion transition is smooth
-            if (playerInstance.duration - playerInstance.currentTime < 1.0) return;
+            // Trigger next video transition as soon as we hit the end threshold
+            // even if the native 'ended' event failed to fire.
+            if (playerInstance.classList.contains('active') && !transitionInFlight && playerInstance.duration > 0) {
+                if (playerInstance.currentTime >= playerInstance.duration - 0.3 || playerInstance.ended) {
+                    console.log("END THRESHOLD REACHED VIA TIMEUPDATE. Advancing playlist...");
+                    playNextInPlaylist();
+                    return;
+                }
+            }
+
+            if (transitionInFlight || isReverting || playerInstance.paused || !playerInstance.duration) return;
 
             const elapsed = (performance.now() - fetchTimestamp) / 1000;
             let target = basePlayed + elapsed;
@@ -202,7 +211,6 @@
     attachTimeupdateGuard(player2);
 
     // Advance sequentially through the playlist array (0 -> 1 -> 2 -> 3 -> 0 ...)
-    // This is the ONLY thing that changes playlistIndex once initialized.
     function playNextInPlaylist() {
         console.log("ADVANCE CALLED. current index:", playlistIndex, "playlist length:", playlist.length, "transitionInFlight:", transitionInFlight);
         if (playlist.length === 0 || transitionInFlight) return;
@@ -231,13 +239,6 @@
     attachPlaylistEndedHandler(player1);
     attachPlaylistEndedHandler(player2);
 
-    // Poll the backend purely to (a) do the very first sync so the channel
-    // joins "already in progress" at the right item/offset, and (b) pick up
-    // playlist CONTENT changes (items added/removed/reordered). Once
-    // initialized, position/looping is owned entirely by the frontend via
-    // 'ended' events — the server's playlistIndex/played are never used
-    // again, so there's no fight between server schedule state and local
-    // playback looping.
     function pollLiveConfig() {
         fetch(endpoint + '?t=' + Date.now())
             .then(res => res.json())
@@ -262,9 +263,6 @@
                         switchVideoInstantly(initialItem.url, basePlayed);
 
                     } else if (playlistChanged) {
-                        // Content changed underneath us (new items pushed).
-                        // Keep playing the current item uninterrupted; just
-                        // clamp the index in case the new list is shorter.
                         if (playlistIndex > playlist.length - 1) {
                             playlistIndex = playlist.length - 1;
                         }
@@ -286,8 +284,6 @@
         const elapsed = (performance.now() - fetchTimestamp) / 1000;
         let startPos = targetTime + elapsed;
 
-        // Clear any previous handler before attaching a new one, so a delayed
-        // error event from a prior cycle can't land on this cycle's handler.
         standbyPlayer.onerror = null;
         standbyPlayer.onerror = () => {
             console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
@@ -325,7 +321,6 @@
 
     function enforceActivePlay(player) {
         player.addEventListener('pause', () => {
-            // Prevent forced replay if the video has ended or is near the end (0.5s boundary)
             const isNearEnd = player.duration && (player.duration - player.currentTime < 0.5);
             
             if (!player.ended && !isNearEnd && player.classList.contains('active')) {
@@ -338,6 +333,7 @@
     enforceActivePlay(player2);
 
     pollLiveConfig();
+            
     </script>
 </body>
 </html>

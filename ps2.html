@@ -271,55 +271,60 @@
             .finally(() => {
                 setTimeout(pollLiveConfig, 1000);
             });
+        
     }
+  function switchVideoInstantly(newUrl, targetTime, onDone) {
+    const activePlayer = activePlayerSlot === 1 ? player1 : player2;
+    const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
 
-    function switchVideoInstantly(newUrl, targetTime, onDone) {
-        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
+    const elapsed = (performance.now() - fetchTimestamp) / 1000;
+    let startPos = targetTime + elapsed;
 
-        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-        let startPos = targetTime + elapsed;
+    // Clear any previous handler before attaching a new one, so a delayed
+    // error event from a prior cycle can't land on this cycle's handler.
+    standbyPlayer.onerror = null;
+    standbyPlayer.onerror = () => {
+        console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
+        if (typeof onDone === 'function') onDone();
+    };
 
-        standbyPlayer.onerror = () => {
-            console.error("VIDEO LOAD ERROR:", newUrl, standbyPlayer.error);
+    standbyPlayer.src = newUrl;
+    standbyPlayer.muted = isMasterMuted;
+
+    standbyPlayer.onloadedmetadata = () => {
+        if (standbyPlayer.duration && standbyPlayer.duration > 0) {
+            startPos = startPos % standbyPlayer.duration;
+        }
+        standbyPlayer.currentTime = startPos;
+    };
+
+    standbyPlayer.load();
+
+    standbyPlayer.oncanplay = () => {
+        standbyPlayer.play().then(() => {
+            standbyPlayer.classList.add('active');
+            activePlayer.classList.remove('active');
+
+            activePlayer.pause();
+            // src is intentionally NOT cleared here. Setting src = "" makes
+            // the browser attempt to load an empty resource, which fires an
+            // async 'error' event on this element later — right as it's
+            // being reused as next cycle's standby player. That poisoned
+            // P1 permanently in your test: every future load on it failed
+            // instantly, so only P2 ever played, looping on itself forever
+            // ("last -> last -> last"). The element gets overwritten with a
+            // real src on its next use anyway, so clearing it first was
+            // pure downside.
+
+            activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
+
             if (typeof onDone === 'function') onDone();
-        };
-
-        standbyPlayer.src = newUrl;
-        standbyPlayer.muted = isMasterMuted;
-
-        standbyPlayer.onloadedmetadata = () => {
-            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-                startPos = startPos % standbyPlayer.duration;
-            }
-            standbyPlayer.currentTime = startPos;
-        };
-
-        standbyPlayer.load();
-
-        standbyPlayer.oncanplay = () => {
-            standbyPlayer.play().then(() => {
-                standbyPlayer.classList.add('active');
-                activePlayer.classList.remove('active');
-
-                activePlayer.pause();
-                activePlayer.src = "";
-
-                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
-
-                if (typeof onDone === 'function') onDone();
-            }).catch(e => {
-                console.log("Playback constraint deferred:", e);
-                if (typeof onDone === 'function') onDone();
-            });
-        };
-    }
-
-    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
-    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
-
-    pollLiveConfig();
+        }).catch(e => {
+            console.log("Playback constraint deferred:", e);
+            if (typeof onDone === 'function') onDone();
+        });
+    };
+}
 </script>
-
 </body>
 </html>

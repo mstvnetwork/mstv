@@ -270,6 +270,7 @@ class UninterruptedBroadcast {
         this.totalDuration = 0;
         
         this.currentVideoIndex = -1;
+        this.bufferedIndex = -1; // Guard flag to prevent duplicate background loads
         this.currentUrl = "";
         this.isSwapping = false; 
         this.hasTunedIn = false;
@@ -299,11 +300,15 @@ class UninterruptedBroadcast {
             const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
             const data = await response.json();
             
+            const prevDuration = this.totalDuration;
             this.playlist = data.playlist;
             this.anchorTime = data.anchorTime;
             this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
             
-            console.log(`[Manifest Sync] Total duration: ${this.totalDuration}s. Items: ${this.playlist.length}`);
+            // Only log and update state if playlist duration changed or first load
+            if (prevDuration !== this.totalDuration) {
+                console.log(`[Manifest Sync] Total duration: ${this.totalDuration}s. Items: ${this.playlist.length}`);
+            }
             
             if (this.hasTunedIn && !this.isSwapping) {
                 this.preloadUpcomingSequencedItem();
@@ -428,11 +433,15 @@ class UninterruptedBroadcast {
             const nextShowTitle = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].title : "Live Stream Broadcast";
             this.updateTitleUI(nextShowTitle);
 
+            // Reset buffered index tracker for next preload sequence
+            this.bufferedIndex = -1;
             this.isSwapping = false;
+
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
             console.error("[Transition Failure] Recovery fallback triggered:", err);
             this.isSwapping = false;
+            this.bufferedIndex = -1;
             this.syncToGlobalTimeline();
         });
     }
@@ -441,9 +450,15 @@ class UninterruptedBroadcast {
         if (this.playlist.length <= 1) return;
 
         const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
+        
+        // Guard check: avoid reloading if index is already preloaded or preloading
+        if (this.bufferedIndex === nextIndex) return;
+
         const nextVideo = this.playlist[nextIndex];
         if (!nextVideo) return;
         
+        this.bufferedIndex = nextIndex;
+
         if (this.bufferHls) this.bufferHls.destroy();
         
         this.bufferPlayer.muted = true;

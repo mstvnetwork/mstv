@@ -72,10 +72,55 @@
             container-type: inline-size; 
         }
 
+/* --- LOADING SPINNER ENGINE --- */
+#loadingOverlay.loading-overlay {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    z-index: 200;
+    transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
+}
+
+/* Force hiding regardless of ID specificity */
+#loadingOverlay.hidden {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    display: none !important;
+}
+
+.red-spinner {
+    box-sizing: border-box;
+    display: block;
+    width: 48px;
+    height: 48px;
+    border: 4px solid rgba(255, 59, 48, 0.2);
+    border-top-color: #ff3b30 !important;
+    border-radius: 50%;
+    animation: spin-loader 0.8s linear infinite;
+    flex-shrink: 0;
+}
+
+.loading-text {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+}
+
+@keyframes spin-loader {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
         /* --- CHANNEL LOGO LAYOUT --- */
         .channel-logo {
             position: absolute;
-            top: 0px;            
+            top: 16px;            
             right: 16px;  
             width: 64px;   
             height: auto;   
@@ -96,7 +141,7 @@
 
         .title-box {
             position: absolute;
-            top: max(2px, env(safe-area-inset-top));
+            top: max(16px, env(safe-area-inset-top));
             left: max(16px, env(safe-area-inset-left));
             font-size: 14px;
             font-weight: 600;
@@ -180,6 +225,12 @@
         <div class="logo-container-context">
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
+      <!-- Loading Spinner Overlay Layer -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="red-spinner"></div>
+    <div class="loading-text">Please Wait</div>
+</div>
+
 
         <div class="ui-overlay">
             <button id="mute-btn" class="ctrl-btn" title="Unmute">
@@ -195,7 +246,6 @@
             </button>
         </div>
     </div>
-
 <script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {
@@ -219,6 +269,9 @@ class UninterruptedBroadcast {
         this.hasTunedIn = false;
         this.isMuted = true; 
 
+        // Reference to loading spinner overlay
+        this.loadingOverlay = document.getElementById('loadingOverlay');
+
         this.init();
     }
 
@@ -237,14 +290,14 @@ class UninterruptedBroadcast {
 
     async fetchPlaylistUpdates() {
         try {
-            const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
+            const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
             const data = await response.json();
             
             this.playlist = data.playlist;
             this.anchorTime = data.anchorTime;
             this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
             
-            console.log(`[Manifest Sync] Total duration: \${this.totalDuration}s. Items: \${this.playlist.length}`);
+            console.log(`[Manifest Sync] Total duration: ${this.totalDuration}s. Items: ${this.playlist.length}`);
             
             if (this.hasTunedIn && !this.isSwapping) {
                 this.preloadUpcomingSequencedItem();
@@ -283,7 +336,7 @@ class UninterruptedBroadcast {
         this.currentUrl = state.video.url;
         
         this.updateTitleUI(state.video.title || "Live Broadcast Feed");
-        console.log(`[Tune In] Targeted Position -> Index [\${state.index}] at \${state.seekTo}s`);
+        console.log(`[Tune In] Targeted Position -> Index [${state.index}] at ${state.seekTo}s`);
 
         if (this.activeHls) this.activeHls.destroy();
         this.activePlayer.muted = this.isMuted;
@@ -300,6 +353,13 @@ class UninterruptedBroadcast {
     }
 
     setupPlayerListeners(player) {
+        // Hides spinner as soon as video actually starts playing frames
+        player.addEventListener('playing', () => {
+            if (player === this.activePlayer && this.loadingOverlay) {
+                this.loadingOverlay.classList.add('hidden');
+            }
+        });
+
         player.addEventListener('ended', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             this.handleTrackEnded();
@@ -375,7 +435,7 @@ class UninterruptedBroadcast {
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
         this.bufferPlayer.load();
         
-        console.log(`[Buffer Ready] Loading upcoming Index [\${nextIndex}] in background`);
+        console.log(`[Buffer Ready] Loading upcoming Index [${nextIndex}] in background`);
     }
 
     checkDriftSafety() {
@@ -386,7 +446,7 @@ class UninterruptedBroadcast {
 
         const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
         if (drift > 6) {
-            console.warn(`[Sync Adjust] Correcting minor drift (\${drift.toFixed(2)}s).`);
+            console.warn(`[Sync Adjust] Correcting minor drift (${drift.toFixed(2)}s).`);
             this.activePlayer.currentTime = state.seekTo;
         }
     }
@@ -404,11 +464,9 @@ class UninterruptedBroadcast {
         return null;
     }
 
-     updateTitleUI(text) {
-    // Uses backticks (template literals) to dynamically inject the video title
-    document.getElementById('title-box').textContent = `Now: ${text}`;
-}
-
+    updateTitleUI(text) {
+        document.getElementById('title-box').textContent = `Now: ${text}`;
+    }
 
     setupUIHandlers() {
         const muteBtn = document.getElementById('mute-btn');
@@ -433,7 +491,7 @@ class UninterruptedBroadcast {
 
         fsBtn.addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: \${err.message}`));
+                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`));
             } else {
                 document.exitFullscreen();
             }
@@ -445,3 +503,4 @@ const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
 </script>
 </body>
 </html>
+                            

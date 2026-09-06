@@ -106,16 +106,15 @@ class GlobalTvBroadcast {
         this.setupEnforcementListeners(this.playerA);
         this.setupEnforcementListeners(this.playerB);
 
-        // Start long-polling interval to check for json manifest alterations every 30 seconds
+        // Check for JSON manifest changes every 30 seconds
         setInterval(() => this.fetchPlaylistUpdates(), 30000);
 
-        // Continuous sync loop running on an animation frame loop
-        this.startGlobalSyncLoop();
+        // Run the master clock synchronization every 1 second (NOT every frame)
+        setInterval(() => this.checkGlobalSync(), 1000);
     }
 
     async fetchPlaylistUpdates() {
         try {
-            // Append a timestamp cache-buster to prevent GitHub CDN from serving stale JSON files
             const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
             const data = await response.json();
             
@@ -130,10 +129,10 @@ class GlobalTvBroadcast {
     calculateGlobalTimeline() {
         if (this.totalPlaylistDuration === 0) return null;
 
-        // Determine current Unix global epoch time in seconds
+        // Current Unix global epoch time in seconds
         const currentGlobalSeconds = Math.floor(Date.now() / 1000);
         
-        // Find exactly where we are inside the infinite repeating loop window
+        // Find position inside the repeating loop window
         let remainderTime = currentGlobalSeconds % this.totalPlaylistDuration;
 
         let accumulatedTime = 0;
@@ -151,40 +150,40 @@ class GlobalTvBroadcast {
         return null;
     }
 
-    startGlobalSyncLoop() {
-        const tick = () => {
-            const state = this.calculateGlobalTimeline();
-            if (!state) {
-                requestAnimationFrame(tick);
-                return;
-            }
+    checkGlobalSync() {
+        const state = this.calculateGlobalTimeline();
+        if (!state) return;
 
-            // Scenario 1: Initial load or playlist item incremented globally
-            if (this.currentVideoIndex !== state.index) {
-                this.currentVideoIndex = state.index;
-                this.targetPlaybackPosition = state.seekTo;
-                this.transitionToGlobalTrack(state);
-            } else {
-                // Keep keeping track of where the timestamp expects us to be
-                this.targetPlaybackPosition = state.seekTo;
+        // Update the reference of where we should be
+        this.targetPlaybackPosition = state.seekTo;
+
+        // Scenario 1: Natural track progression or channel initialization
+        if (this.currentVideoIndex !== state.index) {
+            this.currentVideoIndex = state.index;
+            this.transitionToGlobalTrack(state);
+            return;
+        }
+
+        // Scenario 2: Drift Protection
+        // Only force a hard resync if the video drifts wildly out of bounds (> 5 seconds behind or ahead)
+        if (!this.isLocked && this.activePlayer.readyState >= 2) {
+            const drift = Math.abs(this.activePlayer.currentTime - this.targetPlaybackPosition);
+            if (drift > 5) {
+                console.warn(`Drift detected (${drift.toFixed(2)}s). Resynced to broadcast stream.`);
+                this.activePlayer.currentTime = this.targetPlaybackPosition;
             }
-            requestAnimationFrame(tick);
-        };
-        requestAnimationFrame(tick);
+        }
     }
 
     transitionToGlobalTrack(state) {
         this.isLocked = true;
         console.log(`Global Channel Change -> Track Index: ${state.index}. Sync position: ${state.seekTo}s`);
 
-        // Destroy whatever pipeline was previously occupying our background playback engine
         if (this.bufferHls) this.bufferHls.destroy();
 
-        // Bind next stream state directly into the background player
         this.bufferPlayer.muted = true;
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, state.url);
 
-        // Wait exactly until media parsing completes, jump to global time, and execute swap
         const onMetadata = () => {
             this.bufferPlayer.currentTime = state.seekTo;
             
@@ -192,7 +191,6 @@ class GlobalTvBroadcast {
                 this.executeSeamlessSwap();
                 this.bufferPlayer.removeEventListener('loadedmetadata', onMetadata);
             }).catch(e => {
-                // If browser blocks, force swap anyway (likely requires audio context interaction click)
                 this.executeSeamlessSwap();
                 this.bufferPlayer.removeEventListener('loadedmetadata', onMetadata);
             });
@@ -205,7 +203,6 @@ class GlobalTvBroadcast {
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
 
-        // Synchronize volumes smoothly
         if (document.getElementById('interactionOverlay').style.display === 'none') {
             newActive.muted = false;
         }
@@ -223,7 +220,7 @@ class GlobalTvBroadcast {
 
         this.isLocked = false;
         
-        // Quietly start caching the upcoming chronological item 
+        // Cache upcoming playlist block
         this.preloadUpcomingSequencedItem();
     }
 
@@ -243,7 +240,7 @@ class GlobalTvBroadcast {
             player.src = url;
             return null;
         } else if (Hls.isSupported()) {
-            const hls = new Hls({ maxBufferLength: 20 });
+            const hls = new Hls({ maxBufferLength: 10 });
             hls.attachMedia(player);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
             return hls;
@@ -252,14 +249,15 @@ class GlobalTvBroadcast {
     }
 
     setupEnforcementListeners(player) {
-        // ANTI-SCRUBBING PROTOCOL: 
-        // Checks if user attempts manual timeline hijacking (via keyboard shortcuts or hardware commands)
+        // Strict Anti-Scrubbing Protocol
+        // Instantly catches proactive manual scrubbing and blocks it outright
         player.addEventListener('seeking', () => {
             if (this.isLocked) return;
             
-            // Allow small 2-second variances due to frame rendering discrepancies
-            if (Math.abs(player.currentTime - this.targetPlaybackPosition) > 2) {
-                console.warn("Timeline disruption detected! Reverting to absolute global broadcast feed time...");
+            // If they try to manually drag the bar/use keys, drag them straight back to the master timeline
+            const variance = Math.abs(player.currentTime - this.targetPlaybackPosition);
+            if (variance > 2) {
+                console.warn("Timeline manipulation blocked! Snapping back to broadcast time.");
                 player.currentTime = this.targetPlaybackPosition;
             }
         });
@@ -268,18 +266,14 @@ class GlobalTvBroadcast {
     unmuteBroadcast() {
         this.activePlayer.muted = false;
         this.bufferPlayer.muted = true;
-        // Make double sure video execution is firing
         this.activePlayer.play().catch(() => {});
     }
 }
 
-// Instantiate engine setup
 const broadcastManager = new GlobalTvBroadcast('playerA', 'playerB');
 
-// Handle the user interaction requirement
 document.getElementById('interactionOverlay').addEventListener('click', function() {
     this.style.display = 'none';
-// Unmute the synchronized audio track
     broadcastManager.unmuteBroadcast();
 });
 </script>

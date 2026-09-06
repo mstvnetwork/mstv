@@ -73,8 +73,7 @@
         }
 
 /* --- LOADING SPINNER ENGINE --- */
-/* --- LOADING SPINNER ENGINE --- */
-.loading-overlay {
+#loadingOverlay.loading-overlay {
     position: absolute;
     inset: 0;
     background: #000;
@@ -83,24 +82,34 @@
     justify-content: center;
     align-items: center;
     gap: 16px;
-    z-index: 200; /* Sits cleanly on top of layers while content loads */
+    z-index: 200;
     transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
 }
 
-/* Hidden state modifier class */
-.loading-overlay.hidden {
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
+/* Force hiding regardless of ID specificity and STOP animation paint cycles */
+#loadingOverlay.hidden {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    display: none !important;
+}
+
+#loadingOverlay.hidden .red-spinner {
+    animation: none !important; /* Prevents hidden spinner from stealing GPU/CPU frames */
 }
 
 .red-spinner {
+    box-sizing: border-box;
+    display: block;
     width: 48px;
     height: 48px;
-    border: 4px solid rgba(255, 59, 48, 0.25);
-    border-top: 4px solid #ff3b30; /* Your exact crimson action color choice */
+    border: 4px solid rgba(255, 59, 48, 0.2);
+    border-top-color: #ff3b30 !important;
     border-radius: 50%;
+    will-change: transform; /* Hardware accelerate spinner on GPU layer */
+    transform: translateZ(0);
     animation: spin-loader 0.8s linear infinite;
+    flex-shrink: 0;
 }
 
 .loading-text {
@@ -114,11 +123,10 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-
         /* --- CHANNEL LOGO LAYOUT --- */
         .channel-logo {
             position: absolute;
-            top: 0px;            
+            top: 16px;            
             right: 16px;  
             width: 64px;   
             height: auto;   
@@ -139,7 +147,7 @@
 
         .title-box {
             position: absolute;
-            top: max(2px, env(safe-area-inset-top));
+            top: max(16px, env(safe-area-inset-top));
             left: max(16px, env(safe-area-inset-left));
             font-size: 14px;
             font-weight: 600;
@@ -223,11 +231,11 @@
         <div class="logo-container-context">
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
-          <!-- Centered Loader Spinner -->
-    <div id="loader-overlay">
-      <div class="spinner"></div>
-      <div class="loading-text">Please Wait</div>
-    </div>
+      <!-- Loading Spinner Overlay Layer -->
+<div id="loadingOverlay" class="loading-overlay">
+    <div class="red-spinner"></div>
+    <div class="loading-text">Please Wait</div>
+</div>
 
 
         <div class="ui-overlay">
@@ -288,7 +296,7 @@ class UninterruptedBroadcast {
 
     async fetchPlaylistUpdates() {
         try {
-            const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
+            const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
             const data = await response.json();
             
             this.playlist = data.playlist;
@@ -352,9 +360,18 @@ class UninterruptedBroadcast {
 
     setupPlayerListeners(player) {
         // Hides spinner as soon as video actually starts playing frames
-        player.addEventListener('playing', () => {
+        const hideOverlayHandler = () => {
             if (player === this.activePlayer && this.loadingOverlay) {
                 this.loadingOverlay.classList.add('hidden');
+            }
+        };
+
+        player.addEventListener('playing', hideOverlayHandler);
+        player.addEventListener('timeupdate', hideOverlayHandler);
+
+        player.addEventListener('waiting', () => {
+            if (player === this.activePlayer && this.loadingOverlay) {
+                this.loadingOverlay.classList.remove('hidden');
             }
         });
 
@@ -501,4 +518,3 @@ const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
 </script>
 </body>
 </html>
-                            

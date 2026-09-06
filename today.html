@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live TV Broadcast Network</title>
+    <title>Live Continuous TV Broadcast</title>
+    <!-- Include hls.js Engine via jsDelivr CDN -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         html, body {
@@ -16,10 +17,10 @@
             opacity: 0; transition: opacity 0.4s ease-in-out;
             pointer-events: none; object-fit: cover;
         }
-        video.active { opacity: 1; }
+        video.active { opacity: 1; pointer-events: auto; }
         #interactionOverlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
             justify-content: center; align-items: center; color: #fff; z-index: 9999; cursor: pointer;
         }
         .play-button {
@@ -33,16 +34,16 @@
 
 <div id="interactionOverlay">
     <button class="play-button">TUNE IN TO LIVE BROADCAST</button>
-    <p style="margin-top: 15px; font-size: 0.9rem; color: #aaa;">Compliance: Click to synchronize linear audio stream</p>
+    <p style="margin-top: 15px; font-size: 0.9rem; color: #aaa;">Click to synchronise linear stream audio</p>
 </div>
 
 <div class="broadcast-container">
-    <video id="playerA" class="active" autoplay playsinline></video>
-    <video id="playerB" autoplay playsinline muted></video>
+    <video id="playerA" class="active" autoplay playsinline controls></video>
+    <video id="playerB" autoplay playsinline muted controls></video>
 </div>
 
 <script>
-class GlobalTvBroadcast {
+class UninterruptedBroadcast {
     constructor(playerIdA, playerIdB) {
         this.playerA = document.getElementById(playerIdA);
         this.playerB = document.getElementById(playerIdB);
@@ -55,11 +56,13 @@ class GlobalTvBroadcast {
         this.bufferHls = null;
 
         this.playlist = [];
-        this.totalPlaylistDuration = 0;
+        this.anchorTime = 0;
+        this.totalDuration = 0;
         
         this.currentVideoIndex = -1;
-        this.targetPlaybackPosition = 0;
+        this.currentUrl = "";
         this.isSwapping = false; 
+        this.hasTunedIn = false;
 
         this.init();
     }
@@ -67,89 +70,108 @@ class GlobalTvBroadcast {
     async init() {
         await this.fetchPlaylistUpdates();
         
-        // Listen to tracking events directly
         this.setupPlayerListeners(this.playerA);
         this.setupPlayerListeners(this.playerB);
 
-        // Fetch playlist updates every 30 seconds
-        setInterval(() => this.fetchPlaylistUpdates(), 30000);
+        // Silent background polling every 15 seconds to catch new URLs
+        setInterval(() => this.fetchPlaylistUpdates(), 15000);
 
-        // Perform a soft-drift check every 5 seconds (not 1 second, giving plenty of breathing room)
-        setInterval(() => this.performSoftDriftCheck(), 5000);
+        // Soft drift synchronisation runner checking every 4 seconds
+        setInterval(() => this.checkDriftSafety(), 4000);
     }
 
     async fetchPlaylistUpdates() {
         try {
             const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
             const data = await response.json();
+            
             this.playlist = data.playlist;
-            this.totalPlaylistDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
-            console.log("Playlist Sync. Total cycle duration:", this.totalPlaylistDuration);
+            this.anchorTime = data.anchorTime;
+            this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
+            
+            console.log(`[Manifest Sync] Loop length updated to ${this.totalDuration}s. Items: ${this.playlist.length}`);
+            
+            // If already watching, update the background buffer to prepare for the newly modified layout
+            if (this.hasTunedIn && !this.isSwapping) {
+                this.preloadUpcomingSequencedItem();
+            }
         } catch (err) {
-            console.error("Error updating playlist manifest:", err);
+            console.error("[Manifest Error] Live playlist fetch failure:", err);
         }
     }
 
-    calculateGlobalTimeline() {
-        if (this.totalPlaylistDuration === 0) return null;
-        const currentGlobalSeconds = Math.floor(Date.now() / 1000);
-        let remainderTime = currentGlobalSeconds % this.totalPlaylistDuration;
+    // Maps absolute clock time against historical channel anchor to find what should be live
+    calculateBroadcastState() {
+        if (this.totalDuration === 0 || this.anchorTime === 0) return null;
+
+        const now = Math.floor(Date.now() / 1000);
+        let elapsedSeconds = now - this.anchorTime;
+        if (elapsedSeconds < 0) elapsedSeconds = 0; 
+
+        // Find standard cycle position inside the full structural timing loop
+        let currentCyclePosition = elapsedSeconds % this.totalDuration;
 
         let accumulatedTime = 0;
         for (let i = 0; i < this.playlist.length; i++) {
             const video = this.playlist[i];
-            if (remainderTime >= accumulatedTime && remainderTime < (accumulatedTime + video.duration)) {
-                return { index: i, seekTo: remainderTime - accumulatedTime, url: video.url };
+            if (currentCyclePosition >= accumulatedTime && currentCyclePosition < (accumulatedTime + video.duration)) {
+                return {
+                    index: i,
+                    seekTo: currentCyclePosition - accumulatedTime,
+                    video: video
+                };
             }
             accumulatedTime += video.duration;
         }
-        return null;
+        return { index: 0, seekTo: 0, video: this.playlist[0] };
     }
 
-    // Fired manually when user clicks "Tune In" to sync them up perfectly with the global timeline
+    // Fires strictly once when loading, tuning in, or executing a browser hard refresh
     syncToGlobalTimeline() {
-        const state = this.calculateGlobalTimeline();
+        this.hasTunedIn = true;
+        const state = this.calculateBroadcastState();
         if (!state) return;
 
         this.currentVideoIndex = state.index;
-        this.targetPlaybackPosition = state.seekTo;
-
-        console.log(`Initial Tune-in Event -> Index: ${state.index} at ${state.seekTo}s`);
+        this.currentUrl = state.video.url;
         
+        console.log(`[Tune In] Absolute Global Target established. Index [${state.index}] at ${state.seekTo}s`);
+
         if (this.activeHls) this.activeHls.destroy();
         this.activePlayer.muted = false;
         
-        this.activeHls = this.loadHlsStream(this.activePlayer, state.url);
+        this.activeHls = this.loadHlsStream(this.activePlayer, state.video.url);
         
-        const syncOnLoad = () => {
+        const onInitialLoad = () => {
             this.activePlayer.currentTime = state.seekTo;
             this.activePlayer.play().catch(() => {});
-            this.activePlayer.removeEventListener('loadedmetadata', syncOnLoad);
+            this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
             
-            // Immediately start loading the next video safely in the background
+            // Immediately start loading next scheduled block in background
             this.preloadUpcomingSequencedItem();
         };
-        this.activePlayer.addEventListener('loadedmetadata', syncOnLoad);
+        this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
     }
 
     setupPlayerListeners(player) {
-        // Natural end of track triggers the transition
+        // Natural track completion fires the dual-player handoff instantly
         player.addEventListener('ended', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             this.handleTrackEnded();
         });
 
-        // Anti-Scrubbing Protocol
+        // Anti-Scrubbing Enforcement Protocol
         player.addEventListener('seeking', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             
-            const state = this.calculateGlobalTimeline();
-            if (!state) return;
+            const state = this.calculateBroadcastState();
+            // If the playlist updated mid-track, don't scrub them back to absolute math time.
+            // Only enforce scrubbing protection if their active item matches the global schedule block url.
+            if (!state || state.video.url !== this.currentUrl) return;
 
             const variance = Math.abs(player.currentTime - state.seekTo);
-            // If the user tries to scrub or skip out of sync by more than 3 seconds, snap them back
-            if (variance > 3) {
-                console.warn("Anti-scrub triggered. Snapping back to broadcast time.");
+            if (variance > 4) {
+                console.warn("[Anti-Scrub] Timeline manipulation blocked. Restoring linear sync position.");
                 player.currentTime = state.seekTo;
             }
         });
@@ -157,24 +179,20 @@ class GlobalTvBroadcast {
 
     handleTrackEnded() {
         this.isSwapping = true;
-        
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
 
-        console.log("Track finished naturally. Transitioning to pre-buffered stream...");
+        console.log("[Handoff] Active content finished. Executing instant seamless transition...");
 
-        // Unmute the preloaded player
         if (document.getElementById('interactionOverlay').style.display === 'none') {
             newActive.muted = false;
         }
 
         newActive.play().then(() => {
-            // Visual swap
             newActive.classList.add('active');
             oldActive.classList.remove('active');
             oldActive.pause();
 
-            // Swap player identities
             this.activePlayer = newActive;
             this.bufferPlayer = oldActive;
 
@@ -182,14 +200,26 @@ class GlobalTvBroadcast {
             this.activeHls = this.bufferHls;
             this.bufferHls = tempHls;
 
-            // Increment index
-            this.currentVideoIndex = (this.currentVideoIndex + 1) % this.playlist.length;
-            this.isSwapping = false;
+            // Recalculate index relative to the live list environment
+            const state = this.calculateBroadcastState();
+            
+            // Fallback: If playlist array shifts index layout, dynamically resolve active url pointer
+            if (state && state.video.url === newActive.src) {
+                this.currentVideoIndex = state.index;
+            } else {
+                this.currentVideoIndex = (this.currentVideoIndex + 1) % this.playlist.length;
+            }
+            
+            // Extract the true underlying media src URL string safely
+            const currentSrc = newActive.currentSrc || (newActive.querySelector('source') ? newActive.querySelector('source').src : newActive.src);
+            this.currentUrl = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].url : currentSrc;
 
-            // Buffer the next track in line
+            this.isSwapping = false;
+            
+            // Queue up the *next* block into the background player
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
-            console.error("Seamless swap transition failed, falling back to clean resync:", err);
+            console.error("[Transition Failure] Swapping error, forcing hard timeline recovery:", err);
             this.isSwapping = false;
             this.syncToGlobalTimeline();
         });
@@ -198,6 +228,7 @@ class GlobalTvBroadcast {
     preloadUpcomingSequencedItem() {
         if (this.playlist.length <= 1) return;
 
+        // Target the next logical index relative to current state placement
         const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
         const nextVideo = this.playlist[nextIndex];
         
@@ -207,20 +238,26 @@ class GlobalTvBroadcast {
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
         this.bufferPlayer.load();
         
-        console.log(`Background buffering sequence established for Index: ${nextIndex}`);
+        console.log(`[Buffer Ready] Background player caching next block -> Index [${nextIndex}]: ${nextVideo.url}`);
     }
 
-    performSoftDriftCheck() {
-        // Only run drift checks if the player is healthy, actively playing, and not transitioning
-        if (this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
+        checkDriftSafety() {
+        if (!this.hasTunedIn || this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
 
-        const state = this.calculateGlobalTimeline();
-        if (!state || state.index !== this.currentVideoIndex) return;
+        const state = this.calculateBroadcastState();
+        
+        // CRITICAL PROTECTION LOGIC:
+        // If a new URL was added to the JSON, the mathematical state index will shift.
+        // We deliberately bypass the resync calculation here so active viewers experience zero jumps.
+        // The script allows their video to complete naturally before aligning back to the next block.
+        if (!state || state.video.url !== this.currentUrl) {
+            console.log("[Broadcast Safe Mode] Active video doesn't match mathematical time position due to mid-stream playlist modification. Allowing clean finish without jumping.");
+            return;
+        }
 
         const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
-        // Generous 8-second window. Only intervenes if the stream hits an extreme network stall.
-        if (drift > 8) {
-            console.warn(`Severe stream drift detected (${drift.toFixed(2)}s). Resynced.`);
+        if (drift > 6) {
+            console.warn(`[Sync Adjust] Correcting minor video drift (${drift.toFixed(2)}s).`);
             this.activePlayer.currentTime = state.seekTo;
         }
     }
@@ -230,7 +267,7 @@ class GlobalTvBroadcast {
             player.src = url;
             return null;
         } else if (Hls.isSupported()) {
-            const hls = new Hls({ maxBufferLength: 15 });
+            const hls = new Hls({ maxBufferLength: 12 });
             hls.attachMedia(player);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
             return hls;
@@ -239,8 +276,10 @@ class GlobalTvBroadcast {
     }
 }
 
-const broadcastManager = new GlobalTvBroadcast('playerA', 'playerB');
+// Instantiate engine setup
+const broadcastManager = new UninterruptedBroadcast('playerA', 'playerB');
 
+// Handle the user interaction requirement
 document.getElementById('interactionOverlay').addEventListener('click', function() {
     this.style.display = 'none';
     broadcastManager.syncToGlobalTimeline();
@@ -248,3 +287,4 @@ document.getElementById('interactionOverlay').addEventListener('click', function
 </script>
 </body>
 </html>
+

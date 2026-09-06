@@ -319,23 +319,41 @@ class UninterruptedBroadcast {
     }
 
     calculateBroadcastState() {
-        if (this.totalDuration === 0 || this.anchorTime === 0) return null;
+    if (this.playlist.length === 0 || this.anchorTime === 0) return null;
 
-        const now = Math.floor(Date.now() / 1000);
-        let elapsedSeconds = now - this.anchorTime;
-        if (elapsedSeconds < 0) elapsedSeconds = 0; 
+    const now = Math.floor(Date.now() / 1000);
+    let elapsedSeconds = now - this.anchorTime;
 
-        let currentCyclePosition = elapsedSeconds % this.totalDuration;
+    // If stream start time is in the future
+    if (elapsedSeconds < 0) {
+        return { index: 0, seekTo: 0, video: this.playlist[0] };
+    }
 
-        let accumulatedTime = 0;
-        for (let i = 0; i < this.playlist.length; i++) {
-            const video = this.playlist[i];
-            if (currentCyclePosition >= accumulatedTime && currentCyclePosition < (accumulatedTime + video.duration)) {
-                return { index: i, seekTo: currentCyclePosition - accumulatedTime, video: video };
-            }
-            accumulatedTime += video.duration;
+    let accumulatedTime = 0;
+
+    for (let i = 0; i < this.playlist.length; i++) {
+        const video = this.playlist[i];
+        const videoEndTime = accumulatedTime + video.duration;
+
+        // Check if the current clock time falls inside this video's window
+        if (elapsedSeconds >= accumulatedTime && elapsedSeconds < videoEndTime) {
+            return {
+                index: i,
+                seekTo: elapsedSeconds - accumulatedTime, // Exact second offset
+                video: video
+            };
         }
-        return { index: 0, seekTo: 0, video: this.playlist };
+
+        accumulatedTime = videoEndTime;
+    }
+
+    // Optional: If elapsed time exceeds the total playlist, stay on the last frame/video
+    const lastIndex = this.playlist.length - 1;
+    return { 
+        index: lastIndex, 
+        seekTo: this.playlist[lastIndex].duration, 
+        video: this.playlist[lastIndex] 
+    };
     }
 
     syncToGlobalTimeline() {

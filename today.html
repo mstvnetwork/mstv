@@ -71,6 +71,43 @@
             z-index: 15;             
             container-type: inline-size; 
         }
+            /* Loading Overlay & Spinner */
+    #loader-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      z-index: 9998;
+      pointer-events: none;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+
+    .spinner {
+      width: 54px;
+      height: 54px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #ff3b30;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+
+    .loading-text {
+      color: #ffd700;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
 
         /* --- CHANNEL LOGO LAYOUT --- */
         .channel-logo {
@@ -180,6 +217,12 @@
         <div class="logo-container-context">
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
+        <!-- Centered Loader Spinner -->
+    <div id="loader-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Please Wait</div>
+    </div>
+
 
         <div class="ui-overlay">
             <button id="mute-btn" class="ctrl-btn" title="Unmute">
@@ -273,6 +316,30 @@ class UninterruptedBroadcast {
         }
         return { index: 0, seekTo: 0, video: this.playlist };
     }
+    function hideLoader() {
+      loaderElem.classList.add('ui-hidden');
+    }
+    function showLoader() {
+      loaderElem.classList.remove('ui-hidden');
+    }
+
+    videoElem.addEventListener('playing', () => {
+      clearBufferTimeout();
+      hideLoader();
+    });
+    videoElem.addEventListener('waiting', showLoader);
+    videoElem.addEventListener('seeking', showLoader);
+    videoElem.addEventListener('seeked', () => {
+      if (!videoElem.paused) hideLoader();
+    });
+
+    iframeElem.addEventListener('load', hideLoader);
+
+    // Native completion trigger for seamless track advancement
+    videoElem.addEventListener('ended', () => {
+      if (isFallbackActive || playlist.length === 0) return;
+      advanceToNextTrack();
+    });
 
     syncToGlobalTimeline() {
         this.hasTunedIn = true;
@@ -404,10 +471,13 @@ class UninterruptedBroadcast {
         return null;
     }
 
-     updateTitleUI(text) {
+    updateTitleUI(text) {
     // Uses backticks (template literals) to dynamically inject the video title
     document.getElementById('title-box').textContent = `Now: ${text}`;
 }
+
+// Call the update method to change the on-screen text box
+this.updateTitleUI(nextShowTitle);
 
 
     setupUIHandlers() {

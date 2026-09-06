@@ -322,18 +322,47 @@ class UninterruptedBroadcast {
     if (!this.playlist || this.playlist.length === 0) return null;
 
     const now = Math.floor(Date.now() / 1000);
-    
-    // Find the position of the reference item
+
+    // 1. SAFE LOCALSTORAGE READ (Cross-Browser Protected)
+    let savedActiveState = null;
+    try {
+        savedActiveState = localStorage.getItem('active_broadcast_lock');
+    } catch (e) {
+        console.warn('localStorage read blocked or unavailable');
+    }
+
+    if (savedActiveState) {
+        try {
+            const lock = JSON.parse(savedActiveState);
+            const lockEndTime = lock.startTime + lock.duration;
+
+            // If the video they were watching is STILL ON AIR, resume seamlessly!
+            if (now >= lock.startTime && now < lockEndTime) {
+                const existingIndex = this.playlist.findIndex(item => item.url === lock.video.url);
+                return {
+                    index: existingIndex !== -1 ? existingIndex : 0,
+                    seekTo: now - lock.startTime,
+                    video: lock.video,
+                    isLocked: true
+                };
+            } else {
+                // Lock expired naturally—remove it
+                try { localStorage.removeItem('active_broadcast_lock'); } catch (e) {}
+            }
+        } catch (e) {
+            try { localStorage.removeItem('active_broadcast_lock'); } catch (e) {}
+        }
+    }
+
+    // 2. STANDARD METHOD 1 CALCULATION
     let refIndex = this.playlist.findIndex(item => item.id === this.referenceId);
-    if (refIndex === -1) refIndex = 0; // Fallback if reference item was removed
+    if (refIndex === -1) refIndex = 0;
     
-    // Sum duration of all items preceding the reference item
     let refOffset = 0;
     for (let i = 0; i < refIndex; i++) {
         refOffset += (this.playlist[i].duration || 0);
     }
 
-    // Auto-calculate effective anchor time for index 0
     const effectiveAnchorTime = (this.anchorStartTime || 1700000000) - refOffset;
     let elapsedSeconds = now - effectiveAnchorTime;
 
@@ -349,9 +378,23 @@ class UninterruptedBroadcast {
         const videoDuration = video.duration || 0;
 
         if (cyclePosition >= accumulatedTime && cyclePosition < (accumulatedTime + videoDuration)) {
+            const seekTo = cyclePosition - accumulatedTime;
+            const startTime = now - seekTo;
+
+            // SET LOCK: Persist active playback lock safely
+            try {
+                localStorage.setItem('active_broadcast_lock', JSON.stringify({
+                    startTime: startTime,
+                    duration: videoDuration,
+                    video: video
+                }));
+            } catch (e) {
+                console.warn('localStorage write blocked');
+            }
+
             return {
                 index: i,
-                seekTo: cyclePosition - accumulatedTime,
+                seekTo: seekTo,
                 video: video
             };
         }
@@ -359,7 +402,7 @@ class UninterruptedBroadcast {
     }
 
     return { index: 0, seekTo: 0, video: this.playlist[0] };
-        }
+    }
 
     syncToGlobalTimeline() {
         this.hasTunedIn = true;

@@ -238,7 +238,7 @@
             </button>
         </div>
     </div>
-<script>
+    <script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {
         this.player1 = document.getElementById(playerId1);
@@ -261,7 +261,6 @@ class UninterruptedBroadcast {
         this.hasTunedIn = false;
         this.isMuted = true; 
 
-        // Reference to loading spinner overlay
         this.loadingOverlay = document.getElementById('loadingOverlay');
 
         this.init();
@@ -280,9 +279,16 @@ class UninterruptedBroadcast {
         setInterval(() => this.checkDriftSafety(), 4000);
     }
 
+    hideSpinner() {
+        if (this.loadingOverlay && !this.loadingOverlay.classList.contains('hidden')) {
+            this.loadingOverlay.classList.add('hidden');
+            console.log("[UI] Loading spinner hidden successfully.");
+        }
+    }
+
     async fetchPlaylistUpdates() {
         try {
-            const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
+            const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
             const data = await response.json();
             
             this.playlist = data.playlist;
@@ -337,7 +343,9 @@ class UninterruptedBroadcast {
         
         const onInitialLoad = () => {
             this.activePlayer.currentTime = state.seekTo;
-            this.activePlayer.play().catch(() => console.log("Waiting for user tap gesture interaction context to unmute audio output channel"));
+            this.activePlayer.play()
+                .then(() => this.hideSpinner())
+                .catch(() => console.log("Waiting for user tap gesture interaction context to unmute audio output channel"));
             this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
             this.preloadUpcomingSequencedItem();
         };
@@ -345,10 +353,11 @@ class UninterruptedBroadcast {
     }
 
     setupPlayerListeners(player) {
-        // Hides spinner as soon as video actually starts playing frames
-        player.addEventListener('playing', () => {
-            if (player === this.activePlayer && this.loadingOverlay) {
-                this.loadingOverlay.classList.add('hidden');
+        // Trigger 1: Media events fire during active stream progression
+        player.addEventListener('playing', () => this.hideSpinner());
+        player.addEventListener('timeupdate', () => {
+            if (player.currentTime > 0 && !player.paused) {
+                this.hideSpinner();
             }
         });
 
@@ -391,6 +400,8 @@ class UninterruptedBroadcast {
             const tempHls = this.activeHls;
             this.activeHls = this.bufferHls;
             this.bufferHls = tempHls;
+
+            this.hideSpinner();
 
             const state = this.calculateBroadcastState();
             if (state && state.video && state.video.url === newActive.src) {
@@ -451,6 +462,13 @@ class UninterruptedBroadcast {
             const hls = new Hls({ maxBufferLength: 12 });
             hls.attachMedia(player);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
+            
+            // Trigger 2: HLS buffer parsing lifecycle event fallback
+            hls.on(Hls.Events.FRAG_PARSED, () => {
+                if (player === this.activePlayer && !player.paused) {
+                    this.hideSpinner();
+                }
+            });
             return hls;
         }
         return null;
@@ -477,7 +495,7 @@ class UninterruptedBroadcast {
             } else {
                 muteBtn.title = "Mute";
                 muteIcon.innerHTML = `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
-                this.activePlayer.play().catch(() => {});
+                this.activePlayer.play().then(() => this.hideSpinner()).catch(() => {});
             }
         });
 

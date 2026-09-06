@@ -109,13 +109,13 @@ class GlobalTvBroadcast {
         // Check for JSON manifest changes every 30 seconds
         setInterval(() => this.fetchPlaylistUpdates(), 30000);
 
-        // Run the master clock synchronization every 1 second (NOT every frame)
+        // Run the master clock synchronization check every 1 second
         setInterval(() => this.checkGlobalSync(), 1000);
     }
 
     async fetchPlaylistUpdates() {
         try {
-            const response = await fetch(`./playlist500.json?cb=${Date.now()}`);
+            const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
             const data = await response.json();
             
             this.playlist = data.playlist;
@@ -154,22 +154,21 @@ class GlobalTvBroadcast {
         const state = this.calculateGlobalTimeline();
         if (!state) return;
 
-        // Update the reference of where we should be
+        // Update the master reference clock of where the active player should be
         this.targetPlaybackPosition = state.seekTo;
 
-        // Scenario 1: Natural track progression or channel initialization
+        // Scenario 1: Initial track sync or live track change boundary crossed
         if (this.currentVideoIndex !== state.index) {
             this.currentVideoIndex = state.index;
             this.transitionToGlobalTrack(state);
             return;
         }
 
-        // Scenario 2: Drift Protection
-        // Only force a hard resync if the video drifts wildly out of bounds (> 5 seconds behind or ahead)
+        // Scenario 2: Drift Protection for Active Player Only
         if (!this.isLocked && this.activePlayer.readyState >= 2) {
             const drift = Math.abs(this.activePlayer.currentTime - this.targetPlaybackPosition);
-            if (drift > 5) {
-                console.warn(`Drift detected (${drift.toFixed(2)}s). Resynced to broadcast stream.`);
+            if (drift > 4) {
+                console.warn(`Drift detected on active player (${drift.toFixed(2)}s). Resynced.`);
                 this.activePlayer.currentTime = this.targetPlaybackPosition;
             }
         }
@@ -203,6 +202,7 @@ class GlobalTvBroadcast {
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
 
+        // Turn sound on for the new active player if user clicked the overlay
         if (document.getElementById('interactionOverlay').style.display === 'none') {
             newActive.muted = false;
         }
@@ -211,6 +211,7 @@ class GlobalTvBroadcast {
         oldActive.classList.remove('active');
         oldActive.pause();
 
+        // Swap internal variables
         this.activePlayer = newActive;
         this.bufferPlayer = oldActive;
 
@@ -220,7 +221,7 @@ class GlobalTvBroadcast {
 
         this.isLocked = false;
         
-        // Cache upcoming playlist block
+        // Start pre-caching the *next* sequential file in the background pipeline
         this.preloadUpcomingSequencedItem();
     }
 
@@ -250,14 +251,14 @@ class GlobalTvBroadcast {
 
     setupEnforcementListeners(player) {
         // Strict Anti-Scrubbing Protocol
-        // Instantly catches proactive manual scrubbing and blocks it outright
         player.addEventListener('seeking', () => {
-            if (this.isLocked) return;
+            // CRITICAL FIX: If the event came from the background buffer player, ignore it entirely!
+            if (player !== this.activePlayer || this.isLocked) return;
             
-            // If they try to manually drag the bar/use keys, drag them straight back to the master timeline
             const variance = Math.abs(player.currentTime - this.targetPlaybackPosition);
-            if (variance > 2) {
-                console.warn("Timeline manipulation blocked! Snapping back to broadcast time.");
+            // If the user tries to manually drag the scrubber bar or press skip buttons
+            if (variance > 3) {
+                console.warn("Timeline manipulation blocked! Snapping back active player to broadcast time.");
                 player.currentTime = this.targetPlaybackPosition;
             }
         });
@@ -276,6 +277,8 @@ document.getElementById('interactionOverlay').addEventListener('click', function
     this.style.display = 'none';
     broadcastManager.unmuteBroadcast();
 });
+
+                        
 </script>
 </body>
 </html>

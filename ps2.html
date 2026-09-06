@@ -319,42 +319,47 @@ class UninterruptedBroadcast {
     }
 
     calculateBroadcastState() {
-    if (this.playlist.length === 0 || this.anchorTime === 0) return null;
+    if (!this.playlist || this.playlist.length === 0) return null;
 
     const now = Math.floor(Date.now() / 1000);
-    let elapsedSeconds = now - this.anchorTime;
-
-    // If stream start time is in the future
-    if (elapsedSeconds < 0) {
-        return { index: 0, seekTo: 0, video: this.playlist[0] };
+    
+    // Find the position of the reference item
+    let refIndex = this.playlist.findIndex(item => item.id === this.referenceId);
+    if (refIndex === -1) refIndex = 0; // Fallback if reference item was removed
+    
+    // Sum duration of all items preceding the reference item
+    let refOffset = 0;
+    for (let i = 0; i < refIndex; i++) {
+        refOffset += (this.playlist[i].duration || 0);
     }
 
-    let accumulatedTime = 0;
+    // Auto-calculate effective anchor time for index 0
+    const effectiveAnchorTime = (this.anchorStartTime || 1700000000) - refOffset;
+    let elapsedSeconds = now - effectiveAnchorTime;
 
+    const totalDuration = this.playlist.reduce((sum, item) => sum + (item.duration || 0), 0);
+    if (totalDuration === 0) return null;
+
+    let cyclePosition = elapsedSeconds % totalDuration;
+    if (cyclePosition < 0) cyclePosition += totalDuration;
+
+    let accumulatedTime = 0;
     for (let i = 0; i < this.playlist.length; i++) {
         const video = this.playlist[i];
-        const videoEndTime = accumulatedTime + video.duration;
+        const videoDuration = video.duration || 0;
 
-        // Check if the current clock time falls inside this video's window
-        if (elapsedSeconds >= accumulatedTime && elapsedSeconds < videoEndTime) {
+        if (cyclePosition >= accumulatedTime && cyclePosition < (accumulatedTime + videoDuration)) {
             return {
                 index: i,
-                seekTo: elapsedSeconds - accumulatedTime, // Exact second offset
+                seekTo: cyclePosition - accumulatedTime,
                 video: video
             };
         }
-
-        accumulatedTime = videoEndTime;
+        accumulatedTime += videoDuration;
     }
 
-    // Optional: If elapsed time exceeds the total playlist, stay on the last frame/video
-    const lastIndex = this.playlist.length - 1;
-    return { 
-        index: lastIndex, 
-        seekTo: this.playlist[lastIndex].duration, 
-        video: this.playlist[lastIndex] 
-    };
-    }
+    return { index: 0, seekTo: 0, video: this.playlist[0] };
+        }
 
     syncToGlobalTimeline() {
         this.hasTunedIn = true;

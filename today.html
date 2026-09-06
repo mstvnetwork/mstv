@@ -60,7 +60,7 @@
         .video-layer.active {
             opacity: 1;
             z-index: 1;
-            pointer-events: auto; /* Restored to allow browser overlay clicks */
+            pointer-events: auto;
         }
 
         /* --- ISOLATED LOGO ENGINE --- */
@@ -170,7 +170,6 @@
 <body>
 
     <div class="tv-frame" id="tv-frame">
-        <!-- Main Dual Player Setup Layer Layout -->
         <video id="player-1" class="video-layer active" muted playsinline></video>
         <video id="player-2" class="video-layer" muted playsinline></video>
 
@@ -179,14 +178,12 @@
         </div>
 
         <div class="logo-container-context">
-            
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
 
         <div class="ui-overlay">
             <button id="mute-btn" class="ctrl-btn" title="Unmute">
                 <svg id="mute-icon" viewBox="0 0 24 24">
-                    <!-- Default muted icon graphic -->
                     <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
                 </svg>
             </button>
@@ -220,7 +217,7 @@ class UninterruptedBroadcast {
         this.currentUrl = "";
         this.isSwapping = false; 
         this.hasTunedIn = false;
-        this.isMuted = true; // State matching native setup element definitions
+        this.isMuted = true; 
 
         this.init();
     }
@@ -232,13 +229,9 @@ class UninterruptedBroadcast {
         this.setupPlayerListeners(this.player2);
         this.setupUIHandlers();
 
-        // Tune in automatically as soon as metadata payload is discovered
         this.syncToGlobalTimeline();
 
-        // Silent backend loop scanning every 15 seconds to look for fresh appended tracks
         setInterval(() => this.fetchPlaylistUpdates(), 15000);
-
-        // Drift manager checks every 4 seconds to make adjustments if networks lock up
         setInterval(() => this.checkDriftSafety(), 4000);
     }
 
@@ -251,7 +244,7 @@ class UninterruptedBroadcast {
             this.anchorTime = data.anchorTime;
             this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
             
-            console.log(`[Manifest Sync] Loop length updated to ${this.totalDuration}s. Items: ${this.playlist.length}`);
+            console.log(`[Manifest Sync] Total duration: \${this.totalDuration}s. Items: \${this.playlist.length}`);
             
             if (this.hasTunedIn && !this.isSwapping) {
                 this.preloadUpcomingSequencedItem();
@@ -278,19 +271,19 @@ class UninterruptedBroadcast {
             }
             accumulatedTime += video.duration;
         }
-        return { index: 0, seekTo: 0, video: this.playlist[0] };
+        return { index: 0, seekTo: 0, video: this.playlist };
     }
 
     syncToGlobalTimeline() {
         this.hasTunedIn = true;
         const state = this.calculateBroadcastState();
-        if (!state) return;
+        if (!state || !state.video) return;
 
         this.currentVideoIndex = state.index;
         this.currentUrl = state.video.url;
         
-        this.updateTitleUI(state.video.title || "Apna TV Live Content Block");
-        console.log(`[Tune In] Global Target found: Index [${state.index}] at ${state.seekTo}s`);
+        this.updateTitleUI(state.video.title || "Live Broadcast Feed");
+        console.log(`[Tune In] Targeted Position -> Index [\${state.index}] at \${state.seekTo}s`);
 
         if (this.activeHls) this.activeHls.destroy();
         this.activePlayer.muted = this.isMuted;
@@ -299,16 +292,14 @@ class UninterruptedBroadcast {
         
         const onInitialLoad = () => {
             this.activePlayer.currentTime = state.seekTo;
-        const onInitialLoad = () => {
-            this.activePlayer.currentTime = state.seekTo;
-            this.activePlayer.play().catch(() => console.log("Autoplay context waiting for user audio input interaction"));
+            this.activePlayer.play().catch(() => console.log("Waiting for user tap gesture interaction context to unmute audio output channel"));
             this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
             this.preloadUpcomingSequencedItem();
         };
         this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
     }
 
-    setupPlayerListeners(player) 
+    setupPlayerListeners(player) {
         player.addEventListener('ended', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             this.handleTrackEnded();
@@ -318,11 +309,11 @@ class UninterruptedBroadcast {
             if (player !== this.activePlayer || this.isSwapping) return;
             
             const state = this.calculateBroadcastState();
-            if (!state || state.video.url !== this.currentUrl) return;
+            if (!state || !state.video || state.video.url !== this.currentUrl) return;
 
             const variance = Math.abs(player.currentTime - state.seekTo);
             if (variance > 4) {
-                console.warn("[Anti-Scrub] Timeline manipulation blocked. Syncing live timestamp.");
+                console.warn("[Anti-Scrub] Scrub block active. Reverting timeline layout state.");
                 player.currentTime = state.seekTo;
             }
         });
@@ -333,7 +324,7 @@ class UninterruptedBroadcast {
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
 
-        console.log("[Handoff] Active content finished. Executing instant seamless transition...");
+        console.log("[Handoff] Transitioning playback pipeline to buffered track...");
 
         newActive.muted = this.isMuted;
 
@@ -350,7 +341,7 @@ class UninterruptedBroadcast {
             this.bufferHls = tempHls;
 
             const state = this.calculateBroadcastState();
-            if (state && state.video.url === newActive.src) {
+            if (state && state.video && state.video.url === newActive.src) {
                 this.currentVideoIndex = state.index;
             } else {
                 this.currentVideoIndex = (this.currentVideoIndex + 1) % this.playlist.length;
@@ -365,7 +356,7 @@ class UninterruptedBroadcast {
             this.isSwapping = false;
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
-            console.error("[Transition Failure] Swapping error, forcing hard timeline recovery:", err);
+            console.error("[Transition Failure] Recovery fallback triggered:", err);
             this.isSwapping = false;
             this.syncToGlobalTimeline();
         });
@@ -376,6 +367,7 @@ class UninterruptedBroadcast {
 
         const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
         const nextVideo = this.playlist[nextIndex];
+        if (!nextVideo) return;
         
         if (this.bufferHls) this.bufferHls.destroy();
         
@@ -383,18 +375,18 @@ class UninterruptedBroadcast {
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
         this.bufferPlayer.load();
         
-        console.log(`[Buffer Ready] Background preloading track -> Index [${nextIndex}]`);
+        console.log(`[Buffer Ready] Loading upcoming Index [\${nextIndex}] in background`);
     }
 
     checkDriftSafety() {
         if (!this.hasTunedIn || this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
 
         const state = this.calculateBroadcastState();
-        if (!state || state.video.url !== this.currentUrl) return;
+        if (!state || !state.video || state.video.url !== this.currentUrl) return;
 
         const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
         if (drift > 6) {
-            console.warn(`[Sync Adjust] Correcting minor video drift (${drift.toFixed(2)}s).`);
+            console.warn(`[Sync Adjust] Correcting minor drift (\${drift.toFixed(2)}s).`);
             this.activePlayer.currentTime = state.seekTo;
         }
     }
@@ -413,7 +405,7 @@ class UninterruptedBroadcast {
     }
 
     updateTitleUI(text) {
-        document.getElementById('title-box').textContent = `Now: ${text}`;
+        document.getElementById('title-box').textContent = `Now: \${text}`;
     }
 
     setupUIHandlers() {
@@ -439,7 +431,7 @@ class UninterruptedBroadcast {
 
         fsBtn.addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`));
+                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: \${err.message}`));
             } else {
                 document.exitFullscreen();
             }
@@ -447,7 +439,6 @@ class UninterruptedBroadcast {
     }
 }
 
-// Initialise structural broadcast engine mapping custom HTML IDs
 const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
 </script>
 </body>

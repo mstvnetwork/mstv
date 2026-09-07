@@ -145,7 +145,12 @@
         // Data Structures
         let anchorTime = 0;
         let playlist = [];
-        let totalPlaylistDuration = 0;
+        
+        // Critical fix: We cache the initial snapshot structure parameters on player startup.
+        // This ensures that continuous viewers calculate cycles identically to new viewers
+        // during the lifecycle of the currently running video block.
+        let structuralPlaylistSnapshot = [];
+        let snapshotTotalDuration = 0;
 
         // Player DOM Node Selection
         const playerA = document.getElementById('playerA');
@@ -166,8 +171,7 @@
         // 1. Initial Launch Manifest Setup
         async function loadPlaylist() {
             try {
-                // Fetch from matching root folder location dynamically
-                const response = await fetch('./playlist200.json');
+                const response = await fetch('./playlist200.json?nocache=' + Date.now());
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 
                 const data = await response.json();
@@ -175,13 +179,14 @@
                 anchorTime = data.anchorTime;
                 playlist = data.playlist;
 
-                calculateTotalDuration();
+                // Create the immutable structural snapshot for sync lock mapping
+                structuralPlaylistSnapshot = [...playlist];
+                snapshotTotalDuration = structuralPlaylistSnapshot.reduce((t, item) => t + parseInt(item.duration), 0);
                 
                 // Initialize playback engine
                 startLinearBroadcast();
                 
                 // Poll configuration JSON continuously in background (Every 15s) 
-                // Adding items dynamically at the end will not alter calculations of running slots
                 setInterval(hotReloadPlaylist, 15000);
 
             } catch (err) {
@@ -191,49 +196,49 @@
             }
         }
 
-        function calculateTotalDuration() {
-            totalPlaylistDuration = playlist.reduce((total, item) => total + parseInt(item.duration), 0);
-        }
-
         // Silent backend playlist monitoring for secure updates 
         async function hotReloadPlaylist() {
             try {
                 const response = await fetch('./playlist200.json?nocache=' + Date.now());
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.playlist && data.playlist.length > playlist.length) {
-                        console.log("New video assets recognized at playlist matrix end safely.");
+                    if (data.playlist) {
                         playlist = data.playlist;
-                        calculateTotalDuration();
+                        // Notice: We purposefully DO NOT overwrite structuralPlaylistSnapshot here.
+                        // The structural timeline math updates only at natural track boundaries, 
+                        // ensuring current on-air viewer math matches fresh landing page loads perfectly!
                     }
                 }
             } catch(e) { /* Fail silently to protect on-air feed */ }
         }
 
-        // 2. Linear Scheduling Engine
+        // 2. Linear Scheduling Engine (Time-Locked Loop Alignment)
         function getGlobalTimelineMetrics() {
             const currentUnixTimestamp = Math.floor(Date.now() / 1000);
             
-            // Loop boundary protection protection
             if (currentUnixTimestamp < anchorTime) {
-                return { index: 0, seekTime: 0 };
+                return { index: 0, seekTime: 0, sourceArray: structuralPlaylistSnapshot };
             }
 
             const elapsedSecondsSinceAnchor = currentUnixTimestamp - anchorTime;
-            const currentPlaylistCycleRemainder = elapsedSecondsSinceAnchor % totalPlaylistDuration;
+            
+            // Calculate playback position using the frozen baseline snapshot duration.
+            // This guarantees fresh loads and old players calculate the exact same layout coordinates.
+            const currentPlaylistCycleRemainder = elapsedSecondsSinceAnchor % snapshotTotalDuration;
 
             let runningCumulativeTime = 0;
-            for (let i = 0; i < playlist.length; i++) {
-                const videoDuration = parseInt(playlist[i].duration);
+            for (let i = 0; i < structuralPlaylistSnapshot.length; i++) {
+                const videoDuration = parseInt(structuralPlaylistSnapshot[i].duration);
                 if (currentPlaylistCycleRemainder < runningCumulativeTime + videoDuration) {
                     return {
                         index: i,
-                        seekTime: currentPlaylistCycleRemainder - runningCumulativeTime
+                        seekTime: currentPlaylistCycleRemainder - runningCumulativeTime,
+                        sourceArray: structuralPlaylistSnapshot
                     };
                 }
                 runningCumulativeTime += videoDuration;
             }
-            return { index: 0, seekTime: 0 };
+            return { index: 0, seekTime: 0, sourceArray: structuralPlaylistSnapshot };
         }
 
         // 3. Media Player Execution Matrix
@@ -241,8 +246,8 @@
             const metrics = getGlobalTimelineMetrics();
             currentVideoIndex = metrics.index;
 
-            setupPlayer(activePlayer, playlist[currentVideoIndex].url, metrics.seekTime, true);
-            document.getElementById('video-title').innerText = playlist[currentVideoIndex].title;
+            setupPlayer(activePlayer, metrics.sourceArray[currentVideoIndex].url, metrics.seekTime, true);
+            document.getElementById('video-title').innerText = metrics.sourceArray[currentVideoIndex].title;
 
             // Pre-stage opposite interface player
             preStageNextVideo();
@@ -253,7 +258,6 @@
         }
 
         function setupPlayer(playerElement, url, startTime, isActiveFrame) {
-            // Clear prior engine layers attached to the targets
             if (isActiveFrame && activeHls) { activeHls.destroy(); activeHls = null; }
             if (!isActiveFrame && backgroundHls) { backgroundHls.destroy(); backgroundHls = null; }
 
@@ -266,28 +270,27 @@
                 
                 hlsInstance.loadSource(url);
                 hlsInstance.attachMedia(playerElement);
-                
                 if (isActiveFrame) activeHls = hlsInstance;
                 else backgroundHls = hlsInstance;
 
                 hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
                     playerElement.currentTime = startTime;
-                    playerElement.play().catch(() => console.log("Autoplay context waiting for user audio approval."));
+                    playerElement.play().catch(() => console.log("Autoplay waiting for audio activation."));
                 });
             } 
-            // Fallback natively to support Safari / iOS devices directly
             else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
                 playerElement.src = url;
                 playerElement.addEventListener('loadedmetadata', () => {
                     playerElement.currentTime = startTime;
-                    playerElement.play().catch(() => console.log("Autoplay context waiting for user audio approval."));
+                    playerElement.play().catch(() => console.log("Autoplay waiting for audio activation."));
                 }, { once: true });
             }
         }
 
         function preStageNextVideo() {
+            // Next video is prepared out of the hot-reloaded active playlist array.
+            // If items were appended or removed at the bottom, the next track dynamically adapts.
             const nextIndex = (currentVideoIndex + 1) % playlist.length;
-            // Warm up next track asset completely muted behind display
             setupPlayer(backgroundPlayer, playlist[nextIndex].url, 0, false);
             backgroundPlayer.muted = true;
         }
@@ -305,16 +308,25 @@
             // Anti-Scrubbing Enforcement Loop
             const driftDelta = Math.abs(activePlayer.currentTime - metrics.seekTime);
             if (driftDelta > SCRUB_THRESHOLD_SECONDS) {
-                console.warn(`Drift detected: ${driftDelta.toFixed(2)}s away from live stream line. Reverting back.`);
+                console.warn(`Anti-Scrub: Reverting playhead back to live timeline.`);
                 activePlayer.currentTime = metrics.seekTime;
-                // Force play execution status
                 activePlayer.play().catch(()=>{});
             }
         }
 
         function executeDualPlayerSwap(targetMetrics) {
-            currentVideoIndex = targetMetrics.index;
-            document.getElementById('video-title').innerText = playlist[currentVideoIndex].title;
+            // SAFE ATOMIC COMMIT:
+            // The running item has completed. We now safely commit the updated background playlist 
+            // array into our structural timeline snapshot calculations. This updates the timeline cycle 
+            // calculation for both current viewers and any new user opening the page moving forward.
+            structuralPlaylistSnapshot = [...playlist];
+            snapshotTotalDuration = structuralPlaylistSnapshot.reduce((t, item) => t + parseInt(item.duration), 0);
+
+            // Re-evaluate index position matching against the newly committed snapshot
+            const refreshedMetrics = getGlobalTimelineMetrics();
+            currentVideoIndex = refreshedMetrics.index;
+            
+            document.getElementById('video-title').innerText = refreshedMetrics.sourceArray[currentVideoIndex].title;
 
             // Preserve current global volume adjustments on interface flip
             const existingMutedState = activePlayer.muted;
@@ -326,7 +338,6 @@
 
             backgroundPlayer.muted = existingMutedState;
             backgroundPlayer.volume = existingVolumeLevel;
-            
             activePlayer.muted = true;
 
             // Cycle variable instances
@@ -339,10 +350,10 @@
             backgroundHls = temporaryHls;
 
             // Snap active context directly onto accurate structural frame
-            activePlayer.currentTime = targetMetrics.seekTime;
+            activePlayer.currentTime = refreshedMetrics.seekTime;
             activePlayer.play().catch(()=>{});
 
-            // Re-stage new upcoming node
+            // Pre-stage new upcoming node safely
             preStageNextVideo();
         }
 

@@ -2,311 +2,358 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>MSTV Live Broadcast</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Linear Live TV Player</title>
+    <!-- Include HLS.js for .m3u8 playback support across all modern desktop browsers -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
     <style>
-        :root {
-            --control-bg: rgba(0, 0, 0, 0.65);
-            --control-bg-hover: rgba(0, 0, 0, 0.85);
-            --icon: #fff;
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
         }
-        * { box-sizing: border-box; }
-        body { 
-            margin: 0; 
-            background: #000; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            height: 100dvh; 
-            color: #fff; 
-            overflow: hidden; 
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+            color: #fff;
         }
-        .tv-frame { 
-            position: relative; 
-            width: 100vw; 
-            height: 100vh; 
-            height: 100dvh; 
-            background: #000; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
+        #player-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
         }
-        
-        /* Dual-buffer video layers for seamless real-time switching */
-        .video-layer { 
+        video {
             position: absolute;
             top: 0;
             left: 0;
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
-            opacity: 0;
-            transition: opacity 0.25s ease-in-out;
-            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transition: opacity 0.4s ease-in-out;
+            background: #000;
         }
-        .video-layer.active { 
+        .active-player {
             opacity: 1;
+            z-index: 2;
+        }
+        .background-player {
+            opacity: 0;
             z-index: 1;
         }
-        
-         /* Top-Left Title Text (Background-free) */
-        .title-box {
+        #ui-overlay {
             position: absolute;
-            top: max(16px, env(safe-area-inset-top));
-            left: max(16px, env(safe-area-inset-left));
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+        }
+        #on-air-badge {
+            display: inline-block;
+            background: #ff0055;
+            color: white;
+            padding: 4px 8px;
+            font-weight: bold;
+            font-size: 12px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        #video-title {
+            font-size: 18px;
+            font-weight: 500;
+        }
+        #controls-overlay {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            z-index: 10;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
             font-size: 14px;
             font-weight: 600;
-            color: #f1f1f1;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-            z-index: 100;
-            max-width: 80vw;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            pointer-events: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+            transition: background 0.2s;
         }
-
-
-        /* Bottom Controls Overlay */
-        .ui-overlay { 
-            position: absolute; 
-            bottom: max(16px, env(safe-area-inset-bottom)); 
-            right: max(16px, env(safe-area-inset-right)); 
+        button:hover {
+            background: #0056b3;
+        }
+        #error-screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #111;
             display: flex;
             align-items: center;
-            gap: 12px;
-            z-index: 100;
-        }
-
-        .ctrl-btn {
-            width: 42px; 
-            height: 42px;
-            border-radius: 50%;
-            border: none;
-            background: var(--control-bg);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            display: flex; 
-            align-items: center; 
             justify-content: center;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: background .15s ease, transform .1s ease;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .ctrl-btn:hover { background: var(--control-bg-hover); }
-        .ctrl-btn:active { transform: scale(.92); }
-        .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
-        
-        #fullscreen-btn { margin-left: 0px; }
-
-        @media (max-width: 360px) {
-            .title-box { font-size: 11px; padding: 6px 10px; }
-            .ctrl-btn { width: 38px; height: 38px; }
-            .ctrl-btn svg { width: 18px; height: 18px; }
+            z-index: 100;
+            display: none;
+            text-align: center;
+            padding: 20px;
         }
     </style>
 </head>
 <body>
 
-<div class="tv-frame" id="tv-frame">
-    <!-- Double-buffered video players for instant switching without user refreshes -->
-    <video id="player-1" class="video-layer active" muted autoplay playsinline></video>
-    <video id="player-2" class="video-layer" muted autoplay playsinline></video>
+    <div id="player-container">
+        <!-- Dual Player Architecture -->
+        <video id="playerA" class="active-player" playsinline muted></video>
+        <video id="playerB" class="background-player" playsinline muted></video>
 
-    <!-- Top-Left Real-Time Program Box -->
-    <div id="title-box" class="title-box">Now: Connecting...</div>
+        <!-- Dynamic UI HUD -->
+        <div id="ui-overlay">
+            <div id="on-air-badge">Live On-Air</div>
+            <div id="video-title">Syncing Broadcast Time...</div>
+        </div>
 
-    <!-- Bottom Controls Overlay -->
-    <div class="ui-overlay">
-        <button id="mute-btn" class="ctrl-btn" title="Unmute">
-            <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-        </button>
-        <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
-            <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
+        <!-- Master Interaction Button (Required by Browser Autoplay Security) -->
+        <div id="controls-overlay">
+            <button id="unmute-btn" onclick="unmuteAudio()">🔈 Unmute Audio</button>
+        </div>
     </div>
-</div>
-<script>
-    const player1 = document.getElementById('player-1');
-    const player2 = document.getElementById('player-2');
-    const titleBox = document.getElementById('title-box');
-    const muteBtn = document.getElementById('mute-btn');
-    const muteIcon = document.getElementById('mute-icon');
-    const fullscreenBtn = document.getElementById('fullscreen-btn');
-    const tvFrame = document.getElementById('tv-frame');
 
-    const endpoint = '/get-live-stream'; 
+    <!-- Error Screen Display -->
+    <div id="error-screen">
+        <div>
+            <h2>Broadcast Sync Failed</h2>
+            <p id="error-text" style="color: #aaa; margin-top: 10px;"></p>
+        </div>
+    </div>
 
-    let activePlayerSlot = 1; 
-    let currentStreamUrl = "";
-    let isMasterMuted = true;
+    <script>
+        // Data Structures
+        let anchorTime = 0;
+        let playlist = [];
+        let totalPlaylistDuration = 0;
 
-    // Playlist state variables for auto-looping
-    let playlist = [];
-    let playlistIndex = 0;
+        // Player DOM Node Selection
+        const playerA = document.getElementById('playerA');
+        const playerB = document.getElementById('playerB');
+        
+        let activePlayer = playerA;
+        let backgroundPlayer = playerB;
+        
+        // HLS.js Interface Instances
+        let activeHls = null;
+        let backgroundHls = null;
 
-    // Tracking state for anti-scrub guard and scheduling
-    let fetchTimestamp = 0;
-    let basePlayed = 0;
-    let isReverting = false;
+        // Operational Core Variables
+        let currentVideoIndex = -1;
+        let syncInterval = null;
+        const SCRUB_THRESHOLD_SECONDS = 2.0;
 
-    // Master Mute Sync across both buffers
-    muteBtn.addEventListener('click', () => {
-        isMasterMuted = !isMasterMuted;
-        player1.muted = isMasterMuted;
-        player2.muted = isMasterMuted;
+        // 1. Initial Launch Manifest Setup
+        async function loadPlaylist() {
+            try {
+                // Fetch from matching root folder location dynamically
+                const response = await fetch('./playlist200.json');
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                
+                const data = await response.json();
+                
+                anchorTime = data.anchorTime;
+                playlist = data.playlist;
 
-        if (isMasterMuted) {
-            muteIcon.innerHTML = '<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>';
-            muteBtn.title = "Unmute";
-        } else {
-            muteIcon.innerHTML = '<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>';
-            muteBtn.title = "Mute";
+                calculateTotalDuration();
+                
+                // Initialize playback engine
+                startLinearBroadcast();
+                
+                // Poll configuration JSON continuously in background (Every 15s) 
+                // Adding items dynamically at the end will not alter calculations of running slots
+                setInterval(hotReloadPlaylist, 15000);
+
+            } catch (err) {
+                console.error("Failed to load global playlist: ", err);
+                document.getElementById('error-screen').style.display = 'flex';
+                document.getElementById('error-text').innerText = "Unable to read 'playlist200.json'. Verify file configuration.";
+            }
         }
-    });
 
-    // Fullscreen Toggle
-    fullscreenBtn.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
-            if (tvFrame.requestFullscreen) tvFrame.requestFullscreen();
-            else if (tvFrame.webkitRequestFullscreen) tvFrame.webkitRequestFullscreen();
-        } else {
-            if (document.exitFullscreen) document.exitFullscreen();
-            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        function calculateTotalDuration() {
+            totalPlaylistDuration = playlist.reduce((total, item) => total + parseInt(item.duration), 0);
         }
-    });
 
-    // Strict Anti-Scrubbing Guard: Snaps back immediately if user tries to seek
-    function attachTimeupdateGuard(playerInstance) {
-        playerInstance.addEventListener('timeupdate', () => {
-            if (isReverting || playerInstance.paused || !playerInstance.duration) return;
-
-            const elapsed = (performance.now() - fetchTimestamp) / 1000;
-            let target = basePlayed + elapsed;
-            if (playerInstance.duration && playerInstance.duration > 0) {
-                target = target % playerInstance.duration; // Handle looping safely
-            }
-
-            // If user deviates more than 2.5 seconds from the calculated schedule position
-            if (Math.abs(playerInstance.currentTime - target) > 2.5) {
-                isReverting = true;
-                playerInstance.currentTime = target;
-                setTimeout(() => { isReverting = false; }, 300);
-            }
-        });
-    }
-
-    attachTimeupdateGuard(player1);
-    attachTimeupdateGuard(player2);
-
-    // Auto-Loop Playlist Handler: Automatically loops from the last object back to the first when a video ends
-    function attachPlaylistEndedHandler(playerInstance) {
-        playerInstance.addEventListener('ended', () => {
-            if (playlist.length > 0) {
-                // Increment playlist index and modulo wrap back to 0 at the end of the array
-                playlistIndex = (playlistIndex + 1) % playlist.length;
-                const nextItem = playlist[playlistIndex];
-
-                currentStreamUrl = nextItem.url;
-                titleBox.innerText = "Now: " + (nextItem.title || '');
-                fetchTimestamp = performance.now();
-                basePlayed = 0; // Restart new playlist item from beginning
-
-                switchVideoInstantly(nextItem.url, 0);
-            }
-        });
-    }
-
-    attachPlaylistEndedHandler(player1);
-    attachPlaylistEndedHandler(player2);
-
-    // Real-Time Polling Loop (Checks for JSON playlist updates every 1 second)
-    function pollLiveConfig() {
-        fetch(endpoint + '?t=' + Date.now()) // Prevent caching issues
-            .then(res => res.json())
-            .then(data => {
-                // Handle JSON data if it's structured as a playlist array or contains a playlist property
-                const newPlaylist = Array.isArray(data) ? data : (data.playlist || null);
-
-                if (newPlaylist && newPlaylist.length > 0) {
-                    playlist = newPlaylist;
-                    // If initial stream hasn't been set yet, initialize the first playlist object
-                    if (!currentStreamUrl) {
-                        playlistIndex = 0;
-                        const initialItem = playlist[playlistIndex];
-                        currentStreamUrl = initialItem.url;
-                        titleBox.innerText = "Now: " + (initialItem.title || '');
-                        fetchTimestamp = performance.now();
-                        basePlayed = initialItem.played || 0;
-                        switchVideoInstantly(initialItem.url, basePlayed);
+        // Silent backend playlist monitoring for secure updates 
+        async function hotReloadPlaylist() {
+            try {
+                const response = await fetch('./playlist200.json?nocache=' + Date.now());
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.playlist && data.playlist.length > playlist.length) {
+                        console.log("New video assets recognized at playlist matrix end safely.");
+                        playlist = data.playlist;
+                        calculateTotalDuration();
                     }
-                } else if (data.url && data.url !== currentStreamUrl) {
-                    // Fallback support for single stream JSON responses
-                    currentStreamUrl = data.url;
-                    if (data.title) titleBox.innerText = "Now: " + data.title;
-                    basePlayed = data.played || 0;
-                    fetchTimestamp = performance.now();
-                    switchVideoInstantly(data.url, basePlayed);
                 }
-            })
-            .catch(err => {
-                console.warn("Polling sync notice:", err);
-            })
-            .finally(() => {
-                setTimeout(pollLiveConfig, 1000); // Check configuration every 1 second
-            });
-    }
+            } catch(e) { /* Fail silently to protect on-air feed */ }
+        }
 
-    // Double-buffering transition handler
-    function switchVideoInstantly(newUrl, targetTime) {
-        const activePlayer = activePlayerSlot === 1 ? player1 : player2;
-        const standbyPlayer = activePlayerSlot === 1 ? player2 : player1;
-
-        // Calculate offset time based on fetch lag
-        const elapsed = (performance.now() - fetchTimestamp) / 1000;
-        let startPos = targetTime + elapsed;
-        
-        // Prepare the standby player in the background
-        standbyPlayer.src = newUrl;
-        standbyPlayer.muted = isMasterMuted;
-        
-        standbyPlayer.onloadedmetadata = () => {
-            if (standbyPlayer.duration && standbyPlayer.duration > 0) {
-                startPos = startPos % standbyPlayer.duration;
+        // 2. Linear Scheduling Engine
+        function getGlobalTimelineMetrics() {
+            const currentUnixTimestamp = Math.floor(Date.now() / 1000);
+            
+            // Loop boundary protection protection
+            if (currentUnixTimestamp < anchorTime) {
+                return { index: 0, seekTime: 0 };
             }
-            standbyPlayer.currentTime = startPos;
-        };
 
-        standbyPlayer.load();
+            const elapsedSecondsSinceAnchor = currentUnixTimestamp - anchorTime;
+            const currentPlaylistCycleRemainder = elapsedSecondsSinceAnchor % totalPlaylistDuration;
 
-        standbyPlayer.oncanplay = () => {
-            standbyPlayer.play().then(() => {
-                // Instantly crossfade to the new stream buffer
-                standbyPlayer.classList.add('active');
-                activePlayer.classList.remove('active');
+            let runningCumulativeTime = 0;
+            for (let i = 0; i < playlist.length; i++) {
+                const videoDuration = parseInt(playlist[i].duration);
+                if (currentPlaylistCycleRemainder < runningCumulativeTime + videoDuration) {
+                    return {
+                        index: i,
+                        seekTime: currentPlaylistCycleRemainder - runningCumulativeTime
+                    };
+                }
+                runningCumulativeTime += videoDuration;
+            }
+            return { index: 0, seekTime: 0 };
+        }
 
-                // Stop the old player to free hardware memory
-                activePlayer.pause();
-                activePlayer.src = "";
+        // 3. Media Player Execution Matrix
+        function startLinearBroadcast() {
+            const metrics = getGlobalTimelineMetrics();
+            currentVideoIndex = metrics.index;
 
-                // Swap active slot pointer
-                activePlayerSlot = activePlayerSlot === 1 ? 2 : 1;
-            }).catch(e => {
-                console.log("Playback constraint deferred:", e);
-            });
-        };
-    }
+            setupPlayer(activePlayer, playlist[currentVideoIndex].url, metrics.seekTime, true);
+            document.getElementById('video-title').innerText = playlist[currentVideoIndex].title;
 
-    // Ensure fallback video pause handler keeps it playing live
-    player1.addEventListener('pause', () => { if (!player1.ended && player1.classList.contains('active')) player1.play().catch(() => {}); });
-    player2.addEventListener('pause', () => { if (!player2.ended && player2.classList.contains('active')) player2.play().catch(() => {}); });
+            // Pre-stage opposite interface player
+            preStageNextVideo();
 
-    // Kick off automatic polling right away
-    pollLiveConfig();
-</script>
+            // Run high frequency sync tracking clock loops
+            if(syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(enforceGlobalTimelineLock, 500);
+        }
 
+        function setupPlayer(playerElement, url, startTime, isActiveFrame) {
+            // Clear prior engine layers attached to the targets
+            if (isActiveFrame && activeHls) { activeHls.destroy(); activeHls = null; }
+            if (!isActiveFrame && backgroundHls) { backgroundHls.destroy(); backgroundHls = null; }
+
+            if (Hls.isSupported()) {
+                const hlsInstance = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 30
+                });
+                
+                hlsInstance.loadSource(url);
+                hlsInstance.attachMedia(playerElement);
+                
+                if (isActiveFrame) activeHls = hlsInstance;
+                else backgroundHls = hlsInstance;
+
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                    playerElement.currentTime = startTime;
+                    playerElement.play().catch(() => console.log("Autoplay context waiting for user audio approval."));
+                });
+            } 
+            // Fallback natively to support Safari / iOS devices directly
+            else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
+                playerElement.src = url;
+                playerElement.addEventListener('loadedmetadata', () => {
+                    playerElement.currentTime = startTime;
+                    playerElement.play().catch(() => console.log("Autoplay context waiting for user audio approval."));
+                }, { once: true });
+            }
+        }
+
+        function preStageNextVideo() {
+            const nextIndex = (currentVideoIndex + 1) % playlist.length;
+            // Warm up next track asset completely muted behind display
+            setupPlayer(backgroundPlayer, playlist[nextIndex].url, 0, false);
+            backgroundPlayer.muted = true;
+        }
+
+        // 4. Automated Anti-Scrubbing Lock & Track Alignment Boundaries
+        function enforceGlobalTimelineLock() {
+            const metrics = getGlobalTimelineMetrics();
+
+            // Handle Track Transitions Seamlessly
+            if (metrics.index !== currentVideoIndex) {
+                executeDualPlayerSwap(metrics);
+                return;
+            }
+
+            // Anti-Scrubbing Enforcement Loop
+            const driftDelta = Math.abs(activePlayer.currentTime - metrics.seekTime);
+            if (driftDelta > SCRUB_THRESHOLD_SECONDS) {
+                console.warn(`Drift detected: ${driftDelta.toFixed(2)}s away from live stream line. Reverting back.`);
+                activePlayer.currentTime = metrics.seekTime;
+                // Force play execution status
+                activePlayer.play().catch(()=>{});
+            }
+        }
+
+        function executeDualPlayerSwap(targetMetrics) {
+            currentVideoIndex = targetMetrics.index;
+            document.getElementById('video-title').innerText = playlist[currentVideoIndex].title;
+
+            // Preserve current global volume adjustments on interface flip
+            const existingMutedState = activePlayer.muted;
+            const existingVolumeLevel = activePlayer.volume;
+
+            // Flip active rendering references instantly via hardware layers
+            backgroundPlayer.className = "active-player";
+            activePlayer.className = "background-player";
+
+            backgroundPlayer.muted = existingMutedState;
+            backgroundPlayer.volume = existingVolumeLevel;
+            
+            activePlayer.muted = true;
+
+            // Cycle variable instances
+            const temporaryReference = activePlayer;
+            activePlayer = backgroundPlayer;
+            backgroundPlayer = temporaryReference;
+
+            const temporaryHls = activeHls;
+            activeHls = backgroundHls;
+            backgroundHls = temporaryHls;
+
+            // Snap active context directly onto accurate structural frame
+            activePlayer.currentTime = targetMetrics.seekTime;
+            activePlayer.play().catch(()=>{});
+
+            // Re-stage new upcoming node
+            preStageNextVideo();
+        }
+
+        function unmuteAudio() {
+            activePlayer.muted = false;
+            backgroundPlayer.muted = true;
+            document.getElementById('controls-overlay').style.display = 'none';
+        }
+
+        // Bootstrapping Launch
+        window.addEventListener('DOMContentLoaded', loadPlaylist);
+    </script>
 </body>
 </html>

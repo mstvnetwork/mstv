@@ -252,265 +252,284 @@
             </button>
         </div>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-
 <script>
-(function () {
-    class BroadcastPlayer {
-        constructor(options = {}) {
-            this.playlistUrl = options.playlistUrl || 'playlist200.json';
-            this.videoElement = options.videoElement;
-            this.playlist = [];
-            this.referenceId = 'ref-100';
-            this.anchorStartTime = 1700000000;
+class UninterruptedBroadcast {
+    constructor(playerId1, playerId2) {
+        this.player1 = document.getElementById(playerId1);
+        this.player2 = document.getElementById(playerId2);
+        this.activePlayer = this.player1;
+        this.bufferPlayer = this.player2;
+
+        this.hls1 = null;
+        this.hls2 = null;
+        this.activeHls = null;
+        this.bufferHls = null;
+
+        this.playlist = [];
+        this.anchorTime = 0;
+        this.totalDuration = 0;
+        
+        this.currentVideoIndex = -1;
+        this.bufferedIndex = -1; // Guard flag to prevent duplicate background loads
+        this.currentUrl = "";
+        this.isSwapping = false; 
+        this.hasTunedIn = false;
+        this.isMuted = true; 
+
+        // Reference to loading spinner overlay
+        this.loadingOverlay = document.getElementById('loadingOverlay');
+
+        this.init();
+    }
+
+    async init() {
+        await this.fetchPlaylistUpdates();
+        
+        this.setupPlayerListeners(this.player1);
+        this.setupPlayerListeners(this.player2);
+        this.setupUIHandlers();
+
+        this.syncToGlobalTimeline();
+
+        setInterval(() => this.fetchPlaylistUpdates(), 15000);
+        setInterval(() => this.checkDriftSafety(), 4000);
+    }
+
+    async fetchPlaylistUpdates() {
+        try {
+            const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
+            const data = await response.json();
             
-            this.currentVideoUrl = null;
-            this.hls = null;
-            this.isEnforcingSync = false;
-            this.fetchFailCount = 0;
+            const prevDuration = this.totalDuration;
+            this.playlist = data.playlist;
+            this.anchorTime = data.anchorTime;
+            this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
             
-            this.init();
-        }
-
-        async init() {
-            const loaded = await this.fetchPlaylist();
-            if (loaded) {
-                this.syncPlayback();
+            // Only log and update state if playlist duration changed or first load
+            if (prevDuration !== this.totalDuration) {
+                console.log(`[Manifest Sync] Total duration: ${this.totalDuration}s. Items: ${this.playlist.length}`);
             }
-            this.attachStrictBypassProtection();
-
-            // Run sync every second for strict live timing
-            setInterval(() => this.syncPlayback(), 1000);
             
-            // Poll playlist updates every 60 seconds (instead of 30s) to avoid connection aborts
-            setInterval(() => this.fetchPlaylist(), 60000);
-        }
-
-        async fetchPlaylist() {
-            try {
-                // If it failed 3 times in a row, temporarily pause network spam
-                if (this.fetchFailCount > 3) {
-                    console.warn('[BroadcastPlayer] Pausing schedule fetch due to persistent connection failures.');
-                    setTimeout(() => { this.fetchFailCount = 0; }, 30000);
-                    return false;
-                }
-
-                const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`, {
-                    cache: 'no-store'
-                });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                
-                const data = await response.json();
-                if (Array.isArray(data.playlist) && data.playlist.length > 0) {
-                    this.playlist = data.playlist;
-                    this.referenceId = data.referenceId || 'ref-100';
-                    this.anchorStartTime = data.anchorStartTime || 1700000000;
-                    this.fetchFailCount = 0; // Reset fail counter on success
-                    return true;
-                }
-            } catch (err) {
-                this.fetchFailCount++;
-                console.warn(`[BroadcastPlayer] Schedule fetch failed (Attempt ${this.fetchFailCount}):`, err.message);
+            if (this.hasTunedIn && !this.isSwapping) {
+                this.preloadUpcomingSequencedItem();
             }
-            return false;
+        } catch (err) {
+            console.error("[Manifest Error] Live playlist fetch failure:", err);
         }
+    }
 
-        calculateBroadcastState() {
-            if (!this.playlist || this.playlist.length === 0) return null;
+    calculateBroadcastState() {
+        if (this.totalDuration === 0 || this.anchorTime === 0) return null;
 
-            const now = Math.floor(Date.now() / 1000);
+        const now = Math.floor(Date.now() / 1000);
+        let elapsedSeconds = now - this.anchorTime;
+        if (elapsedSeconds < 0) elapsedSeconds = 0; 
 
-            let refIndex = this.playlist.findIndex(item => item.id === this.referenceId);
-            if (refIndex === -1) refIndex = 0;
+        let currentCyclePosition = elapsedSeconds % this.totalDuration;
 
-            let refOffset = 0;
-            for (let i = 0; i < refIndex; i++) {
-                refOffset += (this.playlist[i].duration || 0);
+        let accumulatedTime = 0;
+        for (let i = 0; i < this.playlist.length; i++) {
+            const video = this.playlist[i];
+            if (currentCyclePosition >= accumulatedTime && currentCyclePosition < (accumulatedTime + video.duration)) {
+                return { index: i, seekTo: currentCyclePosition - accumulatedTime, video: video };
             }
-
-            const effectiveAnchorTime = this.anchorStartTime - refOffset;
-            let elapsedSeconds = now - effectiveAnchorTime;
-
-            const totalDuration = this.playlist.reduce((sum, item) => sum + (item.duration || 0), 0);
-            if (totalDuration === 0) return null;
-
-            let cyclePosition = elapsedSeconds % totalDuration;
-            if (cyclePosition < 0) cyclePosition += totalDuration;
-
-            let accumulatedTime = 0;
-            for (let i = 0; i < this.playlist.length; i++) {
-                const video = this.playlist[i];
-                const videoDuration = video.duration || 0;
-
-                if (cyclePosition >= accumulatedTime && cyclePosition < (accumulatedTime + videoDuration)) {
-                    return {
-                        index: i,
-                        seekTo: cyclePosition - accumulatedTime,
-                        video: video
-                    };
-                }
-                accumulatedTime += videoDuration;
-            }
-
-            return { index: 0, seekTo: 0, video: this.playlist[0] };
+            accumulatedTime += video.duration;
         }
+        return { index: 0, seekTo: 0, video: this.playlist };
+    }
 
-        syncPlayback() {
-            // Guard clause: Don't perform sync operations if playlist is empty/failed
-            if (!this.playlist || this.playlist.length === 0) return;
+    syncToGlobalTimeline() {
+        this.hasTunedIn = true;
+        const state = this.calculateBroadcastState();
+        if (!state || !state.video) return;
+
+        this.currentVideoIndex = state.index;
+        this.currentUrl = state.video.url;
+        
+        this.updateTitleUI(state.video.title || "Live Broadcast Feed");
+        console.log(`[Tune In] Targeted Position -> Index [${state.index}] at ${state.seekTo}s`);
+
+        if (this.activeHls) this.activeHls.destroy();
+        this.activePlayer.muted = this.isMuted;
+        
+        this.activeHls = this.loadHlsStream(this.activePlayer, state.video.url);
+        
+        const onInitialLoad = () => {
+            this.activePlayer.currentTime = state.seekTo;
+            this.activePlayer.play().catch(() => console.log("Waiting for user tap gesture interaction context to unmute audio output channel"));
+            this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
+            this.preloadUpcomingSequencedItem();
+        };
+        this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
+    }
+
+    setupPlayerListeners(player) {
+        // Hides spinner as soon as video actually starts playing frames
+        const hideOverlayHandler = () => {
+            if (player === this.activePlayer && this.loadingOverlay) {
+                this.loadingOverlay.classList.add('hidden');
+            }
+        };
+
+        player.addEventListener('playing', hideOverlayHandler);
+        player.addEventListener('timeupdate', hideOverlayHandler);
+
+        player.addEventListener('waiting', () => {
+            if (player === this.activePlayer && this.loadingOverlay) {
+                this.loadingOverlay.classList.remove('hidden');
+            }
+        });
+
+        player.addEventListener('ended', () => {
+            if (player !== this.activePlayer || this.isSwapping) return;
+            this.handleTrackEnded();
+        });
+
+        player.addEventListener('seeking', () => {
+            if (player !== this.activePlayer || this.isSwapping) return;
+            
+            const state = this.calculateBroadcastState();
+            if (!state || !state.video || state.video.url !== this.currentUrl) return;
+
+            const variance = Math.abs(player.currentTime - state.seekTo);
+            if (variance > 4) {
+                console.warn("[Anti-Scrub] Scrub block active. Reverting timeline layout state.");
+                player.currentTime = state.seekTo;
+            }
+        });
+    }
+
+    handleTrackEnded() {
+        this.isSwapping = true;
+        const oldActive = this.activePlayer;
+        const newActive = this.bufferPlayer;
+
+        console.log("[Handoff] Transitioning playback pipeline to buffered track...");
+
+        newActive.muted = this.isMuted;
+
+        newActive.play().then(() => {
+            newActive.classList.add('active');
+            oldActive.classList.remove('active');
+            oldActive.pause();
+
+            this.activePlayer = newActive;
+            this.bufferPlayer = oldActive;
+
+            const tempHls = this.activeHls;
+            this.activeHls = this.bufferHls;
+            this.bufferHls = tempHls;
 
             const state = this.calculateBroadcastState();
-            if (!state || !state.video) return;
-
-            const { video, seekTo } = state;
-
-            if (this.currentVideoUrl !== video.url) {
-                this.currentVideoUrl = video.url;
-                this.loadMediaStream(video.url, seekTo);
-                return;
-            }
-
-            if (this.videoElement && !this.videoElement.paused && this.videoElement.readyState >= 2) {
-                const drift = Math.abs(this.videoElement.currentTime - seekTo);
-                if (drift > 2.5) {
-                    this.safeSeek(seekTo);
-                }
-            }
-        }
-
-        safeSeek(targetTime) {
-            if (!this.videoElement) return;
-            
-            this.isEnforcingSync = true;
-            
-            const duration = this.videoElement.duration;
-            let validTime = targetTime;
-
-            if (duration && !isNaN(duration) && duration > 0) {
-                validTime = Math.min(targetTime, duration - 1);
-            }
-
-            this.videoElement.currentTime = validTime;
-            setTimeout(() => { this.isEnforcingSync = false; }, 300);
-        }
-
-        attemptPlay() {
-            if (!this.videoElement) return;
-
-            const playPromise = this.videoElement.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(() => {
-                    this.videoElement.muted = true;
-                    this.videoElement.play().catch(err => console.error('[BroadcastPlayer] Play failed:', err));
-                });
-            }
-        }
-
-        attachStrictBypassProtection() {
-            if (!this.videoElement) return;
-
-            this.videoElement.addEventListener('seeking', () => {
-                if (this.isEnforcingSync || !this.playlist.length) return;
-
-                const state = this.calculateBroadcastState();
-                if (!state) return;
-
-                if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
-                    this.safeSeek(state.seekTo);
-                }
-            });
-
-            this.videoElement.addEventListener('play', () => {
-                if (!this.playlist.length) return;
-
-                const state = this.calculateBroadcastState();
-                if (state) {
-                    if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
-                        this.safeSeek(state.seekTo);
-                    }
-                }
-            });
-        }
-
-        loadMediaStream(url, seekTo) {
-            if (!this.videoElement) return;
-
-            const isHls = url.includes('.m3u8');
-
-            if (this.hls) {
-                this.hls.destroy();
-                this.hls = null;
-            }
-
-            const onMediaReady = () => {
-                this.safeSeek(seekTo);
-                this.attemptPlay();
-            };
-
-            if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                this.hls = new Hls({
-                    enableWorker: true,
-                    lowLatencyMode: false
-                });
-                
-                this.hls.loadSource(url);
-                this.hls.attachMedia(this.videoElement);
-                
-                this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    if (this.videoElement.readyState >= 1) {
-                        onMediaReady();
-                    } else {
-                        this.videoElement.addEventListener('loadedmetadata', onMediaReady, { once: true });
-                    }
-                });
-
-                this.hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        switch (data.type) {
-                            case Hls.ErrorTypes.NETWORK_ERROR:
-                                console.warn('[BroadcastPlayer] HLS network error, attempting recovery...');
-                                this.hls.startLoad();
-                                break;
-                            case Hls.ErrorTypes.MEDIA_ERROR:
-                                console.warn('[BroadcastPlayer] HLS media error, attempting recovery...');
-                                this.hls.recoverMediaError();
-                                break;
-                            default:
-                                this.hls.destroy();
-                                break;
-                        }
-                    }
-                });
+            if (state && state.video && state.video.url === newActive.src) {
+                this.currentVideoIndex = state.index;
             } else {
-                this.videoElement.src = url;
-                if (this.videoElement.readyState >= 1) {
-                    onMediaReady();
-                } else {
-                    this.videoElement.addEventListener('loadedmetadata', onMediaReady, { once: true });
-                }
+                this.currentVideoIndex = (this.currentVideoIndex + 1) % this.playlist.length;
             }
+            
+            const currentSrc = newActive.currentSrc || newActive.src;
+            this.currentUrl = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].url : currentSrc;
+            
+            const nextShowTitle = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].title : "Live Stream Broadcast";
+            this.updateTitleUI(nextShowTitle);
+
+            // Reset buffered index tracker for next preload sequence
+            this.bufferedIndex = -1;
+            this.isSwapping = false;
+
+            this.preloadUpcomingSequencedItem();
+        }).catch(err => {
+            console.error("[Transition Failure] Recovery fallback triggered:", err);
+            this.isSwapping = false;
+            this.bufferedIndex = -1;
+            this.syncToGlobalTimeline();
+        });
+    }
+
+    preloadUpcomingSequencedItem() {
+        if (this.playlist.length <= 1) return;
+
+        const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
+        
+        // Guard check: avoid reloading if index is already preloaded or preloading
+        if (this.bufferedIndex === nextIndex) return;
+
+        const nextVideo = this.playlist[nextIndex];
+        if (!nextVideo) return;
+        
+        this.bufferedIndex = nextIndex;
+
+        if (this.bufferHls) this.bufferHls.destroy();
+        
+        this.bufferPlayer.muted = true;
+        this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
+        this.bufferPlayer.load();
+        
+        console.log(`[Buffer Ready] Loading upcoming Index [${nextIndex}] in background`);
+    }
+
+    checkDriftSafety() {
+        if (!this.hasTunedIn || this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
+
+        const state = this.calculateBroadcastState();
+        if (!state || !state.video || state.video.url !== this.currentUrl) return;
+
+        const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
+        if (drift > 6) {
+            console.warn(`[Sync Adjust] Correcting minor drift (${drift.toFixed(2)}s).`);
+            this.activePlayer.currentTime = state.seekTo;
         }
     }
 
-    const startPlayer = () => {
-        const videoElem = document.querySelector('video');
-        if (videoElem) {
-            window.playerInstance = new BroadcastPlayer({
-                playlistUrl: 'playlist200.json',
-                videoElement: videoElem
-            });
+    loadHlsStream(player, url) {
+        if (player.canPlayType('application/vnd.apple.mpegurl')) {
+            player.src = url;
+            return null;
+        } else if (Hls.isSupported()) {
+            const hls = new Hls({ maxBufferLength: 12 });
+            hls.attachMedia(player);
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
+            return hls;
         }
-    };
-
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', startPlayer);
-    } else {
-        startPlayer();
+        return null;
     }
-})();
-   </script>     
+
+    updateTitleUI(text) {
+        document.getElementById('title-box').textContent = `Now: ${text}`;
+    }
+
+    setupUIHandlers() {
+        const muteBtn = document.getElementById('mute-btn');
+        const muteIcon = document.getElementById('mute-icon');
+        const fsBtn = document.getElementById('fullscreen-btn');
+        const frame = document.getElementById('tv-frame');
+
+        muteBtn.addEventListener('click', () => {
+            this.isMuted = !this.isMuted;
+            this.activePlayer.muted = this.isMuted;
+            this.bufferPlayer.muted = true; 
+
+            if (this.isMuted) {
+                muteBtn.title = "Unmute";
+                muteIcon.innerHTML = `<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>`;
+            } else {
+                muteBtn.title = "Mute";
+                muteIcon.innerHTML = `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
+                this.activePlayer.play().catch(() => {});
+            }
+        });
+
+        fsBtn.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+    }
+}
+
+const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
+</script>
 </body>
 </html>

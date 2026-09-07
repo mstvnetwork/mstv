@@ -252,7 +252,7 @@
             </button>
         </div>
     </div>
-     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <script>
 (function () {
@@ -272,7 +272,6 @@
         }
 
         async init() {
-            console.log('[DEBUG] 1. Initializing BroadcastPlayer...');
             await this.fetchPlaylist();
             this.syncPlayback();
             this.attachStrictBypassProtection();
@@ -284,18 +283,14 @@
         async fetchPlaylist() {
             try {
                 const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`);
-                if (!response.ok) {
-                    console.error('[DEBUG ERROR] JSON Fetch failed with status:', response.status);
-                    return;
-                }
+                if (!response.ok) return;
                 
                 const data = await response.json();
                 this.playlist = data.playlist || [];
                 this.referenceId = data.referenceId || 'ref-100';
                 this.anchorStartTime = data.anchorStartTime || 1700000000;
-                console.log('[DEBUG] 2. Playlist loaded successfully. Items count:', this.playlist.length);
             } catch (err) {
-                console.error('[DEBUG ERROR] Failed to parse JSON schedule:', err);
+                console.error('[BroadcastPlayer] Failed to load JSON schedule:', err);
             }
         }
 
@@ -341,15 +336,11 @@
 
         syncPlayback() {
             const state = this.calculateBroadcastState();
-            if (!state || !state.video) {
-                console.warn('[DEBUG WARNING] No broadcast state calculated.');
-                return;
-            }
+            if (!state || !state.video) return;
 
             const { video, seekTo } = state;
 
             if (this.currentVideoUrl !== video.url) {
-                console.log('[DEBUG] 3. Changing track to:', video.title || video.id, 'Seek Target:', seekTo + 's');
                 this.currentVideoUrl = video.url;
                 this.loadMediaStream(video.url, seekTo);
                 return;
@@ -358,11 +349,38 @@
             if (this.videoElement && !this.videoElement.paused && this.videoElement.readyState >= 2) {
                 const drift = Math.abs(this.videoElement.currentTime - seekTo);
                 if (drift > 2) {
-                    console.warn(`[DEBUG] Drift detected (${drift.toFixed(1)}s). Reverting...`);
-                    this.isEnforcingSync = true;
-                    this.videoElement.currentTime = seekTo;
-                    setTimeout(() => { this.isEnforcingSync = false; }, 200);
+                    this.safeSeek(seekTo);
                 }
+            }
+        }
+
+        safeSeek(targetTime) {
+            if (!this.videoElement) return;
+            
+            this.isEnforcingSync = true;
+            
+            // Clamp target time within actual media duration if available
+            const duration = this.videoElement.duration;
+            let validTime = targetTime;
+            if (duration && !isNaN(duration) && duration > 0) {
+                validTime = Math.min(targetTime, duration - 1);
+            }
+
+            this.videoElement.currentTime = validTime;
+            setTimeout(() => { this.isEnforcingSync = false; }, 300);
+        }
+
+        attemptPlay() {
+            if (!this.videoElement) return;
+
+            const playPromise = this.videoElement.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(() => {
+                    // Fallback for browser autoplay policies: Mute and play
+                    console.warn('[BroadcastPlayer] Autoplay blocked unmuted. Muting to enable playback...');
+                    this.videoElement.muted = true;
+                    this.videoElement.play().catch(err => console.error('[BroadcastPlayer] Play failed:', err));
+                });
             }
         }
 
@@ -375,23 +393,24 @@
                 const state = this.calculateBroadcastState();
                 if (!state) return;
 
-                const targetLiveTime = state.seekTo;
-                const userAttemptedTime = this.videoElement.currentTime;
+                if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
+                    console.warn('[BroadcastPlayer] Anti-Scrubbing triggered. Snapping back...');
+                    this.safeSeek(state.seekTo);
+                }
+            });
 
-                if (Math.abs(userAttemptedTime - targetLiveTime) > 1.5) {
-                    console.warn('[DEBUG] Anti-Scrubbing activated. Snapping back to live point.');
-                    this.isEnforcingSync = true;
-                    this.videoElement.currentTime = targetLiveTime;
-                    setTimeout(() => { this.isEnforcingSync = false; }, 200);
+            this.videoElement.addEventListener('play', () => {
+                const state = this.calculateBroadcastState();
+                if (state) {
+                    if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
+                        this.safeSeek(state.seekTo);
+                    }
                 }
             });
         }
 
         loadMediaStream(url, seekTo) {
-            if (!this.videoElement) {
-                console.error('[DEBUG ERROR] Video element is missing!');
-                return;
-            }
+            if (!this.videoElement) return;
 
             const isHls = url.includes('.m3u8');
 
@@ -400,8 +419,12 @@
                 this.hls = null;
             }
 
+            const onMediaReady = () => {
+                this.safeSeek(seekTo);
+                this.attemptPlay();
+            };
+
             if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
-                console.log('[DEBUG] 4. Initializing HLS.js for .m3u8 stream...');
                 this.hls = new Hls({
                     enableWorker: true,
                     lowLatencyMode: false
@@ -411,29 +434,20 @@
                 this.hls.attachMedia(this.videoElement);
                 
                 this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    console.log('[DEBUG] 5. HLS Manifest loaded. Seeking to:', seekTo);
-                    this.isEnforcingSync = true;
-                    this.videoElement.currentTime = seekTo;
-                    this.videoElement.play().catch(e => {
-                        console.error('[DEBUG ERROR] Playback failed/blocked:', e.message);
-                    });
-                    setTimeout(() => { this.isEnforcingSync = false; }, 200);
-                });
-
-                this.hls.on(Hls.Events.ERROR, (event, data) => {
-                    if (data.fatal) {
-                        console.error('[DEBUG ERROR] HLS Fatal Error:', data.details);
+                    // Wait for metadata readiness before seeking
+                    if (this.videoElement.readyState >= 1) {
+                        onMediaReady();
+                    } else {
+                        this.videoElement.addEventListener('loadedmetadata', onMediaReady, { once: true });
                     }
                 });
             } else {
-                console.log('[DEBUG] 4. Loading native MP4 / Safari HLS stream...');
                 this.videoElement.src = url;
-                this.isEnforcingSync = true;
-                this.videoElement.currentTime = seekTo;
-                this.videoElement.play().catch(e => {
-                    console.error('[DEBUG ERROR] Playback failed/blocked:', e.message);
-                });
-                setTimeout(() => { this.isEnforcingSync = false; }, 200);
+                if (this.videoElement.readyState >= 1) {
+                    onMediaReady();
+                } else {
+                    this.videoElement.addEventListener('loadedmetadata', onMediaReady, { once: true });
+                }
             }
         }
     }
@@ -441,13 +455,10 @@
     const startPlayer = () => {
         const videoElem = document.querySelector('video');
         if (videoElem) {
-            console.log('[DEBUG] Found <video> element.');
             window.playerInstance = new BroadcastPlayer({
                 playlistUrl: 'playlist200.json',
                 videoElement: videoElem
             });
-        } else {
-            console.error('[DEBUG ERROR] Could not find any <video> tag in the HTML!');
         }
     };
 
@@ -457,7 +468,6 @@
         startPlayer();
     }
 })();
-                    </script>   
-                    
+</script>
 </body>
 </html>

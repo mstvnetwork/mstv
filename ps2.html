@@ -318,47 +318,147 @@ class UninterruptedBroadcast {
         }
     }
 
-    calculateBroadcastState() {
-    if (!this.playlist || this.playlist.length === 0) return null;
-
-    const now = Math.floor(Date.now() / 1000);
-
-    // 1. Locate reference item index
-    let refIndex = this.playlist.findIndex(item => item.id === this.referenceId);
-    if (refIndex === -1) refIndex = 0;
-    
-    // 2. Sum durations of items preceding the reference item
-    let refOffset = 0;
-    for (let i = 0; i < refIndex; i++) {
-        refOffset += (this.playlist[i].duration || 0);
+    class BroadcastPlayer {
+    constructor(options = {}) {
+        this.playlistUrl = options.playlistUrl || 'playlist200.json';
+        this.videoElement = options.videoElement; // Your HTML5 <video> element
+        this.playlist = [];
+        this.referenceId = 'ref-100';
+        this.anchorStartTime = 1700000000;
+        
+        this.currentVideoUrl = null; // Track current URL to prevent unnecessary reloads
+        this.hls = null;             // Reference to HLS.js instance
+        
+        this.init();
     }
 
-    // 3. Compute real-time synchronized timeline position
-    const effectiveAnchorTime = (this.anchorStartTime || 1700000000) - refOffset;
-    let elapsedSeconds = now - effectiveAnchorTime;
+    async init() {
+        await this.fetchPlaylist();
+        this.syncPlayback();
 
-    const totalDuration = this.playlist.reduce((sum, item) => sum + (item.duration || 0), 0);
-    if (totalDuration === 0) return null;
+        // 1. Check/sync playback state every second (lightweight clock check)
+        setInterval(() => this.syncPlayback(), 1000);
 
-    let cyclePosition = elapsedSeconds % totalDuration;
-    if (cyclePosition < 0) cyclePosition += totalDuration;
+        // 2. Fetch fresh JSON schedule every 30 seconds for background updates
+        setInterval(() => this.fetchPlaylist(), 30000);
+    }
 
-    let accumulatedTime = 0;
-    for (let i = 0; i < this.playlist.length; i++) {
-        const video = this.playlist[i];
-        const videoDuration = video.duration || 0;
-
-        if (cyclePosition >= accumulatedTime && cyclePosition < (accumulatedTime + videoDuration)) {
-            return {
-                index: i,
-                seekTo: cyclePosition - accumulatedTime,
-                video: video
-            };
+    async fetchPlaylist() {
+        try {
+            const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`);
+            if (!response.ok) return;
+            
+            const data = await response.json();
+            this.playlist = data.playlist || [];
+            this.referenceId = data.referenceId || 'ref-100';
+            this.anchorStartTime = data.anchorStartTime || 1700000000;
+        } catch (err) {
+            console.error('[BroadcastPlayer] Failed to load schedule JSON:', err);
         }
-        accumulatedTime += videoDuration;
     }
 
-    return { index: 0, seekTo: 0, video: this.playlist[0] };
+    // PURE METHOD 1 CALCULATION
+    calculateBroadcastState() {
+        if (!this.playlist || this.playlist.length === 0) return null;
+
+        const now = Math.floor(Date.now() / 1000);
+
+        // 1. Locate reference item index
+        let refIndex = this.playlist.findIndex(item => item.id === this.referenceId);
+        if (refIndex === -1) refIndex = 0;
+
+        // 2. Sum durations of items preceding the reference item
+        let refOffset = 0;
+        for (let i = 0; i < refIndex; i++) {
+            refOffset += (this.playlist[i].duration || 0);
+        }
+
+        // 3. Compute real-time synchronized timeline position
+        const effectiveAnchorTime = this.anchorStartTime - refOffset;
+        let elapsedSeconds = now - effectiveAnchorTime;
+
+        const totalDuration = this.playlist.reduce((sum, item) => sum + (item.duration || 0), 0);
+        if (totalDuration === 0) return null;
+
+        let cyclePosition = elapsedSeconds % totalDuration;
+        if (cyclePosition < 0) cyclePosition += totalDuration;
+
+        let accumulatedTime = 0;
+        for (let i = 0; i < this.playlist.length; i++) {
+            const video = this.playlist[i];
+            const videoDuration = video.duration || 0;
+
+            if (cyclePosition >= accumulatedTime && cyclePosition < (accumulatedTime + videoDuration)) {
+                return {
+                    index: i,
+                    seekTo: cyclePosition - accumulatedTime,
+                    video: video
+                };
+            }
+            accumulatedTime += videoDuration;
+        }
+
+        return { index: 0, seekTo: 0, video: this.playlist[0] };
+    }
+
+    syncPlayback() {
+        const state = this.calculateBroadcastState();
+        if (!state || !state.video) return;
+
+        const { video, seekTo } = state;
+
+        // A. IF VIDEO CHANGED: Load the new media stream
+        if (this.currentVideoUrl !== video.url) {
+            this.currentVideoUrl = video.url;
+            this.loadMediaStream(video.url, seekTo);
+            return;
+        }
+
+        // B. IF SAME VIDEO: Correct drift ONLY if player falls out of sync by > 3 seconds
+        if (this.videoElement && !this.videoElement.paused) {
+            const drift = Math.abs(this.videoElement.currentTime - seekTo);
+            if (drift > 3) {
+                console.log(`[BroadcastPlayer] Resyncing drift (${drift.toFixed(1)}s)...`);
+                this.videoElement.currentTime = seekTo;
+            }
+        }
+    }
+
+    loadMediaStream(url, seekTo) {
+        if (!this.videoElement) return;
+
+        const isHls = url.includes('.m3u8');
+
+        // Cleanup existing HLS instance if switching formats
+        if (this.hls) {
+            this.hls.destroy();
+            this.hls = null;
+        }
+
+        if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+            this.hls = new Hls({
+                enableWorker: true,
+                lowLatencyMode: false
+            });
+            
+            this.hls.loadSource(url);
+            this.hls.attachMedia(this.videoElement);
+            
+            this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                this.videoElement.currentTime = seekTo;
+                this.videoElement.play().catch(() => {
+                    console.warn('[BroadcastPlayer] Autoplay blocked, waiting for user interaction.');
+                });
+            });
+        } else {
+            // Direct playback for MP4 or Native Safari HLS
+            this.videoElement.src = url;
+            this.videoElement.currentTime = seekTo;
+            this.videoElement.play().catch(() => {
+                console.warn('[BroadcastPlayer] Autoplay blocked, waiting for user interaction.');
+            });
+        }
+    }
     }
     syncToGlobalTimeline() {
         this.hasTunedIn = true;

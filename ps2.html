@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Apna TV - Live Broadcast</title>
-    <!-- Include hls.js Engine via jsDelivr CDN -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.1/dist/hls.min.js"></script>
     <style>
         :root {
@@ -12,248 +11,82 @@
             --control-bg-hover: rgba(0, 0, 0, 0.85);
             --icon: #fff;
         }
-
-        * {
-            box-sizing: border-box;
-        }
-
+        * { box-sizing: border-box; }
         body, html {
-            margin: 0;
-            padding: 0;
-            background: #000;
+            margin: 0; padding: 0; background: #000;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            height: 100dvh;
-            color: #fff;
-            overflow: hidden;
+            display: flex; justify-content: center; align-items: center;
+            height: 100vh; height: 100dvh; color: #fff; overflow: hidden;
         }
-
         .tv-frame {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            height: 100dvh;
-            background: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            position: relative; width: 100vw; height: 100vh; height: 100dvh;
+            background: #000; display: flex; justify-content: center; align-items: center;
         }
-
         .video-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            opacity: 0;
-            transition: opacity 0.25s ease-in-out;
-            pointer-events: none;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            object-fit: contain; opacity: 0; transition: opacity 0.25s ease-in-out;
+            pointer-events: none; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
         }
-
-        .video-layer.active {
-            opacity: 1;
-            z-index: 1;
-            pointer-events: auto;
-        }
-
-        /* --- ISOLATED LOGO ENGINE --- */
-        .logo-container-context {
-            position: absolute;
-            inset: 0;                
-            pointer-events: none;    
-            z-index: 15;             
-            container-type: inline-size; 
-        }
-
-        /* --- LOADING SPINNER ENGINE --- */
+        .video-layer.active { opacity: 1; z-index: 1; pointer-events: auto; }
+        .logo-container-context { position: absolute; inset: 0; pointer-events: none; z-index: 15; container-type: inline-size; }
         #loadingOverlay.loading-overlay {
-            position: absolute;
-            inset: 0;
-            background: #000;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            gap: 16px;
-            z-index: 200;
+            position: absolute; inset: 0; background: #000; display: flex; flex-direction: column;
+            justify-content: center; align-items: center; gap: 16px; z-index: 200;
             transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
         }
-
-        /* Force hiding regardless of ID specificity and STOP animation paint cycles */
-        #loadingOverlay.hidden {
-            opacity: 0 !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-            display: none !important;
-        }
-
-        #loadingOverlay.hidden .red-spinner {
-            animation: none !important; /* Prevents hidden spinner from stealing GPU/CPU frames */
-        }
-
+        #loadingOverlay.hidden { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; display: none !important; }
+        #loadingOverlay.hidden .red-spinner { animation: none !important; }
         .red-spinner {
-            box-sizing: border-box;
-            display: block;
-            width: 48px;
-            height: 48px;
-            border: 4px solid rgba(255, 59, 48, 0.2);
-            border-top-color: #ff3b30 !important;
-            border-radius: 50%;
-            will-change: transform; /* Hardware accelerate spinner on GPU layer */
-            transform: translateZ(0);
-            animation: spin-loader 0.8s linear infinite;
-            flex-shrink: 0;
+            box-sizing: border-box; display: block; width: 48px; height: 48px;
+            border: 4px solid rgba(255, 59, 48, 0.2); border-top-color: #ff3b30 !important;
+            border-radius: 50%; will-change: transform; transform: translateZ(0);
+            animation: spin-loader 0.8s linear infinite; flex-shrink: 0;
         }
-
-        .loading-text {
-            color: #ffffff;
-            font-size: 15px;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-        }
-
-        @keyframes spin-loader {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* --- CHANNEL LOGO LAYOUT --- */
+        .loading-text { color: #ffffff; font-size: 15px; font-weight: 500; letter-spacing: 0.5px; }
+        @keyframes spin-loader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         .channel-logo {
-            position: absolute;
-            top: 0px;            
-            right: 16px;  
-            width: 64px;   
-            height: auto;   
-            object-fit: contain;
-            opacity: 0.85;   
-            pointer-events: none;
-            filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
-            z-index: 100;
+            position: absolute; top: 0px; right: 16px; width: 64px; height: auto;
+            object-fit: contain; opacity: 0.85; pointer-events: none;
+            filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5)); z-index: 100;
         }
-
-        @container (min-width: 500px) {
-            .channel-logo {
-                top: -1.3cqw;            
-                right: 2.5cqw;  
-                width: 18cqw;   
-            }
-        }
-
+        @container (min-width: 500px) { .channel-logo { top: -1.3cqw; right: 2.5cqw; width: 18cqw; } }
         .title-box {
-            position: absolute;
-            top: max(2px, env(safe-area-inset-top));
-            left: max(16px, env(safe-area-inset-left));
-            font-size: 10px;
-            font-weight: 600;
-            color: #f1f1f1;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-            z-index: 100;
-            max-width: 70vw;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            pointer-events: none;
+            position: absolute; top: max(2px, env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left));
+            font-size: 10px; font-weight: 600; color: #f1f1f1; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+            z-index: 100; max-width: 70vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
         }
-
-        .ui-overlay {
-            position: absolute;
-            bottom: max(16px, env(safe-area-inset-bottom));
-            right: max(16px, env(safe-area-inset-right));
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            z-index: 100;
-        }
-
+        .ui-overlay { position: absolute; bottom: max(16px, env(safe-area-inset-bottom)); right: max(16px, env(safe-area-inset-right)); display: flex; align-items: center; gap: 12px; z-index: 100; }
         .ctrl-btn {
-            width: 42px;
-            height: 42px;
-            border-radius: 50%;
-            border: none;
-            background: var(--control-bg);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            flex-shrink: 0;
-            transition: background .15s ease, transform .1s ease;
-            -webkit-tap-highlight-color: transparent;
+            width: 42px; height: 42px; border-radius: 50%; border: none; background: var(--control-bg);
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center;
+            cursor: pointer; flex-shrink: 0; transition: background .15s ease, transform .1s ease; -webkit-tap-highlight-color: transparent;
         }
-
-        .ctrl-btn:hover {
-            background: var(--control-bg-hover);
-        }
-
-        .ctrl-btn:active {
-            transform: scale(.92);
-        }
-
-        .ctrl-btn svg {
-            width: 20px;
-            height: 20px;
-            fill: var(--icon);
-        }
-
+        .ctrl-btn:hover { background: var(--control-bg-hover); }
+        .ctrl-btn:active { transform: scale(.92); }
+        .ctrl-btn svg { width: 20px; height: 20px; fill: var(--icon); }
         @media (max-width: 360px) {
-            .title-box {
-                font-size: 11px;
-                padding: 4px 8px;
-            }
-            .ctrl-btn {
-                width: 38px;
-                height: 38px;
-            }
-            .ctrl-btn svg {
-                width: 18px;
-                height: 18px;
-            }
+            .title-box { font-size: 11px; padding: 4px 8px; }
+            .ctrl-btn { width: 38px; height: 38px; }
+            .ctrl-btn svg { width: 18px; height: 18px; }
         }
     </style>
 </head>
 <body>
-
     <div class="tv-frame" id="tv-frame">
         <video id="player-1" class="video-layer active" muted playsinline></video>
         <video id="player-2" class="video-layer" muted playsinline></video>
-
-        <div id="title-box" class="title-box">
-            Now: Connecting...
-        </div>
-
-        <div class="logo-container-context">
-            <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
-        </div>
-
-        <!-- Loading Spinner Overlay Layer -->
-        <div id="loadingOverlay" class="loading-overlay">
-            <div class="red-spinner"></div>
-            <div class="loading-text">Please Wait</div>
-        </div>
-
+        <div id="title-box" class="title-box">Now: Connecting...</div>
+        <div class="logo-container-context"><img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo"></div>
+        <div id="loadingOverlay" class="loading-overlay"><div class="red-spinner"></div><div class="loading-text">Please Wait</div></div>
         <div class="ui-overlay">
             <button id="mute-btn" class="ctrl-btn" title="Unmute">
-                <svg id="mute-icon" viewBox="0 0 24 24">
-                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
-                </svg>
+                <svg id="mute-icon" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
             </button>
-
             <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
-                <svg viewBox="0 0 24 24">
-                    <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                </svg>
+                <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
             </button>
         </div>
     </div>
-
 <script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {
@@ -261,50 +94,36 @@ class UninterruptedBroadcast {
         this.player2 = document.getElementById(playerId2);
         this.activePlayer = this.player1;
         this.bufferPlayer = this.player2;
-
         this.hls1 = null;
         this.hls2 = null;
-        this.activeHls = null;
-        this.bufferHls = null;
-
         this.playlist = [];
         this.anchorTime = 0;
         this.totalDuration = 0;
-        
         this.currentVideoIndex = -1;
         this.currentUrl = "";
         this.isSwapping = false; 
         this.hasTunedIn = false;
         this.isMuted = true; 
-        this.isSeekingInternally = false; // Flag to prevent infinite seek loops
-
+        this.isSeekingInternally = false;
         this.loadingOverlay = document.getElementById('loadingOverlay');
-
         this.init();
     }
-
     async init() {
         await this.fetchPlaylistUpdates();
-        
         this.setupPlayerListeners(this.player1);
         this.setupPlayerListeners(this.player2);
         this.setupUIHandlers();
-
         this.syncToGlobalTimeline();
-
         setInterval(() => this.fetchPlaylistUpdates(), 15000);
-        setInterval(() => this.checkDriftSafety(), 6000); // Shifted to 6s for better stability
+        setInterval(() => this.checkDriftSafety(), 5000);
     }
-
     async fetchPlaylistUpdates() {
         try {
             const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
             const data = await response.json();
-            
             this.playlist = data.playlist;
             this.anchorTime = data.anchorTime;
             this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
-            
             if (this.hasTunedIn && !this.isSwapping) {
                 this.preloadUpcomingSequencedItem();
             }
@@ -312,16 +131,12 @@ class UninterruptedBroadcast {
             console.error("[Manifest Error] Live playlist fetch failure:", err);
         }
     }
-
     calculateBroadcastState() {
         if (this.totalDuration === 0 || this.anchorTime === 0) return null;
-
         const now = Math.floor(Date.now() / 1000);
         let elapsedSeconds = now - this.anchorTime;
         if (elapsedSeconds < 0) elapsedSeconds = 0; 
-
         let currentCyclePosition = elapsedSeconds % this.totalDuration;
-
         let accumulatedTime = 0;
         for (let i = 0; i < this.playlist.length; i++) {
             const video = this.playlist[i];
@@ -330,105 +145,62 @@ class UninterruptedBroadcast {
             }
             accumulatedTime += video.duration;
         }
-        return { index: 0, seekTo: 0, video: this.playlist };
+        return { index: 0, seekTo: 0, video: this.playlist[0] };
     }
-
     syncToGlobalTimeline() {
         this.hasTunedIn = true;
         const state = this.calculateBroadcastState();
         if (!state || !state.video) return;
-
         this.currentVideoIndex = state.index;
         this.currentUrl = state.video.url;
-        
         this.updateTitleUI(state.video.title || "Live Broadcast Feed");
-
-        if (this.activeHls) {
-            this.activeHls.destroy();
-            this.activeHls = null;
-        }
+        this.cleanupHls(this.player1 === this.activePlayer ? 'hls1' : 'hls2');
         this.activePlayer.muted = this.isMuted;
-        
         this.isSeekingInternally = true;
-        this.activeHls = this.loadHlsStream(this.activePlayer, state.video.url);
-        
-        const onInitialLoad = () => {
-            this.activePlayer.currentTime = state.seekTo;
-            this.activePlayer.play().catch(() => {});
-            this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
-            setTimeout(() => { this.isSeekingInternally = false; }, 600);
-        };
-        this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
+        if (this.activePlayer === this.player1) {
+            this.hls1 = this.loadHlsStream(this.player1, state.video.url, state.seekTo);
+        } else {
+            this.hls2 = this.loadHlsStream(this.player2, state.video.url, state.seekTo);
+        }
     }
-
     setupPlayerListeners(player) {
         const hideOverlayHandler = () => {
             if (player === this.activePlayer && this.loadingOverlay) {
                 this.loadingOverlay.classList.add('hidden');
             }
         };
-
         player.addEventListener('playing', hideOverlayHandler);
         player.addEventListener('timeupdate', hideOverlayHandler);
-
         player.addEventListener('waiting', () => {
             if (player === this.activePlayer && this.loadingOverlay) {
                 this.loadingOverlay.classList.remove('hidden');
             }
         });
-
         player.addEventListener('ended', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             this.handleTrackEnded();
         });
-
-        player.addEventListener('seeking', () => {
-            if (player !== this.activePlayer || this.isSwapping || this.isSeekingInternally) return;
-            
-            const state = this.calculateBroadcastState();
-            if (!state || !state.video || state.video.url !== this.currentUrl) return;
-
-            const variance = Math.abs(player.currentTime - state.seekTo);
-            if (variance > 8) { 
-                this.isSeekingInternally = true;
-                player.currentTime = state.seekTo;
-                setTimeout(() => { this.isSeekingInternally = false; }, 600);
-            }
-        });
     }
-
     handleTrackEnded() {
         this.isSwapping = true;
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
-
         newActive.muted = this.isMuted;
-
         newActive.play().then(() => {
             newActive.classList.add('active');
             oldActive.classList.remove('active');
             oldActive.pause();
-
             this.activePlayer = newActive;
             this.bufferPlayer = oldActive;
-
-            const tempHls = this.activeHls;
-            this.activeHls = this.bufferHls;
-            this.bufferHls = tempHls;
-
             const state = this.calculateBroadcastState();
-            if (state && state.video && state.video.url === newActive.src) {
+            if (state && state.video && state.video.url === this.currentUrl) {
                 this.currentVideoIndex = state.index;
             } else {
                 this.currentVideoIndex = (this.currentVideoIndex + 1) % this.playlist.length;
             }
-            
-            const currentSrc = newActive.currentSrc || newActive.src;
-            this.currentUrl = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].url : currentSrc;
-            
+            this.currentUrl = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].url : newActive.src;
             const nextShowTitle = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].title : "Live Stream Broadcast";
             this.updateTitleUI(nextShowTitle);
-
             this.isSwapping = false;
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
@@ -437,96 +209,116 @@ class UninterruptedBroadcast {
             this.syncToGlobalTimeline();
         });
     }
-
     preloadUpcomingSequencedItem() {
         if (this.playlist.length <= 1) return;
-
         const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
         const nextVideo = this.playlist[nextIndex];
         if (!nextVideo) return;
-        
-        if (this.bufferHls) {
-            this.bufferHls.destroy();
-            this.bufferHls = null;
-        }
-        
+        this.cleanupHls(this.bufferPlayer === this.player1 ? 'hls1' : 'hls2');
         this.bufferPlayer.muted = true;
-        this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
+        if (this.bufferPlayer === this.player1) {
+            this.hls1 = this.loadHlsStream(this.player1, nextVideo.url, 0, true);
+        } else {
+            this.hls2 = this.loadHlsStream(this.player2, nextVideo.url, 0, true);
+        }
     }
-
     checkDriftSafety() {
         if (!this.hasTunedIn || this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
-
         const state = this.calculateBroadcastState();
         if (!state || !state.video || state.video.url !== this.currentUrl) return;
-
         const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
-        if (drift > 8) {
+        if (drift > 12) {
             this.isSeekingInternally = true;
             this.activePlayer.currentTime = state.seekTo;
             setTimeout(() => { this.isSeekingInternally = false; }, 600);
         }
     }
-
-    loadHlsStream(player, url) {
+    cleanupHls(hlsKey) {
+        if (this[hlsKey]) {
+            this[hlsKey].detachMedia();
+            this[hlsKey].destroy();
+            this[hlsKey] = null;
+        }
+    }
+    loadHlsStream(player, url, startPosition, isPreload = false) {
         if (player.canPlayType('application/vnd.apple.mpegurl')) {
             player.src = url;
-            player.load(); // FIXED: Force evaluation engine on native Apple Safari/iOS pipelines
+            player.load();
+            if (!isPreload) {
+                const onMetadata = () => {
+                    player.currentTime = startPosition;
+                    player.play().catch(() => {});
+                    player.removeEventListener('loadedmetadata', onMetadata);
+                    setTimeout(() => { this.isSeekingInternally = false; }, 600);
+                };
+                player.addEventListener('loadedmetadata', onMetadata);
+            }
             return null;
         } else if (Hls.isSupported()) {
-            const hls = new Hls({ 
-                maxBufferLength: 30,         // Increased baseline limits to prevent jerky segment loading
-                maxMaxBufferLength: 60,      // Prevents extreme garbage sweeps under high browser stress
+            const hls = new Hls({
+                maxBufferLength: 15,
+                maxMaxBufferLength: 30,
                 enableWorker: true,
-                lowLatencyMode: false,       // Disables strict low latency rules to maximize linear segment stability
-                backBufferLength: 30         // Preserves local video segments to avoid immediate re-fetching
+                lowLatencyMode: false,
+                backBufferLength: 10,
+                progressive: true
             });
             hls.attachMedia(player);
-            hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
+            hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+                hls.loadSource(url);
+            });
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                if (!isPreload) {
+                    hls.startLoad(startPosition);
+                    player.currentTime = startPosition;
+                    player.play().then(() => {
+                        setTimeout(() => { this.isSeekingInternally = false; }, 600);
+                    }).catch(() => {});
+                }
+            });
+            hls.on(Hls.Events.ERROR, (event, data) => {
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            });
             return hls;
         }
         return null;
     }
-
-    updateTitleUI(text) {
-        document.getElementById('title-box').textContent = `Now: ${text}`;
-    }
-
+    updateTitleUI(text) { document.getElementById('title-box').textContent = `Now: ${text}`; }
     setupUIHandlers() {
         const muteBtn = document.getElementById('mute-btn');
         const muteIcon = document.getElementById('mute-icon');
         const fsBtn = document.getElementById('fullscreen-btn');
         const frame = document.getElementById('tv-frame');
-
         muteBtn.addEventListener('click', () => {
             this.isMuted = !this.isMuted;
             this.activePlayer.muted = this.isMuted;
             this.bufferPlayer.muted = true; 
-
             if (this.isMuted) {
                 muteBtn.title = "Unmute";
                 muteIcon.innerHTML = `<path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>`;
             } else {
                 muteBtn.title = "Mute";
                 muteIcon.innerHTML = `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
-                
-                if (this.activePlayer.paused && !this.isSwapping) {
-                    this.activePlayer.play().catch(() => {});
-                }
+                if (this.activePlayer.paused && !this.isSwapping) { this.activePlayer.play().catch(() => {}); }
             }
         });
-
         fsBtn.addEventListener('click', () => {
-            if (!document.fullscreenElement) {
-                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`));
-            } else {
-                document.exitFullscreen();
-            }
+            if (!document.fullscreenElement) { frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`)); }
+            else { document.exitFullscreen(); }
         });
     }
 }
-
-// Initializing the corrected, lag-free dual playback engine
 const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
 </script>
 </body>

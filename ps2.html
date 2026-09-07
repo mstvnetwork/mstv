@@ -235,23 +235,9 @@
     <div class="red-spinner"></div>
     <div class="loading-text">Please Wait</div>
 </div>
+<!-- Load stable HLS.js bundle -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
 
-
-        <div class="ui-overlay">
-            <button id="mute-btn" class="ctrl-btn" title="Unmute">
-                <svg id="mute-icon" viewBox="0 0 24 24">
-                    <path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
-                </svg>
-            </button>
-
-            <button id="fullscreen-btn" class="ctrl-btn" title="Fullscreen">
-                <svg viewBox="0 0 24 24">
-                    <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                </svg>
-            </button>
-        </div>
-    </div>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 <script>
 (function () {
     class BroadcastPlayer {
@@ -264,7 +250,7 @@
             
             this.currentVideoUrl = null;
             this.hls = null;
-            this.isEnforcingSync = false; // Flag to prevent infinite seek loops during automatic snaps
+            this.isEnforcingSync = false;
             
             this.init();
         }
@@ -277,21 +263,24 @@
             // High-frequency 1-second clock check
             setInterval(() => this.syncPlayback(), 1000);
 
-            // Poll playlist JSON every 30 seconds for schedule updates
+            // Poll playlist JSON every 30 seconds
             setInterval(() => this.fetchPlaylist(), 30000);
         }
 
         async fetchPlaylist() {
             try {
                 const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`);
-                if (!response.ok) return;
+                if (!response.ok) {
+                    console.error('[BroadcastPlayer] HTTP Error fetching JSON:', response.status);
+                    return;
+                }
                 
                 const data = await response.json();
                 this.playlist = data.playlist || [];
                 this.referenceId = data.referenceId || 'ref-100';
                 this.anchorStartTime = data.anchorStartTime || 1700000000;
             } catch (err) {
-                console.error('[BroadcastPlayer] Failed to load JSON schedule:', err);
+                console.error('[BroadcastPlayer] Failed to load or parse JSON schedule:', err);
             }
         }
 
@@ -341,14 +330,14 @@
 
             const { video, seekTo } = state;
 
-            // 1. IF VIDEO CHANGED: Load new track
+            // Load stream if URL changed
             if (this.currentVideoUrl !== video.url) {
                 this.currentVideoUrl = video.url;
                 this.loadMediaStream(video.url, seekTo);
                 return;
             }
 
-            // 2. AUTOMATIC STRICT DRIFT REVERT: Snaps back if player lags or jumps by > 2s
+            // Automatic strict drift revert (>2 seconds)
             if (this.videoElement && !this.videoElement.paused && this.videoElement.readyState >= 2) {
                 const drift = Math.abs(this.videoElement.currentTime - seekTo);
                 if (drift > 2) {
@@ -360,11 +349,10 @@
             }
         }
 
-        // AUTOMATIC ANTI-SCRUBBING & STRICT BYPASS PROTECTION
         attachStrictBypassProtection() {
             if (!this.videoElement) return;
 
-            // A. Catch manual seeking attempts (scrub bar dragging / hotkeys / video jumps)
+            // Catch manual seeking / hotkeys / scrubbing
             this.videoElement.addEventListener('seeking', () => {
                 if (this.isEnforcingSync) return;
 
@@ -374,16 +362,15 @@
                 const targetLiveTime = state.seekTo;
                 const userAttemptedTime = this.videoElement.currentTime;
 
-                // Detect bypass attempt if user tries to seek more than 1.5 seconds away from live point
                 if (Math.abs(userAttemptedTime - targetLiveTime) > 1.5) {
-                    console.warn('[BroadcastPlayer] Bypass attempt detected! Snapping back to live broadcast point.');
+                    console.warn('[BroadcastPlayer] Bypass attempt detected! Snapping back to live point.');
                     this.isEnforcingSync = true;
                     this.videoElement.currentTime = targetLiveTime;
                     setTimeout(() => { this.isEnforcingSync = false; }, 200);
                 }
             });
 
-            // B. Catch pause/unpause buffer delays or background tab throttling
+            // Catch pause/unpause buffer delays
             this.videoElement.addEventListener('play', () => {
                 const state = this.calculateBroadcastState();
                 if (state) {
@@ -419,31 +406,48 @@
                 this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
                     this.isEnforcingSync = true;
                     this.videoElement.currentTime = seekTo;
-                    this.videoElement.play().catch(() => {});
+                    this.videoElement.play().catch(e => console.warn('[BroadcastPlayer] Autoplay prevented:', e));
                     setTimeout(() => { this.isEnforcingSync = false; }, 200);
                 });
+
+                this.hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        console.error('[BroadcastPlayer] HLS Fatal Error:', data.type);
+                    }
+                });
             } else {
+                // Direct playback for MP4 or native Safari HLS
                 this.videoElement.src = url;
                 this.isEnforcingSync = true;
                 this.videoElement.currentTime = seekTo;
-                this.videoElement.play().catch(() => {});
+                this.videoElement.play().catch(e => console.warn('[BroadcastPlayer] Autoplay prevented:', e));
                 setTimeout(() => { this.isEnforcingSync = false; }, 200);
             }
         }
     }
 
-    // Auto-initialize when DOM is ready
-    document.addEventListener('DOMContentLoaded', () => {
+    // Initialize player safely when DOM loads
+    const startPlayer = () => {
         const videoElem = document.querySelector('video');
         if (videoElem) {
             window.playerInstance = new BroadcastPlayer({
                 playlistUrl: 'playlist200.json',
                 videoElement: videoElem
             });
+        } else {
+            console.error('[BroadcastPlayer] No <video> element found on page!');
         }
-    });
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startPlayer);
+    } else {
+        startPlayer();
+    }
 })();
-</script>      
+</script>
+
+
 </body>
 </html>
         

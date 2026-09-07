@@ -71,62 +71,48 @@
             z-index: 15;             
             container-type: inline-size; 
         }
+            /* Loading Overlay & Spinner */
+    #loader-overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      z-index: 9998;
+      pointer-events: none;
+      transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
 
-/* --- LOADING SPINNER ENGINE --- */
-#loadingOverlay.loading-overlay {
-    position: absolute;
-    inset: 0;
-    background: #000;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 16px;
-    z-index: 200;
-    transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
-}
+    .spinner {
+      width: 54px;
+      height: 54px;
+      border: 4px solid rgba(255, 255, 255, 0.15);
+      border-top-color: #ff3b30;
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
 
-/* Force hiding regardless of ID specificity and STOP animation paint cycles */
-#loadingOverlay.hidden {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-    display: none !important;
-}
+    .loading-text {
+      color: #ffd700;
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    }
 
-#loadingOverlay.hidden .red-spinner {
-    animation: none !important; /* Prevents hidden spinner from stealing GPU/CPU frames */
-}
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
 
-.red-spinner {
-    box-sizing: border-box;
-    display: block;
-    width: 48px;
-    height: 48px;
-    border: 4px solid rgba(255, 59, 48, 0.2);
-    border-top-color: #ff3b30 !important;
-    border-radius: 50%;
-    will-change: transform; /* Hardware accelerate spinner on GPU layer */
-    transform: translateZ(0);
-    animation: spin-loader 0.8s linear infinite;
-    flex-shrink: 0;
-}
-
-.loading-text {
-    color: #ffffff;
-    font-size: 15px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-}
-
-@keyframes spin-loader {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
         /* --- CHANNEL LOGO LAYOUT --- */
         .channel-logo {
             position: absolute;
-            top: 0px;            
+            top: 16px;            
             right: 16px;  
             width: 64px;   
             height: auto;   
@@ -147,9 +133,9 @@
 
         .title-box {
             position: absolute;
-            top: max(2px, env(safe-area-inset-top));
+            top: max(16px, env(safe-area-inset-top));
             left: max(16px, env(safe-area-inset-left));
-            font-size: 10px;
+            font-size: 14px;
             font-weight: 600;
             color: #f1f1f1;
             text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
@@ -231,11 +217,11 @@
         <div class="logo-container-context">
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
-      <!-- Loading Spinner Overlay Layer -->
-<div id="loadingOverlay" class="loading-overlay">
-    <div class="red-spinner"></div>
-    <div class="loading-text">Please Wait</div>
-</div>
+        <!-- Centered Loader Spinner -->
+    <div id="loader-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Please Wait</div>
+    </div>
 
 
         <div class="ui-overlay">
@@ -252,6 +238,7 @@
             </button>
         </div>
     </div>
+
 <script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {
@@ -270,14 +257,10 @@ class UninterruptedBroadcast {
         this.totalDuration = 0;
         
         this.currentVideoIndex = -1;
-        this.bufferedIndex = -1; // Guard flag to prevent duplicate background loads
         this.currentUrl = "";
         this.isSwapping = false; 
         this.hasTunedIn = false;
         this.isMuted = true; 
-
-        // Reference to loading spinner overlay
-        this.loadingOverlay = document.getElementById('loadingOverlay');
 
         this.init();
     }
@@ -300,15 +283,11 @@ class UninterruptedBroadcast {
             const response = await fetch(`./playlist200.json?cb=${Date.now()}`);
             const data = await response.json();
             
-            const prevDuration = this.totalDuration;
             this.playlist = data.playlist;
             this.anchorTime = data.anchorTime;
             this.totalDuration = this.playlist.reduce((acc, item) => acc + item.duration, 0);
             
-            // Only log and update state if playlist duration changed or first load
-            if (prevDuration !== this.totalDuration) {
-                console.log(`[Manifest Sync] Total duration: ${this.totalDuration}s. Items: ${this.playlist.length}`);
-            }
+            console.log(`[Manifest Sync] Total duration: \${this.totalDuration}s. Items: \${this.playlist.length}`);
             
             if (this.hasTunedIn && !this.isSwapping) {
                 this.preloadUpcomingSequencedItem();
@@ -337,6 +316,30 @@ class UninterruptedBroadcast {
         }
         return { index: 0, seekTo: 0, video: this.playlist };
     }
+    function hideLoader() {
+      loaderElem.classList.add('ui-hidden');
+    }
+    function showLoader() {
+      loaderElem.classList.remove('ui-hidden');
+    }
+
+    videoElem.addEventListener('playing', () => {
+      clearBufferTimeout();
+      hideLoader();
+    });
+    videoElem.addEventListener('waiting', showLoader);
+    videoElem.addEventListener('seeking', showLoader);
+    videoElem.addEventListener('seeked', () => {
+      if (!videoElem.paused) hideLoader();
+    });
+
+    iframeElem.addEventListener('load', hideLoader);
+
+    // Native completion trigger for seamless track advancement
+    videoElem.addEventListener('ended', () => {
+      if (isFallbackActive || playlist.length === 0) return;
+      advanceToNextTrack();
+    });
 
     syncToGlobalTimeline() {
         this.hasTunedIn = true;
@@ -347,7 +350,7 @@ class UninterruptedBroadcast {
         this.currentUrl = state.video.url;
         
         this.updateTitleUI(state.video.title || "Live Broadcast Feed");
-        console.log(`[Tune In] Targeted Position -> Index [${state.index}] at ${state.seekTo}s`);
+        console.log(`[Tune In] Targeted Position -> Index [\${state.index}] at \${state.seekTo}s`);
 
         if (this.activeHls) this.activeHls.destroy();
         this.activePlayer.muted = this.isMuted;
@@ -364,22 +367,6 @@ class UninterruptedBroadcast {
     }
 
     setupPlayerListeners(player) {
-        // Hides spinner as soon as video actually starts playing frames
-        const hideOverlayHandler = () => {
-            if (player === this.activePlayer && this.loadingOverlay) {
-                this.loadingOverlay.classList.add('hidden');
-            }
-        };
-
-        player.addEventListener('playing', hideOverlayHandler);
-        player.addEventListener('timeupdate', hideOverlayHandler);
-
-        player.addEventListener('waiting', () => {
-            if (player === this.activePlayer && this.loadingOverlay) {
-                this.loadingOverlay.classList.remove('hidden');
-            }
-        });
-
         player.addEventListener('ended', () => {
             if (player !== this.activePlayer || this.isSwapping) return;
             this.handleTrackEnded();
@@ -433,15 +420,11 @@ class UninterruptedBroadcast {
             const nextShowTitle = this.playlist[this.currentVideoIndex] ? this.playlist[this.currentVideoIndex].title : "Live Stream Broadcast";
             this.updateTitleUI(nextShowTitle);
 
-            // Reset buffered index tracker for next preload sequence
-            this.bufferedIndex = -1;
             this.isSwapping = false;
-
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
             console.error("[Transition Failure] Recovery fallback triggered:", err);
             this.isSwapping = false;
-            this.bufferedIndex = -1;
             this.syncToGlobalTimeline();
         });
     }
@@ -450,22 +433,16 @@ class UninterruptedBroadcast {
         if (this.playlist.length <= 1) return;
 
         const nextIndex = (this.currentVideoIndex + 1) % this.playlist.length;
-        
-        // Guard check: avoid reloading if index is already preloaded or preloading
-        if (this.bufferedIndex === nextIndex) return;
-
         const nextVideo = this.playlist[nextIndex];
         if (!nextVideo) return;
         
-        this.bufferedIndex = nextIndex;
-
         if (this.bufferHls) this.bufferHls.destroy();
         
         this.bufferPlayer.muted = true;
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
         this.bufferPlayer.load();
         
-        console.log(`[Buffer Ready] Loading upcoming Index [${nextIndex}] in background`);
+        console.log(`[Buffer Ready] Loading upcoming Index [\${nextIndex}] in background`);
     }
 
     checkDriftSafety() {
@@ -476,7 +453,7 @@ class UninterruptedBroadcast {
 
         const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
         if (drift > 6) {
-            console.warn(`[Sync Adjust] Correcting minor drift (${drift.toFixed(2)}s).`);
+            console.warn(`[Sync Adjust] Correcting minor drift (\${drift.toFixed(2)}s).`);
             this.activePlayer.currentTime = state.seekTo;
         }
     }
@@ -495,8 +472,13 @@ class UninterruptedBroadcast {
     }
 
     updateTitleUI(text) {
-        document.getElementById('title-box').textContent = `Now: ${text}`;
-    }
+    // Uses backticks (template literals) to dynamically inject the video title
+    document.getElementById('title-box').textContent = `Now: ${text}`;
+}
+
+// Call the update method to change the on-screen text box
+this.updateTitleUI(nextShowTitle);
+
 
     setupUIHandlers() {
         const muteBtn = document.getElementById('mute-btn');
@@ -521,7 +503,7 @@ class UninterruptedBroadcast {
 
         fsBtn.addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: ${err.message}`));
+                frame.requestFullscreen().catch(err => console.log(`Fullscreen error: \${err.message}`));
             } else {
                 document.exitFullscreen();
             }

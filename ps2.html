@@ -72,57 +72,57 @@
             container-type: inline-size; 
         }
 
-/* --- LOADING SPINNER ENGINE --- */
-#loadingOverlay.loading-overlay {
-    position: absolute;
-    inset: 0;
-    background: #000;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 16px;
-    z-index: 200;
-    transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
-}
+        /* --- LOADING SPINNER ENGINE --- */
+        #loadingOverlay.loading-overlay {
+            position: absolute;
+            inset: 0;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 16px;
+            z-index: 200;
+            transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
+        }
 
-/* Force hiding regardless of ID specificity and STOP animation paint cycles */
-#loadingOverlay.hidden {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    pointer-events: none !important;
-    display: none !important;
-}
+        #loadingOverlay.hidden {
+            opacity: 0 !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+            display: none !important;
+        }
 
-#loadingOverlay.hidden .red-spinner {
-    animation: none !important; /* Prevents hidden spinner from stealing GPU/CPU frames */
-}
+        #loadingOverlay.hidden .red-spinner {
+            animation: none !important;
+        }
 
-.red-spinner {
-    box-sizing: border-box;
-    display: block;
-    width: 48px;
-    height: 48px;
-    border: 4px solid rgba(255, 59, 48, 0.2);
-    border-top-color: #ff3b30 !important;
-    border-radius: 50%;
-    will-change: transform; /* Hardware accelerate spinner on GPU layer */
-    transform: translateZ(0);
-    animation: spin-loader 0.8s linear infinite;
-    flex-shrink: 0;
-}
+        .red-spinner {
+            box-sizing: border-box;
+            display: block;
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(255, 59, 48, 0.2);
+            border-top-color: #ff3b30 !important;
+            border-radius: 50%;
+            will-change: transform;
+            transform: translateZ(0);
+            animation: spin-loader 0.8s linear infinite;
+            flex-shrink: 0;
+        }
 
-.loading-text {
-    color: #ffffff;
-    font-size: 15px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-}
+        .loading-text {
+            color: #ffffff;
+            font-size: 15px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
 
-@keyframes spin-loader {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
-}
+        @keyframes spin-loader {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         /* --- CHANNEL LOGO LAYOUT --- */
         .channel-logo {
             position: absolute;
@@ -231,12 +231,12 @@
         <div class="logo-container-context">
             <img id="channelLogo" class="channel-logo" src="https://crickethd.pages.dev/apna3.webp" alt="Channel Logo">
         </div>
-      <!-- Loading Spinner Overlay Layer -->
-<div id="loadingOverlay" class="loading-overlay">
-    <div class="red-spinner"></div>
-    <div class="loading-text">Please Wait</div>
-</div>
 
+        <!-- Loading Spinner Overlay Layer -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="red-spinner"></div>
+            <div class="loading-text">Please Wait</div>
+        </div>
 
         <div class="ui-overlay">
             <button id="mute-btn" class="ctrl-btn" title="Unmute">
@@ -252,7 +252,8 @@
             </button>
         </div>
     </div>
-  <script>
+
+<script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {
         this.player1 = document.getElementById(playerId1);
@@ -274,19 +275,9 @@ class UninterruptedBroadcast {
         this.isSwapping = false; 
         this.hasTunedIn = false;
         this.isMuted = true; 
+        this.isSeekingInternally = false; // Flag to prevent infinite seek loops
 
-        // Overlay element reference
         this.loadingOverlay = document.getElementById('loadingOverlay');
-
-        // --- AI BRAIN DETECTOR ENGINE STATE ---
-        this.aiEngine = {
-            isSeekingInternally: false,
-            lastValidTime: 0,
-            consecutiveStalls: 0,
-            healingInProgress: false,
-            lastSyncCheck: Date.now(),
-            velocityThreshold: 2.2 // Tolerance threshold for timeline anomalies
-        };
 
         this.init();
     }
@@ -300,9 +291,8 @@ class UninterruptedBroadcast {
 
         this.syncToGlobalTimeline();
 
-        // Background synchronization & self-healing heartbeat loop
         setInterval(() => this.fetchPlaylistUpdates(), 15000);
-        setInterval(() => this.runAIBrainHealer(), 2500);
+        setInterval(() => this.checkDriftSafety(), 6000); // Shifted to 6s for better stability
     }
 
     async fetchPlaylistUpdates() {
@@ -318,7 +308,7 @@ class UninterruptedBroadcast {
                 this.preloadUpcomingSequencedItem();
             }
         } catch (err) {
-            console.error("[AI Brain] Manifest update fetch retry failure:", err);
+            console.error("[Manifest Error] Live playlist fetch failure:", err);
         }
     }
 
@@ -355,19 +345,14 @@ class UninterruptedBroadcast {
         if (this.activeHls) this.activeHls.destroy();
         this.activePlayer.muted = this.isMuted;
         
-        this.aiEngine.isSeekingInternally = true;
+        this.isSeekingInternally = true;
         this.activeHls = this.loadHlsStream(this.activePlayer, state.video.url);
         
         const onInitialLoad = () => {
             this.activePlayer.currentTime = state.seekTo;
             this.activePlayer.play().catch(() => {});
             this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
-            
-            setTimeout(() => {
-                this.aiEngine.isSeekingInternally = false;
-                this.aiEngine.lastValidTime = state.seekTo;
-            }, 400);
-
+            setTimeout(() => { this.isSeekingInternally = false; }, 400);
             this.preloadUpcomingSequencedItem();
         };
         this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
@@ -380,17 +365,8 @@ class UninterruptedBroadcast {
             }
         };
 
-        player.addEventListener('playing', () => {
-            hideOverlayHandler();
-            this.aiEngine.consecutiveStalls = 0;
-        });
-
-        player.addEventListener('timeupdate', () => {
-            hideOverlayHandler();
-            if (player === this.activePlayer && !this.aiEngine.isSeekingInternally) {
-                this.aiEngine.lastValidTime = player.currentTime;
-            }
-        });
+        player.addEventListener('playing', hideOverlayHandler);
+        player.addEventListener('timeupdate', hideOverlayHandler);
 
         player.addEventListener('waiting', () => {
             if (player === this.activePlayer && this.loadingOverlay) {
@@ -403,84 +379,26 @@ class UninterruptedBroadcast {
             this.handleTrackEnded();
         });
 
-        // --- AI AUTOMATIC DETECTOR: STRICT ANTI-SCRUB INTERCEPTOR ---
+        // FIXED ANTI-SCRUB: Widened threshold & added lock-flag to stop frame stutter
         player.addEventListener('seeking', () => {
-            if (player !== this.activePlayer || this.isSwapping || this.aiEngine.isSeekingInternally) return;
-
+            if (player !== this.activePlayer || this.isSwapping || this.isSeekingInternally) return;
+            
             const state = this.calculateBroadcastState();
             if (!state || !state.video || state.video.url !== this.currentUrl) return;
 
-            const targetSeek = state.seekTo;
-            const delta = Math.abs(player.currentTime - targetSeek);
-
-            // Anomaly detected: Manual scrub or external injection attempt
-            if (delta > this.aiEngine.velocityThreshold) {
-                console.warn(`[AI Anti-Scrub] Anomaly detected (${delta.toFixed(2)}s jump). Enforcing timeline lock.`);
-                
-                this.aiEngine.isSeekingInternally = true;
-                player.currentTime = targetSeek;
-
-                setTimeout(() => {
-                    this.aiEngine.isSeekingInternally = false;
-                }, 350);
+            const variance = Math.abs(player.currentTime - state.seekTo);
+            if (variance > 8) { 
+                this.isSeekingInternally = true;
+                player.currentTime = state.seekTo;
+                setTimeout(() => { this.isSeekingInternally = false; }, 300);
             }
         });
-    }
-
-    // --- AI SELF-HEALING ENGINE ---
-    runAIBrainHealer() {
-        if (!this.hasTunedIn || this.isSwapping || this.aiEngine.healingInProgress) return;
-
-        const state = this.calculateBroadcastState();
-        if (!state || !state.video) return;
-
-        // Auto Heal Case 1: Stream track change detected out-of-sync
-        if (state.video.url !== this.currentUrl) {
-            console.warn("[AI Self-Heal] Playlist boundary shift detected. Synchronizing...");
-            this.aiEngine.healingInProgress = true;
-            this.syncToGlobalTimeline();
-            this.aiEngine.healingInProgress = false;
-            return;
-        }
-
-        // Auto Heal Case 2: Playhead freeze or buffer stalled
-        if (this.activePlayer.readyState < 3 && !this.activePlayer.paused) {
-            this.aiEngine.consecutiveStalls++;
-            if (this.aiEngine.consecutiveStalls >= 3) {
-                console.warn("[AI Self-Heal] Playback stall detected. Recovering media pipeline...");
-                this.aiEngine.consecutiveStalls = 0;
-                this.aiEngine.healingInProgress = true;
-                
-                if (this.activeHls) {
-                    this.activeHls.startLoad();
-                }
-                this.activePlayer.currentTime = state.seekTo;
-                this.activePlayer.play().catch(() => {});
-                
-                setTimeout(() => { this.aiEngine.healingInProgress = false; }, 1000);
-                return;
-            }
-        }
-
-        // Auto Heal Case 3: Accumulated drift correction (e.g. background tab throttling)
-        const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
-        if (drift > 4.5) {
-            console.warn(`[AI Self-Heal] Timeline drift resolved (${drift.toFixed(2)}s divergence). Adjusting smoothly.`);
-            this.aiEngine.isSeekingInternally = true;
-            this.activePlayer.currentTime = state.seekTo;
-            
-            setTimeout(() => {
-                this.aiEngine.isSeekingInternally = false;
-            }, 300);
-        }
     }
 
     handleTrackEnded() {
         this.isSwapping = true;
         const oldActive = this.activePlayer;
         const newActive = this.bufferPlayer;
-
-        console.log("[Handoff] Transitioning playback pipeline to buffered track...");
 
         newActive.muted = this.isMuted;
 
@@ -512,7 +430,7 @@ class UninterruptedBroadcast {
             this.isSwapping = false;
             this.preloadUpcomingSequencedItem();
         }).catch(err => {
-            console.error("[Transition Failure] AI Recovery trigger activated:", err);
+            console.error("[Transition Failure] Fallback triggered:", err);
             this.isSwapping = false;
             this.syncToGlobalTimeline();
         });
@@ -532,38 +450,31 @@ class UninterruptedBroadcast {
         this.bufferPlayer.load();
     }
 
+    checkDriftSafety() {
+        if (!this.hasTunedIn || this.isSwapping || this.activePlayer.paused || this.activePlayer.readyState < 2) return;
+
+        const state = this.calculateBroadcastState();
+        if (!state || !state.video || state.video.url !== this.currentUrl) return;
+
+        const drift = Math.abs(this.activePlayer.currentTime - state.seekTo);
+        if (drift > 8) {
+            this.isSeekingInternally = true;
+            this.activePlayer.currentTime = state.seekTo;
+            setTimeout(() => { this.isSeekingInternally = false; }, 300);
+        }
+    }
+
     loadHlsStream(player, url) {
         if (player.canPlayType('application/vnd.apple.mpegurl')) {
             player.src = url;
             return null;
         } else if (Hls.isSupported()) {
             const hls = new Hls({ 
-                maxBufferLength: 12,
-                maxMaxBufferLength: 24,
+                maxBufferLength: 10,
+                maxMaxBufferLength: 20,
                 enableWorker: true,
-                lowLatencyMode: false
+                backBufferLength: 0 // Clears old video memory to prevent stuttering
             });
-
-            // AI HLS error self-healing listener
-            hls.on(Hls.Events.ERROR, (event, data) => {
-                if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.warn("[AI Self-Heal] Network error encountered. Recovering stream...");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.warn("[AI Self-Heal] Media decoding error encountered. Recovering buffer...");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.error("[AI Self-Heal] Fatal error unrecoverable. Re-initializing pipeline.");
-                            this.syncToGlobalTimeline();
-                            break;
-                    }
-                }
-            });
-
             hls.attachMedia(player);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
             return hls;
@@ -607,6 +518,6 @@ class UninterruptedBroadcast {
 }
 
 const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
-    </script>      
+</script>
 </body>
 </html>

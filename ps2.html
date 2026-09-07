@@ -252,7 +252,7 @@
             </button>
         </div>
     </div>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <script>
 (function () {
@@ -267,31 +267,55 @@
             this.currentVideoUrl = null;
             this.hls = null;
             this.isEnforcingSync = false;
+            this.fetchFailCount = 0;
             
             this.init();
         }
 
         async init() {
-            await this.fetchPlaylist();
-            this.syncPlayback();
+            const loaded = await this.fetchPlaylist();
+            if (loaded) {
+                this.syncPlayback();
+            }
             this.attachStrictBypassProtection();
 
+            // Run sync every second for strict live timing
             setInterval(() => this.syncPlayback(), 1000);
-            setInterval(() => this.fetchPlaylist(), 30000);
+            
+            // Poll playlist updates every 60 seconds (instead of 30s) to avoid connection aborts
+            setInterval(() => this.fetchPlaylist(), 60000);
         }
 
         async fetchPlaylist() {
             try {
-                const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`);
-                if (!response.ok) return;
+                // If it failed 3 times in a row, temporarily pause network spam
+                if (this.fetchFailCount > 3) {
+                    console.warn('[BroadcastPlayer] Pausing schedule fetch due to persistent connection failures.');
+                    setTimeout(() => { this.fetchFailCount = 0; }, 30000);
+                    return false;
+                }
+
+                const response = await fetch(`${this.playlistUrl}?t=${Date.now()}`, {
+                    cache: 'no-store'
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
                 
                 const data = await response.json();
-                this.playlist = data.playlist || [];
-                this.referenceId = data.referenceId || 'ref-100';
-                this.anchorStartTime = data.anchorStartTime || 1700000000;
+                if (Array.isArray(data.playlist) && data.playlist.length > 0) {
+                    this.playlist = data.playlist;
+                    this.referenceId = data.referenceId || 'ref-100';
+                    this.anchorStartTime = data.anchorStartTime || 1700000000;
+                    this.fetchFailCount = 0; // Reset fail counter on success
+                    return true;
+                }
             } catch (err) {
-                console.error('[BroadcastPlayer] Failed to load JSON schedule:', err);
+                this.fetchFailCount++;
+                console.warn(`[BroadcastPlayer] Schedule fetch failed (Attempt ${this.fetchFailCount}):`, err.message);
             }
+            return false;
         }
 
         calculateBroadcastState() {
@@ -335,6 +359,9 @@
         }
 
         syncPlayback() {
+            // Guard clause: Don't perform sync operations if playlist is empty/failed
+            if (!this.playlist || this.playlist.length === 0) return;
+
             const state = this.calculateBroadcastState();
             if (!state || !state.video) return;
 
@@ -348,7 +375,7 @@
 
             if (this.videoElement && !this.videoElement.paused && this.videoElement.readyState >= 2) {
                 const drift = Math.abs(this.videoElement.currentTime - seekTo);
-                if (drift > 2) {
+                if (drift > 2.5) {
                     this.safeSeek(seekTo);
                 }
             }
@@ -359,9 +386,9 @@
             
             this.isEnforcingSync = true;
             
-            // Clamp target time within actual media duration if available
             const duration = this.videoElement.duration;
             let validTime = targetTime;
+
             if (duration && !isNaN(duration) && duration > 0) {
                 validTime = Math.min(targetTime, duration - 1);
             }
@@ -376,8 +403,6 @@
             const playPromise = this.videoElement.play();
             if (playPromise !== undefined) {
                 playPromise.catch(() => {
-                    // Fallback for browser autoplay policies: Mute and play
-                    console.warn('[BroadcastPlayer] Autoplay blocked unmuted. Muting to enable playback...');
                     this.videoElement.muted = true;
                     this.videoElement.play().catch(err => console.error('[BroadcastPlayer] Play failed:', err));
                 });
@@ -388,18 +413,19 @@
             if (!this.videoElement) return;
 
             this.videoElement.addEventListener('seeking', () => {
-                if (this.isEnforcingSync) return;
+                if (this.isEnforcingSync || !this.playlist.length) return;
 
                 const state = this.calculateBroadcastState();
                 if (!state) return;
 
                 if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
-                    console.warn('[BroadcastPlayer] Anti-Scrubbing triggered. Snapping back...');
                     this.safeSeek(state.seekTo);
                 }
             });
 
             this.videoElement.addEventListener('play', () => {
+                if (!this.playlist.length) return;
+
                 const state = this.calculateBroadcastState();
                 if (state) {
                     if (Math.abs(this.videoElement.currentTime - state.seekTo) > 1.5) {
@@ -434,11 +460,28 @@
                 this.hls.attachMedia(this.videoElement);
                 
                 this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    // Wait for metadata readiness before seeking
                     if (this.videoElement.readyState >= 1) {
                         onMediaReady();
                     } else {
                         this.videoElement.addEventListener('loadedmetadata', onMediaReady, { once: true });
+                    }
+                });
+
+                this.hls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                console.warn('[BroadcastPlayer] HLS network error, attempting recovery...');
+                                this.hls.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                console.warn('[BroadcastPlayer] HLS media error, attempting recovery...');
+                                this.hls.recoverMediaError();
+                                break;
+                            default:
+                                this.hls.destroy();
+                                break;
+                        }
                     }
                 });
             } else {
@@ -468,6 +511,6 @@
         startPlayer();
     }
 })();
-</script>
+   </script>     
 </body>
 </html>

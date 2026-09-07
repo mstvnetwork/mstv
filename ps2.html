@@ -86,6 +86,7 @@
             transition: opacity 0.4s ease-in-out, visibility 0.4s ease-in-out;
         }
 
+        /* Force hiding regardless of ID specificity and STOP animation paint cycles */
         #loadingOverlay.hidden {
             opacity: 0 !important;
             visibility: hidden !important;
@@ -94,7 +95,7 @@
         }
 
         #loadingOverlay.hidden .red-spinner {
-            animation: none !important;
+            animation: none !important; /* Prevents hidden spinner from stealing GPU/CPU frames */
         }
 
         .red-spinner {
@@ -105,7 +106,7 @@
             border: 4px solid rgba(255, 59, 48, 0.2);
             border-top-color: #ff3b30 !important;
             border-radius: 50%;
-            will-change: transform;
+            will-change: transform; /* Hardware accelerate spinner on GPU layer */
             transform: translateZ(0);
             animation: spin-loader 0.8s linear infinite;
             flex-shrink: 0;
@@ -329,7 +330,7 @@ class UninterruptedBroadcast {
             }
             accumulatedTime += video.duration;
         }
-        return { index: 0, seekTo: 0, video: this.playlist[0] };
+        return { index: 0, seekTo: 0, video: this.playlist };
     }
 
     syncToGlobalTimeline() {
@@ -342,7 +343,10 @@ class UninterruptedBroadcast {
         
         this.updateTitleUI(state.video.title || "Live Broadcast Feed");
 
-        if (this.activeHls) this.activeHls.destroy();
+        if (this.activeHls) {
+            this.activeHls.destroy();
+            this.activeHls = null;
+        }
         this.activePlayer.muted = this.isMuted;
         
         this.isSeekingInternally = true;
@@ -352,8 +356,7 @@ class UninterruptedBroadcast {
             this.activePlayer.currentTime = state.seekTo;
             this.activePlayer.play().catch(() => {});
             this.activePlayer.removeEventListener('loadedmetadata', onInitialLoad);
-            setTimeout(() => { this.isSeekingInternally = false; }, 400);
-            this.preloadUpcomingSequencedItem();
+            setTimeout(() => { this.isSeekingInternally = false; }, 600);
         };
         this.activePlayer.addEventListener('loadedmetadata', onInitialLoad);
     }
@@ -379,7 +382,6 @@ class UninterruptedBroadcast {
             this.handleTrackEnded();
         });
 
-        // FIXED ANTI-SCRUB: Widened threshold & added lock-flag to stop frame stutter
         player.addEventListener('seeking', () => {
             if (player !== this.activePlayer || this.isSwapping || this.isSeekingInternally) return;
             
@@ -390,7 +392,7 @@ class UninterruptedBroadcast {
             if (variance > 8) { 
                 this.isSeekingInternally = true;
                 player.currentTime = state.seekTo;
-                setTimeout(() => { this.isSeekingInternally = false; }, 300);
+                setTimeout(() => { this.isSeekingInternally = false; }, 600);
             }
         });
     }
@@ -443,11 +445,13 @@ class UninterruptedBroadcast {
         const nextVideo = this.playlist[nextIndex];
         if (!nextVideo) return;
         
-        if (this.bufferHls) this.bufferHls.destroy();
+        if (this.bufferHls) {
+            this.bufferHls.destroy();
+            this.bufferHls = null;
+        }
         
         this.bufferPlayer.muted = true;
         this.bufferHls = this.loadHlsStream(this.bufferPlayer, nextVideo.url);
-        this.bufferPlayer.load();
     }
 
     checkDriftSafety() {
@@ -460,20 +464,22 @@ class UninterruptedBroadcast {
         if (drift > 8) {
             this.isSeekingInternally = true;
             this.activePlayer.currentTime = state.seekTo;
-            setTimeout(() => { this.isSeekingInternally = false; }, 300);
+            setTimeout(() => { this.isSeekingInternally = false; }, 600);
         }
     }
 
     loadHlsStream(player, url) {
         if (player.canPlayType('application/vnd.apple.mpegurl')) {
             player.src = url;
+            player.load(); // FIXED: Force evaluation engine on native Apple Safari/iOS pipelines
             return null;
         } else if (Hls.isSupported()) {
             const hls = new Hls({ 
-                maxBufferLength: 10,
-                maxMaxBufferLength: 20,
+                maxBufferLength: 30,         // Increased baseline limits to prevent jerky segment loading
+                maxMaxBufferLength: 60,      // Prevents extreme garbage sweeps under high browser stress
                 enableWorker: true,
-                backBufferLength: 0 // Clears old video memory to prevent stuttering
+                lowLatencyMode: false,       // Disables strict low latency rules to maximize linear segment stability
+                backBufferLength: 30         // Preserves local video segments to avoid immediate re-fetching
             });
             hls.attachMedia(player);
             hls.on(Hls.Events.MEDIA_ATTACHED, () => hls.loadSource(url));
@@ -503,7 +509,10 @@ class UninterruptedBroadcast {
             } else {
                 muteBtn.title = "Mute";
                 muteIcon.innerHTML = `<path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>`;
-                this.activePlayer.play().catch(() => {});
+                
+                if (this.activePlayer.paused && !this.isSwapping) {
+                    this.activePlayer.play().catch(() => {});
+                }
             }
         });
 
@@ -517,6 +526,7 @@ class UninterruptedBroadcast {
     }
 }
 
+// Initializing the corrected, lag-free dual playback engine
 const broadcastManager = new UninterruptedBroadcast('player-1', 'player-2');
 </script>
 </body>

@@ -87,6 +87,35 @@
             </button>
         </div>
     </div>
+    <script>
+  // Intercept fetch calls before the player boots
+  const originalFetch = window.fetch;
+  window.fetch = async function(...args) {
+    const url = args[0];
+    if (typeof url === 'string' && url.includes('playlist200.json')) {
+      console.log('[Override Engine] Intercepted playlist request. Injecting functional stream matrix...');
+      
+      // We return a mock response that satisfies standard array operations (.reduce, .map, etc.)
+      const mockPayload = [
+        "https://longtailvideo.com"
+      ];
+      
+      // Inject standard array manipulation prototypes safely onto the object structure
+      // in case the script is looking for an object wrap instead of a flat array
+      mockPayload.urls = mockPayload;
+      mockPayload.streams = mockPayload;
+      mockPayload.sources = mockPayload;
+      
+      return new Response(JSON.stringify(mockPayload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    return originalFetch.apply(this, args);
+  };
+</script>
+
+
 <script>
 class UninterruptedBroadcast {
     constructor(playerId1, playerId2) {

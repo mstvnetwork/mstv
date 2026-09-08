@@ -137,9 +137,31 @@
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.15/hls.min.js"></script>
 <script>
 (function(){
   "use strict";
+
+  /* =====================================================================
+     MEDIA TYPE DETECTION
+     - "mp4"    : direct file, plays in a <video> element as before
+     - "hls"    : .m3u8, needs hls.js (or native support on Safari/iOS)
+     - "iframe" : embed page URL, rendered in an <iframe> instead of <video>.
+                  Iframes cannot be time-synced, frame-swapped, or
+                  anti-scrub-locked the way <video> can — see notes below.
+  ===================================================================== */
+  function detectType(url){
+    if(!url) return "mp4";
+    var clean = url.split("?")[0].split("#")[0].toLowerCase();
+    if(clean.endsWith(".m3u8")) return "hls";
+    if(clean.endsWith(".mp4") || clean.endsWith(".webm") || clean.endsWith(".mov")) return "mp4";
+    // query-string-wrapped .m3u8 (e.g. proxy URLs) still count as hls
+    if(url.toLowerCase().indexOf(".m3u8") !== -1) return "hls";
+    if(clean.endsWith(".mp4") === false && (clean.indexOf("/embed") !== -1 || clean.endsWith(".html") || clean.endsWith("/"))) return "iframe";
+    // default: anything not recognized as a media file is treated as an embeddable page
+    if(!/\.(mp4|webm|mov|m3u8)$/i.test(clean)) return "iframe";
+    return "mp4";
+  }
 
   var params = new URLSearchParams(window.location.search);
   var mode = (params.get("mode") || "private").toLowerCase();
@@ -235,11 +257,28 @@
   var warnBox = document.getElementById("warnBox");
   var loaderOverlay = document.getElementById("loader-overlay");
 
-  var players = {
-    A: { el: videoA, index: -1, role: "onair" },
-    B: { el: videoB, index: -1, role: "standby" }
-  };
   var stage = document.getElementById("stage");
+
+  // One iframe container per buffer, created lazily, layered identically
+  // to the video elements so the crossfade/visibility logic is shared.
+  function makeIframeHolder(key){
+    var f = document.createElement("iframe");
+    f.setAttribute("frameborder", "0");
+    f.setAttribute("allow", "autoplay; fullscreen; encrypted-media; picture-in-picture");
+    f.setAttribute("allowfullscreen", "");
+    f.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#000;transition:opacity .25s linear;";
+    f.className = "hidden";
+    f.id = "iframe" + key;
+    stage.insertBefore(f, document.getElementById("loader-overlay"));
+    return f;
+  }
+  var iframeA = makeIframeHolder("A");
+  var iframeB = makeIframeHolder("B");
+
+  var players = {
+    A: { el: videoA, iframeEl: iframeA, index: -1, role: "onair", type: null, hls: null },
+    B: { el: videoB, iframeEl: iframeB, index: -1, role: "standby", type: null, hls: null }
+  };
   var onAirKey = "A";
   var firstFrameShown = false;
 
@@ -309,17 +348,81 @@
     }
   }
 
+  function destroyHls(p){
+    if(p.hls){
+      try{ p.hls.destroy(); }catch(e){}
+      p.hls = null;
+    }
+  }
+
   function loadInto(playerKey, index, seekTo){
     var p = players[playerKey];
     var item = playlist[index];
     if(!item) return;
-    if(p.index !== index || p.el.getAttribute("data-url") !== item.url){
+    var type = detectType(item.url);
+    var changingItem = (p.index !== index || p.el.getAttribute("data-url") !== item.url || p.type !== type);
+
+    if(!changingItem){
+      // same item already loaded into this buffer: just keep it aligned
+      if(type !== "iframe"){
+        try{
+          if(Math.abs(p.el.currentTime - seekTo) > 0.35) p.el.currentTime = Math.max(0, seekTo);
+        }catch(e){}
+      }
+      return;
+    }
+
+    p.index = index;
+    p.type = type;
+    loadedAt[playerKey] = Date.now();
+
+    if(type === "iframe"){
+      // Iframes cannot be time-synced, seeked, or anti-scrub-locked —
+      // there is no cross-origin API for arbitrary embed pages. The
+      // schedule engine still swaps buffers at the correct global
+      // boundary time, but what plays inside the iframe (its own
+      // internal timeline) is controlled entirely by the embedded page.
+      destroyHls(p);
+      p.el.pause();
+      p.el.removeAttribute("src");
       p.el.setAttribute("data-url", item.url);
+      p.iframeEl.src = item.url;
+      if(playerKey === onAirKey){
+        firstFrameShown = true;
+        hideLoader();
+      }
+      return;
+    }
+
+    // mp4 or hls both use the <video> element; clear any previous iframe src
+    p.iframeEl.src = "about:blank";
+    destroyHls(p);
+    p.el.setAttribute("data-url", item.url);
+
+    if(type === "hls"){
+      var nativeHls = p.el.canPlayType("application/vnd.apple.mpegurl");
+      if(nativeHls){
+        // Safari / iOS: native HLS support, no library needed
+        p.el.src = item.url;
+      } else if(window.Hls && window.Hls.isSupported()){
+        var hls = new window.Hls({ enableWorker: true });
+        hls.loadSource(item.url);
+        hls.attachMedia(p.el);
+        hls.on(window.Hls.Events.ERROR, function(evt, data){
+          if(data && data.fatal && playerKey === onAirKey){
+            showTapToPlay();
+          }
+        });
+        p.hls = hls;
+      } else {
+        // no HLS support at all in this browser: skip gracefully next tick
+        return;
+      }
+    } else {
       p.el.src = item.url;
       p.el.load();
-      p.index = index;
-      loadedAt[playerKey] = Date.now();
     }
+
     var doSeek = function(){
       try{
         if(Math.abs(p.el.currentTime - seekTo) > 0.35){
@@ -353,13 +456,20 @@
     }
   }
 
+  function setBufferVisible(p, visible){
+    var mediaEl = p.type === "iframe" ? p.iframeEl : p.el;
+    var otherEl = p.type === "iframe" ? p.el : p.iframeEl;
+    mediaEl.classList.toggle("shown", visible);
+    mediaEl.classList.toggle("hidden", !visible);
+    otherEl.classList.add("hidden");
+    otherEl.classList.remove("shown");
+  }
+
   function swapOnAir(nextKey){
     var incoming = players[nextKey];
     var outgoing = players[otherKey(nextKey)];
-    incoming.el.classList.remove("hidden");
-    incoming.el.classList.add("shown");
-    outgoing.el.classList.remove("shown");
-    outgoing.el.classList.add("hidden");
+    setBufferVisible(incoming, true);
+    setBufferVisible(outgoing, false);
     incoming.role = "onair";
     outgoing.role = "standby";
     onAirKey = nextKey;
@@ -373,10 +483,13 @@
   var userWantsSound = false;
 
   function applyAudioRouting(){
-    var onAir = players[onAirKey].el;
-    var standby = players[otherKey(onAirKey)].el;
-    onAir.muted = !userWantsSound;
-    standby.muted = true;
+    // Only <video> buffers (mp4/hls) can be muted from here. An iframe's
+    // internal player controls its own audio — there is no cross-origin
+    // way to mute an arbitrary embedded page's player from outside it.
+    var onAirP = players[onAirKey];
+    var standbyP = players[otherKey(onAirKey)];
+    if(onAirP.type !== "iframe") onAirP.el.muted = !userWantsSound;
+    if(standbyP.type !== "iframe") standbyP.el.muted = true;
   }
 
   var TOLERANCE_SEC = 2.5;
@@ -385,6 +498,7 @@
 
   function enforceLock(playerKey, expectedIndex, expectedOffset){
     var p = players[playerKey];
+    if(p.type === "iframe") return; // no cross-origin seek/time API available
     if(p.index !== expectedIndex) return;
     if(Date.now() - loadedAt[playerKey] < STARTUP_GRACE_MS) return;
     if(p.el.readyState < 2) return;

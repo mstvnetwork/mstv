@@ -150,9 +150,10 @@
 
   // EDIT THIS ARRAY for your real stream, then bump PLAYLIST_VERSION below.
   var DEFAULT_PLAYLIST = [
-    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song3.mp4", duration: 138 },
+   { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song3.mp4", duration: 138 },
     { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song1.mp4", duration: 166 },
     { url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 }
+  
   ];
 
   // Bump this every time DEFAULT_PLAYLIST is edited by hand. This value is
@@ -162,7 +163,7 @@
   // browser (no cache) picked up the new code. Now the cache is keyed to
   // this version string, so any edit here forces every browser to re-sync
   // to the new DEFAULT_PLAYLIST on next load.
-  var PLAYLIST_VERSION = "3";
+  var PLAYLIST_VERSION = "2";
   var STORAGE_KEY = "sync_tv_playlist_v1";
   var VERSION_KEY = "sync_tv_playlist_version";
 
@@ -291,6 +292,19 @@
     outgoing.role = "standby";
     onAirKey = nextKey;
     if(activeTag) activeTag.textContent = "Player " + nextKey + " on-air";
+    applyAudioRouting();
+  }
+
+  // Only the on-air element may ever be unmuted. The standby buffer is
+  // always force-muted regardless of user mute state, which is what was
+  // causing two audio tracks to play at once during preload/crossfade.
+  var userWantsSound = false;
+
+  function applyAudioRouting(){
+    var onAir = players[onAirKey].el;
+    var standby = players[otherKey(onAirKey)].el;
+    onAir.muted = !userWantsSound;
+    standby.muted = true;
   }
 
   var TOLERANCE_SEC = 2.5;
@@ -373,10 +387,9 @@
   setMuteIcon(true);
 
   muteBtn.addEventListener("click", function(){
-    var newMuted = !videoA.muted;
-    videoA.muted = newMuted;
-    videoB.muted = newMuted;
-    setMuteIcon(newMuted);
+    userWantsSound = !userWantsSound;
+    applyAudioRouting();
+    setMuteIcon(!userWantsSound);
   });
 
   fullscreenBtn.addEventListener("click", function(){
@@ -443,6 +456,7 @@
 
   var initSched = computeSchedule(Date.now(), playlist);
   loadInto("A", initSched.index, initSched.offset);
+  applyAudioRouting();
   renderStats(initSched);
 
   setTimeout(hideLoader, 4000);

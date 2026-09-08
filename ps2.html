@@ -4,92 +4,68 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Global Linear Live TV Player</title>
-    <!-- Include HLS.js for adaptive .m3u8 playback across all browsers -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body, html { width: 100%; height: 100%; background-color: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; color: #fff; }
+        body, html { width: 100%; height: 100%; background-color: #000; font-family: sans-serif; overflow: hidden; color: #fff; }
         #player-container { position: relative; width: 100%; height: 100%; }
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity 0.4s ease-in-out; background: #000; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity 0.4s ease; background: #000; }
         .active-player { opacity: 1; z-index: 2; }
         .background-player { opacity: 0; z-index: 1; }
         #ui-overlay { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 8px; backdrop-filter: blur(5px); }
-        #on-air-badge { display: inline-block; background: #ff0055; color: white; padding: 4px 8px; font-weight: bold; font-size: 12px; border-radius: 4px; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+        #on-air-badge { display: inline-block; background: #ff0055; color: white; padding: 4px 8px; font-weight: bold; font-size: 12px; border-radius: 4px; margin-bottom: 8px; text-transform: uppercase; }
         #video-title { font-size: 18px; font-weight: 500; }
         #controls-overlay { position: absolute; bottom: 30px; right: 30px; z-index: 10; }
-        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 14px; font-weight: 600; border-radius: 5px; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.2); transition: background 0.2s; }
-        button:hover { background: #0056b3; }
-        #error-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #111; display: flex; align-items: center; justify-content: center; z-index: 100; display: none; text-align: center; padding: 20px; }
+        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 14px; font-weight: 600; border-radius: 5px; cursor: pointer; }
+        #error-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #111; display: flex; align-items: center; justify-content: center; z-index: 100; display: none; text-align: center; }
     </style>
 </head>
 <body>
-
     <div id="player-container">
-        <!-- Dual Player Isolation Architecture -->
         <video id="playerA" class="active-player" playsinline muted></video>
         <video id="playerB" class="background-player" playsinline muted></video>
-
-        <!-- Dynamic UI HUD -->
         <div id="ui-overlay">
             <div id="on-air-badge">Live On-Air</div>
             <div id="video-title">Syncing Broadcast Time...</div>
         </div>
-
-        <!-- Autoplay Security Overlay -->
         <div id="controls-overlay">
             <button id="unmute-btn" onclick="unmuteAudio()">🔈 Unmute Audio</button>
         </div>
     </div>
-
-    <div id="error-screen">
-        <div>
-            <h2>Broadcast Sync Failed</h2>
-            <p id="error-text" style="color: #aaa; margin-top: 10px;"></p>
-        </div>
-    </div>
-
-    <script>
+    <div id="error-screen"><div id="error-text"></div></div>
+        <script>
         let anchorTime = 0;
         let activePlaylist = [];
-        
-        let currentVideoId = null;
-        let currentVideoPlaylistIndex = -1;
+        let currentVideoId = null; 
+        let currentPlaylistIndex = -1;
         let syncInterval = null;
-        const SCRUB_THRESHOLD_SECONDS = 1.5;
+        const SCRUB_THRESHOLD = 1.5;
 
         const playerA = document.getElementById('playerA');
         const playerB = document.getElementById('playerB');
         let activePlayer = playerA;
         let backgroundPlayer = playerB;
-        
         let activeHls = null;
         let backgroundHls = null;
 
-        // 1. Core Bootstrapper
         async function initBroadcastEngine() {
             try {
                 const response = await fetch('./playlist200.json?nocache=' + Date.now());
-                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                
+                if (!response.ok) throw new Error("Manifest load failed");
                 const data = await response.json();
+                
                 anchorTime = parseInt(data.anchorTime);
                 activePlaylist = data.playlist;
 
-                // First absolute calculation alignment
+                // Enforce immediate timeline positioning
                 syncBroadcastTimeline(true);
+                setInterval(pollPlaylistUpdates, 8000);
 
-                // Polling manifest changes every 10 seconds
-                setInterval(pollPlaylistUpdates, 10000);
-
-                // Live continuous sync tracking clock loop
                 if (syncInterval) clearInterval(syncInterval);
                 syncInterval = setInterval(() => syncBroadcastTimeline(false), 500);
-
             } catch (err) {
-                console.error("Critical linear layout initialization crash: ", err);
                 document.getElementById('error-screen').style.display = 'flex';
-                document.getElementById('error-text').innerText = "Unable to read configuration payload from root directory.";
+                document.getElementById('error-text').innerText = "Failed to sync TV timeline config.";
             }
         }
 
@@ -102,60 +78,45 @@
                         activePlaylist = data.playlist;
                     }
                 }
-            } catch(e) { }
+            } catch(e) {}
         }
-
-        // 2. Fixed Absolute Timeline Coordinate Logic
-        // This solves the jump issue completely by processing time blocks via item IDs
         function computeLiveBroadcastCoordinates() {
             if (!activePlaylist || activePlaylist.length === 0) return null;
 
             const now = Math.floor(Date.now() / 1000);
-            if (now < anchorTime) {
-                return { index: 0, seekTime: 0, item: activePlaylist[0] };
-            }
+            if (now < anchorTime) return { index: 0, seekTime: 0, item: activePlaylist[0] };
 
-            const elapsedSeconds = now - anchorTime;
+            const totalDuration = activePlaylist.reduce((acc, item) => acc + parseInt(item.duration), 0);
+            const elapsedSinceAnchor = now - anchorTime;
+            
+            // Loop the timeline over the total active duration
+            const currentRemainder = elapsedSinceAnchor % totalDuration;
 
-            // Step 1: Calculate the duration profile of the CURRENT playlist
-            let runningTotalDuration = 0;
-            for (let i = 0; i < activePlaylist.length; i++) {
-                runningTotalDuration += parseInt(activePlaylist[i].duration);
-            }
-
-            // Step 2: Establish a stable modulo timeline layer.
-            // This isolates structural modifications from impacting old vs new viewers.
-            const timeInCurrentCycle = elapsedSeconds % runningTotalDuration;
-
-            let accumulatedTime = 0;
+            let timeCursor = 0;
             for (let i = 0; i < activePlaylist.length; i++) {
                 const item = activePlaylist[i];
                 const duration = parseInt(item.duration);
 
-                if (timeInCurrentCycle >= accumulatedTime && timeInCurrentCycle < accumulatedTime + duration) {
+                if (currentRemainder >= timeCursor && currentRemainder < timeCursor + duration) {
                     return {
                         index: i,
-                        seekTime: timeInCurrentCycle - accumulatedTime,
+                        seekTime: currentRemainder - timeCursor,
                         item: item
                     };
                 }
-                accumulatedTime += duration;
+                timeCursor += duration;
             }
-
             return { index: 0, seekTime: 0, item: activePlaylist[0] };
         }
-
-        // 3. Synchronization Loop Ticker
         function syncBroadcastTimeline(isFirstLaunch = false) {
             const target = computeLiveBroadcastCoordinates();
             if (!target) return;
 
-            // Track Transition Enforcement Engine
-            // We verify transition based on UNIQUE IDs instead of index positions
+            // Transition strictly on unique Reference IDs
             if (isFirstLaunch || currentVideoId !== target.item.id) {
                 if (isFirstLaunch) {
                     currentVideoId = target.item.id;
-                    currentVideoPlaylistIndex = target.index;
+                    currentPlaylistIndex = target.index;
                     document.getElementById('video-title').innerText = target.item.title;
                     setupPlayer(activePlayer, target.item.url, target.seekTime, true);
                     preStageNextVideo();
@@ -165,80 +126,58 @@
                 return;
             }
 
-            // High Frequency Anti-Scrubbing Guard
-            const timeDelta = Math.abs(activePlayer.currentTime - target.seekTime);
-            if (timeDelta > SCRUB_THRESHOLD_SECONDS) {
-                console.warn(`Anti-Scrub Action triggered. Resetting playhead to live line.`);
+            const drift = Math.abs(activePlayer.currentTime - target.seekTime);
+            if (drift > SCRUB_THRESHOLD) {
                 activePlayer.currentTime = target.seekTime;
-                activePlayer.play().catch(()=>{});
+                activePlayer.play().catch(() => {});
             }
         }
 
-        // 4. Dual-Player Core Switching Mechanics
         function executeDualPlayerTransition(targetMetrics) {
             currentVideoId = targetMetrics.item.id;
-            currentVideoPlaylistIndex = targetMetrics.index;
+            currentPlaylistIndex = targetMetrics.index;
             document.getElementById('video-title').innerText = targetMetrics.item.title;
 
-            const savedMuteStatus = activePlayer.muted;
-            const savedVolumeLevel = activePlayer.volume;
+            const savedMute = activePlayer.muted;
+            const savedVol = activePlayer.volume;
 
-            // Instant physical DOM layer transparency swap
             backgroundPlayer.className = "active-player";
             activePlayer.className = "background-player";
 
-            backgroundPlayer.muted = savedMuteStatus;
-            backgroundPlayer.volume = savedVolumeLevel;
+            backgroundPlayer.muted = savedMute;
+            backgroundPlayer.volume = savedVol;
             activePlayer.muted = true;
 
-            const swapNode = activePlayer;
-            activePlayer = backgroundPlayer;
-            backgroundPlayer = swapNode;
+            const swapNode = activePlayer; activePlayer = backgroundPlayer; backgroundPlayer = swapNode;
+            const swapHls = activeHls; activeHls = backgroundHls; backgroundHls = swapHls;
 
-            const swapHls = activeHls;
-            activeHls = backgroundHls;
-            backgroundHls = swapHls;
-
-            // Seek directly to accurate stream runtime
             activePlayer.currentTime = targetMetrics.seekTime;
-            activePlayer.play().catch(()=>{});
+            activePlayer.play().catch(() => {});
 
-            // Pre-load the subsequent playlist asset
             preStageNextVideo();
         }
 
         function preStageNextVideo() {
-            if (currentVideoPlaylistIndex === -1 || activePlaylist.length === 0) return;
-            
-            // Advance sequence based on current running playlist geometry
-            const nextIndex = (currentVideoPlaylistIndex + 1) % activePlaylist.length;
+            if (currentPlaylistIndex === -1 || activePlaylist.length === 0) return;
+            const nextIndex = (currentPlaylistIndex + 1) % activePlaylist.length;
             setupPlayer(backgroundPlayer, activePlaylist[nextIndex].url, 0, false);
             backgroundPlayer.muted = true;
         }
 
-                function setupPlayer(playerElement, url, startTime, isActiveFrame) {
+        function setupPlayer(playerElement, url, startTime, isActiveFrame) {
             if (isActiveFrame && activeHls) { activeHls.destroy(); activeHls = null; }
             if (!isActiveFrame && backgroundHls) { backgroundHls.destroy(); backgroundHls = null; }
 
             if (Hls.isSupported()) {
-                const hlsInstance = new Hls({
-                    enableWorker: true,
-                    lowLatencyMode: true,
-                    backBufferLength: 15
-                });
-                
+                const hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 10 });
                 hlsInstance.loadSource(url);
                 hlsInstance.attachMedia(playerElement);
-                
-                if (isActiveFrame) activeHls = hlsInstance;
-                else backgroundHls = hlsInstance;
-
+                if (isActiveFrame) activeHls = hlsInstance; else backgroundHls = hlsInstance;
                 hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
                     playerElement.currentTime = startTime;
                     playerElement.play().catch(() => {});
                 });
-            } 
-            else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
+            } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
                 playerElement.src = url;
                 playerElement.addEventListener('loadedmetadata', () => {
                     playerElement.currentTime = startTime;
@@ -250,11 +189,11 @@
         function unmuteAudio() {
             activePlayer.muted = false;
             backgroundPlayer.muted = true;
-            const overlay = document.getElementById('controls-overlay');
-            if (overlay) overlay.style.display = 'none';
+            document.getElementById('controls-overlay').style.display = 'none';
         }
 
         window.addEventListener('DOMContentLoaded', initBroadcastEngine);
     </script>
 </body>
 </html>
+

@@ -149,25 +149,17 @@
 
   var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
 
-  // Raw GitHub URL to your playlist.json. Use raw.githubusercontent.com,
-  // not github.com, and use jsdelivr as a CDN mirror to avoid GitHub's
-  // aggressive raw-file caching if updates feel slow to propagate:
-  //   https://cdn.jsdelivr.net/gh/USER/REPO@main/playlist.json
   var PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
 
-  // Fallback used only if the fetch fails on a viewer's very first load
-  // (e.g. offline). Once playlist.json loads successfully it takes over.
   var FALLBACK_PLAYLIST = [
     { url: "https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4", duration: 16 }
   ];
 
-  var REFRESH_INTERVAL_MS = 30000; // poll playlist.json every 30s in the background
+  var REFRESH_INTERVAL_MS = 30000;
 
   var playlist = FALLBACK_PLAYLIST.slice();
   var playlistReady = false;
 
-  // playlist.json format:
-  // [ { "url": "https://...mp4", "duration": 30 }, { "url": "...", "duration": 45 } ]
   function fetchPlaylist(){
     return fetch(PLAYLIST_URL, { cache: "no-store" })
       .then(function(res){
@@ -185,19 +177,11 @@
   }
 
   function applyNewPlaylist(newList){
-    // Appends and edits from GitHub are absorbed silently: the schedule
-    // engine recomputes from EPOCH_MS + this array on every tick, and the
-    // dual-buffer loader only reloads the standby buffer for a changed
-    // future item — the on-air element is never touched mid-playback
-    // unless the currently playing URL itself was removed/changed.
     var oldOnAirUrl = playlist[players[onAirKey].index] ? playlist[players[onAirKey].index].url : null;
     playlist = newList;
     if(oldOnAirUrl){
       var stillPresent = playlist.some(function(i){ return i.url === oldOnAirUrl; });
       if(!stillPresent){
-        // on-air item was removed from the source list: resync immediately
-        // to wherever the new schedule says we should be, unavoidable since
-        // the content itself is gone.
         players[onAirKey].index = -1;
       }
     }
@@ -248,10 +232,6 @@
   videoA.preload = "auto";
   videoB.preload = "auto";
 
-  // Autoplay policies (Chrome, Samsung Internet) block unmuted/unattended
-  // playback unless these are explicitly set on the element itself, not
-  // just via the muted property in JS. Kiwi (Chromium-based but looser
-  // policy) let this slide, which is why it worked there and not elsewhere.
   [videoA, videoB].forEach(function(v){
     v.muted = true;
     v.defaultMuted = true;
@@ -265,40 +245,39 @@
   function showTapToPlay(){
     if(tapToPlayShown) return;
     tapToPlayShown = true;
-    var overlay = document.createElement("div");
-    overlay.id = "tap-to-play";
-    overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
-      "background:rgba(0,0,0,.6);z-index:99999;cursor:pointer;";
-    overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
-      'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
+    var overlay = document.getElementById("tap-to-play");
+    if(!overlay){
+      overlay = document.createElement("div");
+      overlay.id = "tap-to-play";
+      overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+        "background:rgba(0,0,0,.6);z-index:99999;cursor:pointer;";
+      overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
+        'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
+      stage.appendChild(overlay);
+    }
 
     function attemptPlay(){
+      hideLoader();
       var a = players.A.el, b = players.B.el;
-      // force attributes again in case the browser reset them
       [a,b].forEach(function(v){ v.muted = true; v.setAttribute("muted",""); });
       var onAirEl = players[onAirKey].el;
       var pr = onAirEl.play();
       var standbyEl = players[otherKey(onAirKey)].el;
       if(standbyEl && standbyEl.src) standbyEl.play().catch(function(){});
       var cleanup = function(){
-        if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
         tapToPlayShown = false;
         document.removeEventListener("click", attemptPlay, true);
       };
       if(pr && pr.then){
-        pr.then(cleanup).catch(function(){
-          // still blocked; leave overlay up for another try
-        });
+        pr.then(cleanup).catch(function(){});
       } else {
         cleanup();
       }
     }
 
     overlay.addEventListener("click", attemptPlay);
-    // also allow clicking anywhere on the stage, in case overlay stacking
-    // or a prior click handler swallows the event
     document.addEventListener("click", attemptPlay, true);
-    stage.appendChild(overlay);
   }
 
   function otherKey(k){ return k === "A" ? "B" : "A"; }
@@ -332,10 +311,12 @@
     } else {
       p.el.addEventListener("loadedmetadata", doSeek, { once:true });
     }
+    
     var playPromise = p.el.play();
     if(playPromise && playPromise.catch){
       playPromise.catch(function(err){
         if(playerKey === onAirKey){
+          hideLoader();
           showTapToPlay();
         }
       });
@@ -367,9 +348,6 @@
     applyAudioRouting();
   }
 
-  // Only the on-air element may ever be unmuted. The standby buffer is
-  // always force-muted regardless of user mute state, which is what was
-  // causing two audio tracks to play at once during preload/crossfade.
   var userWantsSound = false;
 
   function applyAudioRouting(){
@@ -523,13 +501,13 @@
     setTimeout(hideLoader, 4000);
     setInterval(function(){ checkAgainstSchedule(false); }, 500);
     setInterval(function(){
-      fetchPlaylist().then(applyNewPlaylist).catch(function(){ /* keep current playlist on failure */ });
+      fetchPlaylist().then(applyNewPlaylist).catch(function(){});
     }, REFRESH_INTERVAL_MS);
   }
 
   fetchPlaylist()
     .then(function(list){ playlist = list; playlistReady = true; })
-    .catch(function(){ /* fall back to FALLBACK_PLAYLIST already set */ })
+    .catch(function(){})
     .then(boot);
 
 })();

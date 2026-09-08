@@ -129,9 +129,10 @@
       <button id="addBtn">Add to end</button>
     </div>
     <p class="note">
-      Adding a URL appends to the end and never touches the on-air item. Editing
-      <code>DEFAULT_PLAYLIST</code> in the code and bumping <code>PLAYLIST_VERSION</code>
-      always overrides any cached playlist from a previous visit.
+      Playlist is sourced live from <code>playlist.json</code> on GitHub — edit it there and
+      push. Every viewer, in public or private mode, refetches it every 30s in the background;
+      appends and future-item edits never interrupt what's currently on-air. Removing the
+      item currently playing forces an immediate resync for anyone watching it.
     </p>
   </div>
 </div>
@@ -148,47 +149,59 @@
 
   var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
 
-  // EDIT THIS ARRAY for your real stream, then bump PLAYLIST_VERSION below.
-  var DEFAULT_PLAYLIST = [
-   { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song3.mp4", duration: 138 },
-    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song1.mp4", duration: 166 }
-      
+  // Raw GitHub URL to your playlist.json. Use raw.githubusercontent.com,
+  // not github.com, and use jsdelivr as a CDN mirror to avoid GitHub's
+  // aggressive raw-file caching if updates feel slow to propagate:
+  //   https://cdn.jsdelivr.net/gh/USER/REPO@main/playlist.json
+  var PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
+
+  // Fallback used only if the fetch fails on a viewer's very first load
+  // (e.g. offline). Once playlist.json loads successfully it takes over.
+  var FALLBACK_PLAYLIST = [
+    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4", duration: 60 }
   ];
 
-  // Bump this every time DEFAULT_PLAYLIST is edited by hand. This value is
-  // what fixes the "old urls keep showing up" bug: previously the cache
-  // never invalidated on a code edit, so a browser that had visited before
-  // kept replaying its old localStorage copy forever, while a fresh
-  // browser (no cache) picked up the new code. Now the cache is keyed to
-  // this version string, so any edit here forces every browser to re-sync
-  // to the new DEFAULT_PLAYLIST on next load.
-  var PLAYLIST_VERSION = "4";
-  var STORAGE_KEY = "sync_tv_playlist_v1";
-  var VERSION_KEY = "sync_tv_playlist_version";
+  var REFRESH_INTERVAL_MS = 30000; // poll playlist.json every 30s in the background
 
-  function loadPlaylist(){
-    try{
-      var storedVersion = localStorage.getItem(VERSION_KEY);
-      if(storedVersion !== PLAYLIST_VERSION){
-        savePlaylist(DEFAULT_PLAYLIST);
-        return DEFAULT_PLAYLIST.slice();
-      }
-      var raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){
-        var parsed = JSON.parse(raw);
-        if(Array.isArray(parsed) && parsed.length) return parsed;
-      }
-    }catch(e){}
-    return DEFAULT_PLAYLIST.slice();
-  }
-  function savePlaylist(list){
-    try{
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-      localStorage.setItem(VERSION_KEY, PLAYLIST_VERSION);
-    }catch(e){}
+  var playlist = FALLBACK_PLAYLIST.slice();
+  var playlistReady = false;
+
+  // playlist.json format:
+  // [ { "url": "https://...mp4", "duration": 30 }, { "url": "...", "duration": 45 } ]
+  function fetchPlaylist(){
+    return fetch(PLAYLIST_URL, { cache: "no-store" })
+      .then(function(res){
+        if(!res.ok) throw new Error("fetch failed: " + res.status);
+        return res.json();
+      })
+      .then(function(data){
+        if(!Array.isArray(data) || data.length === 0) throw new Error("empty or invalid playlist.json");
+        var cleaned = data
+          .filter(function(item){ return item && typeof item.url === "string" && item.url.length; })
+          .map(function(item){ return { url: item.url, duration: Number(item.duration) > 0 ? Number(item.duration) : 10 }; });
+        if(cleaned.length === 0) throw new Error("no valid items in playlist.json");
+        return cleaned;
+      });
   }
 
-  var playlist = loadPlaylist();
+  function applyNewPlaylist(newList){
+    // Appends and edits from GitHub are absorbed silently: the schedule
+    // engine recomputes from EPOCH_MS + this array on every tick, and the
+    // dual-buffer loader only reloads the standby buffer for a changed
+    // future item — the on-air element is never touched mid-playback
+    // unless the currently playing URL itself was removed/changed.
+    var oldOnAirUrl = playlist[players[onAirKey].index] ? playlist[players[onAirKey].index].url : null;
+    playlist = newList;
+    if(oldOnAirUrl){
+      var stillPresent = playlist.some(function(i){ return i.url === oldOnAirUrl; });
+      if(!stillPresent){
+        // on-air item was removed from the source list: resync immediately
+        // to wherever the new schedule says we should be, unavoidable since
+        // the content itself is gone.
+        players[onAirKey].index = -1;
+      }
+    }
+  }
 
   function totalDuration(list){
     var sum = 0;
@@ -439,28 +452,26 @@
   var addBtn = document.getElementById("addBtn");
   if(addBtn){
     addBtn.addEventListener("click", function(){
-      var urlInput = document.getElementById("newUrl");
-      var durInput = document.getElementById("newDur");
-      var url = urlInput.value.trim();
-      if(!url) return;
-      var dur = parseFloat(durInput.value);
-      if(!dur || dur <= 0) dur = 10;
-      playlist.push({ url:url, duration:dur });
-      savePlaylist(playlist);
-      urlInput.value = "";
-      durInput.value = "";
-      renderStats(computeSchedule(Date.now(), playlist));
+      alert("Playlist is now managed in playlist.json on GitHub. Edit the file and push — every player (public and private) picks up the change within " + (REFRESH_INTERVAL_MS/1000) + "s, with zero interruption to what's on-air.");
     });
   }
 
-  var initSched = computeSchedule(Date.now(), playlist);
-  loadInto("A", initSched.index, initSched.offset);
-  applyAudioRouting();
-  renderStats(initSched);
+  function boot(){
+    var initSched = computeSchedule(Date.now(), playlist);
+    loadInto("A", initSched.index, initSched.offset);
+    applyAudioRouting();
+    renderStats(initSched);
+    setTimeout(hideLoader, 4000);
+    setInterval(function(){ checkAgainstSchedule(false); }, 500);
+    setInterval(function(){
+      fetchPlaylist().then(applyNewPlaylist).catch(function(){ /* keep current playlist on failure */ });
+    }, REFRESH_INTERVAL_MS);
+  }
 
-  setTimeout(hideLoader, 4000);
-
-  setInterval(function(){ checkAgainstSchedule(false); }, 500);
+  fetchPlaylist()
+    .then(function(list){ playlist = list; playlistReady = true; })
+    .catch(function(){ /* fall back to FALLBACK_PLAYLIST already set */ })
+    .then(boot);
 
 })();
 </script>

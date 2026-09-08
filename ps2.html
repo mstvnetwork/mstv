@@ -3,17 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Serverless Global Sync Linear TV</title>
-    <!-- Include HLS.js for .m3u8 live stream support -->
+    <title>Continuous Linear TV Player</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://googleapis.com">
     <link rel="preconnect" href="https://gstatic.com" crossorigin>
-    <!-- Mapped font link to fix the browser preload console error -->
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
     <style>
         body {
             margin: 0;
-            background: #111;
+            background: #0d0d11;
             color: #fff;
             font-family: 'Space Grotesk', -apple-system, sans-serif;
             display: flex;
@@ -29,8 +27,9 @@
             aspect-ratio: 16/9;
             background: #000;
             overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            border-radius: 8px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            border-radius: 12px;
+            border: 1px solid #222;
         }
         video {
             position: absolute;
@@ -39,7 +38,7 @@
             width: 100%;
             height: 100%;
             object-fit: contain;
-            transition: opacity 0.4s ease-in-out;
+            transition: opacity 0.5s ease-in-out;
             background: #000;
         }
         .active { opacity: 1; z-index: 2; }
@@ -47,16 +46,16 @@
         
         .overlay-ui {
             position: absolute;
-            top: 15px;
-            left: 15px;
+            top: 20px;
+            left: 20px;
             z-index: 10;
-            background: rgba(0, 0, 0, 0.8);
-            padding: 8px 14px;
-            border-radius: 6px;
-            font-size: 13px;
+            background: rgba(13, 13, 17, 0.85);
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
             pointer-events: none;
-            border-left: 3px solid #00bcff;
-            letter-spacing: 0.5px;
+            border-left: 4px solid #00bcff;
+            backdrop-filter: blur(5px);
         }
         .unmute-btn {
             position: absolute;
@@ -67,43 +66,45 @@
             background: #00bcff;
             color: white;
             border: none;
-            padding: 14px 28px;
+            padding: 16px 32px;
             font-size: 16px;
             font-weight: bold;
             font-family: 'Space Grotesk', sans-serif;
-            border-radius: 30px;
+            border-radius: 50px;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0,188,255,0.4);
-            transition: transform 0.2s ease;
+            box-shadow: 0 10px 25px rgba(0,188,255,0.4);
+            transition: transform 0.2s ease, background 0.2s ease;
         }
         .unmute-btn:hover {
             transform: translate(-50%, -50%) scale(1.05);
+            background: #009ad4;
         }
     </style>
 </head>
 <body>
 
 <div class="player-container">
-    <button id="unmuteBtn" class="unmute-btn" onclick="unmutePlayers()">🔊 Click to Unmute / Sync Live</button>
-    <div id="statusOverlay" class="overlay-ui">Syncing Global Time Grid...</div>
+    <button id="unmuteBtn" class="unmute-btn" onclick="unmutePlayers()">🔊 Click to Unmute & Sync Live</button>
+    <div id="statusOverlay" class="overlay-ui">Connecting to Live Grid...</div>
     <video id="player1" class="active" playsinline muted></video>
     <video id="player2" class="hidden" playsinline muted></video>
 </div>
 
 <script>
-// 1. Fixed Reference Epoch Time Configuration
-const EPOCH_START = 1700000000000; 
-
-// Memory fallback used instantly if external file isn't loaded yet
-let playlist = [
- { "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxlfh7bboxuzvta5p4hqrs3xzfskymy77idnkubzgrkx5swcjli36fdca%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxlfh7bboxuzvta5p4hqrs3xzfskymy77idnkubzgrkx5swcjli36fdca%2Findex-v1-a1.m3u8",
- "duration": 4403 },
-  { "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw6ff7bboxuzvta5p4batqfhjhylse7ducvr5mb6x6r6s6ru2hz35tz2a%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw6ff7bboxuzvta5p4batqfhjhylse7ducvr5mb6x6r6s6ru2hz35tz2a%2Findex-v1-a1.m3u8",
- "duration": 4672 },
-     { "url": "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxbog7bboxuzvta574ckttrs5li3wcu72b5mreyduvd7thg6u6uq7mi7q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxbog7bboxuzvta574ckttrs5li3wcu72b5mreyduvd7thg6u6uq7mi7q%2Findex-v1-a1.m3u8", 
-  "duration": 3580 }
- 
-    ];
+// State Management
+let channelConfig = {
+    activeLoopStart: 1772640000000, // Fallback Epoch
+    playlist: [
+          { url: 'https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxlfh7bboxuzvta5p4hqrs3xzfskymy77idnkubzgrkx5swcjli36fdca%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxlfh7bboxuzvta5p4hqrs3xzfskymy77idnkubzgrkx5swcjli36fdca%2Findex-v1-a1.m3u8'
+           ,duration: 4403 },
+        { url: ' https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw6ff7bboxuzvta5p4batqfhjhylse7ducvr5mb6x6r6s6ru2hz35tz2a%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohw6ff7bboxuzvta5p4batqfhjhylse7ducvr5mb6x6r6s6ru2hz35tz2a%2Findex-v1-a1.m3u8',
+  duration: 4672  },
+        { url: 'https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxbog7bboxuzvta574ckttrs5li3wcu72b5mreyduvd7thg6u6uq7mi7q%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxbog7bboxuzvta574ckttrs5li3wcu72b5mreyduvd7thg6u6uq7mi7q%2Findex-v1-a1.m3u8',
+   duration:3580   }
+        
+  
+    ]
+};
 
 let p1 = document.getElementById('player1');
 let p2 = document.getElementById('player2');
@@ -115,54 +116,51 @@ let currentTrackIndex = -1;
 let isEnforcingSync = false;
 let userHasInteracted = false;
 
-// 2. Uniform Event Pipeline (Resolves the buffer freezing issue)
+// Format-Agnostic Engine Pipeline
 function loadMediaSource(player, url, targetSeekTime) {
     const playerId = player.id;
     
-    // Completely clear existing HLS instances on this background slot
     if (hlsInstances[playerId]) {
         hlsInstances[playerId].destroy();
         hlsInstances[playerId] = null;
     }
 
-    // Native inline execution callback helper
-    const preparePlaybackState = () => {
+    const applyTargetSyncTime = () => {
         player.currentTime = targetSeekTime;
         if (userHasInteracted) {
-            player.play().catch(e => console.log("Playback error: ", e));
+            player.play().catch(e => console.log("Playback engine waiting: ", e));
         }
     };
 
     if (url.toLowerCase().includes('.m3u8')) {
         if (Hls.isSupported()) {
-            const hls = new Hls({ maxBufferLength: 15, enableWorker: true });
+            const hls = new Hls({ maxBufferLength: 10, enableWorker: true });
             hlsInstances[playerId] = hls;
             hls.loadSource(url);
             hls.attachMedia(player);
-            // Execute playback instantly when HLS parses the video container mapping
-            hls.once(Hls.Events.MANIFEST_PARSED, () => {
-                preparePlaybackState();
-            });
+            hls.once(Hls.Events.MANIFEST_PARSED, applyTargetSyncTime);
         } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
             player.src = url;
-            player.onloadedmetadata = preparePlaybackState;
+            player.onloadedmetadata = applyTargetSyncTime;
         }
     } else {
-        // Standard progressive MP4 routing
         player.src = url;
-        player.onloadedmetadata = preparePlaybackState;
+        player.onloadedmetadata = applyTargetSyncTime;
     }
     player.load();
 }
 
-// 3. Mathematical Global Engine Calculations
-function getGlobalTimelineState() {
-    let totalPlaylistDuration = playlist.reduce((sum, track) => sum + track.duration, 0);
-    let msSinceEpoch = Date.now() - EPOCH_START;
-    let totalSecondsElapsed = Math.floor(msSinceEpoch / 1000);
-    
-    let currentPlaylistTime = totalSecondsElapsed % totalPlaylistDuration;
-    
+// Linear Schedule Timeline Engine
+function getLinearTimelineState() {
+    const playlist = channelConfig.playlist;
+    const totalDuration = playlist.reduce((sum, t) => sum + t.duration, 0);
+    const msSinceLoopStart = Date.now() - channelConfig.activeLoopStart;
+    const totalSecondsElapsed = Math.floor(msSinceLoopStart / 1000);
+
+    // Calculate position within the current playback loop iteration
+    let currentPlaylistTime = totalSecondsElapsed % totalDuration;
+    if (currentPlaylistTime < 0) currentPlaylistTime += totalDuration;
+
     let accumulatedTime = 0;
     for (let i = 0; i < playlist.length; i++) {
         if (currentPlaylistTime >= accumulatedTime && currentPlaylistTime < accumulatedTime + playlist[i].duration) {
@@ -177,17 +175,19 @@ function getGlobalTimelineState() {
     return { index: 0, seekTo: 0, track: playlist[0] };
 }
 
-// 4. Synchronize Transitions Safely
-function syncPlayerEngine() {
-    const state = getGlobalTimelineState();
+// Execution and Crossfading Controller
+function refreshPlayerEngine() {
+    if (!channelConfig.playlist || channelConfig.playlist.length === 0) return;
+    
+    const state = getLinearTimelineState();
     
     if (currentTrackIndex !== state.index) {
         currentTrackIndex = state.index;
         
-        // Stage the stream change inside the hidden layer
+        // Stage upcoming track on background element
         loadMediaSource(inactivePlayer, state.track.url, state.seekTo);
         
-        // Swap visibility smoothly
+        // Smooth transition swap
         activePlayer.className = "hidden";
         inactivePlayer.className = "active";
         
@@ -195,9 +195,9 @@ function syncPlayerEngine() {
         activePlayer = inactivePlayer;
         inactivePlayer = temp;
         
-        document.getElementById('statusOverlay').innerHTML = `🔴 <b>LIVE ON-AIR:</b> Track #${currentTrackIndex + 1}`;
+        document.getElementById('statusOverlay').innerHTML = `🔴 <b>LIVE ON-AIR:</b> Video #${currentTrackIndex + 1}`;
     } else {
-        // Ongoing timeline corrections (corrects for background tab drift within 2 seconds)
+        // Enforce anti-drift timeline lock (2-second threshold)
         if (Math.abs(activePlayer.currentTime - state.seekTo) > 2.0) {
             isEnforcingSync = true;
             activePlayer.currentTime = state.seekTo;
@@ -206,32 +206,31 @@ function syncPlayerEngine() {
     }
 }
 
-// 5. Anti-Scrub System Hook
-function setupAntiScrub(playerElement) {
+// Hardened Anti-Scrub Lock Hook
+function setupAntiScrubSecurity(playerElement) {
     playerElement.addEventListener('seeking', () => {
         if (!isEnforcingSync) {
-            const state = getGlobalTimelineState();
+            const state = getLinearTimelineState();
             isEnforcingSync = true;
             playerElement.currentTime = state.seekTo;
-            document.getElementById('statusOverlay').innerHTML = "🔒 <b>Anti-Scrub System:</b> Stream position locked.";
+            document.getElementById('statusOverlay').innerHTML = "🔒 <b>Anti-Scrub System:</b> Sync Locked.";
             setTimeout(() => { isEnforcingSync = false; }, 400);
         }
     });
 }
 
-// 6. Dynamic Local File Poller
-async function poolServerlessPlaylistUpdate() {
+// Serverless Config Fetcher
+async function fetchServerlessPlaylist() {
     try {
         const response = await fetch('./playlist.json?nocache=' + Date.now());
         if (response.ok) {
-            const remotePlaylist = await response.json();
-            if (remotePlaylist && Array.isArray(remotePlaylist) && remotePlaylist.length > 0) {
-                playlist = remotePlaylist;
-                console.log("Playlist synchronized from local storage file successfully.");
+            const data = await response.json();
+            if (data && data.playlist && Array.isArray(data.playlist)) {
+                channelConfig = data;
             }
         }
     } catch (e) {
-        // Suppresses console noise silently if running without a local web server instance
+        console.log("Local playlist parsing paused until hosted live via server or GitHub Pages.");
     }
 }
 
@@ -241,24 +240,22 @@ function unmutePlayers() {
     p2.muted = false;
     document.getElementById('unmuteBtn').style.display = 'none';
     
-    // Explicit trigger to kickstart the stream on user click
-    const state = getGlobalTimelineState();
+    const state = getLinearTimelineState();
     activePlayer.play().catch(() => {
-        // Re-enforce source sync if browser stalled state elements
         loadMediaSource(activePlayer, state.track.url, state.seekTo);
     });
 }
 
-// Core Execution
-setupAntiScrub(p1);
-setupAntiScrub(p2);
-poolServerlessPlaylistUpdate().then(() => {
-    syncPlayerEngine();
-});
+// Initialization Sequence
+setupAntiScrubSecurity(p1);
+setupAntiScrubSecurity(p2);
 
-// Loop heartbeats
-setInterval(syncPlayerEngine, 1000);
-setInterval(poolServerlessPlaylistUpdate, 20000);
+fetchServerlessPlaylist().then(() => {
+    refreshPlayerEngine();
+    // Heartbeats
+    setInterval(refreshPlayerEngine, 1000);
+    setInterval(fetchServerlessPlaylist, 15000); // Poll playlist adjustments every 15 seconds
+});
 </script>
 </body>
 </html>

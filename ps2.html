@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Synced Live TV — Dual Player</title>
+<style>
+  :root{
+    --bg:#0b0c0e; --panel:#15171a; --line:#262a2f;
+    --text:#e8e9ea; --muted:#8b9096; --accent:#4f8cff; --live:#e5484d;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:960px;margin:0 auto;padding:24px 16px 60px;}
+  body.mode-public .wrap{max-width:none;padding:0;}
+  h1{font-size:20px;font-weight:600;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  body.mode-public .chrome-only{display:none !important;}
+  body.mode-public .stage{border-radius:0;border:none;width:100vw;height:100vh;aspect-ratio:auto;}
+  body.mode-public html, body.mode-public{height:100%;}
+
+  .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
+  .stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transition:opacity .25s linear;}
+  .stage video.hidden{opacity:0;pointer-events:none;}
+  .stage video.shown{opacity:1;}
+  .badge{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:12px;z-index:5;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:pulse 1.4s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+  .active-tag{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:11px;color:var(--muted);z-index:5;}
+  .warn{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(229,72,77,.15);border:1px solid rgba(229,72,77,.4);color:#ff9b9d;font-size:12px;padding:6px 10px;border-radius:6px;display:none;z-index:6;}
+
+  #loader-overlay{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    z-index:9998; pointer-events:none; transition:opacity .3s ease, visibility .3s ease;
+  }
+  #loader-overlay.hidden{opacity:0;visibility:hidden;}
+  .spinner{
+    width:54px; height:54px; border:4px solid rgba(255,255,255,.15);
+    border-top-color:#ff3b30; border-radius:50%; animation:spin .9s linear infinite;
+  }
+  .loading-text{
+    color:#ffd700; font-size:14px; font-weight:600; letter-spacing:.5px;
+    text-transform:uppercase; text-shadow:0 2px 4px rgba(0,0,0,.8);
+  }
+  @keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
+
+  #controls-overlay{
+    position:absolute; bottom:0; left:0; width:100%;
+    padding:0 16px calc(16px + env(safe-area-inset-bottom)) 16px;
+    display:flex; align-items:center; justify-content:space-between;
+    z-index:100000; transition:opacity .4s ease, visibility .4s ease;
+  }
+  .ui-hidden{opacity:0 !important; visibility:hidden !important; pointer-events:none !important;}
+  .controls-left, .controls-right{display:flex; align-items:center; gap:8px;}
+  .control-btn{
+    background:rgba(25,25,25,.55); border:1px solid rgba(255,255,255,.1);
+    color:rgba(255,255,255,.85); width:38px; height:38px; border-radius:50%;
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    transition:background .2s, transform .1s;
+  }
+  .control-btn svg{width:17px; height:17px; fill:rgba(255,255,255,.9);}
+  .control-btn:active{transform:scale(.9); background:rgba(50,50,50,.75);}
+
+  .panel{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--line);}
+  .row:last-child{border-bottom:none;}
+  .row .k{color:var(--muted);}
+  .row .v{font-variant-numeric:tabular-nums;}
+  .playlist{margin-top:16px;}
+  .playlist h2{font-size:14px;font-weight:600;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+  .plitem{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:6px;font-size:13px;border:1px solid var(--line);margin-bottom:6px;}
+  .plitem.playing{border-color:var(--accent);background:rgba(79,140,255,.08);}
+  .plitem .idx{color:var(--muted);width:24px;flex-shrink:0;}
+  .plitem .url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
+  .addrow{display:flex;gap:8px;margin-top:10px;}
+  .addrow input{flex:1;background:#0d0e10;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px;}
+  .addrow button{background:var(--accent);border:none;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;}
+  .addrow button:hover{opacity:.9;}
+  .note{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.5;}
+  code{background:#0d0e10;padding:1px 5px;border-radius:4px;font-size:12px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 class="chrome-only">Synchronized live TV player</h1>
+  <p class="sub chrome-only">Everyone worldwide sees the same frame at the same wall-clock moment. Append <code>?mode=public</code> or <code>?mode=private</code> to the URL.</p>
+
+  <div class="stage" id="stage">
+    <video id="videoA" muted playsinline></video>
+    <video id="videoB" muted playsinline></video>
+
+    <div class="badge chrome-only"><span class="dot"></span>LIVE</div>
+    <div class="active-tag chrome-only" id="activeTag">Player A on-air</div>
+    <div class="warn" id="warnBox">Playback drift detected — resynced to live position.</div>
+
+    <div id="loader-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Connecting</div>
+    </div>
+
+    <div id="controls-overlay">
+      <div class="controls-left"></div>
+      <div class="controls-right">
+        <button class="control-btn" id="muteBtn" aria-label="Toggle mute">
+          <svg id="muteIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z"/></svg>
+        </button>
+        <button class="control-btn" id="fullscreenBtn" aria-label="Toggle fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel chrome-only">
+    <div class="row"><span class="k">Playlist item on-air</span><span class="v" id="statItem">—</span></div>
+    <div class="row"><span class="k">Elapsed in item</span><span class="v" id="statElapsed">—</span></div>
+    <div class="row"><span class="k">Global timeline position</span><span class="v" id="statGlobal">—</span></div>
+    <div class="row"><span class="k">On-air buffer</span><span class="v" id="statBuffer">—</span></div>
+    <div class="row"><span class="k">Loop count</span><span class="v" id="statLoops">—</span></div>
+  </div>
+
+  <div class="playlist chrome-only">
+    <h2>Playlist</h2>
+    <div id="plList"></div>
+    <div class="addrow">
+      <input id="newUrl" type="text" placeholder="https://example.com/video.mp4">
+      <input id="newDur" type="number" placeholder="Duration (s), optional" style="max-width:170px;">
+      <button id="addBtn">Add to end</button>
+    </div>
+    <p class="note">
+      Playlist is sourced live from <code>playlist.json</code> on GitHub — edit it there and
+      push. Every viewer, in public or private mode, refetches it every 30s in the background;
+      appends and future-item edits never interrupt what's currently on-air. Removing the
+      item currently playing forces an immediate resync for anyone watching it.
+    </p>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var params = new URLSearchParams(window.location.search);
+  var mode = (params.get("mode") || "private").toLowerCase();
+  if(mode === "public"){
+    document.body.classList.add("mode-public");
+  }
+
+  var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
+
+  // Raw GitHub URL to your playlist.json. Use raw.githubusercontent.com,
+  // not github.com, and use jsdelivr as a CDN mirror to avoid GitHub's
+  // aggressive raw-file caching if updates feel slow to propagate:
+  //   https://cdn.jsdelivr.net/gh/USER/REPO@main/playlist.json
+  var PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
+
+  // Fallback used only if the fetch fails on a viewer's very first load
+  // (e.g. offline). Once playlist.json loads successfully it takes over.
+  var FALLBACK_PLAYLIST = [
+    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4", duration: 16 }
+  ];
+
+  var REFRESH_INTERVAL_MS = 30000; // poll playlist.json every 30s in the background
+
+  var playlist = FALLBACK_PLAYLIST.slice();
+  var playlistReady = false;
+
+  // playlist.json format:
+  // [ { "url": "https://...mp4", "duration": 30 }, { "url": "...", "duration": 45 } ]
+  function fetchPlaylist(){
+    return fetch(PLAYLIST_URL, { cache: "no-store" })
+      .then(function(res){
+        if(!res.ok) throw new Error("fetch failed: " + res.status);
+        return res.json();
+      })
+      .then(function(data){
+        if(!Array.isArray(data) || data.length === 0) throw new Error("empty or invalid playlist.json");
+        var cleaned = data
+          .filter(function(item){ return item && typeof item.url === "string" && item.url.length; })
+          .map(function(item){ return { url: item.url, duration: Number(item.duration) > 0 ? Number(item.duration) : 10 }; });
+        if(cleaned.length === 0) throw new Error("no valid items in playlist.json");
+        return cleaned;
+      });
+  }
+
+  function applyNewPlaylist(newList){
+    // Appends and edits from GitHub are absorbed silently: the schedule
+    // engine recomputes from EPOCH_MS + this array on every tick, and the
+    // dual-buffer loader only reloads the standby buffer for a changed
+    // future item — the on-air element is never touched mid-playback
+    // unless the currently playing URL itself was removed/changed.
+    var oldOnAirUrl = playlist[players[onAirKey].index] ? playlist[players[onAirKey].index].url : null;
+    playlist = newList;
+    if(oldOnAirUrl){
+      var stillPresent = playlist.some(function(i){ return i.url === oldOnAirUrl; });
+      if(!stillPresent){
+        // on-air item was removed from the source list: resync immediately
+        // to wherever the new schedule says we should be, unavoidable since
+        // the content itself is gone.
+        players[onAirKey].index = -1;
+      }
+    }
+  }
+
+  function totalDuration(list){
+    var sum = 0;
+    for(var i=0;i<list.length;i++) sum += (list[i].duration || 10);
+    return sum;
+  }
+
+  function computeSchedule(nowMs, list){
+    var total = totalDuration(list);
+    if(total <= 0) return null;
+    var elapsedSinceEpoch = (nowMs - EPOCH_MS) / 1000;
+    var loopCount = Math.floor(elapsedSinceEpoch / total);
+    var posInLoop = elapsedSinceEpoch - loopCount * total;
+    if(posInLoop < 0){ posInLoop += total; loopCount -= 1; }
+
+    var acc = 0;
+    for(var i=0;i<list.length;i++){
+      var d = list[i].duration || 10;
+      if(posInLoop < acc + d){
+        return { index:i, offset:posInLoop-acc, duration:d, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
+      }
+      acc += d;
+    }
+    var lastIdx = list.length - 1;
+    return { index:lastIdx, offset:list[lastIdx].duration||10, duration:list[lastIdx].duration||10, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
+  }
+
+  var videoA = document.getElementById("videoA");
+  var videoB = document.getElementById("videoB");
+  var activeTag = document.getElementById("activeTag");
+  var warnBox = document.getElementById("warnBox");
+  var loaderOverlay = document.getElementById("loader-overlay");
+
+  var players = {
+    A: { el: videoA, index: -1, role: "onair" },
+    B: { el: videoB, index: -1, role: "standby" }
+  };
+  var stage = document.getElementById("stage");
+  var onAirKey = "A";
+  var firstFrameShown = false;
+
+  videoA.classList.add("shown");
+  videoB.classList.add("hidden");
+  videoA.preload = "auto";
+  videoB.preload = "auto";
+
+  // Autoplay policies (Chrome, Samsung Internet) block unmuted/unattended
+  // playback unless these are explicitly set on the element itself, not
+  // just via the muted property in JS. Kiwi (Chromium-based but looser
+  // policy) let this slide, which is why it worked there and not elsewhere.
+  [videoA, videoB].forEach(function(v){
+    v.muted = true;
+    v.defaultMuted = true;
+    v.setAttribute("muted", "");
+    v.setAttribute("autoplay", "");
+    v.setAttribute("playsinline", "");
+    v.setAttribute("webkit-playsinline", "");
+  });
+
+  var tapToPlayShown = false;
+  function showTapToPlay(){
+    if(tapToPlayShown) return;
+    tapToPlayShown = true;
+    var overlay = document.createElement("div");
+    overlay.id = "tap-to-play";
+    overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(0,0,0,.6);z-index:99999;cursor:pointer;";
+    overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
+      'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
+
+    function attemptPlay(){
+      var a = players.A.el, b = players.B.el;
+      // force attributes again in case the browser reset them
+      [a,b].forEach(function(v){ v.muted = true; v.setAttribute("muted",""); });
+      var onAirEl = players[onAirKey].el;
+      var pr = onAirEl.play();
+      var standbyEl = players[otherKey(onAirKey)].el;
+      if(standbyEl && standbyEl.src) standbyEl.play().catch(function(){});
+      var cleanup = function(){
+        if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        tapToPlayShown = false;
+        document.removeEventListener("click", attemptPlay, true);
+      };
+      if(pr && pr.then){
+        pr.then(cleanup).catch(function(){
+          // still blocked; leave overlay up for another try
+        });
+      } else {
+        cleanup();
+      }
+    }
+
+    overlay.addEventListener("click", attemptPlay);
+    // also allow clicking anywhere on the stage, in case overlay stacking
+    // or a prior click handler swallows the event
+    document.addEventListener("click", attemptPlay, true);
+    stage.appendChild(overlay);
+  }
+
+  function otherKey(k){ return k === "A" ? "B" : "A"; }
+
+  function hideLoader(){
+    if(loaderOverlay && !loaderOverlay.classList.contains("hidden")){
+      loaderOverlay.classList.add("hidden");
+    }
+  }
+
+  function loadInto(playerKey, index, seekTo){
+    var p = players[playerKey];
+    var item = playlist[index];
+    if(!item) return;
+    if(p.index !== index || p.el.getAttribute("data-url") !== item.url){
+      p.el.setAttribute("data-url", item.url);
+      p.el.src = item.url;
+      p.el.load();
+      p.index = index;
+      loadedAt[playerKey] = Date.now();
+    }
+    var doSeek = function(){
+      try{
+        if(Math.abs(p.el.currentTime - seekTo) > 0.35){
+          p.el.currentTime = Math.max(0, seekTo);
+        }
+      }catch(e){}
+    };
+    if(p.el.readyState >= 1){
+      doSeek();
+    } else {
+      p.el.addEventListener("loadedmetadata", doSeek, { once:true });
+    }
+    var playPromise = p.el.play();
+    if(playPromise && playPromise.catch){
+      playPromise.catch(function(err){
+        if(playerKey === onAirKey){
+          showTapToPlay();
+        }
+      });
+    }
+
+    if(playerKey === onAirKey){
+      var onProgress = function(){
+        if(!firstFrameShown && p.el.currentTime > 0){
+          firstFrameShown = true;
+          hideLoader();
+        }
+      };
+      p.el.addEventListener("timeupdate", onProgress);
+      p.el.addEventListener("playing", onProgress);
+    }
+  }
+
+  function swapOnAir(nextKey){
+    var incoming = players[nextKey];
+    var outgoing = players[otherKey(nextKey)];
+    incoming.el.classList.remove("hidden");
+    incoming.el.classList.add("shown");
+    outgoing.el.classList.remove("shown");
+    outgoing.el.classList.add("hidden");
+    incoming.role = "onair";
+    outgoing.role = "standby";
+    onAirKey = nextKey;
+    if(activeTag) activeTag.textContent = "Player " + nextKey + " on-air";
+    applyAudioRouting();
+  }
+
+  // Only the on-air element may ever be unmuted. The standby buffer is
+  // always force-muted regardless of user mute state, which is what was
+  // causing two audio tracks to play at once during preload/crossfade.
+  var userWantsSound = false;
+
+  function applyAudioRouting(){
+    var onAir = players[onAirKey].el;
+    var standby = players[otherKey(onAirKey)].el;
+    onAir.muted = !userWantsSound;
+    standby.muted = true;
+  }
+
+  var TOLERANCE_SEC = 2.5;
+  var STARTUP_GRACE_MS = 3000;
+  var loadedAt = { A: 0, B: 0 };
+
+  function enforceLock(playerKey, expectedIndex, expectedOffset){
+    var p = players[playerKey];
+    if(p.index !== expectedIndex) return;
+    if(Date.now() - loadedAt[playerKey] < STARTUP_GRACE_MS) return;
+    if(p.el.readyState < 2) return;
+    var drift = p.el.currentTime - expectedOffset;
+    if(Math.abs(drift) > TOLERANCE_SEC){
+      try{ p.el.currentTime = Math.max(0, expectedOffset); }catch(e){}
+      if(playerKey === onAirKey && firstFrameShown){
+        showWarning();
+      }
+    }
+  }
+
+  function showWarning(){
+    warnBox.style.display = "block";
+    clearTimeout(showWarning._t);
+    showWarning._t = setTimeout(function(){ warnBox.style.display = "none"; }, 2200);
+  }
+
+  [videoA, videoB].forEach(function(v, i){
+    v.addEventListener("seeking", function(){ checkAgainstSchedule(true); });
+  });
+
+  var PRELOAD_LEAD_SEC = 4;
+
+  function checkAgainstSchedule(force){
+    var sched = computeSchedule(Date.now(), playlist);
+    if(!sched) return;
+
+    var onAir = players[onAirKey];
+    if(onAir.index !== sched.index){
+      loadInto(onAirKey, sched.index, sched.offset);
+    }
+    enforceLock(onAirKey, sched.index, sched.offset);
+
+    var timeRemaining = sched.duration - sched.offset;
+    var nextIndex = (sched.index + 1) % playlist.length;
+    var standbyKey = otherKey(onAirKey);
+    var standby = players[standbyKey];
+
+    if(timeRemaining <= PRELOAD_LEAD_SEC){
+      if(standby.index !== nextIndex){
+        loadInto(standbyKey, nextIndex, 0);
+      }
+    }
+
+    var freshSched = computeSchedule(Date.now(), playlist);
+    if(freshSched.index !== players[onAirKey].index){
+      var target = freshSched.index;
+      var holder = (players[standbyKey].index === target) ? standbyKey : onAirKey;
+      if(holder !== onAirKey){
+        try{ players[standbyKey].el.currentTime = freshSched.offset; }catch(e){}
+        swapOnAir(standbyKey);
+      } else {
+        loadInto(onAirKey, target, freshSched.offset);
+      }
+    }
+
+    renderStats(freshSched);
+  }
+
+  var muteBtn = document.getElementById("muteBtn");
+  var muteIcon = document.getElementById("muteIcon");
+  var fullscreenBtn = document.getElementById("fullscreenBtn");
+
+  var MUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z";
+  var UNMUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm11 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+
+  function setMuteIcon(muted){
+    muteIcon.querySelector("path").setAttribute("d", muted ? MUTED_PATH : UNMUTED_PATH);
+  }
+  setMuteIcon(true);
+
+  muteBtn.addEventListener("click", function(){
+    userWantsSound = !userWantsSound;
+    applyAudioRouting();
+    setMuteIcon(!userWantsSound);
+  });
+
+  fullscreenBtn.addEventListener("click", function(){
+    if(!document.fullscreenElement){
+      if(stage.requestFullscreen) stage.requestFullscreen();
+      else if(stage.webkitRequestFullscreen) stage.webkitRequestFullscreen();
+    } else {
+      if(document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  });
+
+  function fmt(sec){
+    sec = Math.max(0, sec);
+    var m = Math.floor(sec/60), s = Math.floor(sec%60);
+    return m + ":" + (s<10?"0":"") + s;
+  }
+
+  function renderStats(sched){
+    if(mode === "public") return;
+    document.getElementById("statItem").textContent = "#" + (sched.index+1) + " / " + playlist.length;
+    document.getElementById("statElapsed").textContent = fmt(sched.offset) + " / " + fmt(sched.duration);
+    document.getElementById("statGlobal").textContent = fmt(sched.globalPos) + " / " + fmt(sched.totalDuration);
+    document.getElementById("statBuffer").textContent = "Player " + onAirKey + " on-air, Player " + otherKey(onAirKey) + " standby";
+    document.getElementById("statLoops").textContent = sched.loopCount;
+    renderPlaylist(sched.index);
+  }
+
+  function renderPlaylist(activeIndex){
+    var container = document.getElementById("plList");
+    if(!container) return;
+    container.innerHTML = "";
+    playlist.forEach(function(item, i){
+      var row = document.createElement("div");
+      row.className = "plitem" + (i === activeIndex ? " playing" : "");
+      var idx = document.createElement("span");
+      idx.className = "idx";
+      idx.textContent = (i+1) + ".";
+      var url = document.createElement("span");
+      url.className = "url";
+      url.textContent = item.url + "  (" + (item.duration||10) + "s)";
+      row.appendChild(idx);
+      row.appendChild(url);
+      container.appendChild(row);
+    });
+  }
+
+  var addBtn = document.getElementById("addBtn");
+  if(addBtn){
+    addBtn.addEventListener("click", function(){
+      alert("Playlist is now managed in playlist.json on GitHub. Edit the file and push — every player (public and private) picks up the change within " + (REFRESH_INTERVAL_MS/1000) + "s, with zero interruption to what's on-air.");
+    });
+  }
+
+  function boot(){
+    var initSched = computeSchedule(Date.now(), playlist);
+    loadInto("A", initSched.index, initSched.offset);
+    applyAudioRouting();
+    renderStats(initSched);
+    setTimeout(hideLoader, 4000);
+    setInterval(function(){ checkAgainstSchedule(false); }, 500);
+    setInterval(function(){
+      fetchPlaylist().then(applyNewPlaylist).catch(function(){ /* keep current playlist on failure */ });
+    }, REFRESH_INTERVAL_MS);
+  }
+
+  fetchPlaylist()
+    .then(function(list){ playlist = list; playlistReady = true; })
+    .catch(function(){ /* fall back to FALLBACK_PLAYLIST already set */ })
+    .then(boot);
+
+})();
+</script>
+</body>
+</html>

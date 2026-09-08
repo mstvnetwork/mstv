@@ -643,11 +643,18 @@
     });
   }
 
+    // 1. Modified boot function that sets up data but DOES NOT force execution of blocked plays
   function boot(){
     var initSched = computeSchedule(Date.now(), playlist);
+    
+    // Pre-load the structure, but don't force trigger the play promise yet
     loadInto("A", initSched.index, initSched.offset);
     applyAudioRouting();
     renderStats(initSched);
+    
+    // Crucial: Show the manual tap-to-play overlay immediately so the user can authorize the context
+    showTapToPlay();
+    
     setTimeout(hideLoader, 4000);
     setInterval(function(){ checkAgainstSchedule(false); }, 500);
     setInterval(function(){
@@ -655,12 +662,12 @@
     }, REFRESH_INTERVAL_MS);
   }
 
+  // 2. Fetch the playlist and boot up safely
   fetchPlaylist()
     .then(function(list){ playlist = list; playlistReady = true; })
     .catch(function(){ /* fall back to FALLBACK_PLAYLIST already set */ })
     .then(boot);
 
-})();
 </script>
 </body>
 </html>

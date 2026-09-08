@@ -11,8 +11,13 @@
   *{box-sizing:border-box;}
   body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
   .wrap{max-width:960px;margin:0 auto;padding:24px 16px 60px;}
+  body.mode-public .wrap{max-width:none;padding:0;}
   h1{font-size:20px;font-weight:600;margin:0 0 4px;}
   .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
+  body.mode-public .chrome-only{display:none !important;}
+  body.mode-public .stage{border-radius:0;border:none;width:100vw;height:100vh;aspect-ratio:auto;}
+  body.mode-public html, body.mode-public{height:100%;}
+
   .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
   .stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transition:opacity .25s linear;}
   .stage video.hidden{opacity:0;pointer-events:none;}
@@ -22,6 +27,41 @@
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
   .active-tag{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:11px;color:var(--muted);z-index:5;}
   .warn{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(229,72,77,.15);border:1px solid rgba(229,72,77,.4);color:#ff9b9d;font-size:12px;padding:6px 10px;border-radius:6px;display:none;z-index:6;}
+
+  #loader-overlay{
+    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+    display:flex; flex-direction:column; align-items:center; gap:14px;
+    z-index:9998; pointer-events:none; transition:opacity .3s ease, visibility .3s ease;
+  }
+  #loader-overlay.hidden{opacity:0;visibility:hidden;}
+  .spinner{
+    width:54px; height:54px; border:4px solid rgba(255,255,255,.15);
+    border-top-color:#ff3b30; border-radius:50%; animation:spin .9s linear infinite;
+  }
+  .loading-text{
+    color:#ffd700; font-size:14px; font-weight:600; letter-spacing:.5px;
+    text-transform:uppercase; text-shadow:0 2px 4px rgba(0,0,0,.8);
+  }
+  @keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
+
+  #controls-overlay{
+    position:absolute; bottom:0; left:0; width:100%;
+    padding:0 16px calc(16px + env(safe-area-inset-bottom)) 16px;
+    display:flex; align-items:center; justify-content:space-between;
+    z-index:9999; transition:opacity .4s ease, visibility .4s ease;
+  }
+  .ui-hidden{opacity:0 !important; visibility:hidden !important; pointer-events:none !important;}
+  .controls-left, .controls-right{display:flex; align-items:center; gap:8px;}
+  .control-btn{
+    background:rgba(25,25,25,.55); border:1px solid rgba(255,255,255,.1);
+    color:rgba(255,255,255,.85); width:38px; height:38px; border-radius:50%;
+    cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    transition:background .2s, transform .1s;
+  }
+  .control-btn svg{width:17px; height:17px; fill:rgba(255,255,255,.9);}
+  .control-btn:active{transform:scale(.9); background:rgba(50,50,50,.75);}
+
   .panel{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
   .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--line);}
   .row:last-child{border-bottom:none;}
@@ -43,18 +83,36 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Synchronized live TV player</h1>
-  <p class="sub">Everyone worldwide sees the same frame at the same wall-clock moment — dual-buffer crossfade, anti-scrub lock, gapless loop.</p>
+  <h1 class="chrome-only">Synchronized live TV player</h1>
+  <p class="sub chrome-only">Everyone worldwide sees the same frame at the same wall-clock moment. Append <code>?mode=public</code> or <code>?mode=private</code> to the URL.</p>
 
   <div class="stage" id="stage">
     <video id="videoA" muted playsinline></video>
     <video id="videoB" muted playsinline></video>
-    <div class="badge"><span class="dot"></span>LIVE</div>
-    <div class="active-tag" id="activeTag">Player A on-air</div>
+
+    <div class="badge chrome-only"><span class="dot"></span>LIVE</div>
+    <div class="active-tag chrome-only" id="activeTag">Player A on-air</div>
     <div class="warn" id="warnBox">Playback drift detected — resynced to live position.</div>
+
+    <div id="loader-overlay">
+      <div class="spinner"></div>
+      <div class="loading-text">Connecting</div>
+    </div>
+
+    <div id="controls-overlay">
+      <div class="controls-left"></div>
+      <div class="controls-right">
+        <button class="control-btn" id="muteBtn" aria-label="Toggle mute">
+          <svg id="muteIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z"/></svg>
+        </button>
+        <button class="control-btn" id="fullscreenBtn" aria-label="Toggle fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+      </div>
+    </div>
   </div>
 
-  <div class="panel">
+  <div class="panel chrome-only">
     <div class="row"><span class="k">Playlist item on-air</span><span class="v" id="statItem">—</span></div>
     <div class="row"><span class="k">Elapsed in item</span><span class="v" id="statElapsed">—</span></div>
     <div class="row"><span class="k">Global timeline position</span><span class="v" id="statGlobal">—</span></div>
@@ -62,7 +120,7 @@
     <div class="row"><span class="k">Loop count</span><span class="v" id="statLoops">—</span></div>
   </div>
 
-  <div class="playlist">
+  <div class="playlist chrome-only">
     <h2>Playlist</h2>
     <div id="plList"></div>
     <div class="addrow">
@@ -71,8 +129,9 @@
       <button id="addBtn">Add to end</button>
     </div>
     <p class="note">
-      Adding a URL appends to the end of the loop and never touches the item currently on-air.
-      Sound starts muted (autoplay policy) — click the stage once to unmute.
+      Adding a URL appends to the end and never touches the on-air item. Editing
+      <code>DEFAULT_PLAYLIST</code> in the code and bumping <code>PLAYLIST_VERSION</code>
+      always overrides any cached playlist from a previous visit.
     </p>
   </div>
 </div>
@@ -81,34 +140,39 @@
 (function(){
   "use strict";
 
-  /* ===================================================================
-     GLOBAL SCHEDULE ENGINE
-     A single, deterministic "epoch" (fixed reference timestamp) plus a
-     playlist array of {url, duration} fully determines, for any wall
-     clock time on Earth, which item is on-air and the exact elapsed
-     offset into it. No server session, no per-viewer state, no random
-     seed: two people opening the page a week apart, or the same person
-     hard-refreshing, land on the identical frame.
+  var params = new URLSearchParams(window.location.search);
+  var mode = (params.get("mode") || "private").toLowerCase();
+  if(mode === "public"){
+    document.body.classList.add("mode-public");
+  }
 
-     Persistence: the epoch + playlist are cached in localStorage so a
-     revisit/hard-refresh reconstructs the same schedule instantly
-     without waiting on a network round trip, but the source of truth
-     is always recomputed from EPOCH_MS, never from "time since page
-     load" or any local session counter.
-  =================================================================== */
+  var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
 
-  var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0); // fixed reference instant, same for all viewers
-
+  // EDIT THIS ARRAY for your real stream, then bump PLAYLIST_VERSION below.
   var DEFAULT_PLAYLIST = [
-    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song3.mp4", duration: 138 },
-    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/song1.mp4", duration: 166 },
-    { url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxj7e7bboxuzvta274tkxr6sbp476x2g64loc76fr5z6tjkty7li4q5qq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fs2.videoapne.to%2Fhls%2Fbdohxj7e7bboxuzvta274tkxr6sbp476x2g64loc76fr5z6tjkty7li4q5qq%2Findex-v1-a1.m3u8", duration: 2511 }
+    { url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", duration: 10 },
+    { url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm", duration: 10 },
+    { url: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", duration: 60 }
   ];
 
+  // Bump this every time DEFAULT_PLAYLIST is edited by hand. This value is
+  // what fixes the "old urls keep showing up" bug: previously the cache
+  // never invalidated on a code edit, so a browser that had visited before
+  // kept replaying its old localStorage copy forever, while a fresh
+  // browser (no cache) picked up the new code. Now the cache is keyed to
+  // this version string, so any edit here forces every browser to re-sync
+  // to the new DEFAULT_PLAYLIST on next load.
+  var PLAYLIST_VERSION = "2";
   var STORAGE_KEY = "sync_tv_playlist_v1";
+  var VERSION_KEY = "sync_tv_playlist_version";
 
   function loadPlaylist(){
     try{
+      var storedVersion = localStorage.getItem(VERSION_KEY);
+      if(storedVersion !== PLAYLIST_VERSION){
+        savePlaylist(DEFAULT_PLAYLIST);
+        return DEFAULT_PLAYLIST.slice();
+      }
       var raw = localStorage.getItem(STORAGE_KEY);
       if(raw){
         var parsed = JSON.parse(raw);
@@ -118,7 +182,10 @@
     return DEFAULT_PLAYLIST.slice();
   }
   function savePlaylist(list){
-    try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }catch(e){}
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+      localStorage.setItem(VERSION_KEY, PLAYLIST_VERSION);
+    }catch(e){}
   }
 
   var playlist = loadPlaylist();
@@ -129,71 +196,51 @@
     return sum;
   }
 
-  // Given a wall-clock ms timestamp, compute: index, offset-into-item, loop count, global position
   function computeSchedule(nowMs, list){
     var total = totalDuration(list);
     if(total <= 0) return null;
-    var elapsedSinceEpoch = (nowMs - EPOCH_MS) / 1000; // seconds, can be huge
+    var elapsedSinceEpoch = (nowMs - EPOCH_MS) / 1000;
     var loopCount = Math.floor(elapsedSinceEpoch / total);
-    var posInLoop = elapsedSinceEpoch - loopCount * total; // 0..total
-    if(posInLoop < 0){ posInLoop += total; loopCount -= 1; } // safety for pre-epoch clocks
+    var posInLoop = elapsedSinceEpoch - loopCount * total;
+    if(posInLoop < 0){ posInLoop += total; loopCount -= 1; }
 
     var acc = 0;
     for(var i=0;i<list.length;i++){
       var d = list[i].duration || 10;
       if(posInLoop < acc + d){
-        return {
-          index: i,
-          offset: posInLoop - acc,
-          duration: d,
-          loopCount: loopCount,
-          globalPos: posInLoop,
-          totalDuration: total
-        };
+        return { index:i, offset:posInLoop-acc, duration:d, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
       }
       acc += d;
     }
-    // floating point edge case: land on last item's end
     var lastIdx = list.length - 1;
-    return {
-      index: lastIdx,
-      offset: list[lastIdx].duration || 10,
-      duration: list[lastIdx].duration || 10,
-      loopCount: loopCount,
-      globalPos: posInLoop,
-      totalDuration: total
-    };
+    return { index:lastIdx, offset:list[lastIdx].duration||10, duration:list[lastIdx].duration||10, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
   }
-
-  /* ===================================================================
-     DUAL-BUFFER PLAYER
-     videoA / videoB alternate the "on-air" role. While one is visible
-     and playing, the other silently preloads and pre-seeks to the
-     exact scheduled offset of the NEXT playlist item. At the scheduled
-     boundary we swap visibility/opacity — a soft crossfade with zero
-     playback interruption, because the incoming element was already
-     rolling before the swap.
-
-     This also lets a playlist mutation (append at the end) happen with
-     zero effect on-air: the on-air buffer never reloads, only the
-     off-air buffer's future preload target can change.
-  =================================================================== */
 
   var videoA = document.getElementById("videoA");
   var videoB = document.getElementById("videoB");
   var activeTag = document.getElementById("activeTag");
   var warnBox = document.getElementById("warnBox");
+  var loaderOverlay = document.getElementById("loader-overlay");
 
   var players = {
     A: { el: videoA, index: -1, role: "onair" },
     B: { el: videoB, index: -1, role: "standby" }
   };
   var onAirKey = "A";
+  var firstFrameShown = false;
 
   videoA.classList.add("shown");
   videoB.classList.add("hidden");
+  videoA.preload = "auto";
+  videoB.preload = "auto";
 
   function otherKey(k){ return k === "A" ? "B" : "A"; }
+
+  function hideLoader(){
+    if(loaderOverlay && !loaderOverlay.classList.contains("hidden")){
+      loaderOverlay.classList.add("hidden");
+    }
+  }
 
   function loadInto(playerKey, index, seekTo){
     var p = players[playerKey];
@@ -202,7 +249,9 @@
     if(p.index !== index || p.el.getAttribute("data-url") !== item.url){
       p.el.setAttribute("data-url", item.url);
       p.el.src = item.url;
+      p.el.load();
       p.index = index;
+      loadedAt[playerKey] = Date.now();
     }
     var doSeek = function(){
       try{
@@ -214,10 +263,21 @@
     if(p.el.readyState >= 1){
       doSeek();
     } else {
-      p.el.addEventListener("loadedmetadata", doSeek, { once: true });
+      p.el.addEventListener("loadedmetadata", doSeek, { once:true });
     }
     var playPromise = p.el.play();
     if(playPromise && playPromise.catch) playPromise.catch(function(){});
+
+    if(playerKey === onAirKey){
+      var onProgress = function(){
+        if(!firstFrameShown && p.el.currentTime > 0){
+          firstFrameShown = true;
+          hideLoader();
+        }
+      };
+      p.el.addEventListener("timeupdate", onProgress);
+      p.el.addEventListener("playing", onProgress);
+    }
   }
 
   function swapOnAir(nextKey){
@@ -230,31 +290,22 @@
     incoming.role = "onair";
     outgoing.role = "standby";
     onAirKey = nextKey;
-    activeTag.textContent = "Player " + nextKey + " on-air";
+    if(activeTag) activeTag.textContent = "Player " + nextKey + " on-air";
   }
 
-  /* ===================================================================
-     ANTI-SCRUB LOCK
-     Every player element is monitored: if its currentTime diverges from
-     the mathematically correct scheduled offset by more than a small
-     tolerance (covers normal buffering jitter) or more than what could
-     have elapsed since the last check (covers a user dragging the
-     scrub bar or devtools tampering), it is forced back to the correct
-     live offset immediately. This applies even to the on-air element,
-     so scrubbing the visible video snaps back rather than "getting
-     ahead" or "falling behind" the global broadcast.
-  =================================================================== */
-
-  var TOLERANCE_SEC = 1.5;
-  var lastCorrectionAt = 0;
+  var TOLERANCE_SEC = 2.5;
+  var STARTUP_GRACE_MS = 3000;
+  var loadedAt = { A: 0, B: 0 };
 
   function enforceLock(playerKey, expectedIndex, expectedOffset){
     var p = players[playerKey];
-    if(p.index !== expectedIndex) return; // not loaded to this item yet, nothing to check
+    if(p.index !== expectedIndex) return;
+    if(Date.now() - loadedAt[playerKey] < STARTUP_GRACE_MS) return;
+    if(p.el.readyState < 2) return;
     var drift = p.el.currentTime - expectedOffset;
     if(Math.abs(drift) > TOLERANCE_SEC){
       try{ p.el.currentTime = Math.max(0, expectedOffset); }catch(e){}
-      if(playerKey === onAirKey){
+      if(playerKey === onAirKey && firstFrameShown){
         showWarning();
       }
     }
@@ -266,36 +317,22 @@
     showWarning._t = setTimeout(function(){ warnBox.style.display = "none"; }, 2200);
   }
 
-  ["seeking"].forEach(function(evt){
-    videoA.addEventListener(evt, function(){ checkAgainstSchedule(true); });
-    videoB.addEventListener(evt, function(){ checkAgainstSchedule(true); });
+  [videoA, videoB].forEach(function(v, i){
+    v.addEventListener("seeking", function(){ checkAgainstSchedule(true); });
   });
 
-  /* ===================================================================
-     MAIN SCHEDULE LOOP
-     Runs on a tight interval. Recomputes the correct schedule from the
-     fixed EPOCH + current playlist, keeps the on-air player anchored,
-     preloads standby with the next item once we're within a lead
-     window of the boundary, swaps at the boundary, loops the whole
-     playlist from index 0 automatically, and re-applies the anti-scrub
-     lock every tick.
-  =================================================================== */
-
-  var PRELOAD_LEAD_SEC = 4; // start warming the next item this many seconds before boundary
-  var lastLoopCount = null;
+  var PRELOAD_LEAD_SEC = 4;
 
   function checkAgainstSchedule(force){
     var sched = computeSchedule(Date.now(), playlist);
     if(!sched) return;
 
-    // ensure on-air player is loaded/seeked to correct item + offset
     var onAir = players[onAirKey];
     if(onAir.index !== sched.index){
       loadInto(onAirKey, sched.index, sched.offset);
     }
     enforceLock(onAirKey, sched.index, sched.offset);
 
-    // preload next item into standby buffer as boundary approaches
     var timeRemaining = sched.duration - sched.offset;
     var nextIndex = (sched.index + 1) % playlist.length;
     var standbyKey = otherKey(onAirKey);
@@ -307,19 +344,11 @@
       }
     }
 
-    // boundary crossing: swap on-air to the item schedule says is current,
-    // if standby is already holding it (gapless swap)
-    if(sched.index !== onAir.index || force){
-      // handled above via loadInto for onAir directly; nothing else needed
-    }
-
-    // If schedule has moved to nextIndex while standby already preloaded it, swap
     var freshSched = computeSchedule(Date.now(), playlist);
     if(freshSched.index !== players[onAirKey].index){
       var target = freshSched.index;
       var holder = (players[standbyKey].index === target) ? standbyKey : onAirKey;
       if(holder !== onAirKey){
-        // nudge standby's time to exact offset just before swap for a clean cut
         try{ players[standbyKey].el.currentTime = freshSched.offset; }catch(e){}
         swapOnAir(standbyKey);
       } else {
@@ -327,17 +356,38 @@
       }
     }
 
-    if(lastLoopCount !== null && freshSched.loopCount !== lastLoopCount){
-      // playlist looped back to start
-    }
-    lastLoopCount = freshSched.loopCount;
-
     renderStats(freshSched);
   }
 
-  /* ===================================================================
-     UI: stats + playlist rendering + add-to-end
-  =================================================================== */
+  var stage = document.getElementById("stage");
+  var muteBtn = document.getElementById("muteBtn");
+  var muteIcon = document.getElementById("muteIcon");
+  var fullscreenBtn = document.getElementById("fullscreenBtn");
+
+  var MUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z";
+  var UNMUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm11 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+
+  function setMuteIcon(muted){
+    muteIcon.querySelector("path").setAttribute("d", muted ? MUTED_PATH : UNMUTED_PATH);
+  }
+  setMuteIcon(true);
+
+  muteBtn.addEventListener("click", function(){
+    var newMuted = !videoA.muted;
+    videoA.muted = newMuted;
+    videoB.muted = newMuted;
+    setMuteIcon(newMuted);
+  });
+
+  fullscreenBtn.addEventListener("click", function(){
+    if(!document.fullscreenElement){
+      if(stage.requestFullscreen) stage.requestFullscreen();
+      else if(stage.webkitRequestFullscreen) stage.webkitRequestFullscreen();
+    } else {
+      if(document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }
+  });
 
   function fmt(sec){
     sec = Math.max(0, sec);
@@ -346,6 +396,7 @@
   }
 
   function renderStats(sched){
+    if(mode === "public") return;
     document.getElementById("statItem").textContent = "#" + (sched.index+1) + " / " + playlist.length;
     document.getElementById("statElapsed").textContent = fmt(sched.offset) + " / " + fmt(sched.duration);
     document.getElementById("statGlobal").textContent = fmt(sched.globalPos) + " / " + fmt(sched.totalDuration);
@@ -356,6 +407,7 @@
 
   function renderPlaylist(activeIndex){
     var container = document.getElementById("plList");
+    if(!container) return;
     container.innerHTML = "";
     playlist.forEach(function(item, i){
       var row = document.createElement("div");
@@ -372,31 +424,28 @@
     });
   }
 
-  document.getElementById("addBtn").addEventListener("click", function(){
-    var urlInput = document.getElementById("newUrl");
-    var durInput = document.getElementById("newDur");
-    var url = urlInput.value.trim();
-    if(!url) return;
-    var dur = parseFloat(durInput.value);
-    if(!dur || dur <= 0) dur = 10;
-    // Append-only: never mutate existing indices, never touch on-air/standby state.
-    playlist.push({ url: url, duration: dur });
-    savePlaylist(playlist);
-    urlInput.value = "";
-    durInput.value = "";
-    var sched = computeSchedule(Date.now(), playlist);
-    renderStats(sched);
-  });
+  var addBtn = document.getElementById("addBtn");
+  if(addBtn){
+    addBtn.addEventListener("click", function(){
+      var urlInput = document.getElementById("newUrl");
+      var durInput = document.getElementById("newDur");
+      var url = urlInput.value.trim();
+      if(!url) return;
+      var dur = parseFloat(durInput.value);
+      if(!dur || dur <= 0) dur = 10;
+      playlist.push({ url:url, duration:dur });
+      savePlaylist(playlist);
+      urlInput.value = "";
+      durInput.value = "";
+      renderStats(computeSchedule(Date.now(), playlist));
+    });
+  }
 
-  document.getElementById("stage").addEventListener("click", function(){
-    videoA.muted = false;
-    videoB.muted = false;
-  }, { once: true });
-
-  // initial paint + schedule loop
   var initSched = computeSchedule(Date.now(), playlist);
   loadInto("A", initSched.index, initSched.offset);
   renderStats(initSched);
+
+  setTimeout(hideLoader, 4000);
 
   setInterval(function(){ checkAgainstSchedule(false); }, 500);
 

@@ -19,9 +19,10 @@
   body.mode-public html, body.mode-public{height:100%;}
 
   .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
-  .stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transition:opacity .25s linear;}
-  .stage video.hidden{opacity:0;pointer-events:none;}
-  .stage video.shown{opacity:1;}
+  .stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transition:opacity .25s linear;z-index:1;}
+  .stage video.hidden{opacity:0;pointer-events:none;z-index:0;}
+  .stage iframe.hidden{opacity:0;pointer-events:none;z-index:0;}
+  .stage iframe.shown{opacity:1;z-index:1;}
   .badge{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:12px;z-index:5;}
   .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:pulse 1.4s infinite;}
   @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
@@ -265,8 +266,7 @@
     var f = document.createElement("iframe");
     f.setAttribute("frameborder", "0");
     f.setAttribute("allow", "autoplay; fullscreen; encrypted-media; picture-in-picture");
-    f.setAttribute("allowfullscreen", "");
-    f.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#000;transition:opacity .25s linear;";
+    f.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#000;transition:opacity .25s linear;z-index:2;";
     f.className = "hidden";
     f.id = "iframe" + key;
     stage.insertBefore(f, document.getElementById("loader-overlay"));
@@ -310,34 +310,47 @@
       "background:rgba(0,0,0,.6);z-index:99999;cursor:pointer;";
     overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
       'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
+    stage.appendChild(overlay);
 
-    function attemptPlay(){
+    // Chrome only treats a play() call as gesture-authorized if it runs
+    // synchronously inside the click handler on the element itself — a
+    // document-level capture listener, or any await/setTimeout before
+    // calling play(), loses the gesture and play() rejects silently again.
+    overlay.addEventListener("click", function onClick(){
       var a = players.A.el, b = players.B.el;
-      // force attributes again in case the browser reset them
-      [a,b].forEach(function(v){ v.muted = true; v.setAttribute("muted",""); });
+      a.muted = true; a.setAttribute("muted","");
+      b.muted = true; b.setAttribute("muted","");
+
       var onAirEl = players[onAirKey].el;
+      var onAirIframe = players[onAirKey].iframeEl;
+
+      if(players[onAirKey].type === "iframe"){
+        // nothing to unlock for iframe content; just dismiss
+        overlay.removeEventListener("click", onClick);
+        overlay.remove();
+        tapToPlayShown = false;
+        return;
+      }
+
+      // call play() synchronously, right here, inside the real click event
       var pr = onAirEl.play();
       var standbyEl = players[otherKey(onAirKey)].el;
-      if(standbyEl && standbyEl.src) standbyEl.play().catch(function(){});
-      var cleanup = function(){
-        if(overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        tapToPlayShown = false;
-        document.removeEventListener("click", attemptPlay, true);
-      };
-      if(pr && pr.then){
-        pr.then(cleanup).catch(function(){
-          // still blocked; leave overlay up for another try
-        });
-      } else {
-        cleanup();
+      if(standbyEl && standbyEl.getAttribute("data-url")){
+        var pr2 = standbyEl.play();
+        if(pr2 && pr2.catch) pr2.catch(function(){});
       }
-    }
 
-    overlay.addEventListener("click", attemptPlay);
-    // also allow clicking anywhere on the stage, in case overlay stacking
-    // or a prior click handler swallows the event
-    document.addEventListener("click", attemptPlay, true);
-    stage.appendChild(overlay);
+      overlay.removeEventListener("click", onClick);
+      overlay.remove();
+      tapToPlayShown = false;
+
+      if(pr && pr.catch){
+        pr.catch(function(){
+          // still blocked (rare) — re-show so the user can try again
+          showTapToPlay();
+        });
+      }
+    });
   }
 
   function otherKey(k){ return k === "A" ? "B" : "A"; }

@@ -241,6 +241,7 @@
     v.setAttribute("webkit-playsinline", "");
   });
 
+  
   var tapToPlayShown = false;
   function showTapToPlay(){
     if(tapToPlayShown) return;
@@ -255,6 +256,44 @@
         'color:#fff;padding:14px 22px;border-radius:30px;font-size:18px;font-weight:600;pointer-events:none;">▶️</div>';
       stage.appendChild(overlay);
     }
+
+    var attemptPlay = function(e){
+      if(e && e.stopPropagation) e.stopPropagation();
+      
+      var onAirEl = players[onAirKey].el;
+      applyAudioRouting();
+
+      var cleanup = function(){
+        if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        tapToPlayShown = false;
+        hideLoader();
+        document.removeEventListener("click", attemptPlay, true);
+        onAirEl.removeEventListener("playing", cleanup);
+      };
+
+      onAirEl.addEventListener("playing", cleanup);
+
+      if(onAirEl.src){
+        var pr = onAirEl.play();
+        var standbyEl = players[otherKey(onAirKey)].el;
+        if(standbyEl && standbyEl.src){
+          standbyEl.play().catch(function(){});
+        }
+
+        if(pr && pr.catch){
+          pr.catch(function(err){
+            onAirEl.load();
+            onAirEl.play().catch(function(){});
+          });
+        }
+      } else {
+        cleanup();
+      }
+    };
+
+    overlay.onclick = attemptPlay;
+    document.addEventListener("click", attemptPlay, true);
+  }
 
     var attemptPlay = function(e){
       if(e) e.stopPropagation();

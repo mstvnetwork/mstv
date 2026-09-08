@@ -1,606 +1,270 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Synced Live TV — Dual Player</title>
-<style>
-  :root{
-    --bg:#0b0c0e; --panel:#15171a; --line:#262a2f;
-    --text:#e8e9ea; --muted:#8b9096; --accent:#4f8cff; --live:#e5484d;
-  }
-  *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
-  .wrap{max-width:960px;margin:0 auto;padding:24px 16px 60px;}
-  body.mode-public .wrap{max-width:none;padding:0;}
-  h1{font-size:20px;font-weight:600;margin:0 0 4px;}
-  .sub{color:var(--muted);font-size:13px;margin:0 0 20px;}
-  body.mode-public .chrome-only{display:none !important;}
-  body.mode-public .stage{border-radius:0;border:none;width:100vw;height:100vh;aspect-ratio:auto;}
-  body.mode-public html, body.mode-public{height:100%;}
-
-  .stage{position:relative;width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;border:1px solid var(--line);}
-  .stage video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;background:#000;transition:opacity .25s linear;z-index:1;}
-  .stage video.hidden{opacity:0;pointer-events:none;z-index:0;}
-  .stage iframe.hidden{opacity:0;pointer-events:none;z-index:0;}
-  .stage iframe.shown{opacity:1;z-index:1;}
-  .badge{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:12px;z-index:5;}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--live);animation:pulse 1.4s infinite;}
-  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
-  .active-tag{position:absolute;top:10px;right:10px;background:rgba(0,0,0,.55);padding:5px 10px;border-radius:20px;font-size:11px;color:var(--muted);z-index:5;}
-  .warn{position:absolute;bottom:10px;left:10px;right:10px;background:rgba(229,72,77,.15);border:1px solid rgba(229,72,77,.4);color:#ff9b9d;font-size:12px;padding:6px 10px;border-radius:6px;display:none;z-index:6;}
-
-  #loader-overlay{
-    position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-    display:flex; flex-direction:column; align-items:center; gap:14px;
-    z-index:9998; pointer-events:none; transition:opacity .3s ease, visibility .3s ease;
-  }
-  #loader-overlay.hidden{opacity:0;visibility:hidden;}
-  .spinner{
-    width:54px; height:54px; border:4px solid rgba(255,255,255,.15);
-    border-top-color:#ff3b30; border-radius:50%; animation:spin .9s linear infinite;
-  }
-  .loading-text{
-    color:#ffd700; font-size:14px; font-weight:600; letter-spacing:.5px;
-    text-transform:uppercase; text-shadow:0 2px 4px rgba(0,0,0,.8);
-  }
-  @keyframes spin{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
-
-  #controls-overlay{
-    position:absolute; bottom:0; left:0; width:100%;
-    padding:0 16px calc(16px + env(safe-area-inset-bottom)) 16px;
-    display:flex; align-items:center; justify-content:space-between;
-    z-index:100000; transition:opacity .4s ease, visibility .4s ease;
-  }
-  .ui-hidden{opacity:0 !important; visibility:hidden !important; pointer-events:none !important;}
-  .controls-left, .controls-right{display:flex; align-items:center; gap:8px;}
-  .control-btn{
-    background:rgba(25,25,25,.55); border:1px solid rgba(255,255,255,.1);
-    color:rgba(255,255,255,.85); width:38px; height:38px; border-radius:50%;
-    cursor:pointer; display:inline-flex; align-items:center; justify-content:center;
-    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
-    transition:background .2s, transform .1s;
-  }
-  .control-btn svg{width:17px; height:17px; fill:rgba(255,255,255,.9);}
-  .control-btn:active{transform:scale(.9); background:rgba(50,50,50,.75);}
-
-  .panel{margin-top:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;}
-  .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px;border-bottom:1px solid var(--line);}
-  .row:last-child{border-bottom:none;}
-  .row .k{color:var(--muted);}
-  .row .v{font-variant-numeric:tabular-nums;}
-  .playlist{margin-top:16px;}
-  .playlist h2{font-size:14px;font-weight:600;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
-  .plitem{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;border-radius:6px;font-size:13px;border:1px solid var(--line);margin-bottom:6px;}
-  .plitem.playing{border-color:var(--accent);background:rgba(79,140,255,.08);}
-  .plitem .idx{color:var(--muted);width:24px;flex-shrink:0;}
-  .plitem .url{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);}
-  .addrow{display:flex;gap:8px;margin-top:10px;}
-  .addrow input{flex:1;background:#0d0e10;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px;}
-  .addrow button{background:var(--accent);border:none;color:#fff;padding:8px 14px;border-radius:6px;font-size:13px;cursor:pointer;}
-  .addrow button:hover{opacity:.9;}
-  .note{color:var(--muted);font-size:12px;margin-top:8px;line-height:1.5;}
-  code{background:#0d0e10;padding:1px 5px;border-radius:4px;font-size:12px;}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Linear Live TV Player</title>
+    <!-- Include hls.js engine for native M3U8 handling across non-Safari browsers -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+        }
+        .player-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        /* Dual Layered Window Arrays */
+        .player-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.4s ease, visibility 0.4s ease;
+            z-index: 1;
+        }
+        .player-layer.active {
+            opacity: 1;
+            visibility: visible;
+            z-index: 2;
+        }
+        video, iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #000;
+        }
+    </style>
 </head>
 <body>
-<div class="wrap">
-  <h1 class="chrome-only">Synchronized live TV player</h1>
-  <p class="sub chrome-only">Everyone worldwide sees the same frame at the same wall-clock moment. Append <code>?mode=public</code> or <code>?mode=private</code> to the URL.</p>
 
-  <div class="stage" id="stage">
-    <video id="videoA" muted playsinline></video>
-    <video id="videoB" muted playsinline></video>
-
-    <div class="badge chrome-only"><span class="dot"></span>LIVE</div>
-    <div class="active-tag chrome-only" id="activeTag">Player A on-air</div>
-    <div class="warn" id="warnBox">Playback drift detected — resynced to live position.</div>
-
-    <div id="loader-overlay">
-      <div class="spinner"></div>
-      <div class="loading-text">Connecting</div>
+    <div class="player-container">
+        <!-- Player Layer 1 -->
+        <div id="layer1" class="player-layer"></div>
+        <!-- Player Layer 2 -->
+        <div id="layer2" class="player-layer"></div>
     </div>
+        <script>
+        // System Configurations
+        const PLAYLIST_URL = 'playlist.json';
+        const FALLBACK_URL = 'https://github.com';
+        const POLL_INTERVAL = 30000; // 30 seconds dynamic backend update verification
+        const ALLOWED_SEEK_DRIFT = 2; // Maximum drift window in seconds before snapback forces correction
 
-    <div id="controls-overlay">
-      <div class="controls-left"></div>
-      <div class="controls-right">
-        <button class="control-btn" id="muteBtn" aria-label="Toggle mute">
-          <svg id="muteIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z"/></svg>
-        </button>
-        <button class="control-btn" id="fullscreenBtn" aria-label="Toggle fullscreen">
-          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
-      </div>
-    </div>
-  </div>
+        // Runtime Tracking Object Variables
+        let state = {
+            playlist: [],
+            currentVideoIndex: -1,
+            targetPosition: 0,
+            activeLayer: 'layer1',
+            hlsInstances: { layer1: null, layer2: null }
+        };
 
-  <div class="panel chrome-only">
-    <div class="row"><span class="k">Playlist item on-air</span><span class="v" id="statItem">—</span></div>
-    <div class="row"><span class="k">Elapsed in item</span><span class="v" id="statElapsed">—</span></div>
-    <div class="row"><span class="k">Global timeline position</span><span class="v" id="statGlobal">—</span></div>
-    <div class="row"><span class="k">On-air buffer</span><span class="v" id="statBuffer">—</span></div>
-    <div class="row"><span class="k">Loop count</span><span class="v" id="statLoops">—</span></div>
-  </div>
-
-  <div class="playlist chrome-only">
-    <h2>Playlist</h2>
-    <div id="plList"></div>
-    <div class="addrow">
-      <input id="newUrl" type="text" placeholder="https://example.com">
-      <input id="newDur" type="number" placeholder="Duration (s), optional" style="max-width:170px;">
-      <button id="addBtn">Add to end</button>
-    </div>
-    <p class="note">
-      Playlist is sourced live from <code>playlist.json</code> on GitHub — edit it there and
-      push. Every viewer, in public or private mode, refetches it every 30s in the background;
-      appends and future-item edits never interrupt what's currently on-air. Removing the
-      item currently playing forces an immediate resync for anyone watching it.
-    </p>
-  </div>
-</div>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.15/hls.min.js"
-></script>
-<script>
-(function(){
-  "use strict";
-
-  // FIXED: Restored core clean string manipulation logic to avoid array breakdown crashes
-  function detectType(url){
-    if(!url) return "mp4";
-    var clean = url.split("?")[0].split("#")[0].toLowerCase();
-    if(clean.endsWith(".m3u8")) return "hls";
-    if(clean.endsWith(".mp4") || clean.endsWith(".webm") || clean.endsWith(".mov")) return "mp4";
-    if(url.toLowerCase().indexOf(".m3u8") !== -1) return "hls";
-    if(clean.endsWith(".mp4") === false && (clean.indexOf("/embed") !== -1 || clean.endsWith(".html") || clean.endsWith("/"))) return "iframe";
-    if(!/\.(mp4|webm|mov|m3u8)$/i.test(clean)) return "iframe";
-    return "mp4";
-  }
-
-  var params = new URLSearchParams(window.location.search);
-  var mode = (params.get("mode") || "private").toLowerCase();
-  if(mode === "public"){
-    document.body.classList.add("mode-public");
-  }
-
-  var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
-  var PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
-
-  var FALLBACK_PLAYLIST = [
-    { url: "https://mozilla.net", duration: 10 }
-  ];
-
-  var REFRESH_INTERVAL_MS = 30000;
-  var playlist = FALLBACK_PLAYLIST.slice();
-  var playlistReady = false;
-
-  function fetchPlaylist(){
-    return fetch(PLAYLIST_URL, { cache: "no-store" })
-      .then(function(res){
-        if(!res.ok) throw new Error("fetch failed: " + res.status);
-        return res.json();
-      })
-      .then(function(data){
-        if(!Array.isArray(data) || data.length === 0) throw new Error("empty or invalid playlist.json");
-        var cleaned = data
-          .filter(function(item){ return item && typeof item.url === "string" && item.url.length; })
-          .map(function(item){ return { url: item.url, duration: Number(item.duration) > 0 ? Number(item.duration) : 10 }; });
-        if(cleaned.length === 0) throw new Error("no valid items in playlist.json");
-        return cleaned;
-      });
-  }
-
-  function applyNewPlaylist(newList){
-    var oldOnAirUrl = playlist[players[onAirKey].index] ? playlist[players[onAirKey].index].url : null;
-    playlist = newList;
-    if(oldOnAirUrl){
-      var stillPresent = playlist.some(function(i){ return i.url === oldOnAirUrl; });
-      if(!stillPresent){
-        players[onAirKey].index = -1;
-      }
-    }
-  }
-
-  function totalDuration(list){
-    var sum = 0;
-    for(var i=0;i<list.length;i++) sum += (list[i].duration || 10);
-    return sum;
-  }
-  function computeSchedule(nowMs, list){
-    var total = totalDuration(list);
-    if(total <= 0) return null;
-    var elapsedSinceEpoch = (nowMs - EPOCH_MS) / 1000;
-    var loopCount = Math.floor(elapsedSinceEpoch / total);
-    var posInLoop = elapsedSinceEpoch - loopCount * total;
-    if(posInLoop < 0){ posInLoop += total; loopCount -= 1; }
-
-    var acc = 0;
-    for(var i=0;i<list.length;i++){
-      var d = list[i].duration || 10;
-      if(posInLoop < acc + d){
-        return { index:i, offset:posInLoop-acc, duration:d, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
-      }
-      acc += d;
-    }
-    var lastIdx = list.length - 1;
-    return { index:lastIdx, offset:list[lastIdx].duration||10, duration:list[lastIdx].duration||10, loopCount:loopCount, globalPos:posInLoop, totalDuration:total };
-  }
-
-  var videoA = document.getElementById("videoA");
-  var videoB = document.getElementById("videoB");
-  var activeTag = document.getElementById("activeTag");
-  var warnBox = document.getElementById("warnBox");
-  var loaderOverlay = document.getElementById("loader-overlay");
-  var stage = document.getElementById("stage");
-
-  function makeIframeHolder(key){
-    var f = document.createElement("iframe");
-    f.setAttribute("frameborder", "0");
-    f.setAttribute("allow", "autoplay; fullscreen; encrypted-media; picture-in-picture");
-    f.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#000;transition:opacity .25s linear;z-index:2;";
-    f.className = "hidden";
-    f.id = "iframe" + key;
-    stage.insertBefore(f, document.getElementById("loader-overlay"));
-    return f;
-  }
-  var iframeA = makeIframeHolder("A");
-  var iframeB = makeIframeHolder("B");
-
-  var players = {
-    A: { el: videoA, iframeEl: iframeA, index: -1, role: "onair", type: null, hls: null },
-    B: { el: videoB, iframeEl: iframeB, index: -1, role: "standby", type: null, hls: null }
-  };
-  var onAirKey = "A";
-  var firstFrameShown = false;
-
-  videoA.classList.add("shown");
-  videoB.classList.add("hidden");
-  videoA.preload = "auto";
-  videoB.preload = "auto";
-
-  [videoA, videoB].forEach(function(v){
-    v.muted = true;
-    v.defaultMuted = true;
-    v.setAttribute("muted", "");
-    v.setAttribute("autoplay", "");
-    v.setAttribute("playsinline", "");
-    v.setAttribute("webkit-playsinline", "");
-  });
-
-  var tapToPlayShown = false;
-  function showTapToPlay(){
-    if(tapToPlayShown) return;
-    tapToPlayShown = true;
-    var overlay = document.createElement("div");
-    overlay.id = "tap-to-play";
-    overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
-      "background:rgba(0,0,0,.6);z-index:99999;cursor:pointer;";
-    overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
-      'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
-    stage.appendChild(overlay);
-
-    overlay.addEventListener("click", function onClick(){
-      var a = players.A.el, b = players.B.el;
-      a.muted = true; a.setAttribute("muted","");
-      b.muted = true; b.setAttribute("muted","");
-
-      var onAirEl = players[onAirKey].el;
-      if(players[onAirKey].type === "iframe"){
-        overlay.removeEventListener("click", onClick);
-        overlay.remove();
-        tapToPlayShown = false;
-        return;
-      }
-
-      var pr = onAirEl.play();
-      var standbyEl = players[otherKey(onAirKey)].el;
-      if(standbyEl && standbyEl.getAttribute("data-url")){
-        var pr2 = standbyEl.play();
-        if(pr2 && pr2.catch) pr2.catch(function(){});
-      }
-
-      overlay.removeEventListener("click", onClick);
-      overlay.remove();
-      tapToPlayShown = false;
-
-      if(pr && pr.catch){
-        pr.catch(function(){
-          showTapToPlay();
-        });
-      }
-    });
-  }
-
-  function otherKey(k){ return k === "A" ? "B" : "A"; }
-  function hideLoader(){ if(loaderOverlay) loaderOverlay.classList.add("hidden"); }
-  function destroyHls(p){ if(p.hls){ try{p.hls.destroy();}catch(e){} p.hls = null; } }
-  function loadInto(playerKey, index, seekTo){
-    var p = players[playerKey];
-    var item = playlist[index];
-    if(!item) return;
-    var type = detectType(item.url);
-    var changingItem = (p.index !== index || p.el.getAttribute("data-url") !== item.url || p.type !== type);
-
-    if(!changingItem){
-      if(type !== "iframe"){
-        try{
-          if(Math.abs(p.el.currentTime - seekTo) > 0.35) p.el.currentTime = Math.max(0, seekTo);
-        }catch(e){}
-      }
-      return;
-    }
-
-    p.index = index;
-    p.type = type;
-    loadedAt[playerKey] = Date.now();
-
-    if(type === "iframe"){
-      destroyHls(p);
-      p.el.pause();
-      p.el.removeAttribute("src");
-      p.el.setAttribute("data-url", item.url);
-      p.iframeEl.src = item.url;
-      if(playerKey === onAirKey){
-        firstFrameShown = true;
-        hideLoader();
-      }
-      return;
-    }
-
-    p.iframeEl.src = "about:blank";
-    destroyHls(p);
-    p.el.setAttribute("data-url", item.url);
-
-    if(type === "hls"){
-      var nativeHls = p.el.canPlayType("application/vnd.apple.mpegurl");
-      if(nativeHls){
-        p.el.src = item.url;
-      } else if(window.Hls && window.Hls.isSupported()){
-        var hls = new window.Hls({ enableWorker: true });
-        hls.loadSource(item.url);
-        hls.attachMedia(p.el);
-        hls.on(window.Hls.Events.ERROR, function(evt, data){
-          if(data && data.fatal && playerKey === onAirKey){
-            showTapToPlay();
-          }
-        });
-        p.hls = hls;
-      } else {
-        return;
-      }
-    } else {
-      p.el.src = item.url;
-      p.el.load();
-    }
-
-    var doSeek = function(){
-      try{
-        if(Math.abs(p.el.currentTime - seekTo) > 0.35){
-          p.el.currentTime = Math.max(0, seekTo);
+        // Initialize App Engine
+        async function init() {
+            await fetchPlaylist();
+            syncEngine();
+            // Start background synchronization polling loops
+            setInterval(fetchPlaylist, POLL_INTERVAL);
+            setInterval(syncEngine, 1000);
         }
-      }catch(e){}
-    };
-    if(p.el.readyState >= 1){
-      doSeek();
-    } else {
-      p.el.addEventListener("loadedmetadata", doSeek, { once:true });
-    }
 
-    var playPromise = p.el.play();
-    if(playPromise && playPromise.catch){
-      playPromise.catch(function(err){
-        if(playerKey === onAirKey && !tapToPlayShown){
-          showTapToPlay();
+        // Fetch dynamic playlist updates silently from Cloudflare Pages origin hosting boundary
+        async function fetchPlaylist() {
+            try {
+                const response = await fetch(`${PLAYLIST_URL}?t=${Date.now()}`);
+                if (!response.ok) throw new Error('Network error reading current playlist manifest file');
+                const data = await response.json();
+                if (Array.isArray(data) && data.length > 0) {
+                    state.playlist = data;
+                } else {
+                    useFallbackPlaylist();
+                }
+            } catch (error) {
+                console.error("Playlist read failed, deploying fallback engine protection:", error);
+                if (state.playlist.length === 0) useFallbackPlaylist();
+            }
         }
-      });
-    }
 
-    if(playerKey === onAirKey){
-      var onProgress = function(){
-        if(!firstFrameShown && p.el.currentTime > 0){
-          firstFrameShown = true;
-          hideLoader();
+        function useFallbackPlaylist() {
+            state.playlist = [{
+                url: FALLBACK_URL,
+                duration: 86400 // Set massive virtual loop timeline configuration for fallback asset
+            }];
         }
-      };
-      p.el.addEventListener("timeupdate", onProgress);
-      p.el.addEventListener("playing", onProgress);
-    }
-  }
 
-  function setBufferVisible(p, visible){
-    var mediaEl = p.type === "iframe" ? p.iframeEl : p.el;
-    var otherEl = p.type === "iframe" ? p.el : p.iframeEl;
-    mediaEl.classList.toggle("shown", visible);
-    mediaEl.classList.toggle("hidden", !visible);
-    otherEl.classList.add("hidden");
-    otherEl.classList.remove("shown");
-  }
+        // Global Epoch mathematical synchronization timeline calculation loop
+        function syncEngine() {
+            if (state.playlist.length === 0) return;
 
-  function swapOnAir(nextKey){
-    var incoming = players[nextKey];
-    var outgoing = players[otherKey(nextKey)];
-    setBufferVisible(incoming, true);
-    setBufferVisible(outgoing, false);
-    incoming.role = "onair";
-    outgoing.role = "standby";
-    onAirKey = nextKey;
-    if(activeTag) activeTag.textContent = "Player " + nextKey + " on-air";
-    applyAudioRouting();
-  }
+            // Compute cumulative total time parameters dynamically
+            let totalPlaylistDuration = 0;
+            const videoSegments = state.playlist.map(item => {
+                const start = totalPlaylistDuration;
+                totalPlaylistDuration += parseInt(item.duration, 10);
+                return { ...item, start, end: totalPlaylistDuration };
+            });
 
-  var userWantsSound = false;
+            // Find global live wall position coordinates
+            const currentUnixTimeSeconds = Math.floor(Date.now() / 1000);
+            const globalTimelinePosition = currentUnixTimeSeconds % totalPlaylistDuration;
 
-  function applyAudioRouting(){
-    var onAirP = players[onAirKey];
-    var standbyP = players[otherKey(onAirKey)];
-    if(onAirP.type !== "iframe") onAirP.el.muted = !userWantsSound;
-    if(standbyP.type !== "iframe") standbyP.el.muted = true;
-  }
-  var TOLERANCE_SEC = 2.5;
-  var STARTUP_GRACE_MS = 3000;
-  var loadedAt = { A: 0, B: 0 };
+            // Identify active indexed array structural context matching timeline location
+            let matchedIndex = 0;
+            let videoInsidePosition = 0;
 
-  function enforceLock(playerKey, expectedIndex, expectedOffset){
-    var p = players[playerKey];
-    if(p.type === "iframe") return;
-    if(p.index !== expectedIndex) return;
-    if(Date.now() - loadedAt[playerKey] < STARTUP_GRACE_MS) return;
-    if(p.el.readyState < 2) return;
-    var drift = p.el.currentTime - expectedOffset;
-    if(Math.abs(drift) > TOLERANCE_SEC){
-      try{ p.el.currentTime = Math.max(0, expectedOffset); }catch(e){}
-      if(playerKey === onAirKey && firstFrameShown){
-        showWarning();
-      }
-    }
-  }
+            for (let i = 0; i < videoSegments.length; i++) {
+                if (globalTimelinePosition >= videoSegments[i].start && globalTimelinePosition < videoSegments[i].end) {
+                    matchedIndex = i;
+                    videoInsidePosition = globalTimelinePosition - videoSegments[i].start;
+                    break;
+                }
+            }
 
-  function showWarning(){
-    warnBox.style.display = "block";
-    clearTimeout(showWarning._t);
-    showWarning._t = setTimeout(function(){ warnBox.style.display = "none"; }, 2200);
-  }
+            state.targetPosition = videoInsidePosition;
+            
+            // Check if active target source index state matches playing configurations
+            if (state.currentVideoIndex !== matchedIndex) {
+                state.currentVideoIndex = matchedIndex;
+                transitionToSource(state.playlist[matchedIndex], videoInsidePosition);
+            } else {
+                // Run background verification checks tracking user interactive scrubbing attempts
+                enforceAntiScrubbing();
+            }
+        }
+        // Seamless zero-jump dual layer handoff mechanism switcher logic
+        function transitionToSource(videoItem, startTime) {
+            const nextLayer = state.activeLayer === 'layer1' ? 'layer2' : 'layer1';
+            const currentLayer = state.activeLayer;
+            const container = document.getElementById(nextLayer);
+            
+            // Clean dynamic components inside alternative targets memory fields beforehand
+            destroyLayerEngine(nextLayer);
+            container.innerHTML = '';
 
-  [videoA, videoB].forEach(function(v, i){
-    v.addEventListener("seeking", function(){ checkAgainstSchedule(true); });
-  });
+            const engineType = getEngineType(videoItem.url);
 
-  var PRELOAD_LEAD_SEC = 4;
+            if (engineType === 'iframe') {
+                const iframe = document.createElement('iframe');
+                iframe.src = videoItem.url;
+                iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+                iframe.setAttribute('allowfullscreen', '');
+                container.appendChild(iframe);
+                
+                // Complete layer swap workflow instantly since iframe embeds cannot pass time vectors natively
+                executeLayerSwap(nextLayer, currentLayer);
+            } else {
+                // Initialize clean HTML5 video structures for native stream engines handling routines
+                const video = document.createElement('video');
+                video.muted = true; // Auto-play browser standard compliance rule validation engine
+                video.playsInline = true;
+                video.controls = false; // Completely strip controls natively to reduce interaction variables
+                container.appendChild(video);
 
-  function checkAgainstSchedule(force){
-    if(tapToPlayShown) return; 
-    var sched = computeSchedule(Date.now(), playlist);
-    if(!sched) return;
+                if (engineType === 'hls') {
+                    if (Hls.isSupported()) {
+                        const hls = new Hls({ config: { maxMaxBufferLength: 10 } });
+                        state.hlsInstances[nextLayer] = hls;
+                        hls.loadSource(videoItem.url);
+                        hls.attachMedia(video);
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            video.currentTime = startTime;
+                            video.play().catch(() => handleAutoplayBlock(video));
+                        });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        // Native Safari Fallback pipeline logic
+                        video.src = videoItem.url;
+                        video.addEventListener('loadedmetadata', () => {
+                            video.currentTime = startTime;
+                            video.play().catch(() => handleAutoplayBlock(video));
+                        });
+                    }
+                } else {
+                    // Standard raw progressive MP4 profile target configuration routing
+                    video.src = videoItem.url;
+                    video.addEventListener('loadedmetadata', () => {
+                        video.currentTime = startTime;
+                        video.play().catch(() => handleAutoplayBlock(video));
+                    });
+                }
 
-    var onAir = players[onAirKey];
-    if(onAir.index !== sched.index){
-      loadInto(onAirKey, sched.index, sched.offset);
-    }
-    enforceLock(onAirKey, sched.index, sched.offset);
+                // Wait for video frame to be ready before firing the swap to ensure a zero-jump switchover
+                video.addEventListener('playing', function onPlayingHandler() {
+                    executeLayerSwap(nextLayer, currentLayer);
+                    video.removeEventListener('playing', onPlayingHandler);
+                });
+            }
+        }
 
-    var timeRemaining = sched.duration - sched.offset;
-    var nextIndex = (sched.index + 1) % playlist.length;
-    var standbyKey = otherKey(onAirKey);
-    var standby = players[standbyKey];
+        function executeLayerSwap(nextLayer, currentLayer) {
+            document.getElementById(nextLayer).classList.add('active');
+            document.getElementById(currentLayer).classList.remove('active');
+            state.activeLayer = nextLayer;
+            
+            // Unmute the newly visible layer once it's on-air
+            const nextVideo = document.getElementById(nextLayer).querySelector('video');
+            if (nextVideo) nextVideo.muted = false;
 
-    if(timeRemaining <= PRELOAD_LEAD_SEC){
-      if(standby.index !== nextIndex){
-        loadInto(standbyKey, nextIndex, 0);
-      }
-    }
+            // Safely wind down and clear assets from the old background layer
+            setTimeout(() => {
+                if (state.activeLayer !== currentLayer) { 
+                    destroyLayerEngine(currentLayer);
+                    document.getElementById(currentLayer).innerHTML = '';
+                }
+            }, 500);
+        }
 
-    var freshSched = computeSchedule(Date.now(), playlist);
-    if(freshSched.index !== players[onAirKey].index){
-      var target = freshSched.index;
-      var holder = (players[standbyKey].index === target) ? standbyKey : onAirKey;
-      if(holder !== onAirKey){
-        try{ players[standbyKey].el.currentTime = freshSched.offset; }catch(e){}
-        swapOnAir(standbyKey);
-      } else {
-        loadInto(onAirKey, target, freshSched.offset);
-      }
-    }
+        // Silent anti-scrubbing lock validation check operations
+        function enforceAntiScrubbing() {
+            const activeVideo = document.getElementById(state.activeLayer).querySelector('video');
+            if (!activeVideo || activeVideo.paused) return;
 
-    renderStats(freshSched);
-  }
+            const drift = Math.abs(activeVideo.currentTime - state.targetPosition);
+            if (drift > ALLOWED_SEEK_DRIFT) {
+                // Force silent absolute snap correction without throwing UI warning states to user interface canvas
+                activeVideo.currentTime = state.targetPosition;
+            }
+        }
 
-  var muteBtn = document.getElementById("muteBtn");
-  var muteIcon = document.getElementById("muteIcon");
-  var fullscreenBtn = document.getElementById("fullscreenBtn");
+        function destroyLayerEngine(layerId) {
+            if (state.hlsInstances[layerId]) {
+                state.hlsInstances[layerId].destroy();
+                state.hlsInstances[layerId] = null;
+            }
+        }
 
-  var MUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44z";
-  var UNMUTED_PATH = "M3 9v6h4l5 5V4L7 9H3zm11 3c0-1.77-.77-3.36-2-4.44v8.88c1.23-1.08 2-2.67 2-4.44zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z";
+        function getEngineType(url) {
+            if (url.includes('.m3u8') || url.includes('hls/')) return 'hls';
+            if (url.includes('.mp4') || url.includes('releases/download')) return 'mp4';
+            return 'iframe'; // Fallback detection matrix defaults routing targeting unmapped paths directly into iframe windows
+        }
 
-  function setMuteIcon(muted){
-    muteIcon.querySelector("path").setAttribute("d", muted ? MUTED_PATH : UNMUTED_PATH);
-  }
-  setMuteIcon(true);
+        function handleAutoplayBlock(videoElement) {
+            // Browsers require explicit user engagement vectors before granting dynamic sound permissions
+            videoElement.muted = true;
+            videoElement.play();
+            
+            // Window click listener converts system safely to unmuted output once user touches anywhere on page canvas
+            window.addEventListener('click', () => {
+                videoElement.muted = false;
+            }, { once: true });
+        }
 
-  muteBtn.addEventListener("click", function(){
-    userWantsSound = !userWantsSound;
-    applyAudioRouting();
-    setMuteIcon(!userWantsSound);
-  });
-
-  fullscreenBtn.addEventListener("click", function(){
-    if(!document.fullscreenElement){
-      if(stage.requestFullscreen) stage.requestFullscreen();
-      else if(stage.webkitRequestFullscreen) stage.webkitRequestFullscreen();
-    } else {
-      if(document.exitFullscreen) document.exitFullscreen();
-      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
-    }
-  });
-
-  function fmt(sec){
-    sec = Math.max(0, sec);
-    var m = Math.floor(sec/60), s = Math.floor(sec%60);
-    return m + ":" + (s<10?"0":"") + s;
-  }
-
-  function renderStats(sched){
-    if(mode === "public") return;
-    document.getElementById("statItem").textContent = "#" + (sched.index+1) + " / " + playlist.length;
-    document.getElementById("statElapsed").textContent = fmt(sched.offset) + " / " + fmt(sched.duration);
-    document.getElementById("statGlobal").textContent = fmt(sched.globalPos) + " / " + fmt(sched.totalDuration);
-    document.getElementById("statBuffer").textContent = "Player " + onAirKey + " on-air, Player " + otherKey(onAirKey) + " standby";
-    document.getElementById("statLoops").textContent = sched.loopCount;
-    renderPlaylist(sched.index);
-  }
-
-  function renderPlaylist(activeIndex){
-    var container = document.getElementById("plList");
-    if(!container) return;
-    container.innerHTML = "";
-    playlist.forEach(function(item, i){
-      var row = document.createElement("div");
-      row.className = "plitem" + (i === activeIndex ? " playing" : "");
-      var idx = document.createElement("span");
-      idx.className = "idx";
-      idx.textContent = (i+1) + ".";
-      var url = document.createElement("span");
-      url.className = "url";
-      url.textContent = item.url + "  (" + (item.duration||10) + "s)";
-      row.appendChild(idx);
-      row.appendChild(url);
-      container.appendChild(row);
-    });
-  }
-
-  var addBtn = document.getElementById("addBtn");
-  if(addBtn){
-    addBtn.addEventListener("click", function(){
-      alert("Playlist is now managed in playlist.json on GitHub.");
-    });
-  }
-
-  function boot(){
-    var initSched = computeSchedule(Date.now(), playlist);
-    loadInto("A", initSched.index, initSched.offset);
-    applyAudioRouting();
-    renderStats(initSched);
-    showTapToPlay();
-    
-    setTimeout(hideLoader, 4000);
-    setInterval(function(){ checkAgainstSchedule(false); }, 500);
-    
-    setInterval(function(){
-      fetchPlaylist().then(applyNewPlaylist).catch(function(){});
-    }, REFRESH_INTERVAL_MS);
-  }
-
-  // FIXED RUNTIME EXECUTION SEQUENCE:
-  boot();
-
-  fetchPlaylist()
-    .then(function(list){ 
-      playlist = list; 
-      playlistReady = true; 
-      checkAgainstSchedule(true);
-    })
-    .catch(function(){});
-
-})();
-</script>
+        window.onload = init;
+    </script>
 </body>
 </html>
 

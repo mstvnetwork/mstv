@@ -143,23 +143,13 @@
 (function(){
   "use strict";
 
-  /* =====================================================================
-     MEDIA TYPE DETECTION
-     - "mp4"    : direct file, plays in a <video> element as before
-     - "hls"    : .m3u8, needs hls.js (or native support on Safari/iOS)
-     - "iframe" : embed page URL, rendered in an <iframe> instead of <video>.
-                  Iframes cannot be time-synced, frame-swapped, or
-                  anti-scrub-locked the way <video> can — see notes below.
-  ===================================================================== */
   function detectType(url){
     if(!url) return "mp4";
     var clean = url.split("?")[0].split("#")[0].toLowerCase();
     if(clean.endsWith(".m3u8")) return "hls";
     if(clean.endsWith(".mp4") || clean.endsWith(".webm") || clean.endsWith(".mov")) return "mp4";
-    // query-string-wrapped .m3u8 (e.g. proxy URLs) still count as hls
     if(url.toLowerCase().indexOf(".m3u8") !== -1) return "hls";
     if(clean.endsWith(".mp4") === false && (clean.indexOf("/embed") !== -1 || clean.endsWith(".html") || clean.endsWith("/"))) return "iframe";
-    // default: anything not recognized as a media file is treated as an embeddable page
     if(!/\.(mp4|webm|mov|m3u8)$/i.test(clean)) return "iframe";
     return "mp4";
   }
@@ -171,26 +161,16 @@
   }
 
   var EPOCH_MS = Date.UTC(2024, 0, 1, 0, 0, 0);
-
-  // Raw GitHub URL to your playlist.json. Use raw.githubusercontent.com,
-  // not github.com, and use jsdelivr as a CDN mirror to avoid GitHub's
-  // aggressive raw-file caching if updates feel slow to propagate:
-  //   https://cdn.jsdelivr.net/gh/USER/REPO@main/playlist.json
   var PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
 
-  // Fallback used only if the fetch fails on a viewer's very first load
-  // (e.g. offline). Once playlist.json loads successfully it takes over.
   var FALLBACK_PLAYLIST = [
     { url: "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4", duration: 10 }
   ];
 
-  var REFRESH_INTERVAL_MS = 30000; // poll playlist.json every 30s in the background
-
+  var REFRESH_INTERVAL_MS = 30000;
   var playlist = FALLBACK_PLAYLIST.slice();
   var playlistReady = false;
 
-  // playlist.json format:
-  // [ { "url": "https://...mp4", "duration": 30 }, { "url": "...", "duration": 45 } ]
   function fetchPlaylist(){
     return fetch(PLAYLIST_URL, { cache: "no-store" })
       .then(function(res){
@@ -208,19 +188,11 @@
   }
 
   function applyNewPlaylist(newList){
-    // Appends and edits from GitHub are absorbed silently: the schedule
-    // engine recomputes from EPOCH_MS + this array on every tick, and the
-    // dual-buffer loader only reloads the standby buffer for a changed
-    // future item — the on-air element is never touched mid-playback
-    // unless the currently playing URL itself was removed/changed.
     var oldOnAirUrl = playlist[players[onAirKey].index] ? playlist[players[onAirKey].index].url : null;
     playlist = newList;
     if(oldOnAirUrl){
       var stillPresent = playlist.some(function(i){ return i.url === oldOnAirUrl; });
       if(!stillPresent){
-        // on-air item was removed from the source list: resync immediately
-        // to wherever the new schedule says we should be, unavoidable since
-        // the content itself is gone.
         players[onAirKey].index = -1;
       }
     }
@@ -257,11 +229,8 @@
   var activeTag = document.getElementById("activeTag");
   var warnBox = document.getElementById("warnBox");
   var loaderOverlay = document.getElementById("loader-overlay");
-
   var stage = document.getElementById("stage");
 
-  // One iframe container per buffer, created lazily, layered identically
-  // to the video elements so the crossfade/visibility logic is shared.
   function makeIframeHolder(key){
     var f = document.createElement("iframe");
     f.setAttribute("frameborder", "0");
@@ -287,10 +256,6 @@
   videoA.preload = "auto";
   videoB.preload = "auto";
 
-  // Autoplay policies (Chrome, Samsung Internet) block unmuted/unattended
-  // playback unless these are explicitly set on the element itself, not
-  // just via the muted property in JS. Kiwi (Chromium-based but looser
-  // policy) let this slide, which is why it worked there and not elsewhere.
   [videoA, videoB].forEach(function(v){
     v.muted = true;
     v.defaultMuted = true;
@@ -312,27 +277,20 @@
       'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;pointer-events:none;">▶ Tap to play</div>';
     stage.appendChild(overlay);
 
-    // Chrome only treats a play() call as gesture-authorized if it runs
-    // synchronously inside the click handler on the element itself — a
-    // document-level capture listener, or any await/setTimeout before
-    // calling play(), loses the gesture and play() rejects silently again.
     overlay.addEventListener("click", function onClick(){
       var a = players.A.el, b = players.B.el;
       a.muted = true; a.setAttribute("muted","");
       b.muted = true; b.setAttribute("muted","");
 
       var onAirEl = players[onAirKey].el;
-      var onAirIframe = players[onAirKey].iframeEl;
-
+      
       if(players[onAirKey].type === "iframe"){
-        // nothing to unlock for iframe content; just dismiss
         overlay.removeEventListener("click", onClick);
         overlay.remove();
         tapToPlayShown = false;
         return;
       }
 
-      // call play() synchronously, right here, inside the real click event
       var pr = onAirEl.play();
       var standbyEl = players[otherKey(onAirKey)].el;
       if(standbyEl && standbyEl.getAttribute("data-url")){
@@ -346,7 +304,6 @@
 
       if(pr && pr.catch){
         pr.catch(function(){
-          // still blocked (rare) — re-show so the user can try again
           showTapToPlay();
         });
       }
@@ -376,7 +333,6 @@
     var changingItem = (p.index !== index || p.el.getAttribute("data-url") !== item.url || p.type !== type);
 
     if(!changingItem){
-      // same item already loaded into this buffer: just keep it aligned
       if(type !== "iframe"){
         try{
           if(Math.abs(p.el.currentTime - seekTo) > 0.35) p.el.currentTime = Math.max(0, seekTo);
@@ -390,11 +346,6 @@
     loadedAt[playerKey] = Date.now();
 
     if(type === "iframe"){
-      // Iframes cannot be time-synced, seeked, or anti-scrub-locked —
-      // there is no cross-origin API for arbitrary embed pages. The
-      // schedule engine still swaps buffers at the correct global
-      // boundary time, but what plays inside the iframe (its own
-      // internal timeline) is controlled entirely by the embedded page.
       destroyHls(p);
       p.el.pause();
       p.el.removeAttribute("src");
@@ -407,7 +358,6 @@
       return;
     }
 
-    // mp4 or hls both use the <video> element; clear any previous iframe src
     p.iframeEl.src = "about:blank";
     destroyHls(p);
     p.el.setAttribute("data-url", item.url);
@@ -415,7 +365,6 @@
     if(type === "hls"){
       var nativeHls = p.el.canPlayType("application/vnd.apple.mpegurl");
       if(nativeHls){
-        // Safari / iOS: native HLS support, no library needed
         p.el.src = item.url;
       } else if(window.Hls && window.Hls.isSupported()){
         var hls = new window.Hls({ enableWorker: true });
@@ -428,7 +377,6 @@
         });
         p.hls = hls;
       } else {
-        // no HLS support at all in this browser: skip gracefully next tick
         return;
       }
     } else {
@@ -448,6 +396,7 @@
     } else {
       p.el.addEventListener("loadedmetadata", doSeek, { once:true });
     }
+
     var playPromise = p.el.play();
     if(playPromise && playPromise.catch){
       playPromise.catch(function(err){
@@ -490,15 +439,9 @@
     applyAudioRouting();
   }
 
-  // Only the on-air element may ever be unmuted. The standby buffer is
-  // always force-muted regardless of user mute state, which is what was
-  // causing two audio tracks to play at once during preload/crossfade.
   var userWantsSound = false;
 
   function applyAudioRouting(){
-    // Only <video> buffers (mp4/hls) can be muted from here. An iframe's
-    // internal player controls its own audio — there is no cross-origin
-    // way to mute an arbitrary embedded page's player from outside it.
     var onAirP = players[onAirKey];
     var standbyP = players[otherKey(onAirKey)];
     if(onAirP.type !== "iframe") onAirP.el.muted = !userWantsSound;
@@ -511,7 +454,7 @@
 
   function enforceLock(playerKey, expectedIndex, expectedOffset){
     var p = players[playerKey];
-    if(p.type === "iframe") return; // no cross-origin seek/time API available
+    if(p.type === "iframe") return;
     if(p.index !== expectedIndex) return;
     if(Date.now() - loadedAt[playerKey] < STARTUP_GRACE_MS) return;
     if(p.el.readyState < 2) return;
@@ -537,7 +480,7 @@
   var PRELOAD_LEAD_SEC = 4;
 
   function checkAgainstSchedule(force){
-    if(tapToPlayShown) return; // don't let background retries fight the pending user gesture
+    if(tapToPlayShown) return; 
     var sched = computeSchedule(Date.now(), playlist);
     if(!sched) return;
 
@@ -643,30 +586,32 @@
     });
   }
 
-    // 1. Modified boot function that sets up data but DOES NOT force execution of blocked plays
   function boot(){
     var initSched = computeSchedule(Date.now(), playlist);
-    
-    // Pre-load the structure, but don't force trigger the play promise yet
     loadInto("A", initSched.index, initSched.offset);
     applyAudioRouting();
     renderStats(initSched);
     
-    // Crucial: Show the manual tap-to-play overlay immediately so the user can authorize the context
     showTapToPlay();
     
     setTimeout(hideLoader, 4000);
     setInterval(function(){ checkAgainstSchedule(false); }, 500);
+    
     setInterval(function(){
-      fetchPlaylist().then(applyNewPlaylist).catch(function(){ /* keep current playlist on failure */ });
+      fetchPlaylist().then(applyNewPlaylist).catch(function(){});
     }, REFRESH_INTERVAL_MS);
   }
 
-  // 2. Fetch the playlist and boot up safely
+  boot();
+
   fetchPlaylist()
-    .then(function(list){ playlist = list; playlistReady = true; })
-    .catch(function(){ /* fall back to FALLBACK_PLAYLIST already set */ })
-    .then(boot);
+    .then(function(list){ 
+      playlist = list; 
+      playlistReady = true; 
+      checkAgainstSchedule(true);
+    })
+    .catch(function(){});
+
 })();
 </script>
 </body>

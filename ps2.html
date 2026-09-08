@@ -3,197 +3,242 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Linear Live TV Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <title>Serverless Global Sync Linear TV</title>
+    <!-- Include HLS.js for .m3u8 live stream support -->
+    <script src="https://jsdelivr.net"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body, html { width: 100%; height: 100%; background-color: #000; font-family: sans-serif; overflow: hidden; color: #fff; }
-        #player-container { position: relative; width: 100%; height: 100%; }
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity 0.4s ease; background: #000; }
-        .active-player { opacity: 1; z-index: 2; }
-        .background-player { opacity: 0; z-index: 1; }
-        #ui-overlay { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 8px; backdrop-filter: blur(5px); }
-        #on-air-badge { display: inline-block; background: #ff0055; color: white; padding: 4px 8px; font-weight: bold; font-size: 12px; border-radius: 4px; margin-bottom: 8px; text-transform: uppercase; }
-        #video-title { font-size: 18px; font-weight: 500; }
-        #controls-overlay { position: absolute; bottom: 30px; right: 30px; z-index: 10; }
-        button { background: #007bff; color: white; border: none; padding: 12px 24px; font-size: 14px; font-weight: 600; border-radius: 5px; cursor: pointer; }
-        #error-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #111; display: flex; align-items: center; justify-content: center; z-index: 100; display: none; text-align: center; }
+        body {
+            margin: 0;
+            background: #111;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .player-container {
+            position: relative;
+            width: 100%;
+            max-width: 960px;
+            aspect-ratio: 16/9;
+            background: #000;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border-radius: 8px;
+        }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transition: opacity 0.4s ease-in-out;
+        }
+        .active { opacity: 1; z-index: 2; }
+        .hidden { opacity: 0; z-index: 1; pointer-events: none; }
+        
+        .overlay-ui {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.75);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            border-left: 3px solid #00bcff;
+        }
+        .unmute-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 15;
+            background: #00bcff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,188,255,0.4);
+        }
     </style>
 </head>
 <body>
-    <div id="player-container">
-        <video id="playerA" class="active-player" playsinline muted></video>
-        <video id="playerB" class="background-player" playsinline muted></video>
-        <div id="ui-overlay">
-            <div id="on-air-badge">Live On-Air</div>
-            <div id="video-title">Syncing Broadcast Time...</div>
-        </div>
-        <div id="controls-overlay">
-            <button id="unmute-btn" onclick="unmuteAudio()">🔈 Unmute Audio</button>
-        </div>
-    </div>
-    <div id="error-screen"><div id="error-text"></div></div>
-        <script>
-        let anchorTime = 0;
-        let activePlaylist = [];
-        let currentVideoId = null; 
-        let currentPlaylistIndex = -1;
-        let syncInterval = null;
-        const SCRUB_THRESHOLD = 1.5;
 
-        const playerA = document.getElementById('playerA');
-        const playerB = document.getElementById('playerB');
-        let activePlayer = playerA;
-        let backgroundPlayer = playerB;
-        let activeHls = null;
-        let backgroundHls = null;
+<div class="player-container">
+    <button id="unmuteBtn" class="unmute-btn" onclick="unmutePlayers()">🔊 Click to Unmute / Sync Live</button>
+    <div id="statusOverlay" class="overlay-ui">Initialising Stream...</div>
+    <video id="player1" class="active" playsinline muted></video>
+    <video id="player2" class="hidden" playsinline muted></video>
+</div>
 
-        async function initBroadcastEngine() {
-            try {
-                const response = await fetch('./playlist200.json?nocache=' + Date.now());
-                if (!response.ok) throw new Error("Manifest load failed");
-                const data = await response.json();
-                
-                anchorTime = parseInt(data.anchorTime);
-                activePlaylist = data.playlist;
+<script>
+// 1. Fixed Epoch & Fallback Playlist Configuration
+// Changing this timestamp resets the loop calculation baseline globally
+const EPOCH_START = 1700000000000; 
 
-                // Enforce immediate timeline positioning
-                syncBroadcastTimeline(true);
-                setInterval(pollPlaylistUpdates, 8000);
+let playlist = [
+    { url: 'https://googleapis.com', duration: 596 },
+    { url: 'https://mux.dev', duration: 600 }, // HLS Stream Example
+    { url: 'https://googleapis.com', duration: 653 }
+];
 
-                if (syncInterval) clearInterval(syncInterval);
-                syncInterval = setInterval(() => syncBroadcastTimeline(false), 500);
-            } catch (err) {
-                document.getElementById('error-screen').style.display = 'flex';
-                document.getElementById('error-text').innerText = "Failed to sync TV timeline config.";
-            }
+let p1 = document.getElementById('player1');
+let p2 = document.getElementById('player2');
+let activePlayer = p1;
+let inactivePlayer = p2;
+let hlsInstances = { player1: null, player2: null };
+
+let currentTrackIndex = -1;
+let isEnforcingSync = false;
+let timeOffset = 0; // Drifts adjusted dynamically if server sync added
+
+// 2. Format Agnostic Video Engine (Handles MP4 & M3U8 seamlessly)
+function loadMediaSource(player, url) {
+    const playerId = player.id;
+    
+    // Clean up previous HLS instances on this player slot to free memory
+    if (hlsInstances[playerId]) {
+        hlsInstances[playerId].destroy();
+        hlsInstances[playerId] = null;
+    }
+
+    if (url.includes('.m3u8')) {
+        if (Hls.isSupported()) {
+            const hls = new Hls({ maxBufferLength: 10, enableWorker: true });
+            hlsInstances[playerId] = hls;
+            hls.loadSource(url);
+            hls.attachMedia(player);
+        } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native Safari HLS execution
+            player.src = url;
         }
+    } else {
+        // Fallback to standard progressive MP4
+        player.src = url;
+    }
+    player.load();
+}
 
-        async function pollPlaylistUpdates() {
-            try {
-                const response = await fetch('./playlist200.json?nocache=' + Date.now());
-                if (response.ok) {
-                    const data = await response.json();
-                    if (data.playlist) {
-                        activePlaylist = data.playlist;
-                    }
-                }
-            } catch(e) {}
+// 3. Mathematical Timeline Matrix Calculations
+function getGlobalTimelineState() {
+    let totalPlaylistDuration = playlist.reduce((sum, track) => sum + track.duration, 0);
+    let msSinceEpoch = (Date.now() + timeOffset) - EPOCH_START;
+    let totalSecondsElapsed = Math.floor(msSinceEpoch / 1000);
+    
+    // Calculate current loop sequence position
+    let currentPlaylistTime = totalSecondsElapsed % totalPlaylistDuration;
+    
+    let accumulatedTime = 0;
+    for (let i = 0; i < playlist.length; i++) {
+        if (currentPlaylistTime >= accumulatedTime && currentPlaylistTime < accumulatedTime + playlist[i].duration) {
+            return {
+                index: i,
+                seekTo: currentPlaylistTime - accumulatedTime,
+                track: playlist[i]
+            };
         }
-        function computeLiveBroadcastCoordinates() {
-            if (!activePlaylist || activePlaylist.length === 0) return null;
+        accumulatedTime += playlist[i].duration;
+    }
+    return { index: 0, seekTo: 0, track: playlist[0] };
+}
 
-            const now = Math.floor(Date.now() / 1000);
-            if (now < anchorTime) return { index: 0, seekTime: 0, item: activePlaylist[0] };
-
-            const totalDuration = activePlaylist.reduce((acc, item) => acc + parseInt(item.duration), 0);
-            const elapsedSinceAnchor = now - anchorTime;
+// 4. Dual-Player Soft Crossfading
+function syncPlayerEngine() {
+    const state = getGlobalTimelineState();
+    
+    // Check if video file has changed context or playlist appended new data
+    if (currentTrackIndex !== state.index) {
+        currentTrackIndex = state.index;
+        
+        // Stage background player pipeline
+        loadMediaSource(inactivePlayer, state.track.url);
+        
+        const runSwap = () => {
+            inactivePlayer.currentTime = state.seekTo;
+            inactivePlayer.play().catch(() => {});
             
-            // Loop the timeline over the total active duration
-            const currentRemainder = elapsedSinceAnchor % totalDuration;
+            // Perform seamless execution swap without screen flickering
+            activePlayer.className = "hidden";
+            inactivePlayer.className = "active";
+            
+            // Swap reference elements smoothly
+            let temp = activePlayer;
+            activePlayer = inactivePlayer;
+            inactivePlayer = temp;
+            
+            document.getElementById('statusOverlay').innerHTML = `🔴 <b>LIVE ON-AIR:</b> Track #${currentTrackIndex + 1}`;
+            inactivePlayer.onseeked = null; 
+        };
 
-            let timeCursor = 0;
-            for (let i = 0; i < activePlaylist.length; i++) {
-                const item = activePlaylist[i];
-                const duration = parseInt(item.duration);
-
-                if (currentRemainder >= timeCursor && currentRemainder < timeCursor + duration) {
-                    return {
-                        index: i,
-                        seekTime: currentRemainder - timeCursor,
-                        item: item
-                    };
-                }
-                timeCursor += duration;
-            }
-            return { index: 0, seekTime: 0, item: activePlaylist[0] };
+        // Buffer and execute setup sequence
+        if (state.track.url.includes('.m3u8') && hlsInstances[inactivePlayer.id]) {
+            hlsInstances[inactivePlayer.id].once(Hls.Events.MANIFEST_PARSED, runSwap);
+        } else {
+            inactivePlayer.onloadedmetadata = runSwap;
         }
-        function syncBroadcastTimeline(isFirstLaunch = false) {
-            const target = computeLiveBroadcastCoordinates();
-            if (!target) return;
-
-            // Transition strictly on unique Reference IDs
-            if (isFirstLaunch || currentVideoId !== target.item.id) {
-                if (isFirstLaunch) {
-                    currentVideoId = target.item.id;
-                    currentPlaylistIndex = target.index;
-                    document.getElementById('video-title').innerText = target.item.title;
-                    setupPlayer(activePlayer, target.item.url, target.seekTime, true);
-                    preStageNextVideo();
-                } else {
-                    executeDualPlayerTransition(target);
-                }
-                return;
-            }
-
-            const drift = Math.abs(activePlayer.currentTime - target.seekTime);
-            if (drift > SCRUB_THRESHOLD) {
-                activePlayer.currentTime = target.seekTime;
-                activePlayer.play().catch(() => {});
-            }
+    } else {
+        // Track Lock Correction (Fixes system lag drifts within 1.5 seconds tolerance)
+        if (Math.abs(activePlayer.currentTime - state.seekTo) > 1.5) {
+            isEnforcingSync = true;
+            activePlayer.currentTime = state.seekTo;
+            setTimeout(() => { isEnforcingSync = false; }, 300);
         }
+    }
+}
 
-        function executeDualPlayerTransition(targetMetrics) {
-            currentVideoId = targetMetrics.item.id;
-            currentPlaylistIndex = targetMetrics.index;
-            document.getElementById('video-title').innerText = targetMetrics.item.title;
-
-            const savedMute = activePlayer.muted;
-            const savedVol = activePlayer.volume;
-
-            backgroundPlayer.className = "active-player";
-            activePlayer.className = "background-player";
-
-            backgroundPlayer.muted = savedMute;
-            backgroundPlayer.volume = savedVol;
-            activePlayer.muted = true;
-
-            const swapNode = activePlayer; activePlayer = backgroundPlayer; backgroundPlayer = swapNode;
-            const swapHls = activeHls; activeHls = backgroundHls; backgroundHls = swapHls;
-
-            activePlayer.currentTime = targetMetrics.seekTime;
-            activePlayer.play().catch(() => {});
-
-            preStageNextVideo();
+// 5. Hardened Anti-Scrub System Hook
+function setupAntiScrub(playerElement) {
+    playerElement.addEventListener('seeking', () => {
+        if (!isEnforcingSync) {
+            const state = getGlobalTimelineState();
+            isEnforcingSync = true;
+            playerElement.currentTime = state.seekTo;
+            document.getElementById('statusOverlay').innerHTML = "🔒 <b>Anti-Scrub System:</b> Seek locked.";
+            setTimeout(() => { isEnforcingSync = false; }, 400);
         }
+    });
+}
 
-        function preStageNextVideo() {
-            if (currentPlaylistIndex === -1 || activePlaylist.length === 0) return;
-            const nextIndex = (currentPlaylistIndex + 1) % activePlaylist.length;
-            setupPlayer(backgroundPlayer, activePlaylist[nextIndex].url, 0, false);
-            backgroundPlayer.muted = true;
-        }
-
-        function setupPlayer(playerElement, url, startTime, isActiveFrame) {
-            if (isActiveFrame && activeHls) { activeHls.destroy(); activeHls = null; }
-            if (!isActiveFrame && backgroundHls) { backgroundHls.destroy(); backgroundHls = null; }
-
-            if (Hls.isSupported()) {
-                const hlsInstance = new Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 10 });
-                hlsInstance.loadSource(url);
-                hlsInstance.attachMedia(playerElement);
-                if (isActiveFrame) activeHls = hlsInstance; else backgroundHls = hlsInstance;
-                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                    playerElement.currentTime = startTime;
-                    playerElement.play().catch(() => {});
-                });
-            } else if (playerElement.canPlayType('application/vnd.apple.mpegurl')) {
-                playerElement.src = url;
-                playerElement.addEventListener('loadedmetadata', () => {
-                    playerElement.currentTime = startTime;
-                    playerElement.play().catch(() => {});
-                }, { once: true });
+// 6. Serverless Background Updates (Poller from GitHub repository file)
+async function poolServerlessPlaylistUpdate() {
+    try {
+        // Tip: Replace with your actual repository absolute configuration URL path
+        // e.g., 'https://githubusercontent.com'
+        const response = await fetch('./playlist.json?nocache=' + Date.now());
+        if (response.ok) {
+            const remotePlaylist = await response.json();
+            if (remotePlaylist && remotePlaylist.length >= playlist.length) {
+                playlist = remotePlaylist; // Appends elements transparently
             }
         }
+    } catch (e) {
+        console.log("No dynamic file 'playlist.json' discovered, relying on memory array configuration.");
+    }
+}
 
-        function unmuteAudio() {
-            activePlayer.muted = false;
-            backgroundPlayer.muted = true;
-            document.getElementById('controls-overlay').style.display = 'none';
-        }
+function unmutePlayers() {
+    p1.muted = false;
+    p2.muted = false;
+    document.getElementById('unmuteBtn').style.display = 'none';
+    syncPlayerEngine();
+}
 
-        window.addEventListener('DOMContentLoaded', initBroadcastEngine);
-    </script>
+// Initialise core pipeline
+setupAntiScrub(p1);
+setupAntiScrub(p2);
+syncPlayerEngine();
+
+// Periodic heartbeats: sync engine clocks and serverless JSON checking
+setInterval(syncPlayerEngine, 1000);
+setInterval(poolServerlessPlaylistUpdate, 30000); // Check for playlist updates every 30 seconds
+</script>
 </body>
 </html>
-

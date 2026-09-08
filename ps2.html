@@ -16,7 +16,7 @@
             width: 100%;
             height: 100%;
             background-color: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
             overflow: hidden;
         }
         .player-container {
@@ -24,69 +24,105 @@
             width: 100%;
             height: 100%;
         }
-        /* Dual Layered Window Arrays */
+        /* Anti-Throttling Viewport Array Layout Matrix */
         .player-layer {
             position: absolute;
             top: 0;
             left: 0;
+            width: 1px;
+            height: 1px;
+            z-index: 1;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        /* Active Display State Rules */
+        .player-layer.active {
             width: 100%;
             height: 100%;
-            opacity: 0;
-            visibility: hidden;
-            transition: opacity 0.4s ease, visibility 0.4s ease;
-            z-index: 1;
-        }
-        .player-layer.active {
-            opacity: 1;
-            visibility: visible;
             z-index: 2;
+            pointer-events: auto;
         }
         video, iframe {
             width: 100%;
             height: 100%;
             border: none;
             background: #000;
+            display: block;
+        }
+        /* Persistent Global Audio Interaction Shield Overlay Barrier */
+        #interaction-shield {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: #fff;
+            cursor: pointer;
+            text-align: center;
+            padding: 20px;
+        }
+        #interaction-shield h2 {
+            font-size: 24px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+        #interaction-shield p {
+            font-size: 14px;
+            color: #aaa;
         }
     </style>
 </head>
 <body>
-
-    <div class="player-container">
-        <!-- Player Layer 1 -->
-        <div id="layer1" class="player-layer"></div>
-        <!-- Player Layer 2 -->
-        <div id="layer2" class="player-layer"></div>
-    </div>
-        <script>
+    <script>
         // System Configurations
         const PLAYLIST_URL = 'playlist.json';
         const FALLBACK_URL = 'https://github.com';
-        const POLL_INTERVAL = 30000; // 30 seconds dynamic backend update verification
-        const ALLOWED_SEEK_DRIFT = 2; // Maximum drift window in seconds before snapback forces correction
+        const POLL_INTERVAL = 30000; 
+        const ALLOWED_SEEK_DRIFT = 2.5; 
 
-        // Runtime Tracking Object Variables
+        // Runtime State Objects Array Memory
         let state = {
             playlist: [],
             currentVideoIndex: -1,
             targetPosition: 0,
             activeLayer: 'layer1',
+            hasUserInteracted: false,
             hlsInstances: { layer1: null, layer2: null }
         };
 
-        // Initialize App Engine
-        async function init() {
+        // Initialize User Engagement Layer Gate Context Check
+        function setupInteractionGate() {
+            const shield = document.getElementById('interaction-shield');
+            shield.addEventListener('click', () => {
+                state.hasUserInteracted = true;
+                shield.style.display = 'none';
+                
+                // Unmute whichever layer is currently active immediately upon initial user tap gesture
+                const activeVid = document.getElementById(state.activeLayer).querySelector('video');
+                if (activeVid) activeVid.muted = false;
+
+                initEngine();
+            }, { once: true });
+        }
+
+        async function initEngine() {
             await fetchPlaylist();
             syncEngine();
-            // Start background synchronization polling loops
             setInterval(fetchPlaylist, POLL_INTERVAL);
             setInterval(syncEngine, 1000);
         }
 
-        // Fetch dynamic playlist updates silently from Cloudflare Pages origin hosting boundary
+        // Fetch dynamic playlist updates silently from Cloudflare Pages origin
         async function fetchPlaylist() {
             try {
                 const response = await fetch(`${PLAYLIST_URL}?t=${Date.now()}`);
-                if (!response.ok) throw new Error('Network error reading current playlist manifest file');
+                if (!response.ok) throw new Error('Failed to read config layout array profile source');
                 const data = await response.json();
                 if (Array.isArray(data) && data.length > 0) {
                     state.playlist = data;
@@ -94,7 +130,7 @@
                     useFallbackPlaylist();
                 }
             } catch (error) {
-                console.error("Playlist read failed, deploying fallback engine protection:", error);
+                console.error("Playlist read failed, deploying fallback engine:", error);
                 if (state.playlist.length === 0) useFallbackPlaylist();
             }
         }
@@ -102,15 +138,14 @@
         function useFallbackPlaylist() {
             state.playlist = [{
                 url: FALLBACK_URL,
-                duration: 86400 // Set massive virtual loop timeline configuration for fallback asset
+                duration: 86400 
             }];
         }
 
         // Global Epoch mathematical synchronization timeline calculation loop
         function syncEngine() {
-            if (state.playlist.length === 0) return;
+            if (state.playlist.length === 0 || !state.hasUserInteracted) return;
 
-            // Compute cumulative total time parameters dynamically
             let totalPlaylistDuration = 0;
             const videoSegments = state.playlist.map(item => {
                 const start = totalPlaylistDuration;
@@ -118,11 +153,9 @@
                 return { ...item, start, end: totalPlaylistDuration };
             });
 
-            // Find global live wall position coordinates
             const currentUnixTimeSeconds = Math.floor(Date.now() / 1000);
             const globalTimelinePosition = currentUnixTimeSeconds % totalPlaylistDuration;
 
-            // Identify active indexed array structural context matching timeline location
             let matchedIndex = 0;
             let videoInsidePosition = 0;
 
@@ -136,22 +169,19 @@
 
             state.targetPosition = videoInsidePosition;
             
-            // Check if active target source index state matches playing configurations
             if (state.currentVideoIndex !== matchedIndex) {
                 state.currentVideoIndex = matchedIndex;
                 transitionToSource(state.playlist[matchedIndex], videoInsidePosition);
             } else {
-                // Run background verification checks tracking user interactive scrubbing attempts
                 enforceAntiScrubbing();
             }
         }
-        // Seamless zero-jump dual layer handoff mechanism switcher logic
+                // Seamless zero-jump dual layer handoff mechanism switcher logic
         function transitionToSource(videoItem, startTime) {
             const nextLayer = state.activeLayer === 'layer1' ? 'layer2' : 'layer1';
             const currentLayer = state.activeLayer;
             const container = document.getElementById(nextLayer);
             
-            // Clean dynamic components inside alternative targets memory fields beforehand
             destroyLayerEngine(nextLayer);
             container.innerHTML = '';
 
@@ -164,44 +194,44 @@
                 iframe.setAttribute('allowfullscreen', '');
                 container.appendChild(iframe);
                 
-                // Complete layer swap workflow instantly since iframe embeds cannot pass time vectors natively
                 executeLayerSwap(nextLayer, currentLayer);
             } else {
-                // Initialize clean HTML5 video structures for native stream engines handling routines
                 const video = document.createElement('video');
-                video.muted = true; // Auto-play browser standard compliance rule validation engine
+                
+                // Mute background player strictly during pre-buffering to bypass engine startup crashes
+                video.muted = true; 
                 video.playsInline = true;
-                video.controls = false; // Completely strip controls natively to reduce interaction variables
+                video.controls = false;
                 container.appendChild(video);
+
+                const startPlayback = () => {
+                    video.currentTime = startTime;
+                    // Safely execute playback with promise validation rejection catch blocks
+                    const playPromise = video.play();
+                    if (playPromise !== undefined) {
+                        playPromise.catch(error => {
+                            console.warn("Playback engine start delayed, waiting frame availability:", error);
+                        });
+                    }
+                };
 
                 if (engineType === 'hls') {
                     if (Hls.isSupported()) {
-                        const hls = new Hls({ config: { maxMaxBufferLength: 10 } });
+                        const hls = new Hls({ config: { maxMaxBufferLength: 8, enableWorker: true } });
                         state.hlsInstances[nextLayer] = hls;
                         hls.loadSource(videoItem.url);
                         hls.attachMedia(video);
-                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                            video.currentTime = startTime;
-                            video.play().catch(() => handleAutoplayBlock(video));
-                        });
+                        hls.on(Hls.Events.MANIFEST_PARSED, startPlayback);
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        // Native Safari Fallback pipeline logic
                         video.src = videoItem.url;
-                        video.addEventListener('loadedmetadata', () => {
-                            video.currentTime = startTime;
-                            video.play().catch(() => handleAutoplayBlock(video));
-                        });
+                        video.addEventListener('loadedmetadata', startPlayback);
                     }
                 } else {
-                    // Standard raw progressive MP4 profile target configuration routing
                     video.src = videoItem.url;
-                    video.addEventListener('loadedmetadata', () => {
-                        video.currentTime = startTime;
-                        video.play().catch(() => handleAutoplayBlock(video));
-                    });
+                    video.addEventListener('loadedmetadata', startPlayback);
                 }
 
-                // Wait for video frame to be ready before firing the swap to ensure a zero-jump switchover
+                // Fire layer swap instantly as soon as active visual frames start processing inside memory
                 video.addEventListener('playing', function onPlayingHandler() {
                     executeLayerSwap(nextLayer, currentLayer);
                     video.removeEventListener('playing', onPlayingHandler);
@@ -214,17 +244,18 @@
             document.getElementById(currentLayer).classList.remove('active');
             state.activeLayer = nextLayer;
             
-            // Unmute the newly visible layer once it's on-air
             const nextVideo = document.getElementById(nextLayer).querySelector('video');
-            if (nextVideo) nextVideo.muted = false;
+            if (nextVideo && state.hasUserInteracted) {
+                // Now safely allowed because user interaction gate tokens are cleared globally
+                nextVideo.muted = false;
+            }
 
-            // Safely wind down and clear assets from the old background layer
             setTimeout(() => {
                 if (state.activeLayer !== currentLayer) { 
                     destroyLayerEngine(currentLayer);
                     document.getElementById(currentLayer).innerHTML = '';
                 }
-            }, 500);
+            }, 600);
         }
 
         // Silent anti-scrubbing lock validation check operations
@@ -234,7 +265,6 @@
 
             const drift = Math.abs(activeVideo.currentTime - state.targetPosition);
             if (drift > ALLOWED_SEEK_DRIFT) {
-                // Force silent absolute snap correction without throwing UI warning states to user interface canvas
                 activeVideo.currentTime = state.targetPosition;
             }
         }
@@ -249,22 +279,13 @@
         function getEngineType(url) {
             if (url.includes('.m3u8') || url.includes('hls/')) return 'hls';
             if (url.includes('.mp4') || url.includes('releases/download')) return 'mp4';
-            return 'iframe'; // Fallback detection matrix defaults routing targeting unmapped paths directly into iframe windows
+            return 'iframe'; 
         }
 
-        function handleAutoplayBlock(videoElement) {
-            // Browsers require explicit user engagement vectors before granting dynamic sound permissions
-            videoElement.muted = true;
-            videoElement.play();
-            
-            // Window click listener converts system safely to unmuted output once user touches anywhere on page canvas
-            window.addEventListener('click', () => {
-                videoElement.muted = false;
-            }, { once: true });
-        }
-
-        window.onload = init;
+        window.onload = setupInteractionGate;
     </script>
 </body>
 </html>
 
+
+     

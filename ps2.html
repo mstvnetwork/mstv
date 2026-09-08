@@ -158,7 +158,7 @@
   // Fallback used only if the fetch fails on a viewer's very first load
   // (e.g. offline). Once playlist.json loads successfully it takes over.
   var FALLBACK_PLAYLIST = [
-    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4", duration: 60 }
+    { url: "https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4", duration: 16 }
   ];
 
   var REFRESH_INTERVAL_MS = 30000; // poll playlist.json every 30s in the background
@@ -239,6 +239,7 @@
     A: { el: videoA, index: -1, role: "onair" },
     B: { el: videoB, index: -1, role: "standby" }
   };
+  var stage = document.getElementById("stage");
   var onAirKey = "A";
   var firstFrameShown = false;
 
@@ -246,6 +247,45 @@
   videoB.classList.add("hidden");
   videoA.preload = "auto";
   videoB.preload = "auto";
+
+  // Autoplay policies (Chrome, Samsung Internet) block unmuted/unattended
+  // playback unless these are explicitly set on the element itself, not
+  // just via the muted property in JS. Kiwi (Chromium-based but looser
+  // policy) let this slide, which is why it worked there and not elsewhere.
+  [videoA, videoB].forEach(function(v){
+    v.muted = true;
+    v.defaultMuted = true;
+    v.setAttribute("muted", "");
+    v.setAttribute("autoplay", "");
+    v.setAttribute("playsinline", "");
+    v.setAttribute("webkit-playsinline", "");
+  });
+
+  var tapToPlayShown = false;
+  function showTapToPlay(){
+    if(tapToPlayShown) return;
+    tapToPlayShown = true;
+    var overlay = document.createElement("div");
+    overlay.id = "tap-to-play";
+    overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+      "background:rgba(0,0,0,.6);z-index:9997;cursor:pointer;";
+    overlay.innerHTML = '<div style="background:rgba(25,25,25,.8);border:1px solid rgba(255,255,255,.15);' +
+      'color:#fff;padding:14px 22px;border-radius:30px;font-size:14px;font-weight:600;">▶ Tap to play</div>';
+    overlay.addEventListener("click", function(){
+      var onAir = players[onAirKey].el;
+      var p = onAir.play();
+      if(p && p.then){
+        p.then(function(){
+          overlay.remove();
+          tapToPlayShown = false;
+        }).catch(function(){});
+      } else {
+        overlay.remove();
+        tapToPlayShown = false;
+      }
+    }, { once: true });
+    stage.appendChild(overlay);
+  }
 
   function otherKey(k){ return k === "A" ? "B" : "A"; }
 
@@ -279,7 +319,13 @@
       p.el.addEventListener("loadedmetadata", doSeek, { once:true });
     }
     var playPromise = p.el.play();
-    if(playPromise && playPromise.catch) playPromise.catch(function(){});
+    if(playPromise && playPromise.catch){
+      playPromise.catch(function(err){
+        if(playerKey === onAirKey){
+          showTapToPlay();
+        }
+      });
+    }
 
     if(playerKey === onAirKey){
       var onProgress = function(){
@@ -385,7 +431,6 @@
     renderStats(freshSched);
   }
 
-  var stage = document.getElementById("stage");
   var muteBtn = document.getElementById("muteBtn");
   var muteIcon = document.getElementById("muteIcon");
   var fullscreenBtn = document.getElementById("fullscreenBtn");

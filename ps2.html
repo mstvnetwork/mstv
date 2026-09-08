@@ -87,8 +87,8 @@
   <p class="sub chrome-only">Everyone worldwide sees the same frame at the same wall-clock moment. Append <code>?mode=public</code> or <code>?mode=private</code> to the URL.</p>
 
   <div class="stage" id="stage">
-    <video id="videoA" muted playsinline></video>
-    <video id="videoB" muted playsinline></video>
+    <video id="videoA" playsinline></video>
+    <video id="videoB" playsinline></video>
 
     <div class="badge chrome-only"><span class="dot"></span>LIVE</div>
     <div class="active-tag chrome-only" id="activeTag">Player A on-air</div>
@@ -232,10 +232,10 @@
   videoA.preload = "auto";
   videoB.preload = "auto";
 
-[videoA, videoB].forEach(function(v){
-    v.muted = false;       // Changed from true to false (forces audio requirement)
-    v.defaultMuted = false; // Changed from true to false
-    v.removeAttribute("muted"); // Removes the muted attribute completely
+  [videoA, videoB].forEach(function(v){
+    v.muted = false;
+    v.defaultMuted = false;
+    v.removeAttribute("muted");
     v.setAttribute("autoplay", "");
     v.setAttribute("playsinline", "");
     v.setAttribute("webkit-playsinline", "");
@@ -256,7 +256,7 @@
       stage.appendChild(overlay);
     }
 
-    function attemptPlay(e){
+    var attemptPlay = function(e){
       if(e) e.stopPropagation();
       hideLoader();
       
@@ -267,7 +267,7 @@
       };
 
       var onAirEl = players[onAirKey].el;
-      applyAudioRouting(); // Respect user sound preference
+      applyAudioRouting();
 
       if(onAirEl.src){
         var pr = onAirEl.play();
@@ -276,7 +276,6 @@
 
         if(pr && pr.then){
           pr.then(cleanup).catch(function(err){
-            // If play fails due to network/loading state, force load and try once more
             onAirEl.load();
             onAirEl.play().then(cleanup).catch(cleanup);
           });
@@ -286,33 +285,9 @@
       } else {
         cleanup();
       }
-    }
+    };
 
     overlay.onclick = attemptPlay;
-    document.addEventListener("click", attemptPlay, true);
-  }
-
-    function attemptPlay(){
-      hideLoader();
-      var a = players.A.el, b = players.B.el;
-      [a,b].forEach(function(v){ v.muted = true; v.setAttribute("muted",""); });
-      var onAirEl = players[onAirKey].el;
-      var pr = onAirEl.play();
-      var standbyEl = players[otherKey(onAirKey)].el;
-      if(standbyEl && standbyEl.src) standbyEl.play().catch(function(){});
-      var cleanup = function(){
-        if(overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
-        tapToPlayShown = false;
-        document.removeEventListener("click", attemptPlay, true);
-      };
-      if(pr && pr.then){
-        pr.then(cleanup).catch(function(){});
-      } else {
-        cleanup();
-      }
-    }
-
-    overlay.addEventListener("click", attemptPlay);
     document.addEventListener("click", attemptPlay, true);
   }
 

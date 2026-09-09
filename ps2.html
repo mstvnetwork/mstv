@@ -289,26 +289,42 @@
 
       // ... (Previous loadMediaSource, syncPlayer, and setupSeamlessTransition functions run above here)
 
-      // ==========================================
+            // ==========================================
       // UI BUTTON INTERACTION HANDLERS
       // ==========================================
       
       // Handle Sound Button Clicks
       $('#mute-btn').on('click', function() {
+        // Toggle our global tracker state
         isGlobalMuted = !isGlobalMuted;
-        $('#video1').get(0).muted = isGlobalMuted;
-        $('#video2').get(0).muted = isGlobalMuted;
 
+        // Fetch direct references to both live elements
+        const v1 = $('#video1').get(0);
+        const v2 = $('#video2').get(0);
+
+        // Apply state changes directly onto BOTH physical video layer feeds
+        v1.muted = isGlobalMuted;
+        v2.muted = isGlobalMuted;
+
+        // FORCE ACCELERATION: Explicitly tell the browser to play unmuted media inside a user gesture event listener
+        if (!isGlobalMuted) {
+          v1.play().catch(() => {});
+          v2.play().catch(() => {});
+        }
+
+        // Switch the SVG display indicators layout based on current state
         if (isGlobalMuted) {
           $('#icon-muted').show();
           $('#icon-unmuted').hide();
+          console.log("Audio Stream Muted Globally");
         } else {
           $('#icon-muted').hide();
           $('#icon-unmuted').show();
+          console.log("Audio Stream Unmuted Globally");
         }
       });
 
-      // Handle Fullscreen Button Clicks (The floated snippet!)
+      // Handle Fullscreen Button Clicks
       $('#fullscreen-btn').on('click', function() {
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(err => {
@@ -319,8 +335,9 @@
         }
       });
 
-      // Start the Synchronization Engine on Page Load (The floated snippet!)
+      // Start the Synchronization Engine on Page Load
       $(document).ready(initLiveSync);
+
     </script>
   </body>
 </html>

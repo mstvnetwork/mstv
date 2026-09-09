@@ -389,10 +389,21 @@
   };
 
   var playlist = [];
+  var playlistTotalDuration = 0;
   var currentIndex = -1;
   var activeLayer = "A";
   var pendingSwitch = false;
   var userMuted = false; // public mode toggle state, starts unmuted per default autoplay-with-sound intent
+
+  /* Fixed UTC-anchored boundary of the current 12h broadcast block.
+     This never moves regardless of playlist edits — it is purely a
+     function of wall-clock time, shared identically by every client. */
+  function cycleAnchor(){
+    return Math.floor(nowUnix() / CYCLE_SECONDS) * CYCLE_SECONDS;
+  }
+  function elapsedInCycle(){
+    return nowUnix() - cycleAnchor();
+  }
 
   /* ============================================================
      UTIL
@@ -427,44 +438,44 @@
      the beginning automatically the moment the last item ends,
      with no wait for the 12h wall-clock boundary.
   ============================================================ */
+  /* Single non-repeating pass over the CURRENT list. startInCycle/endInCycle
+     for item i depend only on the cumulative durations of items 0..i-1 —
+     never on how many items exist after it, and never on how many times
+     the list has been "tiled". This is what makes appends append-safe:
+     item 3's window cannot move no matter what gets added at position 4+. */
   function buildGrid(items){
     var validItems = items.filter(function(it){ return it && it.url && Number(it.duration) > 0; });
-    if (validItems.length === 0) return { items: [], total: 0 };
-
-    var totalRawDuration = validItems.reduce(function(sum, it){ return sum + Number(it.duration); }, 0);
-    if (totalRawDuration <= 0) return { items: [], total: 0 };
+    if (validItems.length === 0) return { items: [], total: 0, rawCount: 0 };
 
     var mapped = [];
     var t = 0;
-    var lap = 0;
-    var safety = 0;
-    while (t < CYCLE_SECONDS && safety < 100000){
-      for (var i = 0; i < validItems.length; i++){
-        if (t >= CYCLE_SECONDS) break;
-        var d = Number(validItems[i].duration);
-        var start = t;
-        var end = Math.min(CYCLE_SECONDS, t + d);
-        mapped.push({
-          url: validItems[i].url,
-          duration: d,
-          startInCycle: start,
-          endInCycle: end,
-          index: mapped.length,
-          sourceIndex: i,
-          lap: lap
-        });
-        t = end;
-        safety++;
-      }
-      lap++;
+    for (var i = 0; i < validItems.length; i++){
+      var d = Number(validItems[i].duration);
+      var start = t;
+      var end = t + d;
+      mapped.push({
+        url: validItems[i].url,
+        duration: d,
+        startInCycle: start,
+        endInCycle: end,
+        index: i,
+        sourceIndex: i
+      });
+      t = end;
     }
     return { items: mapped, total: t, rawCount: validItems.length };
   }
 
-  function findOnAir(cyclePos, grid){
+  /* Looping happens here, at read-time, via modulo on elapsed-since-anchor —
+     NOT by pre-baking repeated laps into the grid array. That means a loop
+     restart is instant once totalDuration is reached, and it never shifts
+     any startInCycle value that was already computed for an earlier item. */
+  function findOnAir(elapsedSinceAnchor, grid, totalDuration){
+    if (!grid.length || totalDuration <= 0) return null;
+    var pos = elapsedSinceAnchor % totalDuration;
     for (var i=0;i<grid.length;i++){
-      if (cyclePos >= grid[i].startInCycle && cyclePos < grid[i].endInCycle){
-        return { item: grid[i], offset: cyclePos - grid[i].startInCycle };
+      if (pos >= grid[i].startInCycle && pos < grid[i].endInCycle){
+        return { item: grid[i], offset: pos - grid[i].startInCycle };
       }
     }
     return null;
@@ -496,6 +507,8 @@
     // reached; every startInCycle for items scheduled before "now" in the
     // current lap is unchanged, so the on-air item and its offset never move.
     playlist = grid.items;
+    playlist.rawCount = grid.rawCount;
+    playlistTotalDuration = grid.total;
     renderSchedule();
   }
 
@@ -617,14 +630,11 @@
   function tick(){
     if (playlist.length === 0) return;
 
-    var t = nowUnix();
-    var cyclePos = t % CYCLE_SECONDS;
-    var onAir = findOnAir(cyclePos, playlist);
+    var onAir = findOnAir(elapsedInCycle(), playlist, playlistTotalDuration);
 
     if (!onAir){
-      // Only occurs in the final fractional second(s) at the very top of
-      // the 43200s boundary due to a non-integer-dividing playlist total;
-      // resolves itself on the next tick as cyclePos wraps to 0.
+      // Playlist has no valid duration yet, or hasn't loaded. Resolves once
+      // applyNewPlaylist() runs.
       return;
     }
 
@@ -667,8 +677,8 @@
   }
 
   function finalizeSwitch(readyLayer, key, item, offset){
-    var freshT = nowUnix() % CYCLE_SECONDS;
-    var freshOffset = Math.max(0, freshT - item.startInCycle);
+    var freshPos = elapsedInCycle() % playlistTotalDuration;
+    var freshOffset = Math.max(0, freshPos - item.startInCycle);
     if (readyLayer.video){
       try{
         if (Math.abs(readyLayer.video.currentTime - freshOffset) > RESYNC_TOLERANCE_SEC){
@@ -739,8 +749,7 @@
   function renderSchedule(){
     if (!schedList) return; // not present in public mode
     if (!playlist.length) return;
-    var t = nowUnix() % CYCLE_SECONDS;
-    var onAir = findOnAir(t, playlist);
+    var onAir = findOnAir(elapsedInCycle(), playlist, playlistTotalDuration);
     var curIdx = onAir ? onAir.item.index : -1;
 
     var html = "";
@@ -814,4 +823,4 @@
 })();
 </script>
 </body>
-</html>
+  </html>

@@ -95,10 +95,7 @@
   </head>
   <body>
 
-    <!-- Seamless Dual Player Buffer Components -->
-    <video id="video1" muted playsinline></video>
-    <video id="video2" muted playsinline></video>
-
+  
     <!-- Master Interactive UI Layer Container -->
     <div id="ui-layer">
       
@@ -288,8 +285,7 @@
       });
 
       // ... (Previous loadMediaSource, syncPlayer, and setupSeamlessTransition functions run above here)
-
-            // ==========================================
+      // ==========================================
       // UI BUTTON INTERACTION HANDLERS
       // ==========================================
       
@@ -298,16 +294,19 @@
         // Toggle our global tracker state
         isGlobalMuted = !isGlobalMuted;
 
-        // Fetch direct references to both live elements
         const v1 = $('#video1').get(0);
         const v2 = $('#video2').get(0);
 
-        // Apply state changes directly onto BOTH physical video layer feeds
+        // Explicitly apply state onto browser element properties
         v1.muted = isGlobalMuted;
         v2.muted = isGlobalMuted;
 
-        // FORCE ACCELERATION: Explicitly tell the browser to play unmuted media inside a user gesture event listener
+        // Force volume values to 100% explicitly to clear internal library overrides
         if (!isGlobalMuted) {
+          v1.volume = 1.0;
+          v2.volume = 1.0;
+          
+          // Re-trigger playback immediately to bypass browser security context freezes
           v1.play().catch(() => {});
           v2.play().catch(() => {});
         }
@@ -316,11 +315,11 @@
         if (isGlobalMuted) {
           $('#icon-muted').show();
           $('#icon-unmuted').hide();
-          console.log("Audio Stream Muted Globally");
+          console.log("Global State Changed: Muted");
         } else {
           $('#icon-muted').hide();
           $('#icon-unmuted').show();
-          console.log("Audio Stream Unmuted Globally");
+          console.log("Global State Changed: Unmuted");
         }
       });
 
@@ -335,8 +334,25 @@
         }
       });
 
-      // Start the Synchronization Engine on Page Load
-      $(document).ready(initLiveSync);
+      // Boot Layer Setup Hook
+      function bootPlayerSetup() {
+        // Enforce safe initial muted properties in JavaScript to satisfy browser Autoplay Rules
+        $('#video1').get(0).muted = true;
+        $('#video2').get(0).muted = true;
+        $('#video1').get(0).volume = 0.0;
+        $('#video2').get(0).volume = 0.0;
+        
+        // Fire synchronization logic
+        initLiveSync();
+      }
+
+      // Start the Engine on Document Ready via our explicit boot script
+      $(document).ready(bootPlayerSetup);
+    </script>
+  </body>
+</html>
+
+
 
     </script>
   </body>

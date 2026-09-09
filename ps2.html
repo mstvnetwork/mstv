@@ -90,36 +90,28 @@ async function fetchPlaylist() {
 function getGlobalBroadcastPosition() {
     if (!state.playlist.length) return null;
 
-    let totalDuration = 0;
-    const schedule = state.playlist.map(item => {
-        const startTime = totalDuration;
-        totalDuration += item.duration;
-        return { item, startTime, duration: item.duration };
-    });
-
-    if (totalDuration === 0) return null;
-
     const currentUnixTime = Math.floor(Date.now() / 1000);
-    // Locked 12-hour Grid Position (0..43199)
-    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC; 
+    // Fixed 12-hour grid (43200s)
+    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC;
 
-    // Find position within the repeating sequence inside the 12-hour block
-    const sequenceOffset = gridTime % totalDuration;
+    // Direct offset lookup - immune to array length changes
+    for (let i = 0; i < state.playlist.length; i++) {
+        const item = state.playlist[i];
+        const itemStart = item.startOffset;
+        const itemEnd = itemStart + item.duration;
 
-    for (let i = 0; i < schedule.length; i++) {
-        const entry = schedule[i];
-        if (sequenceOffset >= entry.startTime && sequenceOffset < (entry.startTime + entry.duration)) {
+        if (gridTime >= itemStart && gridTime < itemEnd) {
             return {
                 index: i,
-                item: entry.item,
-                seekTo: sequenceOffset - entry.startTime
+                item: item,
+                seekTo: gridTime - itemStart
             };
         }
     }
-
+    
+    // Default fallback if gridTime falls into empty schedule slot
     return { index: 0, item: state.playlist[0], seekTo: 0 };
 }
-
 async function broadcastWatchdog() {
     const live = getGlobalBroadcastPosition();
     if (!live) return;

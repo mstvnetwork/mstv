@@ -4,103 +4,35 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Global Linear Live TV Player</title>
-    <!-- Include hls.js engine for native M3U8 handling across non-Safari browsers -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body, html {
-            width: 100%;
-            height: 100%;
-            background-color: #000;
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            overflow: hidden;
-        }
-        .player-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-        }
-        /* Anti-Throttling Viewport Array Layout Matrix */
-        .player-layer {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 1px;
-            height: 1px;
-            z-index: 1;
-            pointer-events: none;
-            overflow: hidden;
-        }
-        /* Active Display State Rules */
-        .player-layer.active {
-            width: 100%;
-            height: 100%;
-            z-index: 2;
-            pointer-events: auto;
-        }
-        video, iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            background: #000;
-            display: block;
-        }
-        /* Persistent Global Audio Interaction Shield Overlay Barrier */
-        #interaction-shield {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            color: #fff;
-            cursor: pointer;
-            text-align: center;
-            padding: 20px;
-        }
-        #interaction-shield h2 {
-            font-size: 24px;
-            margin-bottom: 12px;
-            font-weight: 500;
-        }
-        #interaction-shield p {
-            font-size: 14px;
-            color: #aaa;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { width: 100%; height: 100%; background-color: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
+        .player-container { position: relative; width: 100%; height: 100%; }
+        .player-layer { position: absolute; top: 0; left: 0; width: 1px; height: 1px; z-index: 1; pointer-events: none; overflow: hidden; }
+        .player-layer.active { width: 100%; height: 100%; z-index: 2; pointer-events: auto; }
+        video, iframe { width: 100%; height: 100%; border: none; background: #000; display: block; }
+        #interaction-shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; cursor: pointer; text-align: center; padding: 20px; }
+        #interaction-shield h2 { font-size: 24px; margin-bottom: 12px; font-weight: 500; }
+        #interaction-shield p { font-size: 14px; color: #aaa; }
     </style>
 </head>
 <body>
-
-    <!-- User gesture receiver gate layer (rendered before player arrays) -->
     <div id="interaction-shield">
         <h2>🎵 Tap Anywhere to Start Live Stream</h2>
-        <p>Required by browsers to allow seamless live TV audio unmuting synchronization</p>
+        <p>Synchronising with live global playhead position...</p>
     </div>
-
     <div class="player-container">
-        <!-- Player Layer 1 -->
         <div id="layer1" class="player-layer"></div>
-        <!-- Player Layer 2 -->
         <div id="layer2" class="player-layer"></div>
     </div>
-
     <script>
-        // System Configurations
         const PLAYLIST_URL = 'playlist.json';
         const FALLBACK_URL = 'https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4';
         const POLL_INTERVAL = 30000; 
         const ALLOWED_SEEK_DRIFT = 2.5; 
+        const START_EPOCH = 0;
 
-        // Runtime State Objects Array Memory
         let state = {
             playlist: [],
             currentVideoIndex: -1,
@@ -110,26 +42,18 @@
             hlsInstances: { layer1: null, layer2: null }
         };
 
-        // Protected Initialization Engine Gate Setup Routine
         function setupInteractionGate() {
             const shield = document.getElementById('interaction-shield');
-            
-            // Fail-safe protection switch if elements structural framework fails parsing cycles
             if (!shield) {
-                console.warn("Shield structural element missing, bypassed for timeline recovery initialization workflows.");
                 state.hasUserInteracted = true;
                 initEngine();
                 return;
             }
-
             shield.addEventListener('click', () => {
                 state.hasUserInteracted = true;
                 shield.style.display = 'none';
-                
-                // Secure current visible window properties target nodes instantly
                 const activeVid = document.getElementById(state.activeLayer).querySelector('video');
                 if (activeVid) activeVid.muted = false;
-
                 initEngine();
             }, { once: true });
         }
@@ -141,47 +65,39 @@
             setInterval(syncEngine, 1000);
         }
 
-        // Fetch dynamic playlist updates silently from Cloudflare Pages origin
         async function fetchPlaylist() {
             try {
                 const response = await fetch(`${PLAYLIST_URL}?t=${Date.now()}`);
-                if (!response.ok) throw new Error('Failed to read config layout array profile source');
+                if (!response.ok) throw new Error('Failed to read config source');
                 const data = await response.json();
                 if (Array.isArray(data) && data.length > 0) {
                     state.playlist = data;
-                } else {
+                } else if (state.playlist.length === 0) {
                     useFallbackPlaylist();
                 }
             } catch (error) {
-                console.error("Playlist read failed, deploying fallback engine:", error);
+                console.error("Playlist download failed:", error);
                 if (state.playlist.length === 0) useFallbackPlaylist();
             }
         }
 
         function useFallbackPlaylist() {
-            state.playlist = [{
-                url: FALLBACK_URL,
-                duration: 86400 
-            }];
+            state.playlist = [{ url: FALLBACK_URL, duration: 86400 }];
         }
 
-        // Global Epoch mathematical synchronization timeline calculation loop
         function syncEngine() {
             if (state.playlist.length === 0 || !state.hasUserInteracted) return;
-
             let totalPlaylistDuration = 0;
             const videoSegments = state.playlist.map(item => {
                 const start = totalPlaylistDuration;
                 totalPlaylistDuration += parseInt(item.duration, 10);
                 return { ...item, start, end: totalPlaylistDuration };
             });
-
             const currentUnixTimeSeconds = Math.floor(Date.now() / 1000);
-            const globalTimelinePosition = currentUnixTimeSeconds % totalPlaylistDuration;
-
+            const totalSecondsSinceAnchor = currentUnixTimeSeconds - START_EPOCH;
+            const globalTimelinePosition = totalSecondsSinceAnchor % totalPlaylistDuration;
             let matchedIndex = 0;
             let videoInsidePosition = 0;
-
             for (let i = 0; i < videoSegments.length; i++) {
                 if (globalTimelinePosition >= videoSegments[i].start && globalTimelinePosition < videoSegments[i].end) {
                     matchedIndex = i;
@@ -189,9 +105,7 @@
                     break;
                 }
             }
-
             state.targetPosition = videoInsidePosition;
-            
             if (state.currentVideoIndex !== matchedIndex) {
                 state.currentVideoIndex = matchedIndex;
                 transitionToSource(state.playlist[matchedIndex], videoInsidePosition);
@@ -200,15 +114,12 @@
             }
         }
 
-        // Seamless zero-jump dual layer handoff mechanism switcher logic
         function transitionToSource(videoItem, startTime) {
             const nextLayer = state.activeLayer === 'layer1' ? 'layer2' : 'layer1';
             const currentLayer = state.activeLayer;
             const container = document.getElementById(nextLayer);
-            
             destroyLayerEngine(nextLayer);
             container.innerHTML = '';
-
             const engineType = getEngineType(videoItem.url);
 
             if (engineType === 'iframe') {
@@ -217,26 +128,18 @@
                 iframe.allow = "autoplay; encrypted-media; picture-in-picture";
                 iframe.setAttribute('allowfullscreen', '');
                 container.appendChild(iframe);
-                
                 executeLayerSwap(nextLayer, currentLayer);
             } else {
                 const video = document.createElement('video');
-                
-                video.muted = true; 
-                video.playsInline = true;
-                video.controls = false;
+                video.muted = true; video.playsInline = true; video.controls = false;
                 container.appendChild(video);
-
                 const startPlayback = () => {
                     video.currentTime = startTime;
                     const playPromise = video.play();
                     if (playPromise !== undefined) {
-                        playPromise.catch(error => {
-                            console.warn("Playback engine start delayed, waiting frame availability:", error);
-                        });
+                        playPromise.catch(error => console.warn("Buffered startup handled:", error));
                     }
                 };
-
                 if (engineType === 'hls') {
                     if (Hls.isSupported()) {
                         const hls = new Hls({ config: { maxMaxBufferLength: 8, enableWorker: true } });
@@ -252,7 +155,6 @@
                     video.src = videoItem.url;
                     video.addEventListener('loadedmetadata', startPlayback);
                 }
-
                 video.addEventListener('playing', function onPlayingHandler() {
                     executeLayerSwap(nextLayer, currentLayer);
                     video.removeEventListener('playing', onPlayingHandler);
@@ -264,12 +166,8 @@
             document.getElementById(nextLayer).classList.add('active');
             document.getElementById(currentLayer).classList.remove('active');
             state.activeLayer = nextLayer;
-            
             const nextVideo = document.getElementById(nextLayer).querySelector('video');
-            if (nextVideo && state.hasUserInteracted) {
-                nextVideo.muted = false;
-            }
-
+            if (nextVideo && state.hasUserInteracted) { nextVideo.muted = false; }
             setTimeout(() => {
                 if (state.activeLayer !== currentLayer) { 
                     destroyLayerEngine(currentLayer);
@@ -278,22 +176,15 @@
             }, 600);
         }
 
-        // Silent anti-scrubbing lock validation check operations
         function enforceAntiScrubbing() {
             const activeVideo = document.getElementById(state.activeLayer).querySelector('video');
             if (!activeVideo || activeVideo.paused) return;
-
             const drift = Math.abs(activeVideo.currentTime - state.targetPosition);
-            if (drift > ALLOWED_SEEK_DRIFT) {
-                activeVideo.currentTime = state.targetPosition;
-            }
+            if (drift > ALLOWED_SEEK_DRIFT) { activeVideo.currentTime = state.targetPosition; }
         }
 
         function destroyLayerEngine(layerId) {
-            if (state.hlsInstances[layerId]) {
-                state.hlsInstances[layerId].destroy();
-                state.hlsInstances[layerId] = null;
-            }
+            if (state.hlsInstances[layerId]) { state.hlsInstances[layerId].destroy(); state.hlsInstances[layerId] = null; }
         }
 
         function getEngineType(url) {
@@ -302,7 +193,6 @@
             return 'iframe'; 
         }
 
-        // Active DOM parsing state framework listener hook setup
         document.addEventListener('DOMContentLoaded', setupInteractionGate);
     </script>
 </body>

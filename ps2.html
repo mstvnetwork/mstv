@@ -3,93 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live TV Illusion Player</title>
-    <!-- Include hls.js for cross-browser HLS (.m3u8) support -->
+    <title>Smooth Live TV Player</title>
+    <!-- Include hls.js for cross-browser HLS (.m3u8) streaming engine support -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body, html {
-            width: 100%;
-            height: 100%;
-            background-color: #000;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        /* Bared, self-contained player element */
-        #tv-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        /* Player views stack perfectly on top of each other */
-        .player-instance {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            top: 0;
-            left: 0;
-            background: #000;
-            display: none; /* Controlled via JS toggles */
-        }
-        .player-instance video, 
-        .player-instance iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-            object-fit: contain;
-        }
-        /* Completely bare overlay framework for controls */
-        #control-overlay {
-            position: absolute;
-            bottom: 20px;
-            right: 20px;
-            display: flex;
-            gap: 15px;
-            z-index: 10;
-            opacity: 0; /* Hidden by default, shows up briefly on hover */
-            transition: opacity 0.3s ease;
-        }
-        #tv-container:hover #control-overlay {
-            opacity: 1;
-        }
-        .custom-btn {
-            background: rgba(0, 0, 0, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.4);
-            color: #fff;
-            padding: 10px 15px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .custom-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body, html { width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: sans-serif; }
+        
+        /* Bared media viewport wrapper */
+        #tv-container { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
+        
+        /* Player instances stack natively over each other */
+        .player-instance { position: absolute; width: 100%; height: 100%; top: 0; left: 0; background: #000; display: none; }
+        .player-instance video, .player-instance iframe { width: 100%; height: 100%; border: none; object-fit: contain; }
+        
+        /* Minimalist interactive controller UI overlays */
+        #control-overlay { position: absolute; bottom: 20px; right: 20px; display: flex; gap: 15px; z-index: 10; opacity: 0; transition: opacity 0.3s ease; }
+        #tv-container:hover #control-overlay { opacity: 1; }
+        .custom-btn { background: rgba(0, 0, 0, 0.6); border: 1px solid rgba(255, 255, 255, 0.4); color: #fff; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; text-transform: uppercase; }
+        .custom-btn:hover { background: rgba(255, 255, 255, 0.2); }
     </style>
 </head>
 <body>
 
     <div id="tv-container">
-        <!-- Player 1 Container -->
+        <!-- Dual player structures -->
         <div id="p1" class="player-instance"></div>
-        <!-- Player 2 Container -->
         <div id="p2" class="player-instance"></div>
 
-        <!-- Completely Minimal Custom Controls Overlay -->
+        <!-- Floating action controls -->
         <div id="control-overlay">
             <button id="mute-btn" class="custom-btn">Unmute</button>
             <button id="fullscreen-btn" class="custom-btn">Fullscreen</button>
         </div>
     </div>
-
     <script>
         // CONFIGURATION: Replace with your actual Raw GitHub URL
         const PLAYLIST_URL = "https://crickethd.pages.dev/playlist.json";
@@ -98,12 +45,11 @@
         const muteBtn = document.getElementById('mute-btn');
         const fullscreenBtn = document.getElementById('fullscreen-btn');
 
-        // State Machine Tracking
         let playlist = [];
-        let isMuted = true; // Modern browsers force initial autoplay muted
+        let isMuted = true;
         let globalLoopTimer = null;
 
-        // Maintain structures for P1 and P2
+        // Tracks state models for each active element separately
         const managers = {
             p1: { domId: 'p1', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1, expectedTime: 0 },
             p2: { domId: 'p2', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1, expectedTime: 0 }
@@ -112,97 +58,88 @@
         let activePlayerKey = 'p1';
         let backgroundPlayerKey = 'p2';
 
-        // --- CORE SYNCHRONIZATION MATH ---
-        function calculateGlobalPosition() {
+        // Math algorithm to find which video index is "on air" right now globally
+        function calculateStartingVideoIndex() {
             const totalDuration = playlist.reduce((acc, item) => acc + parseInt(item.duration), 0);
-            if (totalDuration === 0) return null;
+            if (totalDuration === 0) return 0;
 
             const currentUnixSeconds = Math.floor(Date.now() / 1000);
             let playlistOffset = currentUnixSeconds % totalDuration;
 
             let cumulativeTime = 0;
             for (let i = 0; i < playlist.length; i++) {
-                const item = playlist[i];
-                if (playlistOffset < cumulativeTime + item.duration) {
-                    return {
-                        index: i,
-                        seekTo: playlistOffset - cumulativeTime,
-                        remaining: (cumulativeTime + item.duration) - playlistOffset
-                    };
+                cumulativeTime += parseInt(playlist[i].duration);
+                if (playlistOffset < cumulativeTime) {
+                    return i; 
                 }
-                cumulativeTime += item.duration;
             }
-            return { index: 0, seekTo: 0, remaining: playlist[0].duration };
+            return 0;
         }
-
-        // --- ENGINE CONTROLLERS ---
-        async function initBroadcast() {
+        async function fetchFreshPlaylist() {
             try {
-                // Fetch real-time fresh manifest configurations
+                // Cache-busting query parameter forces fresh pulls when JSON updates on GitHub
                 const response = await fetch(`${PLAYLIST_URL}?t=${Date.now()}`);
                 playlist = await response.json();
-                
-                const timeline = calculateGlobalPosition();
-                if (!timeline) return;
-
-                // Load initial video on current global position into Active Player
-                await setupPlayerInstance(activePlayerKey, timeline.index, timeline.seekTo);
-                switchUIVisibility();
-
-                // Instantly load the next item in the background player
-                const nextIndex = (timeline.index + 1) % playlist.length;
-                await setupPlayerInstance(backgroundPlayerKey, nextIndex, 0);
-
-                // Start clock countdown watcher to fire frame transitions
-                scheduleNextSwap(timeline.remaining);
             } catch (err) {
-                console.error("Broadcast system failed tracking manifest. Retrying in 10s...", err);
-                setTimeout(initBroadcast, 10000);
+                console.error("Failed to load playlist json config.", err);
             }
         }
 
-        function scheduleNextSwap(secondsLeft) {
-            clearTimeout(globalLoopTimer);
-            // Fire transition when time runs out on the current video duration block
-            globalLoopTimer = setTimeout(executePlayerSwap, secondsLeft * 1000);
+        async function initBroadcast() {
+            await fetchFreshPlaylist();
+            if (playlist.length === 0) return;
+
+            // Aligns station to global loop, but plays from 00:00 without skipping inside the file
+            const startIndex = calculateStartingVideoIndex();
+            
+            await setupPlayerInstance(activePlayerKey, startIndex);
+            switchUIVisibility();
+
+            // Instantly load the next item into memory
+            const nextIndex = (startIndex + 1) % playlist.length;
+            await setupPlayerInstance(backgroundPlayerKey, nextIndex);
+        }
+
+        async function queueNextBackgroundVideo() {
+            // Re-fetch fresh config manifest parameters right before loading the next item
+            await fetchFreshPlaylist();
+            
+            const currentActiveIndex = managers[activePlayerKey].currentIndex;
+            
+            let nextIndex = currentActiveIndex + 1;
+            if (nextIndex >= playlist.length || nextIndex < 0) {
+                nextIndex = 0;
+            }
+
+            await setupPlayerInstance(backgroundPlayerKey, nextIndex);
         }
 
         async function executePlayerSwap() {
-            // Swap runtime object statuses
             const oldActive = activePlayerKey;
             activePlayerKey = backgroundPlayerKey;
             backgroundPlayerKey = oldActive;
 
-            // Trigger playback on the newly visible player
             playInstance(activePlayerKey);
             switchUIVisibility();
-
-            // Clear old player out immediately so it can buffer the next video in sequence
             clearInstance(backgroundPlayerKey);
 
-            // Re-calculate math positions dynamically to resolve drift
-            const timeline = calculateGlobalPosition();
-            const nextIndex = (timeline.index + 1) % playlist.length;
-            
-            // Queue up the next video into background player
-            await setupPlayerInstance(backgroundPlayerKey, nextIndex, 0);
-            scheduleNextSwap(timeline.remaining);
+            // Fetch updates and cue up next item without touching current playing video time ticks
+            await queueNextBackgroundVideo();
         }
 
         function switchUIVisibility() {
             document.getElementById(activePlayerKey).style.display = 'block';
             document.getElementById(backgroundPlayerKey).style.display = 'none';
         }
-
-        // --- PLAYER GENERATOR & MEDIA HOOKS ---
-        async function setupPlayerInstance(playerKey, index, startTime) {
+        async function setupPlayerInstance(playerKey, index) {
             const mgr = managers[playerKey];
             const targetNode = document.getElementById(mgr.domId);
             const media = playlist[index];
             
             mgr.currentIndex = index;
             mgr.activeType = media.type;
-            targetNode.innerHTML = ''; // Wipe container contents clean
+            mgr.expectedTime = 0; // Ensures clean playback starts from the absolute beginning
+            targetNode.innerHTML = '';
 
             if (media.type === 'mp4' || media.type === 'hls') {
                 const video = document.createElement('video');
@@ -211,52 +148,46 @@
                 video.setAttribute('preload', 'auto');
                 mgr.videoEl = video;
 
-                mgr.expectedTime = startTime;
-
                 if (media.type === 'mp4') {
                     video.src = media.url;
                 } else if (media.type === 'hls') {
                     if (Hls.isSupported()) {
-                        const hls = new Hls({ config: { maxMaxBufferLength: 10 } });
+                        const hls = new Hls({ config: { maxMaxBufferLength: 15 } });
                         hls.loadSource(media.url);
                         hls.attachMedia(video);
                         mgr.hlsInstance = hls;
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = media.url; // Fallback for native Safari HLS
+                        video.src = media.url;
                     }
                 }
 
-                // Wait for metadata to load before forcing the seek position
-                video.addEventListener('loadedmetadata', () => {
-                    video.currentTime = mgr.expectedTime;
-                });
-
-                // Extra safety: force currentTime if it tries to autoplay from 0
-                video.addEventListener('play', () => {
-                    if (Math.abs(video.currentTime - mgr.expectedTime) > 2) {
-                        video.currentTime = mgr.expectedTime;
-                    }
-                });
-
-                // Strict Anti-Scrubbing Implementations
+                // Strictly monitor timeline frame steps
                 video.addEventListener('timeupdate', () => {
-                    // Check if time jumped out of a logical step (1.5s tolerance window)
+                    if (playerKey !== activePlayerKey) return;
+                    
                     if (Math.abs(video.currentTime - mgr.expectedTime) > 1.5) {
-                        video.currentTime = mgr.expectedTime; // Hard reset to timeline target
+                        video.currentTime = mgr.expectedTime; // Lock playhead position down
                     } else {
                         mgr.expectedTime = video.currentTime;
                     }
                 });
 
                 video.addEventListener('seeking', () => {
+                    if (playerKey !== activePlayerKey) return;
                     if (Math.abs(video.currentTime - mgr.expectedTime) > 1.5) {
-                        video.currentTime = mgr.expectedTime; // Anti-Scrub blocking verification
+                        video.currentTime = mgr.expectedTime;
                     }
                 });
 
-                // Only start actively playing if it's the visible foreground player
+                // Rely on native video engine termination events to trigger the swap
+                video.addEventListener('ended', () => {
+                    if (playerKey === activePlayerKey) {
+                        executePlayerSwap();
+                    }
+                });
+
                 if (playerKey === activePlayerKey) {
-                    video.play().catch(() => console.log("Autoplay blocked. User gesture needed to unmute."));
+                    video.play().catch(() => console.log("Autoplay context initialization block."));
                 }
 
             } else if (media.type === 'iframe') {
@@ -265,60 +196,54 @@
                 iframe.allow = "autoplay; encrypted-media";
                 mgr.iframeEl = iframe;
                 targetNode.appendChild(iframe);
+
+                // Iframes rely on hardcoded structural durations
+                if (playerKey === activePlayerKey) {
+                    clearTimeout(globalLoopTimer);
+                    globalLoopTimer = setTimeout(executePlayerSwap, parseInt(media.duration) * 1000);
+                }
             }
             
             if (mgr.videoEl) targetNode.appendChild(mgr.videoEl);
         }
-
         function playInstance(playerKey) {
             const mgr = managers[playerKey];
             if (mgr.videoEl) {
-                mgr.expectedTime = mgr.videoEl.currentTime;
-                mgr.videoEl.play().catch(e => console.log("Playback interaction catch:", e));
+                mgr.expectedTime = 0;
+                mgr.videoEl.play().catch(e => console.log("Playback engine trace failure:", e));
+            } else if (mgr.activeType === 'iframe') {
+                clearTimeout(globalLoopTimer);
+                globalLoopTimer = setTimeout(executePlayerSwap, parseInt(playlist[mgr.currentIndex].duration) * 1000);
             }
         }
 
         function clearInstance(playerKey) {
             const mgr = managers[playerKey];
-            if (mgr.hlsInstance) {
-                mgr.hlsInstance.destroy();
-                mgr.hlsInstance = null;
-            }
-            if (mgr.videoEl) {
-                mgr.videoEl.pause();
-                mgr.videoEl.src = "";
-                mgr.videoEl.load();
-                mgr.videoEl = null;
-            }
+            if (mgr.hlsInstance) { mgr.hlsInstance.destroy(); mgr.hlsInstance = null; }
+            if (mgr.videoEl) { mgr.videoEl.pause(); mgr.videoEl.src = ""; mgr.videoEl.load(); mgr.videoEl = null; }
             mgr.iframeEl = null;
             mgr.expectedTime = 0;
             document.getElementById(mgr.domId).innerHTML = '';
         }
 
-        // --- GLOBAL INTERACTION CONTROLS ---
+        // --- INTERACTION HOOK LISTENERS ---
         muteBtn.addEventListener('click', () => {
             isMuted = !isMuted;
             muteBtn.innerText = isMuted ? "Unmute" : "Mute";
-            
-            // Apply volume update to both players simultaneously
             ['p1', 'p2'].forEach(key => {
-                if (managers[key].videoEl) {
-                    managers[key].videoEl.muted = isMuted;
-                }
+                if (managers[key].videoEl) managers[key].videoEl.muted = isMuted;
             });
         });
 
         fullscreenBtn.addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                container.requestFullscreen().catch(err => {
-                    alert(`Error attempting to enable full-screen mode: ${err.message}`);
-                });
+                container.requestFullscreen().catch(err => alert(`Error entering fullscreen: ${err.message}`));
             } else {
                 document.exitFullscreen();
             }
         });
 
-        // Initialize script logic on load
+        // Initialize script logic on page load execution
         initBroadcast();
     </script>
 </body>

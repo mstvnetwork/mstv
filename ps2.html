@@ -3,197 +3,285 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Linear Live TV Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js"></script>
+    <title>Global Synchronized Linear TV Player</title>
+    <!-- Include hls.js engine for handling live .m3u8 streams -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
     <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body, html { width: 100%; height: 100%; background-color: #000; font-family: -apple-system, BlinkMacSystemFont, sans-serif; overflow: hidden; }
-        .player-container { position: relative; width: 100%; height: 100%; }
-        .player-layer { position: absolute; top: 0; left: 0; width: 1px; height: 1px; z-index: 1; pointer-events: none; overflow: hidden; }
-        .player-layer.active { width: 100%; height: 100%; z-index: 2; pointer-events: auto; }
-        video, iframe { width: 100%; height: 100%; border: none; background: #000; display: block; }
-        #interaction-shield { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #fff; cursor: pointer; text-align: center; padding: 20px; }
-        #interaction-shield h2 { font-size: 24px; margin-bottom: 12px; font-weight: 500; }
-        #interaction-shield p { font-size: 14px; color: #aaa; }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        .player-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none; /* Prevents users from pausing via right-click/taps */
+        }
+        video.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        #ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+        }
+        .live-indicator {
+            display: inline-block;
+            background: #ff0000;
+            color: white;
+            padding: 2px 6px;
+            font-weight: bold;
+            font-size: 12px;
+            border-radius: 3px;
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
-    <div id="interaction-shield">
-        <h2>🎵 Tap Anywhere to Start Live Stream</h2>
-        <p>Synchronising with live global playhead position...</p>
-    </div>
-    <div class="player-container">
-        <div id="layer1" class="player-layer"></div>
-        <div id="layer2" class="player-layer"></div>
-    </div>
-    <script>
-        const PLAYLIST_URL = 'playlist.json';
-        const FALLBACK_URL = 'https://github.com/mstvnetwork/test1/releases/download/v1/fallback.mp4';
-        const POLL_INTERVAL = 30000; 
-        const ALLOWED_SEEK_DRIFT = 2.5; 
-        const START_EPOCH = 0;
 
-        let state = {
-            playlist: [],
-            currentVideoIndex: -1,
-            targetPosition: 0,
-            activeLayer: 'layer1',
-            hasUserInteracted: false,
-            hlsInstances: { layer1: null, layer2: null }
-        };
+<div class="player-container">
+    <!-- Dual Player Setup -->
+    <video id="player1" playsinline muted></video>
+    <video id="player2" playsinline muted></video>
 
-        function setupInteractionGate() {
-            const shield = document.getElementById('interaction-shield');
-            if (!shield) {
-                state.hasUserInteracted = true;
-                initEngine();
-                return;
+    <!-- Overlay Info Panel -->
+    <div id="ui-overlay">
+        <div class="live-indicator">● LIVE</div>
+        <div id="track-title">Synchronizing Grid...</div>
+        <div id="sync-status">Time Lock: Active</div>
+    </div>
+</div>
+
+<script>
+    // --- CONFIGURATION ---
+    // Change this to your Cloudflare URL or GitHub Pages URL where playlist.json is built/served
+    const PLAYLIST_URL = 'playlist.json'; 
+    const GRID_CYCLE = 43200; // Strict 12-Hour Broadcast Loop Frame (Seconds)
+    const MAX_ALLOWED_DRIFT = 2; // Anti-scrub max deviation tolerance in seconds
+
+    let playlist = [];
+    let activePlayer = null;
+    let inactivePlayer = null;
+    let p1Hls = null;
+    let p2Hls = null;
+    
+    const p1 = document.getElementById('player1');
+    const p2 = document.getElementById('player2');
+
+    // Initialize players
+    activePlayer = p1;
+    inactivePlayer = p2;
+
+    // --- UTILITIES ---
+    function getGlobalGridTime() {
+        // Absolute global unix time lock across all modern browsers
+        return Math.floor(Date.now() / 1000) % GRID_CYCLE;
+    }
+
+    // --- PLAYLIST TIMING ENGINE ---
+    function calculateCurrentSchedule(playlistData) {
+        if (!playlistData || playlistData.length === 0) return null;
+
+        // 1. Calculate total duration of all playlist tracks combined
+        let totalPlaylistDuration = playlistData.reduce((sum, item) => sum + item.duration, 0);
+        if (totalPlaylistDuration === 0) return null;
+
+        // 2. Map global 12-hour grid time directly to the playlist track sequence loop
+        let currentGridTime = getGlobalGridTime();
+        let targetPlaylistTime = currentGridTime % totalPlaylistDuration;
+
+        let accumulatedTime = 0;
+        for (let i = 0; i < playlistData.length; i++) {
+            let track = playlistData[i];
+            if (targetPlaylistTime >= accumulatedTime && targetPlaylistTime < (accumulatedTime + track.duration)) {
+                return {
+                    track: track,
+                    index: i,
+                    seekTime: targetPlaylistTime - accumulatedTime
+                };
             }
-            shield.addEventListener('click', () => {
-                state.hasUserInteracted = true;
-                shield.style.display = 'none';
-                const activeVid = document.getElementById(state.activeLayer).querySelector('video');
-                if (activeVid) activeVid.muted = false;
-                initEngine();
+            accumulatedTime += track.duration;
+        }
+        return { track: playlistData, index: 0, seekTime: 0 };
+    }
+
+    // --- ENGINE CONTROL ---
+    function setupEngine(player, url, seekTime) {
+        // Destroy existing HLS instances on this player instance if present
+        if (player === p1 && p1Hls) { p1Hls.destroy(); p1Hls = null; }
+        if (player === p2 && p2Hls) { p2Hls.destroy(); p2Hls = null; }
+
+        const isHLS = url.includes('.m3u8') || url.includes('api/proxy');
+
+        if (isHLS) {
+            if (Hls.isSupported()) {
+                const hlsInstance = new Hls({ enableWorker: true });
+                if (player === p1) p1Hls = hlsInstance;
+                if (player === p2) p2Hls = hlsInstance;
+
+                hlsInstance.loadSource(url);
+                hlsInstance.attachMedia(player);
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+                    player.currentTime = seekTime;
+                    player.play().catch(() => console.log("Waiting for user gesture interaction."));
+                });
+            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native Apple HLS fallback (Safari)
+                player.src = url;
+                player.addEventListener('loadedmetadata', () => {
+                    player.currentTime = seekTime;
+                    player.play();
+                }, { once: true });
+            }
+        } else {
+            // Standard MP4 handling pipeline
+            player.src = url;
+            player.load();
+            player.addEventListener('loadedmetadata', () => {
+                player.currentTime = seekTime;
+                player.play().catch(() => console.log("Waiting for user gesture interaction."));
             }, { once: true });
         }
+    }
 
-        async function initEngine() {
-            await fetchPlaylist();
-            syncEngine();
-            setInterval(fetchPlaylist, POLL_INTERVAL);
-            setInterval(syncEngine, 1000);
+    // --- SEAMLESS TRANSITIONS ---
+    function syncBroadcast(isInitialLoad = false) {
+        if (playlist.length === 0) return;
+
+        const currentSchedule = calculateCurrentSchedule(playlist);
+        if (!currentSchedule) return;
+
+        const targetUrl = currentSchedule.track.url;
+        const targetSeek = currentSchedule.seekTime;
+
+        document.getElementById('track-title').innerText = `Playing Item #${currentSchedule.index + 1}`;
+
+        if (isInitialLoad || activePlayer.src !== targetUrl) {
+            // Setup Active Player instantly
+            setupEngine(activePlayer, targetUrl, targetSeek);
+            activePlayer.classList.add('active');
+            
+            // Unmute handling (browsers often require user actions to unmute audio)
+            activePlayer.muted = false; 
+
+            // Pre-buffer next video using the secondary background player
+            preloadNextTrack(currentSchedule.index);
         }
+    }
 
-        async function fetchPlaylist() {
-            try {
-                const response = await fetch(`${PLAYLIST_URL}?t=${Date.now()}`);
-                if (!response.ok) throw new Error('Failed to read config source');
-                const data = await response.json();
-                if (Array.isArray(data) && data.length > 0) {
-                    state.playlist = data;
-                } else if (state.playlist.length === 0) {
-                    useFallbackPlaylist();
-                }
-            } catch (error) {
-                console.error("Playlist download failed:", error);
-                if (state.playlist.length === 0) useFallbackPlaylist();
+    function preloadNextTrack(currentIndex) {
+        let nextIndex = (currentIndex + 1) % playlist.length;
+        let nextTrack = playlist[nextIndex];
+        
+        // Silently prep background stream without playing/unmuting
+        setupEngine(inactivePlayer, nextTrack.url, 0);
+        inactivePlayer.pause();
+        inactivePlayer.classList.remove('active');
+    }
+
+    function switchPlayers() {
+        // Swap references (Ping-pong logic)
+        let temp = activePlayer;
+        activePlayer = inactivePlayer;
+        inactivePlayer = temp;
+
+        // Crossfade visual layers instantly
+        activePlayer.classList.add('active');
+        activePlayer.muted = false;
+        activePlayer.play().catch(e => console.log(e));
+
+        inactivePlayer.classList.remove('active');
+        inactivePlayer.muted = true;
+        inactivePlayer.pause();
+
+        // Dynamically calculate and trigger the next background item preload
+        const currentSchedule = calculateCurrentSchedule(playlist);
+        if (currentSchedule) {
+            preloadNextTrack(currentSchedule.index);
+        }
+    }
+
+    // --- RUNTIME WATCHDOGS ---
+    function startAntiScrubbingWatchdog() {
+        setInterval(() => {
+            if (playlist.length === 0 || !activePlayer || activePlayer.paused) return;
+
+            const schedule = calculateCurrentSchedule(playlist);
+            if (!schedule) return;
+
+            // Check if track shifted under background updates
+            if (activePlayer.src !== schedule.track.url) {
+                syncBroadcast(false);
+                return;
             }
-        }
 
-        function useFallbackPlaylist() {
-            state.playlist = [{ url: FALLBACK_URL, duration: 86400 }];
-        }
-
-        function syncEngine() {
-            if (state.playlist.length === 0 || !state.hasUserInteracted) return;
-            let totalPlaylistDuration = 0;
-            const videoSegments = state.playlist.map(item => {
-                const start = totalPlaylistDuration;
-                totalPlaylistDuration += parseInt(item.duration, 10);
-                return { ...item, start, end: totalPlaylistDuration };
-            });
-            const currentUnixTimeSeconds = Math.floor(Date.now() / 1000);
-            const totalSecondsSinceAnchor = currentUnixTimeSeconds - START_EPOCH;
-            const globalTimelinePosition = totalSecondsSinceAnchor % totalPlaylistDuration;
-            let matchedIndex = 0;
-            let videoInsidePosition = 0;
-            for (let i = 0; i < videoSegments.length; i++) {
-                if (globalTimelinePosition >= videoSegments[i].start && globalTimelinePosition < videoSegments[i].end) {
-                    matchedIndex = i;
-                    videoInsidePosition = globalTimelinePosition - videoSegments[i].start;
-                    break;
-                }
+            // Anti-Scrubbing enforcement: Match current position against global calculated frame time
+            const drift = Math.abs(activePlayer.currentTime - schedule.seekTime);
+            if (drift > MAX_ALLOWED_DRIFT) {
+                console.warn(`Anti-Scrub: Drifting detected (${drift.toFixed(2)}s). Resynchronizing back to lock position.`);
+                activePlayer.currentTime = schedule.seekTime;
             }
-            state.targetPosition = videoInsidePosition;
-            if (state.currentVideoIndex !== matchedIndex) {
-                state.currentVideoIndex = matchedIndex;
-                transitionToSource(state.playlist[matchedIndex], videoInsidePosition);
-            } else {
-                enforceAntiScrubbing();
+
+            // Trigger natural player swap if active stream is within 0.5s of its end duration limit
+            if (activePlayer.currentTime >= (schedule.track.duration - 0.5)) {
+                switchPlayers();
             }
-        }
+        }, 1000);
+    }
 
-        function transitionToSource(videoItem, startTime) {
-            const nextLayer = state.activeLayer === 'layer1' ? 'layer2' : 'layer1';
-            const currentLayer = state.activeLayer;
-            const container = document.getElementById(nextLayer);
-            destroyLayerEngine(nextLayer);
-            container.innerHTML = '';
-            const engineType = getEngineType(videoItem.url);
+    function startBackgroundPlaylistPoller() {
+        // Poll playlist modifications silently in background every 30 seconds
+        setInterval(() => {
+            fetch(PLAYLIST_URL, { cache: "no-store" })
+                .then(res => res.json())
+                .then(data => {
+                    playlist = data;
+                    console.log("Background playlist refreshed successfully.");
+                }).catch(err => console.error("Error refreshing playlist updates: ", err));
+        }, 30000);
+    }
 
-            if (engineType === 'iframe') {
-                const iframe = document.createElement('iframe');
-                iframe.src = videoItem.url;
-                iframe.allow = "autoplay; encrypted-media; picture-in-picture";
-                iframe.setAttribute('allowfullscreen', '');
-                container.appendChild(iframe);
-                executeLayerSwap(nextLayer, currentLayer);
-            } else {
-                const video = document.createElement('video');
-                video.muted = true; video.playsInline = true; video.controls = false;
-                container.appendChild(video);
-                const startPlayback = () => {
-                    video.currentTime = startTime;
-                    const playPromise = video.play();
-                    if (playPromise !== undefined) {
-                        playPromise.catch(error => console.warn("Buffered startup handled:", error));
-                    }
-                };
-                if (engineType === 'hls') {
-                    if (Hls.isSupported()) {
-                        const hls = new Hls({ config: { maxMaxBufferLength: 8, enableWorker: true } });
-                        state.hlsInstances[nextLayer] = hls;
-                        hls.loadSource(videoItem.url);
-                        hls.attachMedia(video);
-                        hls.on(Hls.Events.MANIFEST_PARSED, startPlayback);
-                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = videoItem.url;
-                        video.addEventListener('loadedmetadata', startPlayback);
-                    }
-                } else {
-                    video.src = videoItem.url;
-                    video.addEventListener('loadedmetadata', startPlayback);
-                }
-                video.addEventListener('playing', function onPlayingHandler() {
-                    executeLayerSwap(nextLayer, currentLayer);
-                    video.removeEventListener('playing', onPlayingHandler);
-                });
-            }
-        }
+    // --- INITIALIZATION ---
+    fetch(PLAYLIST_URL, { cache: "no-store" })
+        .then(res => res.json())
+        .then(data => {
+            playlist = data;
+            syncBroadcast(true);
+            startAntiScrubbingWatchdog();
+            startBackgroundPlaylistPoller();
+        })
+        .catch(err => {
+            document.getElementById('track-title').innerText = "Failed to load broadcast grid playlist.";
+            console.error(err);
+        });
 
-        function executeLayerSwap(nextLayer, currentLayer) {
-            document.getElementById(nextLayer).classList.add('active');
-            document.getElementById(currentLayer).classList.remove('active');
-            state.activeLayer = nextLayer;
-            const nextVideo = document.getElementById(nextLayer).querySelector('video');
-            if (nextVideo && state.hasUserInteracted) { nextVideo.muted = false; }
-            setTimeout(() => {
-                if (state.activeLayer !== currentLayer) { 
-                    destroyLayerEngine(currentLayer);
-                    document.getElementById(currentLayer).innerHTML = '';
-                }
-            }, 600);
-        }
-
-        function enforceAntiScrubbing() {
-            const activeVideo = document.getElementById(state.activeLayer).querySelector('video');
-            if (!activeVideo || activeVideo.paused) return;
-            const drift = Math.abs(activeVideo.currentTime - state.targetPosition);
-            if (drift > ALLOWED_SEEK_DRIFT) { activeVideo.currentTime = state.targetPosition; }
-        }
-
-        function destroyLayerEngine(layerId) {
-            if (state.hlsInstances[layerId]) { state.hlsInstances[layerId].destroy(); state.hlsInstances[layerId] = null; }
-        }
-
-        function getEngineType(url) {
-            if (url.includes('.m3u8') || url.includes('hls/')) return 'hls';
-            if (url.includes('.mp4') || url.includes('releases/download')) return 'mp4';
-            return 'iframe'; 
-        }
-
-        document.addEventListener('DOMContentLoaded', setupInteractionGate);
-    </script>
+    // Handle user activation requirements (unmutes player if browser blocked it)
+    window.addEventListener('click', () => {
+        if(activePlayer) activePlayer.muted = false;
+    }, { once: true });
+</script>
 </body>
 </html>

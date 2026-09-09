@@ -3,97 +3,54 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Linear Live TV Player</title>
-    <!-- Include HLS.js for HLS (.m3u8) streams -->
+    <title>Global Zero-Jump Linear Live TV Player</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            background-color: #000;
-        }
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        #player-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; background-color: #000; }
+        body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
+        #player-container { position: relative; width: 100vw; height: 100vh; }
         .player-node {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-            opacity: 0;
-            transition: opacity 0.5s ease-in-out;
-            pointer-events: none;
-            z-index: 1;
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            border: none; opacity: 0; transition: opacity 0.5s ease-in-out;
+            pointer-events: none; z-index: 1;
         }
-        .player-node.active {
-            opacity: 1;
-            pointer-events: auto;
-            z-index: 2;
-        }
-        /* Overlay to initiate audio context if blocked by browser autoplay rules */
+        .player-node.active { opacity: 1; pointer-events: auto; z-index: 2; }
         #unmute-overlay {
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            z-index: 10;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-size: 14px;
-            border: 1px solid #444;
-            display: none;
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: rgba(0,0,0,0.8); color: #fff; padding: 10px 20px;
+            border-radius: 5px; cursor: pointer; font-size: 14px; border: 1px solid #555; display: none;
         }
     </style>
 </head>
 <body>
 
 <div id="player-container">
-    <!-- Player A (Native Video) -->
     <video id="videoA" class="player-node" playsinline webkit-playsinline></video>
-    <!-- Player A (Iframe) -->
     <iframe id="iframeA" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
 
-    <!-- Player B (Native Video) -->
     <video id="videoB" class="player-node" playsinline webkit-playsinline></video>
-    <!-- Player B (Iframe) -->
     <iframe id="iframeB" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
     
-    <div id="unmute-overlay">Click to Unmute / Sync Audio</div>
+    <div id="unmute-overlay">Click to Unmute Sound</div>
 </div>
 
 <script>
 const CONFIG = {
     PLAYLIST_URL: 'playlist.json',
-    FETCH_INTERVAL_MS: 30000,   // Check background updates every 30s
-    GRID_CYCLE_SEC: 43200,      // Fixed 12-Hour Broadcast Grid (12 * 3600)
-    SCRUB_THRESHOLD_SEC: 2.5,   // Tolerated drift before forcing re-sync
-    POLL_TICK_MS: 1000          // Core Watchdog Engine tick rate
+    FETCH_INTERVAL_MS: 30000,
+    GRID_CYCLE_SEC: 43200,      // 12-Hour Fixed Grid (43,200s)
+    SCRUB_THRESHOLD_SEC: 2.5,
+    POLL_TICK_MS: 1000
 };
 
 let state = {
     playlist: [],
-    totalPlaylistDuration: 0,
-    activePlayerSlot: 'A',      // 'A' or 'B'
+    activePlayerSlot: 'A',
     currentMediaIndex: -1,
     hlsInstances: { A: null, B: null },
-    isBuffering: false,
-    lastSeekTime: 0
+    isBuffering: false
 };
 
-// UI Elements
 const dom = {
     videoA: document.getElementById('videoA'),
     iframeA: document.getElementById('iframeA'),
@@ -102,7 +59,6 @@ const dom = {
     unmuteBtn: document.getElementById('unmute-overlay')
 };
 
-// Initialize Engine
 async function initEngine() {
     await fetchPlaylist();
     setInterval(fetchPlaylist, CONFIG.FETCH_INTERVAL_MS);
@@ -110,58 +66,69 @@ async function initEngine() {
     setupAntiScrubbing();
 }
 
-// Fetch and calculate network broadcast state
 async function fetchPlaylist() {
     try {
-        const response = await fetch(CONFIG.PLAYLIST_URL + '?cacheBust=' + Date.now());
+        const response = await fetch(CONFIG.PLAYLIST_URL + '?t=' + Date.now());
         if (!response.ok) return;
         const data = await response.json();
-        
         if (Array.isArray(data) && data.length > 0) {
             state.playlist = data;
-            state.totalPlaylistDuration = data.reduce((acc, item) => acc + item.duration, 0);
         }
     } catch (e) {
-        console.warn("Playlist background sync failed:", e);
+        console.warn("Background playlist fetch failed:", e);
     }
 }
 
-// Global Mathematical Broadcast Position Calculation
+/**
+ * FIXED 12-HOUR BROADCAST GRID CALCULATION
+ * 
+ * Each video's start time is mathematically anchored to its cumulative offset 
+ * from the top of the playlist. Appending items to the bottom does NOT alter 
+ * the starting offset of earlier items.
+ */
 function getGlobalBroadcastPosition() {
-    if (!state.playlist.length || state.totalPlaylistDuration === 0) return null;
+    if (!state.playlist.length) return null;
 
     const currentUnixTime = Math.floor(Date.now() / 1000);
-    // Locked 12-hour Epoch Grid calculation
-    const gridOffset = currentUnixTime % CONFIG.GRID_CYCLE_SEC; 
-    // Loop over the combined playlist duration if it's less than 12 hours
-    const playlistOffset = gridOffset % state.totalPlaylistDuration;
+    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC; // Time inside current 12hr block (0..43199)
 
+    // Compute cumulative map of video start times within the playlist structure
     let accumulatedTime = 0;
-    for (let i = 0; i < state.playlist.length; i++) {
-        const item = state.playlist[i];
-        if (playlistOffset < accumulatedTime + item.duration) {
+    const schedule = state.playlist.map(item => {
+        const startTime = accumulatedTime;
+        accumulatedTime += item.duration;
+        return { item, startTime, duration: item.duration };
+    });
+
+    const totalDuration = accumulatedTime;
+    if (totalDuration === 0) return null;
+
+    // Loop grid time inside the total sequence duration WITHOUT shifting existing item offsets
+    const broadcastOffset = gridTime % totalDuration;
+
+    // Locate the current active video item on air
+    for (let i = 0; i < schedule.length; i++) {
+        const entry = schedule[i];
+        if (broadcastOffset >= entry.startTime && broadcastOffset < entry.startTime + entry.duration) {
             return {
                 index: i,
-                item: item,
-                seekTo: playlistOffset - accumulatedTime
+                item: entry.item,
+                seekTo: broadcastOffset - entry.startTime
             };
         }
-        accumulatedTime += item.duration;
     }
+
     return { index: 0, item: state.playlist[0], seekTo: 0 };
 }
 
-// Core Synchronizing Engine (Watchdog Loop)
 async function broadcastWatchdog() {
     const live = getGlobalBroadcastPosition();
     if (!live) return;
 
-    // Detect track change requirement
     if (live.index !== state.currentMediaIndex) {
         state.currentMediaIndex = live.index;
         await transitionToMedia(live.item, live.seekTo);
     } else {
-        // Enforce synchronization on current track (Anti-Scrub lock)
         const activeVideo = state.activePlayerSlot === 'A' ? dom.videoA : dom.videoB;
         if (activeVideo.classList.contains('active') && !state.isBuffering) {
             const drift = Math.abs(activeVideo.currentTime - live.seekTo);
@@ -172,7 +139,6 @@ async function broadcastWatchdog() {
     }
 }
 
-// Transitions & Loaders (A/B Seamless Switcher)
 async function transitionToMedia(mediaItem, seekTime) {
     const incomingSlot = state.activePlayerSlot === 'A' ? 'B' : 'A';
     const outgoingSlot = state.activePlayerSlot;
@@ -180,15 +146,12 @@ async function transitionToMedia(mediaItem, seekTime) {
     const incomingVideo = dom[`video${incomingSlot}`];
     const incomingIframe = dom[`iframe${incomingSlot}`];
     
-    // Media detection
     const isIframe = mediaItem.url.includes('iframe') || mediaItem.url.includes('embed') || mediaItem.isIframe;
     const isHLS = mediaItem.url.includes('.m3u8');
 
-    // Load incoming slot
     if (isIframe) {
         incomingVideo.style.display = 'none';
         incomingIframe.style.display = 'block';
-        // Format iframe url with auto-start & deep-link seek time where supported
         let targetUrl = mediaItem.url;
         targetUrl += (targetUrl.includes('?') ? '&' : '?') + `autoplay=1&t=${Math.floor(seekTime)}`;
         incomingIframe.src = targetUrl;
@@ -197,7 +160,6 @@ async function transitionToMedia(mediaItem, seekTime) {
         incomingIframe.src = 'about:blank';
         incomingVideo.style.display = 'block';
 
-        // Cleanup existing HLS instance on incoming player if exists
         if (state.hlsInstances[incomingSlot]) {
             state.hlsInstances[incomingSlot].destroy();
             state.hlsInstances[incomingSlot] = null;
@@ -214,13 +176,11 @@ async function transitionToMedia(mediaItem, seekTime) {
                     safePlay(incomingVideo);
                 });
             } else if (incomingVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                // Safari Native HLS Fallback Pipeline
                 incomingVideo.src = mediaItem.url;
                 incomingVideo.currentTime = seekTime;
                 safePlay(incomingVideo);
             }
         } else {
-            // Standard MP4 Fallback Pipeline (No strict CORS to allow native playback)
             incomingVideo.removeAttribute('crossorigin');
             incomingVideo.src = mediaItem.url;
             incomingVideo.currentTime = seekTime;
@@ -228,7 +188,6 @@ async function transitionToMedia(mediaItem, seekTime) {
         }
     }
 
-    // Toggle Visibility Layers
     const incomingElements = [incomingVideo, incomingIframe];
     const outgoingElements = [dom[`video${outgoingSlot}`], dom[`iframe${outgoingSlot}`]];
 
@@ -238,14 +197,13 @@ async function transitionToMedia(mediaItem, seekTime) {
     
     outgoingElements.forEach(el => {
         el.classList.remove('active');
-        // Delay resetting outgoing media to prevent black flash
         setTimeout(() => {
             if (!el.classList.contains('active')) {
-                if(el.tagName === 'VIDEO') {
+                if (el.tagName === 'VIDEO') {
                     el.pause();
                     el.removeAttribute('src');
                     el.load();
-                } else if(el.tagName === 'IFRAME') {
+                } else if (el.tagName === 'IFRAME') {
                     el.src = 'about:blank';
                 }
             }
@@ -255,18 +213,14 @@ async function transitionToMedia(mediaItem, seekTime) {
     state.activePlayerSlot = incomingSlot;
 }
 
-// Asynchronous Safety Play Invocation Wrapper
 function safePlay(videoElement) {
     state.isBuffering = true;
     const playPromise = videoElement.play();
-    
     if (playPromise !== undefined) {
         playPromise.then(() => {
             state.isBuffering = false;
         }).catch(error => {
             state.isBuffering = false;
-            console.warn("Autoplay defense interrupted or prevented play state:", error);
-            // Show unmute UI if browser blocked autoplay with sound
             if (error.name === "NotAllowedError") {
                 dom.unmuteBtn.style.display = "block";
             }
@@ -274,7 +228,6 @@ function safePlay(videoElement) {
     }
 }
 
-// Anti-Scrubbing Listener Setup
 function setupAntiScrubbing() {
     const handleSeeking = (e) => {
         if (state.isBuffering) return;
@@ -301,7 +254,6 @@ function setupAntiScrubbing() {
     });
 }
 
-// Boot up
 window.addEventListener('DOMContentLoaded', initEngine);
 </script>
 </body>

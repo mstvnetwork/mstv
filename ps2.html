@@ -38,7 +38,7 @@
 const CONFIG = {
     PLAYLIST_URL: 'playlist.json',
     FETCH_INTERVAL_MS: 30000,
-    GRID_CYCLE_SEC: 43200,      // 12-Hour Fixed Grid (43,200s)
+    GRID_CYCLE_SEC: 43200,      // Locked 12-Hour Fixed Grid Constant (12 * 3600)
     SCRUB_THRESHOLD_SEC: 2.5,
     POLL_TICK_MS: 1000
 };
@@ -80,40 +80,39 @@ async function fetchPlaylist() {
 }
 
 /**
- * FIXED 12-HOUR BROADCAST GRID CALCULATION
+ * FIXED IMMUTABLE BROADCAST CALCULATION
  * 
- * Each video's start time is mathematically anchored to its cumulative offset 
- * from the top of the playlist. Appending items to the bottom does NOT alter 
- * the starting offset of earlier items.
+ * 1. Time position inside 12-hour block is strictly locked to Date.now() % 43200.
+ * 2. Playlist loops within that 12-hour window deterministically using cumulative 
+ *    timestamps anchored from zero.
+ * 3. Appending items to playlist.json does NOT shift earlier item start times.
  */
 function getGlobalBroadcastPosition() {
     if (!state.playlist.length) return null;
 
-    const currentUnixTime = Math.floor(Date.now() / 1000);
-    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC; // Time inside current 12hr block (0..43199)
-
-    // Compute cumulative map of video start times within the playlist structure
-    let accumulatedTime = 0;
+    let totalDuration = 0;
     const schedule = state.playlist.map(item => {
-        const startTime = accumulatedTime;
-        accumulatedTime += item.duration;
+        const startTime = totalDuration;
+        totalDuration += item.duration;
         return { item, startTime, duration: item.duration };
     });
 
-    const totalDuration = accumulatedTime;
     if (totalDuration === 0) return null;
 
-    // Loop grid time inside the total sequence duration WITHOUT shifting existing item offsets
-    const broadcastOffset = gridTime % totalDuration;
+    const currentUnixTime = Math.floor(Date.now() / 1000);
+    // Locked 12-hour Grid Position (0..43199)
+    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC; 
 
-    // Locate the current active video item on air
+    // Find position within the repeating sequence inside the 12-hour block
+    const sequenceOffset = gridTime % totalDuration;
+
     for (let i = 0; i < schedule.length; i++) {
         const entry = schedule[i];
-        if (broadcastOffset >= entry.startTime && broadcastOffset < entry.startTime + entry.duration) {
+        if (sequenceOffset >= entry.startTime && sequenceOffset < (entry.startTime + entry.duration)) {
             return {
                 index: i,
                 item: entry.item,
-                seekTo: broadcastOffset - entry.startTime
+                seekTo: sequenceOffset - entry.startTime
             };
         }
     }

@@ -1,251 +1,723 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Zero-Jump Linear Live TV Player</title>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; background-color: #000; }
-        body, html { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
-        #player-container { position: relative; width: 100vw; height: 100vh; }
-        .player-node {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            border: none; opacity: 0; transition: opacity 0.5s ease-in-out;
-            pointer-events: none; z-index: 1;
-        }
-        .player-node.active { opacity: 1; pointer-events: auto; z-index: 2; }
-        #unmute-overlay {
-            position: absolute; top: 20px; left: 20px; z-index: 10;
-            background: rgba(0,0,0,0.8); color: #fff; padding: 10px 20px;
-            border-radius: 5px; cursor: pointer; font-size: 14px; border: 1px solid #555; display: none;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MSTV Network — Live Broadcast</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.13/hls.min.js"></script>
+<style>
+  :root{
+    --ink:#0e1013;
+    --panel:#15181d;
+    --line:#2a2e35;
+    --text:#e8e6e1;
+    --dim:#8b9099;
+    --live:#e0483e;
+    --accent:#3aa6ff;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--ink);color:var(--text);height:100%;}
+  .wrap{
+    max-width:1100px;
+    margin:0 auto;
+    padding:20px 16px 60px;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:6px 2px 20px;
+  }
+  .brand{
+    font-size:20px;
+    font-weight:700;
+    letter-spacing:-0.02em;
+  }
+  .live-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    background:rgba(224,72,62,0.12);
+    border:1px solid rgba(224,72,62,0.4);
+    color:var(--live);
+    font-size:12px;
+    font-weight:600;
+    padding:4px 10px 4px 8px;
+    border-radius:100px;
+  }
+  .live-dot{
+    width:7px;height:7px;border-radius:50%;
+    background:var(--live);
+    animation:pulse 1.6s infinite ease-in-out;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1;}
+    50%{opacity:0.35;}
+  }
+  .stage{
+    position:relative;
+    width:100%;
+    aspect-ratio:16/9;
+    background:#000;
+    border-radius:10px;
+    overflow:hidden;
+    border:1px solid var(--line);
+  }
+  .layer{
+    position:absolute;
+    inset:0;
+    width:100%;
+    height:100%;
+    opacity:0;
+    transition:opacity 220ms ease;
+    pointer-events:none;
+    background:#000;
+  }
+  .layer.active{
+    opacity:1;
+    pointer-events:auto;
+    z-index:2;
+  }
+  .layer video, .layer iframe{
+    width:100%;
+    height:100%;
+    display:block;
+    border:0;
+    object-fit:contain;
+    background:#000;
+  }
+  .stage-overlay{
+    position:absolute;
+    top:10px;
+    left:10px;
+    z-index:5;
+    display:flex;
+    gap:8px;
+    pointer-events:none;
+  }
+  .badge{
+    background:rgba(0,0,0,0.55);
+    backdrop-filter:blur(6px);
+    color:#fff;
+    font-size:11px;
+    font-weight:600;
+    padding:5px 9px;
+    border-radius:6px;
+    letter-spacing:0.02em;
+  }
+  .stage-empty{
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:10px;
+    color:var(--dim);
+    z-index:1;
+  }
+  .stage-empty .spin{
+    width:26px;height:26px;
+    border-radius:50%;
+    border:2px solid var(--line);
+    border-top-color:var(--accent);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .meta-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-top:16px;
+    gap:16px;
+    flex-wrap:wrap;
+  }
+  .now-title{
+    font-size:16px;
+    font-weight:600;
+  }
+  .now-sub{
+    font-size:12.5px;
+    color:var(--dim);
+    margin-top:2px;
+  }
+  .clock{
+    font-variant-numeric:tabular-nums;
+    font-size:13px;
+    color:var(--dim);
+    text-align:right;
+  }
+  .clock b{ color:var(--text); }
+
+  .progress-track{
+    margin-top:14px;
+    height:5px;
+    border-radius:100px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    overflow:hidden;
+  }
+  .progress-fill{
+    height:100%;
+    width:0%;
+    background:linear-gradient(90deg,var(--accent),#7fd0ff);
+    transition:width 250ms linear;
+  }
+
+  .panel{
+    margin-top:26px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    overflow:hidden;
+  }
+  .panel h2{
+    font-size:13px;
+    text-transform:none;
+    letter-spacing:0.01em;
+    margin:0;
+    padding:14px 16px;
+    border-bottom:1px solid var(--line);
+    color:var(--dim);
+    font-weight:600;
+  }
+  .sched-item{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    padding:11px 16px;
+    border-bottom:1px solid var(--line);
+    font-size:13px;
+  }
+  .sched-item:last-child{border-bottom:none;}
+  .sched-item.current{
+    background:rgba(58,166,255,0.07);
+  }
+  .sched-item .idx{
+    color:var(--dim);
+    width:22px;
+    flex:none;
+  }
+  .sched-item .name{
+    flex:1;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .sched-item .when{
+    color:var(--dim);
+    flex:none;
+    font-variant-numeric:tabular-nums;
+  }
+  .foot-note{
+    margin-top:18px;
+    font-size:12px;
+    line-height:1.6;
+    color:var(--dim);
+  }
+  .debug{
+    margin-top:10px;
+    font-size:11px;
+    color:#555c66;
+    font-family:ui-monospace, SFMono-Regular, Menlo, monospace;
+    word-break:break-all;
+  }
+</style>
 </head>
 <body>
+<div class="wrap">
+  <header>
+    <div class="brand">MSTV Network</div>
+    <div class="live-pill"><span class="live-dot"></span>ON AIR</div>
+  </header>
 
-<div id="player-container">
-    <video id="videoA" class="player-node" playsinline webkit-playsinline></video>
-    <iframe id="iframeA" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+  <div class="stage" id="stage">
+    <div class="stage-overlay">
+      <div class="badge" id="engineBadge">—</div>
+      <div class="badge" id="slotBadge">Slot —</div>
+    </div>
+    <div class="layer" id="layerA"></div>
+    <div class="layer" id="layerB"></div>
+    <div class="stage-empty" id="stageEmpty">
+      <div class="spin"></div>
+      <div>Tuning in to the broadcast…</div>
+    </div>
+  </div>
 
-    <video id="videoB" class="player-node" playsinline webkit-playsinline></video>
-    <iframe id="iframeB" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-    
-    <div id="unmute-overlay">Click to Unmute Sound</div>
+  <div class="meta-row">
+    <div>
+      <div class="now-title" id="nowTitle">Loading schedule…</div>
+      <div class="now-sub" id="nowSub">&nbsp;</div>
+    </div>
+    <div class="clock">
+      Elapsed in block: <b id="clockElapsed">00:00:00</b> / 12:00:00
+    </div>
+  </div>
+
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+
+  <div class="panel">
+    <h2>Broadcast grid — resets every 12 hours, UTC-anchored</h2>
+    <div id="schedList"></div>
+  </div>
+
+  <div class="foot-note">
+    Every viewer worldwide is locked to the same 12‑hour broadcast cycle (00:00 / 12:00 UTC).
+    Your position in the current program is calculated from the current time, not from when you opened
+    this page — reloading, revisiting, or joining mid‑program will always resume exactly in sync with
+    everyone else watching right now.
+  </div>
+  <div class="debug" id="debugLine"></div>
 </div>
 
 <script>
-const CONFIG = {
-    PLAYLIST_URL: 'playlist.json',
-    FETCH_INTERVAL_MS: 30000,
-    GRID_CYCLE_SEC: 43200,      // Locked 12-Hour Fixed Grid Constant (12 * 3600)
-    SCRUB_THRESHOLD_SEC: 2.5,
-    POLL_TICK_MS: 1000
-};
+(function(){
+  "use strict";
 
-let state = {
-    playlist: [],
-    activePlayerSlot: 'A',
-    currentMediaIndex: -1,
-    hlsInstances: { A: null, B: null },
-    isBuffering: false
-};
+  /* ============================================================
+     CONFIG
+  ============================================================ */
+  var PLAYLIST_URL   = "playlist.json";   // hosted alongside this page in the git repo
+  var CYCLE_SECONDS  = 43200;             // 12 hours — the fixed broadcast grid
+  var POLL_MS        = 15000;             // how often we re-fetch playlist.json in the background
+  var WATCHDOG_MS    = 1000;              // how often we check for drift / anti-scrub
+  var RESYNC_TOLERANCE_SEC = 1.5;         // allowed drift before we correct (native video)
+  var STARTUP_GRACE_MS = 6000;            // ignore drift checks right after a source loads (buffering)
 
-const dom = {
-    videoA: document.getElementById('videoA'),
-    iframeA: document.getElementById('iframeA'),
-    videoB: document.getElementById('videoB'),
-    iframeB: document.getElementById('iframeB'),
-    unmuteBtn: document.getElementById('unmute-overlay')
-};
+  /* ============================================================
+     STATE
+  ============================================================ */
+  var playlist = [];          // [{url, duration, startInCycle, endInCycle, index}]
+  var cycleTotal = 0;         // sum of durations actually used inside the 43200s grid
+  var currentIndex = -1;      // index of item currently on-air
+  var activeLayer = "A";      // which DOM layer is currently visible/live
+  var layers = {
+    A: { el: document.getElementById('layerA'), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 },
+    B: { el: document.getElementById('layerB'), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 }
+  };
+  var stageEmpty = document.getElementById('stageEmpty');
+  var engineBadge = document.getElementById('engineBadge');
+  var slotBadge = document.getElementById('slotBadge');
+  var nowTitle = document.getElementById('nowTitle');
+  var nowSub = document.getElementById('nowSub');
+  var clockElapsed = document.getElementById('clockElapsed');
+  var progressFill = document.getElementById('progressFill');
+  var schedList = document.getElementById('schedList');
+  var debugLine = document.getElementById('debugLine');
 
-async function initEngine() {
-    await fetchPlaylist();
-    setInterval(fetchPlaylist, CONFIG.FETCH_INTERVAL_MS);
-    setInterval(broadcastWatchdog, CONFIG.POLL_TICK_MS);
-    setupAntiScrubbing();
-}
+  var pendingSwitch = false;   // guards against overlapping transition attempts
+  var lastGoodFetchOk = false;
 
-async function fetchPlaylist() {
-    try {
-        const response = await fetch(CONFIG.PLAYLIST_URL + '?t=' + Date.now());
-        if (!response.ok) return;
-        const data = await response.json();
-        if (Array.isArray(data) && data.length > 0) {
-            state.playlist = data;
-        }
-    } catch (e) {
-        console.warn("Background playlist fetch failed:", e);
+  /* ============================================================
+     UTIL
+  ============================================================ */
+  function nowUnix(){
+    // Server-independent, but every client's system clock agrees closely enough (NTP).
+    // Everyone computes off Date.now() — the same absolute epoch, everywhere.
+    return Date.now() / 1000;
+  }
+
+  function fmtHMS(totalSeconds){
+    totalSeconds = Math.max(0, Math.floor(totalSeconds));
+    var h = Math.floor(totalSeconds/3600);
+    var m = Math.floor((totalSeconds%3600)/60);
+    var s = totalSeconds%60;
+    function p2(n){ return (n<10?"0":"")+n; }
+    return p2(h)+":"+p2(m)+":"+p2(s);
+  }
+
+  function guessEngine(url){
+    var clean = url.split("?")[0].toLowerCase();
+    if (clean.endsWith(".m3u8")) return "hls";
+    if (clean.endsWith(".mp4") || clean.endsWith(".webm") || clean.endsWith(".mov") || clean.endsWith(".m4v")) return "mp4";
+    // heuristics for HLS behind proxies/query params
+    if (url.toLowerCase().indexOf(".m3u8") !== -1) return "hls";
+    if (url.toLowerCase().indexOf(".mp4") !== -1) return "mp4";
+    // anything else (embeddable player pages) -> iframe
+    return "iframe";
+  }
+
+  /* ============================================================
+     PLAYLIST -> FIXED 12H GRID MAPPING
+     The grid is deterministic: item[0] always starts at second 0
+     of the cycle, item[1] starts right after item[0] ends, etc.
+     currentUnixTime % 43200 tells every client, anywhere, exactly
+     which item is on air and exactly how many seconds into it we
+     are — with zero coordination or server state required.
+  ============================================================ */
+  function buildGrid(items){
+    var t = 0;
+    var mapped = [];
+    for (var i=0;i<items.length;i++){
+      var d = Math.max(1, Number(items[i].duration) || 0);
+      if (t >= CYCLE_SECONDS) break; // playlist longer than 12h: extra tail simply waits for next cycle
+      var start = t;
+      var end = Math.min(CYCLE_SECONDS, t + d);
+      mapped.push({
+        url: items[i].url,
+        duration: d,
+        startInCycle: start,
+        endInCycle: end,
+        index: i
+      });
+      t = end;
     }
-}
+    return { items: mapped, total: t };
+  }
 
-/**
- * FIXED IMMUTABLE BROADCAST CALCULATION
- * 
- * 1. Time position inside 12-hour block is strictly locked to Date.now() % 43200.
- * 2. Playlist loops within that 12-hour window deterministically using cumulative 
- *    timestamps anchored from zero.
- * 3. Appending items to playlist.json does NOT shift earlier item start times.
- */
-function getGlobalBroadcastPosition() {
-    if (!state.playlist.length) return null;
-
-    const currentUnixTime = Math.floor(Date.now() / 1000);
-    // Fixed 12-hour grid (43200s)
-    const gridTime = currentUnixTime % CONFIG.GRID_CYCLE_SEC;
-
-    // Direct offset lookup - immune to array length changes
-    for (let i = 0; i < state.playlist.length; i++) {
-        const item = state.playlist[i];
-        const itemStart = item.startOffset;
-        const itemEnd = itemStart + item.duration;
-
-        if (gridTime >= itemStart && gridTime < itemEnd) {
-            return {
-                index: i,
-                item: item,
-                seekTo: gridTime - itemStart
-            };
-        }
+  function findOnAir(cyclePos, grid){
+    for (var i=0;i<grid.length;i++){
+      if (cyclePos >= grid[i].startInCycle && cyclePos < grid[i].endInCycle){
+        return { item: grid[i], offset: cyclePos - grid[i].startInCycle };
+      }
     }
-    
-    // Default fallback if gridTime falls into empty schedule slot
-    return { index: 0, item: state.playlist[0], seekTo: 0 };
-}
-async function broadcastWatchdog() {
-    const live = getGlobalBroadcastPosition();
-    if (!live) return;
+    return null; // in the dead-air gap after last video, before cycle repeats
+  }
 
-    if (live.index !== state.currentMediaIndex) {
-        state.currentMediaIndex = live.index;
-        await transitionToMedia(live.item, live.seekTo);
-    } else {
-        const activeVideo = state.activePlayerSlot === 'A' ? dom.videoA : dom.videoB;
-        if (activeVideo.classList.contains('active') && !state.isBuffering) {
-            const drift = Math.abs(activeVideo.currentTime - live.seekTo);
-            if (drift > CONFIG.SCRUB_THRESHOLD_SEC) {
-                activeVideo.currentTime = live.seekTo;
-            }
-        }
+  /* ============================================================
+     PLAYLIST FETCH (background poll — never interrupts on-air video)
+  ============================================================ */
+  function fetchPlaylist(){
+    var bust = PLAYLIST_URL + (PLAYLIST_URL.indexOf("?")===-1 ? "?":"&") + "_ts=" + Math.floor(Date.now()/20000);
+    fetch(bust, { cache:"no-store" })
+      .then(function(res){
+        if (!res.ok) throw new Error("HTTP "+res.status);
+        return res.json();
+      })
+      .then(function(data){
+        if (!Array.isArray(data) || data.length === 0) throw new Error("empty playlist");
+        applyNewPlaylist(data);
+        lastGoodFetchOk = true;
+      })
+      .catch(function(err){
+        lastGoodFetchOk = false;
+        debugLine.textContent = "playlist fetch issue: " + err.message + " (keeping last known good schedule)";
+      });
+  }
+
+  function applyNewPlaylist(rawItems){
+    var grid = buildGrid(rawItems);
+    // Zero-jump guarantee: appending to the tail never changes startInCycle
+    // for any earlier item, because those offsets are only a function of
+    // the durations *before* them, which are unchanged. We simply swap
+    // the reference table; the currently-playing element is untouched.
+    playlist = grid.items;
+    cycleTotal = grid.total;
+    renderSchedule();
+  }
+
+  /* ============================================================
+     LAYER / ENGINE MANAGEMENT
+  ============================================================ */
+  function otherKey(k){ return k === "A" ? "B" : "A"; }
+
+  function clearLayer(layer){
+    try{
+      if (layer.hls){ layer.hls.destroy(); layer.hls = null; }
+      if (layer.video){
+        layer.video.pause();
+        layer.video.removeAttribute('src');
+        layer.video.load();
+      }
+    }catch(e){}
+    layer.el.innerHTML = "";
+    layer.video = null;
+    layer.kind = null;
+    layer.loadedIndex = -1;
+    layer.ready = false;
+  }
+
+  function safePlay(video){
+    var p = video.play();
+    if (p && typeof p.catch === "function"){
+      // Asynchronous media promise defense: swallow AbortError / NotAllowedError
+      // caused by background schedule shifts or autoplay policy, never throw.
+      p.catch(function(){ /* silent by design */ });
     }
-}
+  }
 
-async function transitionToMedia(mediaItem, seekTime) {
-    const incomingSlot = state.activePlayerSlot === 'A' ? 'B' : 'A';
-    const outgoingSlot = state.activePlayerSlot;
+  function prepareLayer(layer, playItem, startOffset){
+    clearLayer(layer);
+    if (!playItem){ return; }
+    var engine = guessEngine(playItem.url);
+    layer.kind = engine;
 
-    const incomingVideo = dom[`video${incomingSlot}`];
-    const incomingIframe = dom[`iframe${incomingSlot}`];
-    
-    const isIframe = mediaItem.url.includes('iframe') || mediaItem.url.includes('embed') || mediaItem.isIframe;
-    const isHLS = mediaItem.url.includes('.m3u8');
-
-    if (isIframe) {
-        incomingVideo.style.display = 'none';
-        incomingIframe.style.display = 'block';
-        let targetUrl = mediaItem.url;
-        targetUrl += (targetUrl.includes('?') ? '&' : '?') + `autoplay=1&t=${Math.floor(seekTime)}`;
-        incomingIframe.src = targetUrl;
-    } else {
-        incomingIframe.style.display = 'none';
-        incomingIframe.src = 'about:blank';
-        incomingVideo.style.display = 'block';
-
-        if (state.hlsInstances[incomingSlot]) {
-            state.hlsInstances[incomingSlot].destroy();
-            state.hlsInstances[incomingSlot] = null;
-        }
-
-        if (isHLS) {
-            if (Hls.isSupported()) {
-                const hls = new Hls({ enableWorker: true });
-                hls.loadSource(mediaItem.url);
-                hls.attachMedia(incomingVideo);
-                state.hlsInstances[incomingSlot] = hls;
-                hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    incomingVideo.currentTime = seekTime;
-                    safePlay(incomingVideo);
-                });
-            } else if (incomingVideo.canPlayType('application/vnd.apple.mpegurl')) {
-                incomingVideo.src = mediaItem.url;
-                incomingVideo.currentTime = seekTime;
-                safePlay(incomingVideo);
-            }
-        } else {
-            incomingVideo.removeAttribute('crossorigin');
-            incomingVideo.src = mediaItem.url;
-            incomingVideo.currentTime = seekTime;
-            safePlay(incomingVideo);
-        }
+    if (engine === "iframe"){
+      var iframe = document.createElement('iframe');
+      iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+      iframe.setAttribute('allowfullscreen', '');
+      iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+      iframe.src = playItem.url; // embed pages generally manage their own internal seek; best-effort sync
+      layer.el.appendChild(iframe);
+      layer.ready = true;
+      layer.readyAt = Date.now();
+      layer.loadedIndex = playItem.index;
+      return;
     }
 
-    const incomingElements = [incomingVideo, incomingIframe];
-    const outgoingElements = [dom[`video${outgoingSlot}`], dom[`iframe${outgoingSlot}`]];
+    var video = document.createElement('video');
+    video.playsInline = true;
+    video.muted = false;
+    video.autoplay = true;
+    video.preload = "auto";
+    // Native MP4: no crossOrigin attribute at all -> standard browser delivery
+    // pipeline, avoids unnecessary CORS preflight/blocking for plain files.
+    if (engine === "hls"){
+      video.muted = false;
+    }
+    layer.el.appendChild(video);
+    layer.video = video;
 
-    incomingElements.forEach(el => {
-        if(el.style.display !== 'none') el.classList.add('active');
-    });
-    
-    outgoingElements.forEach(el => {
-        el.classList.remove('active');
-        setTimeout(() => {
-            if (!el.classList.contains('active')) {
-                if (el.tagName === 'VIDEO') {
-                    el.pause();
-                    el.removeAttribute('src');
-                    el.load();
-                } else if (el.tagName === 'IFRAME') {
-                    el.src = 'about:blank';
-                }
-            }
-        }, 600);
-    });
-
-    state.activePlayerSlot = incomingSlot;
-}
-
-function safePlay(videoElement) {
-    state.isBuffering = true;
-    const playPromise = videoElement.play();
-    if (playPromise !== undefined) {
-        playPromise.then(() => {
-            state.isBuffering = false;
-        }).catch(error => {
-            state.isBuffering = false;
-            if (error.name === "NotAllowedError") {
-                dom.unmuteBtn.style.display = "block";
-            }
+    if (engine === "hls"){
+      if (window.Hls && window.Hls.isSupported()){
+        var hls = new Hls({
+          lowLatencyMode:false,
+          backBufferLength: 90
         });
-    }
-}
-
-function setupAntiScrubbing() {
-    const handleSeeking = (e) => {
-        if (state.isBuffering) return;
-        const live = getGlobalBroadcastPosition();
-        if (live && Math.abs(e.target.currentTime - live.seekTo) > CONFIG.SCRUB_THRESHOLD_SEC) {
-            e.target.currentTime = live.seekTo;
-        }
-    };
-
-    dom.videoA.addEventListener('seeking', handleSeeking);
-    dom.videoB.addEventListener('seeking', handleSeeking);
-
-    dom.videoA.addEventListener('waiting', () => state.isBuffering = true);
-    dom.videoB.addEventListener('waiting', () => state.isBuffering = true);
-    dom.videoA.addEventListener('playing', () => state.isBuffering = false);
-    dom.videoB.addEventListener('playing', () => state.isBuffering = false);
-
-    dom.unmuteBtn.addEventListener('click', () => {
-        [dom.videoA, dom.videoB].forEach(v => {
-            v.muted = false;
-            safePlay(v);
+        layer.hls = hls;
+        hls.on(Hls.Events.MANIFEST_PARSED, function(){
+          try{ video.currentTime = startOffset; }catch(e){}
+          safePlay(video);
+          layer.ready = true;
+          layer.readyAt = Date.now();
         });
-        dom.unmuteBtn.style.display = "none";
-    });
-}
+        hls.on(Hls.Events.ERROR, function(evt, data){
+          if (data && data.fatal){
+            // do not crash the loop; watchdog will retry / advance on next tick
+            debugLine.textContent = "HLS fatal error on layer, will retry: " + data.type;
+          }
+        });
+        hls.loadSource(playItem.url);
+        hls.attachMedia(video);
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')){
+        // native HLS (Safari)
+        video.src = playItem.url;
+        video.addEventListener('loadedmetadata', function onMeta(){
+          try{ video.currentTime = startOffset; }catch(e){}
+          safePlay(video);
+          layer.ready = true;
+          layer.readyAt = Date.now();
+          video.removeEventListener('loadedmetadata', onMeta);
+        });
+      }
+    } else {
+      // plain mp4/webm — no crossOrigin restriction, native pipeline
+      video.src = playItem.url;
+      video.addEventListener('loadedmetadata', function onMeta(){
+        try{ video.currentTime = Math.min(startOffset, Math.max(0, video.duration - 0.25 || startOffset)); }catch(e){}
+        safePlay(video);
+        layer.ready = true;
+        layer.readyAt = Date.now();
+        video.removeEventListener('loadedmetadata', onMeta);
+      });
+      video.addEventListener('error', function(){
+        debugLine.textContent = "media error on source, watchdog will advance/retry";
+      });
+    }
+    layer.loadedIndex = playItem.index;
+  }
 
-window.addEventListener('DOMContentLoaded', initEngine);
+  function activateLayer(key){
+    layers.A.el.classList.toggle('active', key === "A");
+    layers.B.el.classList.toggle('active', key === "B");
+    activeLayer = key;
+    stageEmpty.style.display = "none";
+  }
+
+  /* ============================================================
+     CORE SYNC LOOP
+     Runs continuously. Computes exactly what should be on-air.
+     If the active layer is already correctly showing that item
+     (same index), it does nothing but gently correct drift.
+     If the schedule has rolled to a new item, it preloads it on
+     the *inactive* layer, then swaps — this is the "player 1/2"
+     handover that produces zero-jump transitions.
+  ============================================================ */
+  var lastSwitchAt = 0;
+
+  function tick(){
+    if (playlist.length === 0) return;
+
+    var t = nowUnix();
+    var cyclePos = t % CYCLE_SECONDS;
+    var onAir = findOnAir(cyclePos, playlist);
+
+    if (!onAir){
+      // dead-air gap (playlist doesn't fill the full 12h) — loop point.
+      // Treat as "waiting for cycle restart"; keep last frame, don't thrash.
+      nowTitle.textContent = "Between programs — next cycle starting shortly";
+      nowSub.textContent = "Broadcast day resumes at the top of the 12-hour grid";
+      return;
+    }
+
+    var item = onAir.item;
+    var offset = onAir.offset;
+
+    var active = layers[activeLayer];
+    var standby = layers[otherKey(activeLayer)];
+
+    if (active.loadedIndex === item.index && active.ready){
+      // Correct item is live. Just watchdog drift, no reload.
+      updateUI(item, offset, engineLabel(active.kind));
+      driftCorrect(active, item, offset);
+      return;
+    }
+
+    // Different program should be on air than what's currently showing.
+    if (pendingSwitch) return;
+
+    // If standby already happens to be preloaded with the right item, swap now.
+    if (standby.loadedIndex === item.index && standby.ready){
+      finalizeSwitch(standby, otherKey(activeLayer), item, offset);
+      return;
+    }
+
+    // Otherwise, prepare standby with correct item + correct offset, then swap
+    // as soon as it reports ready. This guarantees the visible player never
+    // shows a black frame or restarts — the swap is a pure opacity crossfade.
+    pendingSwitch = true;
+    prepareLayer(standby, item, offset);
+
+    var waited = 0;
+    var maxWaitMs = 20000;
+    var checkInterval = setInterval(function(){
+      waited += 150;
+      var isReady = standby.ready || standby.kind === "iframe";
+      if (isReady){
+        clearInterval(checkInterval);
+        finalizeSwitch(standby, otherKey(activeLayer), item, offset);
+        pendingSwitch = false;
+      } else if (waited >= maxWaitMs){
+        clearInterval(checkInterval);
+        // couldn't prep in time; release lock and let next tick retry
+        // (anti-scrubbing debounce: we do NOT force a hard swap on a
+        // not-ready source, avoiding jarring black-frame reversion)
+        pendingSwitch = false;
+      }
+    }, 150);
+  }
+
+  function finalizeSwitch(readyLayer, key, item, offset){
+    // Fine-tune offset right at swap time since some ms have passed while waiting
+    var freshT = nowUnix() % CYCLE_SECONDS;
+    var freshOffset = Math.max(0, freshT - item.startInCycle);
+    if (readyLayer.video){
+      try{
+        if (Math.abs(readyLayer.video.currentTime - freshOffset) > RESYNC_TOLERANCE_SEC){
+          readyLayer.video.currentTime = Math.min(freshOffset, (readyLayer.video.duration||freshOffset));
+        }
+        safePlay(readyLayer.video);
+      }catch(e){}
+    }
+    activateLayer(key);
+    // stop the now-hidden previous layer to save bandwidth/CPU
+    var oldKey = otherKey(key);
+    var oldLayer = layers[oldKey];
+    setTimeout(function(){
+      if (oldLayer.video){
+        try{ oldLayer.video.pause(); }catch(e){}
+      }
+    }, 260);
+    updateUI(item, freshOffset, engineLabel(readyLayer.kind));
+    lastSwitchAt = Date.now();
+    renderSchedule();
+  }
+
+  function engineLabel(kind){
+    if (kind === "hls") return "HLS";
+    if (kind === "mp4") return "MP4";
+    if (kind === "iframe") return "EMBED";
+    return "—";
+  }
+
+  /* Anti-scrubbing / anti-drift watchdog:
+     Tolerates startup buffering (STARTUP_GRACE_MS) and small natural drift
+     (RESYNC_TOLERANCE_SEC). Only corrects when actually out of sync, and
+     never mid-buffer, so a brief Cloudflare Pages stall does not trigger
+     a rapid-fire reset loop. If the player is ever found badly out of
+     position (e.g. someone scrubbed the timeline), it silently reverts
+     to the mathematically correct live position. */
+  function driftCorrect(layer, item, expectedOffset){
+    if (!layer.video) return; // iframe engines can't be corrected externally
+    if (Date.now() - layer.readyAt < STARTUP_GRACE_MS) return; // grace period
+    if (layer.video.seeking) return;
+    if (layer.video.readyState < 2) return; // still buffering, don't fight it
+
+    var actual = layer.video.currentTime;
+    var drift = actual - expectedOffset;
+
+    if (Math.abs(drift) > RESYNC_TOLERANCE_SEC){
+      try{
+        layer.video.currentTime = expectedOffset;
+      }catch(e){}
+    }
+    // resume if a background tab throttle or transient stall paused it
+    if (layer.video.paused){
+      safePlay(layer.video);
+    }
+  }
+
+  /* ============================================================
+     UI RENDERING
+  ============================================================ */
+  function updateUI(item, offset, engine){
+    engineBadge.textContent = engine;
+    slotBadge.textContent = "Slot " + (item.index + 1) + " / " + playlist.length;
+    nowTitle.textContent = labelFor(item);
+    nowSub.textContent = fmtHMS(offset) + " elapsed of " + fmtHMS(item.duration);
+    clockElapsed.textContent = fmtHMS(item.startInCycle + offset);
+    var pct = Math.min(100, (offset / item.duration) * 100);
+    progressFill.style.width = pct + "%";
+  }
+
+  function labelFor(item){
+    try{
+      var clean = item.url.split("?")[0];
+      var file = clean.substring(clean.lastIndexOf("/")+1);
+      return decodeURIComponent(file) || ("Program " + (item.index+1));
+    }catch(e){
+      return "Program " + (item.index+1);
+    }
+  }
+
+  function renderSchedule(){
+    if (!playlist.length) return;
+    var t = nowUnix() % CYCLE_SECONDS;
+    var onAir = findOnAir(t, playlist);
+    var curIdx = onAir ? onAir.item.index : -1;
+
+    var html = "";
+    for (var i=0;i<playlist.length;i++){
+      var it = playlist[i];
+      html += '<div class="sched-item' + (it.index===curIdx ? ' current':'') + '">'
+            +   '<span class="idx">' + (i+1) + '</span>'
+            +   '<span class="name">' + escapeHtml(labelFor(it)) + '</span>'
+            +   '<span class="when">' + fmtHMS(it.startInCycle) + ' – ' + fmtHMS(it.endInCycle) + '</span>'
+            + '</div>';
+    }
+    schedList.innerHTML = html;
+  }
+
+  function escapeHtml(s){
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  /* ============================================================
+     BOOT
+  ============================================================ */
+  fetchPlaylist();
+  setInterval(fetchPlaylist, POLL_MS);
+  setInterval(tick, WATCHDOG_MS);
+  setInterval(renderSchedule, 5000);
+
+  // kick an immediate first attempt shortly after initial fetch resolves
+  setTimeout(tick, 800);
+
+})();
 </script>
 </body>
 </html>

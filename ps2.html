@@ -3,324 +3,306 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Synchronized Linear TV Player</title>
-    <!-- Include hls.js engine for handling live .m3u8 streams -->
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+    <title>Global Linear Live TV Player</title>
+    <!-- Include HLS.js for HLS (.m3u8) streams -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body, html {
+        * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            width: 100%;
-            height: 100%;
             background-color: #000;
-            font-family: Arial, sans-serif;
-            overflow: hidden;
-            color: #fff;
         }
-        .player-container {
-            position: relative;
+        body, html {
             width: 100%;
             height: 100%;
+            overflow: hidden;
+            font-family: sans-serif;
         }
-        video {
+        #player-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        .player-node {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: contain;
-            background: #000;
+            border: none;
             opacity: 0;
             transition: opacity 0.5s ease-in-out;
             pointer-events: none;
+            z-index: 1;
         }
-        video.active {
+        .player-node.active {
             opacity: 1;
             pointer-events: auto;
+            z-index: 2;
         }
-        #interaction-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-            cursor: pointer;
-            transition: opacity 0.4s ease;
-        }
-        .play-btn {
-            background: #ff0000;
-            border: none;
-            color: white;
-            padding: 15px 35px;
-            font-size: 18px;
-            font-weight: bold;
-            border-radius: 30px;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 0, 0, 0.4);
-            margin-bottom: 15px;
-        }
-        .play-btn:hover {
-            background: #cc0000;
-        }
-        #ui-overlay {
+        /* Overlay to initiate audio context if blocked by browser autoplay rules */
+        #unmute-overlay {
             position: absolute;
             top: 20px;
             left: 20px;
-            color: #fff;
             z-index: 10;
-            background: rgba(0, 0, 0, 0.6);
-            padding: 15px;
-            border-radius: 8px;
-            pointer-events: none;
-        }
-        .live-indicator {
-            display: inline-block;
-            background: #ff0000;
+            background: rgba(0,0,0,0.7);
             color: white;
-            padding: 2px 6px;
-            font-weight: bold;
-            font-size: 12px;
-            border-radius: 3px;
-            margin-bottom: 5px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            border: 1px solid #444;
+            display: none;
         }
     </style>
 </head>
 <body>
 
-<!-- User Gesture Layer to satisfy Autoplay Policies -->
-<div id="interaction-overlay" onclick="startBroadcastEngine()">
-    <button class="play-btn">Tune Into Live Stream</button>
-    <p style="margin: 0; font-size: 14px; opacity: 0.8;">Click anywhere to sync and unmute global broadcast</p>
-</div>
+<div id="player-container">
+    <!-- Player A (Native Video) -->
+    <video id="videoA" class="player-node" playsinline webkit-playsinline></video>
+    <!-- Player A (Iframe) -->
+    <iframe id="iframeA" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
 
-<div class="player-container">
-    <video id="player1" playsinline muted crossorigin="anonymous"></video>
-    <video id="player2" playsinline muted crossorigin="anonymous"></video>
-
-    <div id="ui-overlay">
-        <div class="live-indicator">● LIVE</div>
-        <div id="track-title">Awaiting User Connection...</div>
-        <div id="sync-status">Time Lock: Active</div>
-    </div>
+    <!-- Player B (Native Video) -->
+    <video id="videoB" class="player-node" playsinline webkit-playsinline></video>
+    <!-- Player B (Iframe) -->
+    <iframe id="iframeB" class="player-node" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+    
+    <div id="unmute-overlay">Click to Unmute / Sync Audio</div>
 </div>
 
 <script>
-    const PLAYLIST_URL = 'playlist.json'; 
-    const GRID_CYCLE = 43200; 
-    const MAX_ALLOWED_DRIFT = 2.5; 
+const CONFIG = {
+    PLAYLIST_URL: 'playlist.json',
+    FETCH_INTERVAL_MS: 30000,   // Check background updates every 30s
+    GRID_CYCLE_SEC: 43200,      // Fixed 12-Hour Broadcast Grid (12 * 3600)
+    SCRUB_THRESHOLD_SEC: 2.5,   // Tolerated drift before forcing re-sync
+    POLL_TICK_MS: 1000          // Core Watchdog Engine tick rate
+};
 
-    let playlist = [];
-    let activePlayer = null;
-    let inactivePlayer = null;
-    let p1Hls = null;
-    let p2Hls = null;
-    let engineStarted = false;
-    
-    const p1 = document.getElementById('player1');
-    const p2 = document.getElementById('player2');
+let state = {
+    playlist: [],
+    totalPlaylistDuration: 0,
+    activePlayerSlot: 'A',      // 'A' or 'B'
+    currentMediaIndex: -1,
+    hlsInstances: { A: null, B: null },
+    isBuffering: false,
+    lastSeekTime: 0
+};
 
-    activePlayer = p1;
-    inactivePlayer = p2;
+// UI Elements
+const dom = {
+    videoA: document.getElementById('videoA'),
+    iframeA: document.getElementById('iframeA'),
+    videoB: document.getElementById('videoB'),
+    iframeB: document.getElementById('iframeB'),
+    unmuteBtn: document.getElementById('unmute-overlay')
+};
 
-    function getGlobalGridTime() {
-        return Math.floor(Date.now() / 1000) % GRID_CYCLE;
-    }
+// Initialize Engine
+async function initEngine() {
+    await fetchPlaylist();
+    setInterval(fetchPlaylist, CONFIG.FETCH_INTERVAL_MS);
+    setInterval(broadcastWatchdog, CONFIG.POLL_TICK_MS);
+    setupAntiScrubbing();
+}
 
-    function calculateCurrentSchedule(playlistData) {
-        if (!playlistData || playlistData.length === 0) return null;
-
-        let totalPlaylistDuration = playlistData.reduce((sum, item) => sum + item.duration, 0);
-        if (totalPlaylistDuration === 0) return null;
-
-        let currentGridTime = getGlobalGridTime();
-        let targetPlaylistTime = currentGridTime % totalPlaylistDuration;
-
-        let accumulatedTime = 0;
-        for (let i = 0; i < playlistData.length; i++) {
-            let track = playlistData[i];
-            if (targetPlaylistTime >= accumulatedTime && targetPlaylistTime < (accumulatedTime + track.duration)) {
-                return {
-                    track: track,
-                    index: i,
-                    seekTime: targetPlaylistTime - accumulatedTime
-                };
-            }
-            accumulatedTime += track.duration;
+// Fetch and calculate network broadcast state
+async function fetchPlaylist() {
+    try {
+        const response = await fetch(CONFIG.PLAYLIST_URL + '?cacheBust=' + Date.now());
+        if (!response.ok) return;
+        const data = await response.json();
+        
+        if (Array.isArray(data) && data.length > 0) {
+            state.playlist = data;
+            state.totalPlaylistDuration = data.reduce((acc, item) => acc + item.duration, 0);
         }
-        return { track: playlistData[0], index: 0, seekTime: 0 };
+    } catch (e) {
+        console.warn("Playlist background sync failed:", e);
     }
+}
 
-    function setupEngine(player, url, seekTime, shouldPlay = false) {
-        if (player === p1 && p1Hls) { p1Hls.destroy(); p1Hls = null; }
-        if (player === p2 && p2Hls) { p2Hls.destroy(); p2Hls = null; }
+// Global Mathematical Broadcast Position Calculation
+function getGlobalBroadcastPosition() {
+    if (!state.playlist.length || state.totalPlaylistDuration === 0) return null;
 
-        const isHLS = url.includes('.m3u8') || url.includes('api/proxy');
+    const currentUnixTime = Math.floor(Date.now() / 1000);
+    // Locked 12-hour Epoch Grid calculation
+    const gridOffset = currentUnixTime % CONFIG.GRID_CYCLE_SEC; 
+    // Loop over the combined playlist duration if it's less than 12 hours
+    const playlistOffset = gridOffset % state.totalPlaylistDuration;
+
+    let accumulatedTime = 0;
+    for (let i = 0; i < state.playlist.length; i++) {
+        const item = state.playlist[i];
+        if (playlistOffset < accumulatedTime + item.duration) {
+            return {
+                index: i,
+                item: item,
+                seekTo: playlistOffset - accumulatedTime
+            };
+        }
+        accumulatedTime += item.duration;
+    }
+    return { index: 0, item: state.playlist[0], seekTo: 0 };
+}
+
+// Core Synchronizing Engine (Watchdog Loop)
+async function broadcastWatchdog() {
+    const live = getGlobalBroadcastPosition();
+    if (!live) return;
+
+    // Detect track change requirement
+    if (live.index !== state.currentMediaIndex) {
+        state.currentMediaIndex = live.index;
+        await transitionToMedia(live.item, live.seekTo);
+    } else {
+        // Enforce synchronization on current track (Anti-Scrub lock)
+        const activeVideo = state.activePlayerSlot === 'A' ? dom.videoA : dom.videoB;
+        if (activeVideo.classList.contains('active') && !state.isBuffering) {
+            const drift = Math.abs(activeVideo.currentTime - live.seekTo);
+            if (drift > CONFIG.SCRUB_THRESHOLD_SEC) {
+                activeVideo.currentTime = live.seekTo;
+            }
+        }
+    }
+}
+
+// Transitions & Loaders (A/B Seamless Switcher)
+async function transitionToMedia(mediaItem, seekTime) {
+    const incomingSlot = state.activePlayerSlot === 'A' ? 'B' : 'A';
+    const outgoingSlot = state.activePlayerSlot;
+
+    const incomingVideo = dom[`video${incomingSlot}`];
+    const incomingIframe = dom[`iframe${incomingSlot}`];
+    
+    // Media detection
+    const isIframe = mediaItem.url.includes('iframe') || mediaItem.url.includes('embed') || mediaItem.isIframe;
+    const isHLS = mediaItem.url.includes('.m3u8');
+
+    // Load incoming slot
+    if (isIframe) {
+        incomingVideo.style.display = 'none';
+        incomingIframe.style.display = 'block';
+        // Format iframe url with auto-start & deep-link seek time where supported
+        let targetUrl = mediaItem.url;
+        targetUrl += (targetUrl.includes('?') ? '&' : '?') + `autoplay=1&t=${Math.floor(seekTime)}`;
+        incomingIframe.src = targetUrl;
+    } else {
+        incomingIframe.style.display = 'none';
+        incomingIframe.src = 'about:blank';
+        incomingVideo.style.display = 'block';
+
+        // Cleanup existing HLS instance on incoming player if exists
+        if (state.hlsInstances[incomingSlot]) {
+            state.hlsInstances[incomingSlot].destroy();
+            state.hlsInstances[incomingSlot] = null;
+        }
 
         if (isHLS) {
             if (Hls.isSupported()) {
-                const hlsInstance = new Hls({ 
-                    enableWorker: true,
-                    maxBufferLength: 10,
-                    liveSyncDuration: 3
+                const hls = new Hls({ enableWorker: true });
+                hls.loadSource(mediaItem.url);
+                hls.attachMedia(incomingVideo);
+                state.hlsInstances[incomingSlot] = hls;
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    incomingVideo.currentTime = seekTime;
+                    safePlay(incomingVideo);
                 });
-                if (player === p1) p1Hls = hlsInstance;
-                if (player === p2) p2Hls = hlsInstance;
-
-                hlsInstance.loadSource(url);
-                hlsInstance.attachMedia(player);
-                hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
-                    player.currentTime = seekTime;
-                    if (shouldPlay && engineStarted) {
-                        player.play().catch(e => console.log("Play block:", e));
-                    }
-                });
-            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
-                player.src = url;
-                player.addEventListener('loadedmetadata', () => {
-                    player.currentTime = seekTime;
-                    if (shouldPlay && engineStarted) player.play().catch(e => console.log(e));
-                }, { once: true });
+            } else if (incomingVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari Native HLS Fallback Pipeline
+                incomingVideo.src = mediaItem.url;
+                incomingVideo.currentTime = seekTime;
+                safePlay(incomingVideo);
             }
         } else {
-            player.src = url;
-            player.load();
-            player.addEventListener('loadedmetadata', () => {
-                player.currentTime = seekTime;
-                if (shouldPlay && engineStarted) player.play().catch(e => console.log(e));
-            }, { once: true });
+            // Standard MP4 Fallback Pipeline (No strict CORS to allow native playback)
+            incomingVideo.removeAttribute('crossorigin');
+            incomingVideo.src = mediaItem.url;
+            incomingVideo.currentTime = seekTime;
+            safePlay(incomingVideo);
         }
     }
 
-    function syncBroadcast(isInitialLoad = false) {
-        if (playlist.length === 0) return;
+    // Toggle Visibility Layers
+    const incomingElements = [incomingVideo, incomingIframe];
+    const outgoingElements = [dom[`video${outgoingSlot}`], dom[`iframe${outgoingSlot}`]];
 
-        const currentSchedule = calculateCurrentSchedule(playlist);
-        if (!currentSchedule) return;
-
-        const targetUrl = currentSchedule.track.url;
-        const targetSeek = currentSchedule.seekTime;
-
-        document.getElementById('track-title').innerText = `Playing Item #${currentSchedule.index + 1}`;
-
-        if (isInitialLoad || activePlayer.src !== targetUrl) {
-            setupEngine(activePlayer, targetUrl, targetSeek, true);
-            activePlayer.classList.add('active');
-            
-            if (engineStarted) {
-                activePlayer.muted = false;
-                activePlayer.play().catch(e => console.log(e));
-            }
-
-            preloadNextTrack(currentSchedule.index);
-        }
-    }
-
-    function preloadNextTrack(currentIndex) {
-        let nextIndex = (currentIndex + 1) % playlist.length;
-        let nextTrack = playlist[nextIndex];
-        setupEngine(inactivePlayer, nextTrack.url, 0, false);
-        inactivePlayer.pause();
-        inactivePlayer.classList.remove('active');
-    }
-
-    function switchPlayers() {
-        let temp = activePlayer;
-        activePlayer = inactivePlayer;
-        inactivePlayer = temp;
-
-        activePlayer.classList.add('active');
-        if (engineStarted) {
-            activePlayer.muted = false;
-            activePlayer.play().catch(e => console.log(e));
-        }
-
-        inactivePlayer.classList.remove('active');
-        inactivePlayer.muted = true;
-        inactivePlayer.pause();
-
-        const currentSchedule = calculateCurrentSchedule(playlist);
-        if (currentSchedule) {
-            preloadNextTrack(currentSchedule.index);
-        }
-    }
-
-    function startBroadcastEngine() {
-        if (engineStarted) return;
-        engineStarted = true;
-        
-        // Hide explicit overlay shield
-        document.getElementById('interaction-overlay').style.opacity = '0';
+    incomingElements.forEach(el => {
+        if(el.style.display !== 'none') el.classList.add('active');
+    });
+    
+    outgoingElements.forEach(el => {
+        el.classList.remove('active');
+        // Delay resetting outgoing media to prevent black flash
         setTimeout(() => {
-            document.getElementById('interaction-overlay').style.display = 'none';
-        }, 400);
-
-        // Bootstrap explicit play sequence now that we have context
-        if (activePlayer) {
-            activePlayer.muted = false;
-            const currentSchedule = calculateCurrentSchedule(playlist);
-            if (currentSchedule) {
-                activePlayer.currentTime = currentSchedule.seekTime;
+            if (!el.classList.contains('active')) {
+                if(el.tagName === 'VIDEO') {
+                    el.pause();
+                    el.removeAttribute('src');
+                    el.load();
+                } else if(el.tagName === 'IFRAME') {
+                    el.src = 'about:blank';
+                }
             }
-            activePlayer.play().catch(e => console.log("Engine initialization bypass:", e));
-        }
-    }
+        }, 600);
+    });
 
-    function startAntiScrubbingWatchdog() {
-        setInterval(() => {
-            if (playlist.length === 0 || !activePlayer || !engineStarted) return;
+    state.activePlayerSlot = incomingSlot;
+}
 
-            const schedule = calculateCurrentSchedule(playlist);
-            if (!schedule) return;
-
-            if (activePlayer.src !== schedule.track.url) {
-                syncBroadcast(false);
-                return;
+// Asynchronous Safety Play Invocation Wrapper
+function safePlay(videoElement) {
+    state.isBuffering = true;
+    const playPromise = videoElement.play();
+    
+    if (playPromise !== undefined) {
+        playPromise.then(() => {
+            state.isBuffering = false;
+        }).catch(error => {
+            state.isBuffering = false;
+            console.warn("Autoplay defense interrupted or prevented play state:", error);
+            // Show unmute UI if browser blocked autoplay with sound
+            if (error.name === "NotAllowedError") {
+                dom.unmuteBtn.style.display = "block";
             }
-
-            // Enforce linear lock against system clock drift or manual user scrubbing overrides
-            const drift = Math.abs(activePlayer.currentTime - schedule.seekTime);
-            if (drift > MAX_ALLOWED_DRIFT) {
-                console.warn(`Anti-Scrub lock engagement. Syncing: ${drift.toFixed(2)}s drift.`);
-                activePlayer.currentTime = schedule.seekTime;
-                if (activePlayer.paused) activePlayer.play().catch(e => console.log(e));
-            }
-
-            if (activePlayer.currentTime >= (schedule.track.duration - 0.5)) {
-                switchPlayers();
-            }
-        }, 1000);
-    }
-
-    function startBackgroundPlaylistPoller() {
-        setInterval(() => {
-            fetch(PLAYLIST_URL, { cache: "no-store" })
-                .then(res => res.json())
-                .then(data => {
-                    playlist = data;
-                    console.log("Background playlist refreshed successfully.");
-                }).catch(err => console.error("Error refreshing playlist updates: ", err));
-        }, 30000);
-    }
-
-    // Load static pipeline configurations
-    fetch(PLAYLIST_URL, { cache: "no-store" })
-        .then(res => res.json())
-        .then(data => {
-            playlist = data;
-            syncBroadcast(true);
-            startAntiScrubbingWatchdog();
-            startBackgroundPlaylistPoller();
-        })
-        .catch(err => {
-            document.getElementById('track-title').innerText = "Failed to load broadcast grid playlist.";
-            console.error(err);
         });
+    }
+}
+
+// Anti-Scrubbing Listener Setup
+function setupAntiScrubbing() {
+    const handleSeeking = (e) => {
+        if (state.isBuffering) return;
+        const live = getGlobalBroadcastPosition();
+        if (live && Math.abs(e.target.currentTime - live.seekTo) > CONFIG.SCRUB_THRESHOLD_SEC) {
+            e.target.currentTime = live.seekTo;
+        }
+    };
+
+    dom.videoA.addEventListener('seeking', handleSeeking);
+    dom.videoB.addEventListener('seeking', handleSeeking);
+
+    dom.videoA.addEventListener('waiting', () => state.isBuffering = true);
+    dom.videoB.addEventListener('waiting', () => state.isBuffering = true);
+    dom.videoA.addEventListener('playing', () => state.isBuffering = false);
+    dom.videoB.addEventListener('playing', () => state.isBuffering = false);
+
+    dom.unmuteBtn.addEventListener('click', () => {
+        [dom.videoA, dom.videoB].forEach(v => {
+            v.muted = false;
+            safePlay(v);
+        });
+        dom.unmuteBtn.style.display = "none";
+    });
+}
+
+// Boot up
+window.addEventListener('DOMContentLoaded', initEngine);
 </script>
 </body>
 </html>

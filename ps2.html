@@ -4,8 +4,93 @@
     <meta charset="utf-8">
     <title>Serverless Synced Live TV</title>
     <style>
-      body, html { background-color: #000; height: 100%; width: 100%; margin: 0; overflow: hidden; }
-      video { position: fixed; top: 0; left: 0; min-width: 100%; min-height: 100%; object-fit: cover; }
+      body, html { 
+        background-color: #000; 
+        height: 100%; 
+        width: 100%; 
+        margin: 0; 
+        overflow: hidden; 
+        font-family: sans-serif;
+      }
+      
+      /* Seamless Dual Video Buffers */
+      video { 
+        position: fixed; 
+        top: 0; 
+        left: 0; 
+        min-width: 100%; 
+        min-height: 100%; 
+        object-fit: cover; 
+      }
+
+      /* Master UI Overlay Layer */
+      #ui-layer {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 9999;
+        pointer-events: none; /* Let clicks pass through empty spaces */
+      }
+
+      /* 1. Top Right Logo Box Container */
+      .logo-container {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        pointer-events: auto; /* Re-enable clicks just for the logo if needed */
+      }
+      
+      .logo-container img {
+        max-width: 150px;  /* Adjust width as desired */
+        max-height: 60px;  /* Adjust height as desired */
+        object-fit: contain;
+        filter: drop-shadow(0px 2px 8px rgba(0, 0, 0, 0.5));
+      }
+
+      /* 2. Bottom Right Sleek Controls Container */
+      .controls-container {
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        display: flex;
+        gap: 10px;
+        pointer-events: auto; /* Re-enable button clicks */
+      }
+
+      /* Sleek Round Icon Buttons */
+      .control-btn {
+        background: rgba(25, 25, 25, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: rgba(255, 255, 255, 0.85);
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        transition: background 0.2s, transform 0.1s;
+        outline: none;
+      }
+
+      .control-btn svg {
+        width: 17px;
+        height: 17px;
+        fill: rgba(255, 255, 255, 0.9);
+      }
+
+      .control-btn:active {
+        transform: scale(0.9);
+        background: rgba(50, 50, 50, 0.75);
+      }
+      
+      .control-btn:hover {
+        background: rgba(40, 40, 40, 0.70);
+      }
     </style>
   </head>
   <body>
@@ -14,33 +99,58 @@
     <video id="video1" muted playsinline></video>
     <video id="video2" muted playsinline></video>
 
+    <!-- Master Interactive UI Layer Container -->
+    <div id="ui-layer">
+      
+      <!-- Top Right: Station Logo Layout -->
+      <div class="logo-container">
+        <!-- EDIT THIS URL PATH TO POINT TO YOUR LOGO IMAGE FILE -->
+        <img id="tv-logo" src="https://githubusercontent.com" alt="TV Logo">
+      </div>
+
+      <!-- Bottom Right: Dynamic Interactive Control Widgets -->
+      <div class="controls-container">
+        
+        <!-- Toggle Audio Mute Switch -->
+        <button id="mute-btn" class="control-btn" title="Toggle Mute">
+          <!-- Muted Speaker Icon (Default State) -->
+          <svg id="icon-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+          <!-- Unmuted Full Volume Icon (Hidden initially) -->
+          <svg id="icon-unmuted" viewBox="0 0 24 24" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        </button>
+
+        <!-- Toggle Screen Display Mode -->
+        <button id="fullscreen-btn" class="control-btn" title="Toggle Fullscreen">
+          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+        </button>
+
+      </div>
+    </div>
+
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
-      // Your GitHub release folder path where your .mp4 files are kept
       const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
-      
+
       let playlistData = [];
       let totalPlaylistDuration = 0;
       let activeVideo = $('#video1');
       let bufferVideo = $('#video2');
       let switchTimeout = null;
+      
+      // Global Variable to remember user's choice: true = muted, false = unmuted
+      let isGlobalMuted = true;
 
       async function initLiveSync() {
         try {
-          // Fetch your raw playlist file directly from your repo folder
           const response = await fetch('playlist.json?t=' + new Date().getTime());
           playlistData = await response.json();
           
-          // Calculate the total duration of the playlist loops
           totalPlaylistDuration = 0;
           playlistData.forEach(item => totalPlaylistDuration += item.duration);
           
           console.log("Playlist synchronized. Total loop length:", totalPlaylistDuration, "seconds.");
           
-          // Immediately sync the video stream location
           syncPlayer(true);
-          
-          // Periodically monitor playback position alignment every 3 seconds to correct drift
           setInterval(() => syncPlayer(false), 3000);
         } catch (e) {
           console.error("Failed to load playlist.json:", e);
@@ -51,13 +161,9 @@
         if (playlistData.length === 0 || totalPlaylistDuration === 0) return null;
 
         const currentUnixTime = Math.floor(Date.now() / 1000);
-        
-        // ANCHOR POINT: Anchor the global stream to midnight UTC of the current day
-        // This ensures the loop reset time updates naturally alongside your daily edits
         const baseAnchorTime = Math.floor(Date.now() / 86400000) * 86400; 
         const elapsedSeconds = currentUnixTime - baseAnchorTime;
         
-        // Find out exactly where we are in the endless looping block
         let currentLoopPosition = elapsedSeconds % totalPlaylistDuration;
 
         let accumulatedTime = 0;
@@ -83,12 +189,15 @@
         const currentEl = activeVideo.get(0);
         const expectedSrc = basePath + broadcast.file;
 
-        // If it's a fresh visit, if a video finished, or if a user refreshed their page:
         if (isFirstLoad || currentEl.src !== expectedSrc || Math.abs(currentEl.currentTime - broadcast.seekTo) > 3) {
           console.log(`Live Channel Match: Loading ${broadcast.file} jumping forward to ${broadcast.seekTo.toFixed(2)}s`);
           
           currentEl.src = expectedSrc;
           currentEl.currentTime = broadcast.seekTo;
+          
+          // Apply the current global audio volume preference to the active layer element
+          currentEl.muted = isGlobalMuted;
+          
           currentEl.play().catch(err => console.log("Browser playback interaction deferred:", err));
           
           setupSeamlessTransition(broadcast.remaining);
@@ -98,38 +207,70 @@
       function setupSeamlessTransition(timeRemaining) {
         clearTimeout(switchTimeout);
         
-        // Prepare the background swap buffer 1 second before the current track finishes
         const triggerDelay = (timeRemaining - 1.0) * 1000;
         if (triggerDelay <= 0) return;
 
         switchTimeout = setTimeout(() => {
-          // Peek forward to see what track is scheduled next
           const upcomingBroadcast = calculateCurrentBroadcast();
           if (!upcomingBroadcast) return;
 
-          // Silent pre-load on the background player
           const bufferEl = bufferVideo.get(0);
           bufferEl.src = basePath + upcomingBroadcast.file;
           bufferEl.currentTime = 0;
+          
+          // Pre-load the background video matching the user's volume preference
+          bufferEl.muted = isGlobalMuted;
+          
           bufferEl.play().catch(() => {});
 
-          // Transition the display visibility layers seamlessly
           setTimeout(() => {
             bufferVideo.css('z-index', '500');
             activeVideo.css('z-index', '0');
             activeVideo.get(0).pause();
 
-            // Swap player object roles for the next continuous track loop
             const temp = activeVideo;
             activeVideo = bufferVideo;
             bufferVideo = temp;
             
-            // Re-arm synchronization loops
             syncPlayer(false);
           }, 1000);
 
         }, triggerDelay);
       }
+
+      // ==========================================
+      // UI BUTTON INTERACTION HANDLERS
+      // ==========================================
+      
+      // Handle Sound Button Clicks
+      $('#mute-btn').on('click', function() {
+        // Toggle our global tracker state
+        isGlobalMuted = !isGlobalMuted;
+
+        // Apply state changes directly onto BOTH physical video layer feeds
+        $('#video1').get(0).muted = isGlobalMuted;
+        $('#video2').get(0).muted = isGlobalMuted;
+
+        // Switch the SVG display indicators layout based on current state
+        if (isGlobalMuted) {
+          $('#icon-muted').show();
+          $('#icon-unmuted').hide();
+        } else {
+          $('#icon-muted').hide();
+          $('#icon-unmuted').show();
+        }
+      });
+
+      // Handle Fullscreen Button Clicks
+      $('#fullscreen-btn').on('click', function() {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => {
+            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+          });
+        } else {
+          document.exitFullscreen();
+        }
+      });
 
       $(document).ready(initLiveSync);
     </script>

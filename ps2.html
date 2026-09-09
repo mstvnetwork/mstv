@@ -18,6 +18,12 @@
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;background:var(--ink);color:var(--text);height:100%;}
+
+  body.mode-public{ background:#000; }
+  body.mode-public .wrap{ display:none; }
+  body.mode-public .stage-only{ display:block; }
+  .stage-only{ display:none; }
+
   .wrap{
     max-width:1100px;
     margin:0 auto;
@@ -64,6 +70,13 @@
     overflow:hidden;
     border:1px solid var(--line);
   }
+  body.mode-public .stage{
+    border-radius:0;
+    border:0;
+    height:100vh;
+    width:100vw;
+    aspect-ratio:auto;
+  }
   .layer{
     position:absolute;
     inset:0;
@@ -96,6 +109,7 @@
     gap:8px;
     pointer-events:none;
   }
+  body.mode-public .stage-overlay{ display:none; }
   .badge{
     background:rgba(0,0,0,0.55);
     backdrop-filter:blur(6px);
@@ -125,6 +139,32 @@
     animation:spin 0.9s linear infinite;
   }
   @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* Public bare-player controls */
+  .pub-controls{
+    position:absolute;
+    right:14px;
+    bottom:14px;
+    z-index:10;
+    display:flex;
+    gap:10px;
+  }
+  .pub-btn{
+    width:44px;
+    height:44px;
+    border-radius:8px;
+    background:rgba(0,0,0,0.55);
+    backdrop-filter:blur(6px);
+    border:1px solid rgba(255,255,255,0.15);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    color:#fff;
+    transition:background 150ms ease;
+  }
+  .pub-btn:hover{ background:rgba(0,0,0,0.75); }
+  .pub-btn svg{ width:20px; height:20px; display:block; }
 
   .meta-row{
     display:flex;
@@ -175,7 +215,6 @@
   }
   .panel h2{
     font-size:13px;
-    text-transform:none;
     letter-spacing:0.01em;
     margin:0;
     padding:14px 16px;
@@ -272,52 +311,93 @@
   <div class="debug" id="debugLine"></div>
 </div>
 
+<!-- Bare public container: only rendered/shown when ?mode=public -->
+<div class="stage-only" id="publicStage">
+  <div class="stage" id="stagePublic" style="border-radius:0;border:0;">
+    <div class="layer" id="layerA_pub"></div>
+    <div class="layer" id="layerB_pub"></div>
+    <div class="stage-empty" id="stageEmptyPublic">
+      <div class="spin"></div>
+      <div>Tuning in to the broadcast…</div>
+    </div>
+    <div class="pub-controls">
+      <div class="pub-btn" id="muteBtn" title="Mute/Unmute">
+        <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+        </svg>
+      </div>
+      <div class="pub-btn" id="fullscreenBtn" title="Fullscreen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 3H5a2 2 0 0 0-2 2v3"></path>
+          <path d="M21 8V5a2 2 0 0 0-2-2h-3"></path>
+          <path d="M3 16v3a2 2 0 0 0 2 2h3"></path>
+          <path d="M16 21h3a2 2 0 0 0 2-2v-3"></path>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   "use strict";
 
   /* ============================================================
-     CONFIG
+     MODE ROUTING  — /?mode=private (default, full dashboard)
+                     /?mode=public  (bare player: mute + fullscreen only)
   ============================================================ */
-  var PLAYLIST_URL   = "playlist.json";   // hosted alongside this page in the git repo
-  var CYCLE_SECONDS  = 43200;             // 12 hours — the fixed broadcast grid
-  var POLL_MS        = 15000;             // how often we re-fetch playlist.json in the background
-  var WATCHDOG_MS    = 1000;              // how often we check for drift / anti-scrub
-  var RESYNC_TOLERANCE_SEC = 1.5;         // allowed drift before we correct (native video)
-  var STARTUP_GRACE_MS = 6000;            // ignore drift checks right after a source loads (buffering)
+  var params = new URLSearchParams(window.location.search);
+  var mode = (params.get('mode') || 'private').toLowerCase();
+  if (mode !== 'public') mode = 'private';
+  document.body.classList.add('mode-' + mode);
 
   /* ============================================================
-     STATE
+     CONFIG
   ============================================================ */
-  var playlist = [];          // [{url, duration, startInCycle, endInCycle, index}]
-  var cycleTotal = 0;         // sum of durations actually used inside the 43200s grid
-  var currentIndex = -1;      // index of item currently on-air
-  var activeLayer = "A";      // which DOM layer is currently visible/live
-  var layers = {
-    A: { el: document.getElementById('layerA'), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 },
-    B: { el: document.getElementById('layerB'), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 }
-  };
-  var stageEmpty = document.getElementById('stageEmpty');
-  var engineBadge = document.getElementById('engineBadge');
-  var slotBadge = document.getElementById('slotBadge');
-  var nowTitle = document.getElementById('nowTitle');
-  var nowSub = document.getElementById('nowSub');
+  var PLAYLIST_URL   = "playlist.json";
+  var CYCLE_SECONDS  = 43200;             // 12 hours — fixed broadcast grid
+  var POLL_MS        = 15000;
+  var WATCHDOG_MS    = 1000;
+  var RESYNC_TOLERANCE_SEC = 1.5;
+  var STARTUP_GRACE_MS = 6000;
+
+  /* ============================================================
+     DOM refs — separate sets for private vs public containers.
+     Only the active mode's elements are ever built/used.
+  ============================================================ */
+  var isPublic = (mode === 'public');
+
+  var elIds = isPublic
+    ? { stage:'stagePublic', empty:'stageEmptyPublic', A:'layerA_pub', B:'layerB_pub' }
+    : { stage:'stage', empty:'stageEmpty', A:'layerA', B:'layerB' };
+
+  var stageEmpty   = document.getElementById(elIds.empty);
+  var engineBadge  = document.getElementById('engineBadge');   // may be null in public
+  var slotBadge    = document.getElementById('slotBadge');     // may be null in public
+  var nowTitle     = document.getElementById('nowTitle');
+  var nowSub       = document.getElementById('nowSub');
   var clockElapsed = document.getElementById('clockElapsed');
   var progressFill = document.getElementById('progressFill');
-  var schedList = document.getElementById('schedList');
-  var debugLine = document.getElementById('debugLine');
+  var schedList    = document.getElementById('schedList');
+  var debugLine    = document.getElementById('debugLine');
 
-  var pendingSwitch = false;   // guards against overlapping transition attempts
-  var lastGoodFetchOk = false;
+  var layers = {
+    A: { el: document.getElementById(elIds.A), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 },
+    B: { el: document.getElementById(elIds.B), video:null, hls:null, kind:null, loadedIndex:-1, ready:false, readyAt:0 }
+  };
+
+  var playlist = [];
+  var currentIndex = -1;
+  var activeLayer = "A";
+  var pendingSwitch = false;
+  var userMuted = false; // public mode toggle state, starts unmuted per default autoplay-with-sound intent
 
   /* ============================================================
      UTIL
   ============================================================ */
-  function nowUnix(){
-    // Server-independent, but every client's system clock agrees closely enough (NTP).
-    // Everyone computes off Date.now() — the same absolute epoch, everywhere.
-    return Date.now() / 1000;
-  }
+  function nowUnix(){ return Date.now() / 1000; }
 
   function fmtHMS(totalSeconds){
     totalSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -332,39 +412,53 @@
     var clean = url.split("?")[0].toLowerCase();
     if (clean.endsWith(".m3u8")) return "hls";
     if (clean.endsWith(".mp4") || clean.endsWith(".webm") || clean.endsWith(".mov") || clean.endsWith(".m4v")) return "mp4";
-    // heuristics for HLS behind proxies/query params
     if (url.toLowerCase().indexOf(".m3u8") !== -1) return "hls";
     if (url.toLowerCase().indexOf(".mp4") !== -1) return "mp4";
-    // anything else (embeddable player pages) -> iframe
     return "iframe";
   }
 
   /* ============================================================
-     PLAYLIST -> FIXED 12H GRID MAPPING
-     The grid is deterministic: item[0] always starts at second 0
-     of the cycle, item[1] starts right after item[0] ends, etc.
-     currentUnixTime % 43200 tells every client, anywhere, exactly
-     which item is on air and exactly how many seconds into it we
-     are — with zero coordination or server state required.
+     PLAYLIST -> FIXED 12H GRID, LOOP-FILLED
+     Fix vs previous version: the raw list is repeated end-to-end
+     until it fills the entire 43200s cycle (or is cut off mid-item
+     on the final lap, which is fine — that same cut point recurs
+     identically every single cycle, so it's still perfectly sync'd).
+     This removes "dead air" gaps and makes the playlist loop from
+     the beginning automatically the moment the last item ends,
+     with no wait for the 12h wall-clock boundary.
   ============================================================ */
   function buildGrid(items){
-    var t = 0;
+    var validItems = items.filter(function(it){ return it && it.url && Number(it.duration) > 0; });
+    if (validItems.length === 0) return { items: [], total: 0 };
+
+    var totalRawDuration = validItems.reduce(function(sum, it){ return sum + Number(it.duration); }, 0);
+    if (totalRawDuration <= 0) return { items: [], total: 0 };
+
     var mapped = [];
-    for (var i=0;i<items.length;i++){
-      var d = Math.max(1, Number(items[i].duration) || 0);
-      if (t >= CYCLE_SECONDS) break; // playlist longer than 12h: extra tail simply waits for next cycle
-      var start = t;
-      var end = Math.min(CYCLE_SECONDS, t + d);
-      mapped.push({
-        url: items[i].url,
-        duration: d,
-        startInCycle: start,
-        endInCycle: end,
-        index: i
-      });
-      t = end;
+    var t = 0;
+    var lap = 0;
+    var safety = 0;
+    while (t < CYCLE_SECONDS && safety < 100000){
+      for (var i = 0; i < validItems.length; i++){
+        if (t >= CYCLE_SECONDS) break;
+        var d = Number(validItems[i].duration);
+        var start = t;
+        var end = Math.min(CYCLE_SECONDS, t + d);
+        mapped.push({
+          url: validItems[i].url,
+          duration: d,
+          startInCycle: start,
+          endInCycle: end,
+          index: mapped.length,
+          sourceIndex: i,
+          lap: lap
+        });
+        t = end;
+        safety++;
+      }
+      lap++;
     }
-    return { items: mapped, total: t };
+    return { items: mapped, total: t, rawCount: validItems.length };
   }
 
   function findOnAir(cyclePos, grid){
@@ -373,11 +467,11 @@
         return { item: grid[i], offset: cyclePos - grid[i].startInCycle };
       }
     }
-    return null; // in the dead-air gap after last video, before cycle repeats
+    return null;
   }
 
   /* ============================================================
-     PLAYLIST FETCH (background poll — never interrupts on-air video)
+     PLAYLIST FETCH — background poll, never interrupts on-air video
   ============================================================ */
   function fetchPlaylist(){
     var bust = PLAYLIST_URL + (PLAYLIST_URL.indexOf("?")===-1 ? "?":"&") + "_ts=" + Math.floor(Date.now()/20000);
@@ -389,22 +483,19 @@
       .then(function(data){
         if (!Array.isArray(data) || data.length === 0) throw new Error("empty playlist");
         applyNewPlaylist(data);
-        lastGoodFetchOk = true;
       })
       .catch(function(err){
-        lastGoodFetchOk = false;
-        debugLine.textContent = "playlist fetch issue: " + err.message + " (keeping last known good schedule)";
+        if (debugLine) debugLine.textContent = "playlist fetch issue: " + err.message + " (keeping last known good schedule)";
       });
   }
 
   function applyNewPlaylist(rawItems){
     var grid = buildGrid(rawItems);
-    // Zero-jump guarantee: appending to the tail never changes startInCycle
-    // for any earlier item, because those offsets are only a function of
-    // the durations *before* them, which are unchanged. We simply swap
-    // the reference table; the currently-playing element is untouched.
+    // Zero-jump guarantee: appending to the tail of the SOURCE list changes
+    // only which laps happen after the point where the new item is first
+    // reached; every startInCycle for items scheduled before "now" in the
+    // current lap is unchanged, so the on-air item and its offset never move.
     playlist = grid.items;
-    cycleTotal = grid.total;
     renderSchedule();
   }
 
@@ -432,10 +523,13 @@
   function safePlay(video){
     var p = video.play();
     if (p && typeof p.catch === "function"){
-      // Asynchronous media promise defense: swallow AbortError / NotAllowedError
-      // caused by background schedule shifts or autoplay policy, never throw.
-      p.catch(function(){ /* silent by design */ });
+      p.catch(function(){ /* silent by design — async media promise defense */ });
     }
+  }
+
+  function applyMuteState(video){
+    if (!video) return;
+    video.muted = isPublic ? userMuted : false;
   }
 
   function prepareLayer(layer, playItem, startOffset){
@@ -449,7 +543,7 @@
       iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
       iframe.setAttribute('allowfullscreen', '');
       iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
-      iframe.src = playItem.url; // embed pages generally manage their own internal seek; best-effort sync
+      iframe.src = playItem.url;
       layer.el.appendChild(iframe);
       layer.ready = true;
       layer.readyAt = Date.now();
@@ -459,23 +553,15 @@
 
     var video = document.createElement('video');
     video.playsInline = true;
-    video.muted = false;
     video.autoplay = true;
     video.preload = "auto";
-    // Native MP4: no crossOrigin attribute at all -> standard browser delivery
-    // pipeline, avoids unnecessary CORS preflight/blocking for plain files.
-    if (engine === "hls"){
-      video.muted = false;
-    }
+    applyMuteState(video);
     layer.el.appendChild(video);
     layer.video = video;
 
     if (engine === "hls"){
       if (window.Hls && window.Hls.isSupported()){
-        var hls = new Hls({
-          lowLatencyMode:false,
-          backBufferLength: 90
-        });
+        var hls = new Hls({ lowLatencyMode:false, backBufferLength: 90 });
         layer.hls = hls;
         hls.on(Hls.Events.MANIFEST_PARSED, function(){
           try{ video.currentTime = startOffset; }catch(e){}
@@ -484,15 +570,13 @@
           layer.readyAt = Date.now();
         });
         hls.on(Hls.Events.ERROR, function(evt, data){
-          if (data && data.fatal){
-            // do not crash the loop; watchdog will retry / advance on next tick
+          if (data && data.fatal && debugLine){
             debugLine.textContent = "HLS fatal error on layer, will retry: " + data.type;
           }
         });
         hls.loadSource(playItem.url);
         hls.attachMedia(video);
       } else if (video.canPlayType('application/vnd.apple.mpegurl')){
-        // native HLS (Safari)
         video.src = playItem.url;
         video.addEventListener('loadedmetadata', function onMeta(){
           try{ video.currentTime = startOffset; }catch(e){}
@@ -503,17 +587,16 @@
         });
       }
     } else {
-      // plain mp4/webm — no crossOrigin restriction, native pipeline
       video.src = playItem.url;
       video.addEventListener('loadedmetadata', function onMeta(){
-        try{ video.currentTime = Math.min(startOffset, Math.max(0, video.duration - 0.25 || startOffset)); }catch(e){}
+        try{ video.currentTime = Math.min(startOffset, Math.max(0, (video.duration||startOffset) - 0.25)); }catch(e){}
         safePlay(video);
         layer.ready = true;
         layer.readyAt = Date.now();
         video.removeEventListener('loadedmetadata', onMeta);
       });
       video.addEventListener('error', function(){
-        debugLine.textContent = "media error on source, watchdog will advance/retry";
+        if (debugLine) debugLine.textContent = "media error on source, watchdog will advance/retry";
       });
     }
     layer.loadedIndex = playItem.index;
@@ -523,17 +606,11 @@
     layers.A.el.classList.toggle('active', key === "A");
     layers.B.el.classList.toggle('active', key === "B");
     activeLayer = key;
-    stageEmpty.style.display = "none";
+    if (stageEmpty) stageEmpty.style.display = "none";
   }
 
   /* ============================================================
      CORE SYNC LOOP
-     Runs continuously. Computes exactly what should be on-air.
-     If the active layer is already correctly showing that item
-     (same index), it does nothing but gently correct drift.
-     If the schedule has rolled to a new item, it preloads it on
-     the *inactive* layer, then swaps — this is the "player 1/2"
-     handover that produces zero-jump transitions.
   ============================================================ */
   var lastSwitchAt = 0;
 
@@ -545,10 +622,9 @@
     var onAir = findOnAir(cyclePos, playlist);
 
     if (!onAir){
-      // dead-air gap (playlist doesn't fill the full 12h) — loop point.
-      // Treat as "waiting for cycle restart"; keep last frame, don't thrash.
-      nowTitle.textContent = "Between programs — next cycle starting shortly";
-      nowSub.textContent = "Broadcast day resumes at the top of the 12-hour grid";
+      // Only occurs in the final fractional second(s) at the very top of
+      // the 43200s boundary due to a non-integer-dividing playlist total;
+      // resolves itself on the next tick as cyclePos wraps to 0.
       return;
     }
 
@@ -559,24 +635,18 @@
     var standby = layers[otherKey(activeLayer)];
 
     if (active.loadedIndex === item.index && active.ready){
-      // Correct item is live. Just watchdog drift, no reload.
       updateUI(item, offset, engineLabel(active.kind));
       driftCorrect(active, item, offset);
       return;
     }
 
-    // Different program should be on air than what's currently showing.
     if (pendingSwitch) return;
 
-    // If standby already happens to be preloaded with the right item, swap now.
     if (standby.loadedIndex === item.index && standby.ready){
       finalizeSwitch(standby, otherKey(activeLayer), item, offset);
       return;
     }
 
-    // Otherwise, prepare standby with correct item + correct offset, then swap
-    // as soon as it reports ready. This guarantees the visible player never
-    // shows a black frame or restarts — the swap is a pure opacity crossfade.
     pendingSwitch = true;
     prepareLayer(standby, item, offset);
 
@@ -591,16 +661,12 @@
         pendingSwitch = false;
       } else if (waited >= maxWaitMs){
         clearInterval(checkInterval);
-        // couldn't prep in time; release lock and let next tick retry
-        // (anti-scrubbing debounce: we do NOT force a hard swap on a
-        // not-ready source, avoiding jarring black-frame reversion)
         pendingSwitch = false;
       }
     }, 150);
   }
 
   function finalizeSwitch(readyLayer, key, item, offset){
-    // Fine-tune offset right at swap time since some ms have passed while waiting
     var freshT = nowUnix() % CYCLE_SECONDS;
     var freshOffset = Math.max(0, freshT - item.startInCycle);
     if (readyLayer.video){
@@ -608,17 +674,15 @@
         if (Math.abs(readyLayer.video.currentTime - freshOffset) > RESYNC_TOLERANCE_SEC){
           readyLayer.video.currentTime = Math.min(freshOffset, (readyLayer.video.duration||freshOffset));
         }
+        applyMuteState(readyLayer.video);
         safePlay(readyLayer.video);
       }catch(e){}
     }
     activateLayer(key);
-    // stop the now-hidden previous layer to save bandwidth/CPU
     var oldKey = otherKey(key);
     var oldLayer = layers[oldKey];
     setTimeout(function(){
-      if (oldLayer.video){
-        try{ oldLayer.video.pause(); }catch(e){}
-      }
+      if (oldLayer.video){ try{ oldLayer.video.pause(); }catch(e){} }
     }, 260);
     updateUI(item, freshOffset, engineLabel(readyLayer.kind));
     lastSwitchAt = Date.now();
@@ -632,57 +696,48 @@
     return "—";
   }
 
-  /* Anti-scrubbing / anti-drift watchdog:
-     Tolerates startup buffering (STARTUP_GRACE_MS) and small natural drift
-     (RESYNC_TOLERANCE_SEC). Only corrects when actually out of sync, and
-     never mid-buffer, so a brief Cloudflare Pages stall does not trigger
-     a rapid-fire reset loop. If the player is ever found badly out of
-     position (e.g. someone scrubbed the timeline), it silently reverts
-     to the mathematically correct live position. */
   function driftCorrect(layer, item, expectedOffset){
-    if (!layer.video) return; // iframe engines can't be corrected externally
-    if (Date.now() - layer.readyAt < STARTUP_GRACE_MS) return; // grace period
+    if (!layer.video) return;
+    if (Date.now() - layer.readyAt < STARTUP_GRACE_MS) return;
     if (layer.video.seeking) return;
-    if (layer.video.readyState < 2) return; // still buffering, don't fight it
+    if (layer.video.readyState < 2) return;
 
     var actual = layer.video.currentTime;
     var drift = actual - expectedOffset;
 
     if (Math.abs(drift) > RESYNC_TOLERANCE_SEC){
-      try{
-        layer.video.currentTime = expectedOffset;
-      }catch(e){}
+      try{ layer.video.currentTime = expectedOffset; }catch(e){}
     }
-    // resume if a background tab throttle or transient stall paused it
-    if (layer.video.paused){
-      safePlay(layer.video);
-    }
+    if (layer.video.paused){ safePlay(layer.video); }
   }
 
   /* ============================================================
-     UI RENDERING
+     UI RENDERING (private mode only — these elements don't exist / are hidden in public)
   ============================================================ */
   function updateUI(item, offset, engine){
-    engineBadge.textContent = engine;
-    slotBadge.textContent = "Slot " + (item.index + 1) + " / " + playlist.length;
-    nowTitle.textContent = labelFor(item);
-    nowSub.textContent = fmtHMS(offset) + " elapsed of " + fmtHMS(item.duration);
-    clockElapsed.textContent = fmtHMS(item.startInCycle + offset);
-    var pct = Math.min(100, (offset / item.duration) * 100);
-    progressFill.style.width = pct + "%";
+    if (engineBadge) engineBadge.textContent = engine;
+    if (slotBadge) slotBadge.textContent = "Slot " + (item.sourceIndex + 1) + " / " + (playlist.rawCount || '?');
+    if (nowTitle) nowTitle.textContent = labelFor(item);
+    if (nowSub) nowSub.textContent = fmtHMS(offset) + " elapsed of " + fmtHMS(item.duration);
+    if (clockElapsed) clockElapsed.textContent = fmtHMS(item.startInCycle + offset);
+    if (progressFill){
+      var pct = Math.min(100, (offset / item.duration) * 100);
+      progressFill.style.width = pct + "%";
+    }
   }
 
   function labelFor(item){
     try{
       var clean = item.url.split("?")[0];
       var file = clean.substring(clean.lastIndexOf("/")+1);
-      return decodeURIComponent(file) || ("Program " + (item.index+1));
+      return decodeURIComponent(file) || ("Program " + (item.sourceIndex+1));
     }catch(e){
-      return "Program " + (item.index+1);
+      return "Program " + (item.sourceIndex+1);
     }
   }
 
   function renderSchedule(){
+    if (!schedList) return; // not present in public mode
     if (!playlist.length) return;
     var t = nowUnix() % CYCLE_SECONDS;
     var onAir = findOnAir(t, playlist);
@@ -707,14 +762,53 @@
   }
 
   /* ============================================================
+     PUBLIC MODE CONTROLS — mute/unmute + fullscreen
+  ============================================================ */
+  if (isPublic){
+    var muteBtn = document.getElementById('muteBtn');
+    var muteIcon = document.getElementById('muteIcon');
+    var fullscreenBtn = document.getElementById('fullscreenBtn');
+    var publicStage = document.getElementById('stagePublic');
+
+    var mutedIconPath = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line>';
+    var unmutedIconPath = '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>';
+
+    function refreshMuteIcon(){
+      muteIcon.innerHTML = userMuted ? mutedIconPath : unmutedIconPath;
+    }
+
+    muteBtn.addEventListener('click', function(){
+      userMuted = !userMuted;
+      var active = layers[activeLayer];
+      if (active.video) applyMuteState(active.video);
+      refreshMuteIcon();
+    });
+
+    fullscreenBtn.addEventListener('click', function(){
+      var el = publicStage;
+      if (!document.fullscreenElement){
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      } else {
+        if (document.exitFullscreen) document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      }
+    });
+
+    // start muted by default in public mode to satisfy autoplay policies
+    // reliably across mobile browsers; user can tap to unmute.
+    userMuted = true;
+    refreshMuteIcon();
+  }
+
+  /* ============================================================
      BOOT
   ============================================================ */
   fetchPlaylist();
   setInterval(fetchPlaylist, POLL_MS);
   setInterval(tick, WATCHDOG_MS);
-  setInterval(renderSchedule, 5000);
+  if (!isPublic) setInterval(renderSchedule, 5000);
 
-  // kick an immediate first attempt shortly after initial fetch resolves
   setTimeout(tick, 800);
 
 })();

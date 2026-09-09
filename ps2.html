@@ -1,188 +1,172 @@
 <!DOCTYPE html>
 <html>
   <head>
-    <title>non-linear player</title>
-    <link rel="stylesheet" type="text/css" href="main.css">
+    <meta charset="utf-8">
+    <title>Non-Linear Player</title>
+    <style>
+      body, html { 
+        background-color: #000; 
+        height: 100%; 
+        width: 100%; 
+        margin: 0; 
+        overflow: hidden;
+      }
+      video {
+        position: fixed;
+        top: 0;
+        left: 0;
+        min-width: 100%;
+        min-height: 100%;
+        object-fit: cover;
+      }
+      #drop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100%; 
+        width: 100%;
+        z-index: 9999;
+      }
+      /* Ensure Dat.GUI remains readable on black background */
+      .dg.main {
+        z-index: 99999 !important;
+      }
+    </style>
   </head>
-  <style>
-  
-body, html{ background-color: #000; height:100%; width:100%; margin: 0;}
-
-video{
-position: fixed;
-top:0;
-left:0;
-
-min-width: 100%;
-min-height: 100%;
-/*display:none;*/
-}
-
-#drop{
-	position: fixed;
-	top:0;
-	left:0;
-	height:100%; 
-	width:100%;
-	z-index:9999;
-	/*background-color: green;*/
-}
- </style>
-</head>
-
   <body>
-    <video id="video2" src="data/https://github.com/mstvnetwork/test1/releases/download/v1/song13.mp4"></video>
-    <video id="video1" src="data/https://github.com/mstvnetwork/test1/releases/download/v1/song7.mp4" autoplay></video>
 
+    <!-- FIXED: Removed the accidental 'data/' prefix from absolute GitHub URLs -->
+    <video id="video2" src="https://github.com/mstvnetwork/test1/releases/download/v1/song13.mp4" muted playsinline></video>
+    <video id="video1" src="https://github.com/mstvnetwork/test1/releases/download/v1/song7.mp4" autoplay muted playsinline></video>
+<!-- FIXED: Loading resources via CDNs to bypass Cloudflare Pages MIME errors -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<!-- Replace the line below with the specific library or service script you need from Cloudflare -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
-    <script type="text/javascript" src="lib/jquery-2.2.0.min.js"></script>
-    <script type="text/javascript" src="lib/dat.gui.min.js"></script>
-    <script type="text/javascript" src="app_nue.js"></script>
+    <script>
+      var pGetRand;
+      var getRand;
+
+      // Settings
+      var settings = {
+        changeThresh : 0.1,
+        totalClips  : 14, // Set this to match your total available release assets
+        pathToClips : "https://github.com/mstvnetwork/test1/releases/download/v1/song", // Standardised dynamic URL path
+        pbRate : 1,
+        mode : 'random-playthrough',
+      }
+
+      let rpt = Array.from(Array(settings.totalClips), (e,i)=>i+1); // generate 1 to totalClips
+      shuffle(rpt);
+      console.log("Initial Shuffled Playlist:", rpt);
+      let rptTracker = 0;
+
+      // Setup GUI (Press 'H' to hide/show)
+      var gui = new dat.GUI();
+      gui.add(settings, 'totalClips').name("Total # of clips");
+      gui.add(settings, 'mode', [ 'linear', 'random', 'non-repeating-rand', 'random-playthrough' ] ).name("Playback Mode");
+      gui.add(settings, 'pathToClips').name("Clips Base URL");
+
+      // Storage
+      var video1 = $('#video1');
+      var video2 = $('#video2');
+      var v1d, v1ct, v2d, v2ct;
+      var linearTracker = 1;
+      var gate1 = true;
+      var gate2 = false;
+
+      // Check loop to switch clips seamlessly
+      setInterval(function(){ 
+        var v1_el = video1.get(0);
+        var v2_el = video2.get(0);
+
+        v1_el.playbackRate = settings.pbRate;
+        v2_el.playbackRate = settings.pbRate;
+
+        v1d = v1_el.duration || 0;
+        v1ct = v1_el.currentTime || 0;
+        v2d = v2_el.duration || 0;
+        v2ct = v2_el.currentTime || 0;
+
+        if(v1d > 0 && v1ct >= v1d - settings.changeThresh){
+          if(gate1){
+            toggle(video2, video1);
+            gate1 = false;
+            gate2 = true;
+          }
+        }
+
+        if(v2d > 0 && v2ct >= v2d - settings.changeThresh){
+          if(gate2){
+            toggle(video1, video2);
+            gate2 = false;
+            gate1 = true;
+          }
+        }
+      }, 100); 
+
+      function toggle(element, pElement){
+        var el = element.get(0);
+        var pel = pElement.get(0);
+
+        // Pre-play background video to minimize gap delay
+        el.play().catch(function(e){ console.log("Playback error: ", e); });
+
+        setTimeout(function(){
+          element.css('z-index', '500');
+          pElement.css('z-index', '0');
+
+          if(settings.mode === 'random'){
+            getRand = Math.floor(Math.random() * settings.totalClips + 1);
+          }
+
+          if(settings.mode === 'linear'){
+            if(linearTracker >= settings.totalClips){
+              linearTracker = 1;
+            } else {
+              linearTracker++;
+            }
+            getRand = linearTracker;
+          }
+
+          if(settings.mode === 'non-repeating-rand'){
+            getRand = Math.floor(Math.random() * settings.totalClips + 1);
+            while(getRand == pGetRand){ 
+              getRand = Math.floor(Math.random() * settings.totalClips + 1);
+            }
+            pGetRand = getRand;
+          }
+
+          if(settings.mode === 'random-playthrough'){
+            rptTracker++;
+            if(rptTracker >= rpt.length){
+              let lastNum = rpt[rpt.length - 1];
+              while (rpt[0] === lastNum){
+                shuffle(rpt);
+              }
+              rptTracker = 0;
+            }
+            getRand = rpt[rptTracker];
+          }
+
+          // FIXED: Creates proper formatting, resulting in e.g., ".../v1/song11.mp4"
+          pel.src = settings.pathToClips + getRand + '.mp4';
+          pel.pause();
+        }, 150);
+
+        $('.dg').css('z-index', '99999');
+      }
+
+      function shuffle(a) {
+        var j, x, i;
+        for (i = a.length - 1; i > 0; i--) {
+          j = Math.floor(Math.random() * (i + 1));
+          x = a[i];
+          a[i] = a[j];
+          a[j] = x;
+        }
+        return a;
+      }
+    </script>
   </body>
 </html>
-<script>
-    var pGetRand;
-var getRand;
-
-//Settings
-var settings = {
-	changeThresh : 0.1,
-	totalClips  : 5,
-	pathToClips : "data/",
-	pbRate : 1,
-	mode : 'random-playthrough',
-}
-
-let rpt = Array.from(Array(settings.totalClips), (e,i)=>i+1) //random playthrough generate array of numbers that can then be....
-shuffle(rpt) //shuffled for later choosing and playback.
-console.log(rpt);
-let rptTracker = 0;
-
-
-
-//init //press 'h' to hide the gui
-var gui = new dat.GUI();
-// gui.add(settings, 'changeThresh').name("Cut Thresh (sec)");
-gui.add(settings, 'totalClips').name("Total # of clips");
-gui.add(settings, 'mode', [ 'linear', 'random', 'non-repeating-rand', 'random-playthrough' ] ).name("Playback Mode");
-gui.add(settings, 'pathToClips').name("Clips Folder");
-// gui.add(settings, 'pbRate', 0,3).name("Playback Speed").step(0.25);
-
-//Storage
-var video1 = $('#video1');
-var video2 = $('#video2');
-var v1d,v2d,v1ct,v2ct;
-var linearTracker = 1;
-var gate1 = true;
-var gate2 = false;
-
-setInterval(function(){ //Check to see if its time to switch to the next video
-
-	video1.get(0).playbackRate = settings.pbRate;
-	video2.get(0).playbackRate = settings.pbRate;
-
-	v1d = video1.get(0).duration;
-	v1ct = video1.get(0).currentTime;
-	v2d = video2.get(0).duration;
-	v2ct = video2.get(0).currentTime;
-
-	if(v1ct >= v1d - settings.changeThresh){
-		if(gate1){
-			toggle(video2, video1);
-			gate1 = false;
-			gate2 = true;
-		}
-	}
-
-	if(v2ct >= v2d - settings.changeThresh){
-		if(gate2){
-		toggle(video1, video2);
-		gate2 = false;
-		gate1 = true;
-		}
-	}
-	// console.log(v1d, v1ct);
-}, 100); //keep this a bit slower so it dosent trigger multiple times
-
-
-function toggle(element, pElement){
-	//start playing before the clip comes to the front.
-	element.get(0).play();
-
-	//eliminate any delay in starting the clip... !need to test with audio.
-	setTimeout(function(){
-		element.css('z-index', '500');
-		pElement.css('z-index', '0');
-		if(settings.mode === 'random'){
-			getRand = Math.floor(  Math.random() * settings.totalClips +1  )
-		}
-
-		if(settings.mode === 'linear'){
-			if(linearTracker >= settings.totalClips){
-				linearTracker = 1;
-			}else{
-				linearTracker ++
-			}
-
-			getRand = linearTracker
-			console.log(linearTracker);
-		}
-
-		if(settings.mode === 'non-repeating-rand'){
-			getRand = Math.floor(  Math.random() * settings.totalClips +1  )
-			while(getRand == pGetRand){ //are we the same, if so try again until we are not.
-				console.log("try again",getRand,pGetRand);
-				getRand = Math.floor(  Math.random() * settings.totalClips +1  )
-			}
-			pGetRand = getRand
-		}
-
-		if(settings.mode === 'random-playthrough'){
-
-		//move up by one
-		rptTracker ++
-
-		//reset
-		if(rptTracker === rpt.length){
-			let lastNum = rpt[rptTracker.length-1]
-			while (rpt[0] === lastNum){
-				shuffle(rpt)
-				console.log(rpt);
-			}
-			rptTracker = 0;
-			console.log(rpt);
-
-		}
-
-		getRand = rpt[rptTracker];
-
-		}
-
-		pElement.attr({ 'src': settings.pathToClips + getRand + '.mp4' });
-		pElement.get(0).pause();
-	}, 150)
-
-	//always keep the gui at the front :)
-	$('.dg').css('z-index', '9999');
-
-}
-
-
-/**
- * Shuffles array in place.
- * @param {Array} a items An array containing the items.
- */
-function shuffle(a) {
-    var j, x, i;
-    for (i = a.length - 1; i > 0; i--) {
-        j = Math.floor(Math.random() * (i + 1));
-        x = a[i];
-        a[i] = a[j];
-        a[j] = x;
-    }
-    return a;
-}
-</script>
-
-
-

@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Serverless Synced Live TV</title>
+    <title>Serverless Synced Hybrid Live TV</title>
     <style>
       body, html { 
         background-color: #000; 
@@ -31,32 +31,32 @@
         width: 100%;
         height: 100%;
         z-index: 9999;
-        pointer-events: none; /* Let clicks pass through empty spaces */
+        pointer-events: none;
       }
 
-      /* 1. Top Right Logo Box Container */
+      /* Top Right Logo Box Container */
       .logo-container {
         position: absolute;
         top: 20px;
         right: 20px;
-        pointer-events: auto; /* Re-enable clicks just for the logo if needed */
+        pointer-events: auto;
       }
       
       .logo-container img {
-        max-width: 150px;  /* Adjust width as desired */
-        max-height: 60px;  /* Adjust height as desired */
+        max-width: 150px;
+        max-height: 60px;
         object-fit: contain;
         filter: drop-shadow(0px 2px 8px rgba(0, 0, 0, 0.5));
       }
 
-      /* 2. Bottom Right Sleek Controls Container */
+      /* Bottom Right Sleek Controls Container */
       .controls-container {
         position: absolute;
         bottom: 20px;
         right: 20px;
         display: flex;
         gap: 10px;
-        pointer-events: auto; /* Re-enable button clicks */
+        pointer-events: auto;
       }
 
       /* Sleek Round Icon Buttons */
@@ -104,7 +104,6 @@
       
       <!-- Top Right: Station Logo Layout -->
       <div class="logo-container">
-        <!-- EDIT THIS URL PATH TO POINT TO YOUR LOGO IMAGE FILE -->
         <img id="tv-logo" src="https://githubusercontent.com" alt="TV Logo">
       </div>
 
@@ -113,9 +112,7 @@
         
         <!-- Toggle Audio Mute Switch -->
         <button id="mute-btn" class="control-btn" title="Toggle Mute">
-          <!-- Muted Speaker Icon (Default State) -->
           <svg id="icon-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-          <!-- Unmuted Full Volume Icon (Hidden initially) -->
           <svg id="icon-unmuted" viewBox="0 0 24 24" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
         </button>
 
@@ -127,18 +124,28 @@
       </div>
     </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Required Dependency Components -->
+    <!-- FIXED: Loading resources via CDNs to bypass Cloudflare Pages MIME errors -->
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
+
+<!-- dat.GUI library required for line ps2:65 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
+
+<!-- Cloudflare Turnstile -->
+<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <script>
       const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
-
+      
       let playlistData = [];
       let totalPlaylistDuration = 0;
       let activeVideo = $('#video1');
       let bufferVideo = $('#video2');
       let switchTimeout = null;
-      
-      // Global Variable to remember user's choice: true = muted, false = unmuted
       let isGlobalMuted = true;
+
+      // HLS Engine instances tracked per video component layer
+      let hlsInstances = { 'video1': null, 'video2': null };
 
       async function initLiveSync() {
         try {
@@ -173,6 +180,7 @@
             return {
               index: i,
               file: clip.file,
+              isExternal: clip.isExternal || false,
               seekTo: currentLoopPosition - accumulatedTime,
               remaining: (accumulatedTime + clip.duration) - currentLoopPosition
             };
@@ -182,24 +190,51 @@
         return null;
       }
 
+      // Safe video loader abstraction handling native streams vs HLS streams
+      function loadMediaSource(videoContainer, sourceUrl) {
+        const videoEl = videoContainer.get(0);
+        const elementId = videoContainer.attr('id');
+
+        // Destroy existing HLS wrapper instances attached to this layout node to free up memory
+        if (hlsInstances[elementId]) {
+          hlsInstances[elementId].destroy();
+          hlsInstances[elementId] = null;
+        }
+
+        // Detect if file target string is an HLS live manifest stream
+        if (sourceUrl.includes('.m3u8')) {
+          if (Hls.isSupported()) {
+            const hls = new Hls({ maxMaxBufferLength: 10 });
+            hls.loadSource(sourceUrl);
+            hls.attachMedia(videoEl);
+            hlsInstances[elementId] = hls;
+          } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            // Native Safari browser fallbacks support HLS directly natively
+            videoEl.src = sourceUrl;
+          }
+        } else {
+          // Standard MP4 processing pipelines
+          videoEl.src = sourceUrl;
+        }
+      }
+
       function syncPlayer(isFirstLoad) {
         const broadcast = calculateCurrentBroadcast();
         if (!broadcast) return;
 
         const currentEl = activeVideo.get(0);
-        const expectedSrc = basePath + broadcast.file;
+        const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
 
-        if (isFirstLoad || currentEl.src !== expectedSrc || Math.abs(currentEl.currentTime - broadcast.seekTo) > 3) {
+        // Verify if stream targets or mathematical sync tracking bounds have broken rules
+        const currentTrackingSrc = currentEl.src || "";
+        if (isFirstLoad || !currentTrackingSrc.includes(broadcast.file) || Math.abs(currentEl.currentTime - broadcast.seekTo) > 4) {
           console.log(`Live Channel Match: Loading ${broadcast.file} jumping forward to ${broadcast.seekTo.toFixed(2)}s`);
           
-          currentEl.src = expectedSrc;
+          loadMediaSource(activeVideo, expectedSrc);
           currentEl.currentTime = broadcast.seekTo;
-          
-          // Apply the current global audio volume preference to the active layer element
           currentEl.muted = isGlobalMuted;
           
-          currentEl.play().catch(err => console.log("Browser playback interaction deferred:", err));
-          
+          currentEl.play().catch(err => console.log("Playback deferred:", err));
           setupSeamlessTransition(broadcast.remaining);
         }
       }
@@ -207,7 +242,8 @@
       function setupSeamlessTransition(timeRemaining) {
         clearTimeout(switchTimeout);
         
-        const triggerDelay = (timeRemaining - 1.0) * 1000;
+        // Prepare the background swap buffer 1.5 seconds early to accommodate network handshake rules on HLS
+        const triggerDelay = (timeRemaining - 1.5) * 1000;
         if (triggerDelay <= 0) return;
 
         switchTimeout = setTimeout(() => {
@@ -215,10 +251,10 @@
           if (!upcomingBroadcast) return;
 
           const bufferEl = bufferVideo.get(0);
-          bufferEl.src = basePath + upcomingBroadcast.file;
+          const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
+
+          loadMediaSource(bufferVideo, nextSrc);
           bufferEl.currentTime = 0;
-          
-          // Pre-load the background video matching the user's volume preference
           bufferEl.muted = isGlobalMuted;
           
           bufferEl.play().catch(() => {});
@@ -233,25 +269,17 @@
             bufferVideo = temp;
             
             syncPlayer(false);
-          }, 1000);
+          }, 1500);
 
         }, triggerDelay);
       }
 
-      // ==========================================
-      // UI BUTTON INTERACTION HANDLERS
-      // ==========================================
-      
       // Handle Sound Button Clicks
       $('#mute-btn').on('click', function() {
-        // Toggle our global tracker state
         isGlobalMuted = !isGlobalMuted;
-
-        // Apply state changes directly onto BOTH physical video layer feeds
         $('#video1').get(0).muted = isGlobalMuted;
         $('#video2').get(0).muted = isGlobalMuted;
 
-        // Switch the SVG display indicators layout based on current state
         if (isGlobalMuted) {
           $('#icon-muted').show();
           $('#icon-unmuted').hide();
@@ -261,17 +289,39 @@
         }
       });
 
-      // Handle Fullscreen Button Clicks
+      // ... (Previous loadMediaSource, syncPlayer, and setupSeamlessTransition functions run above here)
+
+      // ==========================================
+      // UI BUTTON INTERACTION HANDLERS
+      // ==========================================
+      
+      // Handle Sound Button Clicks
+      $('#mute-btn').on('click', function() {
+        isGlobalMuted = !isGlobalMuted;
+        $('#video1').get(0).muted = isGlobalMuted;
+        $('#video2').get(0).muted = isGlobalMuted;
+
+        if (isGlobalMuted) {
+          $('#icon-muted').show();
+          $('#icon-unmuted').hide();
+        } else {
+          $('#icon-muted').hide();
+          $('#icon-unmuted').show();
+        }
+      });
+
+      // Handle Fullscreen Button Clicks (The floated snippet!)
       $('#fullscreen-btn').on('click', function() {
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(err => {
-            console.error(`Error attempting to enable fullscreen: ${err.message}`);
+            console.error(`Fullscreen missing: ${err.message}`);
           });
         } else {
           document.exitFullscreen();
         }
       });
 
+      // Start the Synchronization Engine on Page Load (The floated snippet!)
       $(document).ready(initLiveSync);
     </script>
   </body>

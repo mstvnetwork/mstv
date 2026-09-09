@@ -159,6 +159,14 @@
 
       let hlsInstances = { 'video1': null, 'video2': null };
 
+      // FIX: video.src becomes an internal blob: URL once hls.js attaches media via
+      // MediaSource, so it can never be compared against the original .m3u8 path.
+      // We track the *intended* source per element ourselves instead, so syncPlayer
+      // can correctly tell "same stream, just drifted" apart from "stream actually
+      // changed" — without this, every 3s poll thought the source had changed and
+      // tore down/rebuilt the live HLS instance on the visible video, causing the blink.
+      let loadedSourceMap = { 'video1': '', 'video2': '' };
+
       async function initLiveSync() {
         try {
           const response = await fetch('playlist.json?t=' + new Date().getTime());
@@ -213,6 +221,10 @@
           hlsInstances[elementId] = null;
         }
 
+        // FIX: remember what we intended to load, independent of what videoEl.src
+        // ends up being (hls.js rewrites it to a blob: URL internally).
+        loadedSourceMap[elementId] = sourceUrl;
+
         if (sourceUrl.includes('.m3u8')) {
           if (Hls.isSupported()) {
             const hls = new Hls({ 
@@ -239,9 +251,14 @@
         if (!currentEl) return;
 
         const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
-        const currentTrackingSrc = currentEl.src || "";
-        
-        if (isFirstLoad || !currentTrackingSrc.includes(broadcast.file) || Math.abs(currentEl.currentTime - broadcast.seekTo) > 4) {
+
+        // FIX: read from loadedSourceMap (what we actually asked to be loaded)
+        // instead of currentEl.src (which is a meaningless blob: URL for HLS).
+        const activeId = activeVideo.attr('id');
+        const currentTrackingSrc = loadedSourceMap[activeId] || "";
+        const sameFile = currentTrackingSrc.includes(broadcast.file);
+
+        if (isFirstLoad || !sameFile) {
           console.log(`Live Channel Match: Loading ${broadcast.file} jumping forward to ${broadcast.seekTo.toFixed(2)}s`);
           
           loadMediaSource(activeVideo, expectedSrc, false);
@@ -250,6 +267,12 @@
           
           currentEl.play().catch(err => console.log("Playback deferred:", err));
           setupSeamlessTransition(broadcast.remaining);
+        } else if (Math.abs(currentEl.currentTime - broadcast.seekTo) > 4) {
+          // FIX: same stream already loaded and playing — just nudge the playhead
+          // back in sync instead of destroying/recreating the Hls instance, which
+          // was the actual source of the periodic visible blink.
+          console.log(`Drift correction: seeking to ${broadcast.seekTo.toFixed(2)}s without reload`);
+          currentEl.currentTime = broadcast.seekTo;
         }
       }
 

@@ -408,7 +408,28 @@
   /* ============================================================
      UTIL
   ============================================================ */
-  function nowUnix(){ return Date.now() / 1000; }
+  var serverOffsetMs = 0; // corrected_now = Date.now() + serverOffsetMs
+  var timeSynced = false;
+
+  function nowUnix(){ return (Date.now() + serverOffsetMs) / 1000; }
+
+  function syncServerTime(){
+    var t0 = Date.now();
+    fetch("https://worldtimeapi.org/api/timezone/Etc/UTC", { cache: "no-store" })
+      .then(function(res){ return res.json(); })
+      .then(function(data){
+        var t1 = Date.now();
+        var rtt = t1 - t0;
+        var serverMs = new Date(data.utc_datetime).getTime() + (rtt / 2);
+        serverOffsetMs = serverMs - t1;
+        timeSynced = true;
+        if (debugLine) debugLine.textContent = "time synced, offset " + Math.round(serverOffsetMs) + "ms";
+        forceResync();
+      })
+      .catch(function(){
+        // keep previous offset (0 on first failure); local clock is the fallback
+      });
+  }
 
   function fmtHMS(totalSeconds){
     totalSeconds = Math.max(0, Math.floor(totalSeconds));
@@ -627,6 +648,52 @@
   ============================================================ */
   var lastSwitchAt = 0;
 
+  /* Full, non-incremental resync: recomputes on-air item and offset directly
+     from corrected wall-clock time and forces the active layer to match,
+     regardless of what the layer currently thinks it's doing. This is what
+     protects against throttled/backgrounded tabs and clock corrections —
+     there is no "carry forward from last known state" anywhere in this path. */
+  function forceResync(){
+    if (playlist.length === 0 || playlistTotalDuration <= 0) return;
+    var onAir = findOnAir(elapsedInCycle(), playlist, playlistTotalDuration);
+    if (!onAir) return;
+    var item = onAir.item;
+    var offset = onAir.offset;
+    var active = layers[activeLayer];
+
+    if (active.loadedIndex === item.index && active.ready){
+      if (active.video){
+        try{
+          active.video.currentTime = offset;
+          applyMuteState(active.video);
+          safePlay(active.video);
+        }catch(e){}
+      }
+      updateUI(item, offset, engineLabel(active.kind));
+      return;
+    }
+    // Active layer is showing the wrong thing entirely (stale/suspended) —
+    // rebuild it directly rather than waiting for the standby handover path.
+    pendingSwitch = true;
+    prepareLayer(active, item, offset);
+    var waited = 0;
+    var iv = setInterval(function(){
+      waited += 100;
+      if (active.ready || active.kind === "iframe" || waited > 15000){
+        clearInterval(iv);
+        activateLayer(activeLayer);
+        updateUI(item, offset, engineLabel(active.kind));
+        pendingSwitch = false;
+      }
+    }, 100);
+  }
+
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible'){
+      forceResync();
+    }
+  });
+
   function tick(){
     if (playlist.length === 0) return;
 
@@ -813,6 +880,8 @@
   /* ============================================================
      BOOT
   ============================================================ */
+  syncServerTime();
+  setInterval(syncServerTime, 5 * 60 * 1000); // re-verify every 5 min, corrects any drift permanently
   fetchPlaylist();
   setInterval(fetchPlaylist, POLL_MS);
   setInterval(tick, WATCHDOG_MS);
@@ -823,4 +892,4 @@
 })();
 </script>
 </body>
-  </html>
+</html>

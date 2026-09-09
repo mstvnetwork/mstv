@@ -2,174 +2,138 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>Non-Linear Player</title>
+    <title>Serverless Globally Synced Live TV</title>
     <style>
-      body, html { 
-        background-color: #000; 
-        height: 100%; 
-        width: 100%; 
-        margin: 0; 
-        overflow: hidden;
-      }
-      video {
-        position: fixed;
-        top: 0;
-        left: 0;
-        min-width: 100%;
-        min-height: 100%;
-        object-fit: cover;
-      }
-      #drop {
-        position: fixed;
-        top: 0;
-        left: 0;
-        height: 100%; 
-        width: 100%;
-        z-index: 9999;
-      }
-      /* Ensure Dat.GUI remains readable on black background */
-      .dg.main {
-        z-index: 99999 !important;
-      }
+      body, html { background-color: #000; height: 100%; width: 100%; margin: 0; overflow: hidden; }
+      video { position: fixed; top: 0; left: 0; min-width: 100%; min-height: 100%; object-fit: cover; }
     </style>
   </head>
   <body>
 
-    <!-- FIXED: Removed the accidental 'data/' prefix from absolute GitHub URLs -->
-    <video id="video2" src="https://github.com/mstvnetwork/test1/releases/download/v1/song13.mp4" muted playsinline></video>
-    <video id="video1" src="https://github.com/mstvnetwork/test1/releases/download/v1/song7.mp4" autoplay muted playsinline></video>
-<!-- FIXED: Loading resources via CDNs to bypass Cloudflare Pages MIME errors -->
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Seamless Dual Player Buffer Components -->
+    <video id="video1" muted playsinline></video>
+    <video id="video2" muted playsinline></video>
 
-<!-- dat.GUI library required for line ps2:65 -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.9/dat.gui.min.js"></script>
-
-<!-- Cloudflare Turnstile -->
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script>
-      var pGetRand;
-      var getRand;
+      const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
 
-      // Settings
-      var settings = {
-        changeThresh : 0.1,
-        totalClips  : 14, // Set this to match your total available release assets
-        pathToClips : "https://github.com/mstvnetwork/test1/releases/download/v1/song", // Standardised dynamic URL path
-        pbRate : 1,
-        mode : 'random-playthrough',
+      let schedule = null;
+      
+      let activeVideo = $('#video1');
+      let bufferVideo = $('#video2');
+      let switchTimeout = null;
+
+      // Core synchronization engine logic
+      async function initLiveSync() {
+        try {
+          // Fetch the static schedule file baked by your repository automation
+          const response = await fetch('schedule.json?t=' + new Date().getTime());
+          schedule = await response.json();
+          
+          // Immediately sync the video stream location
+          syncPlayer(true);
+          
+          // Periodically monitor playback position alignment
+          setInterval(() => syncPlayer(false), 2000);
+        } catch (e) {
+          console.error("Failed to synchronize with serverless timeline schedule:", e);
+        }
       }
 
-      let rpt = Array.from(Array(settings.totalClips), (e,i)=>i+1); // generate 1 to totalClips
-      shuffle(rpt);
-      console.log("Initial Shuffled Playlist:", rpt);
-      let rptTracker = 0;
+      function calculateCurrentBroadcast() {
+        const currentUnixTime = Math.floor(Date.now() / 1000);
+        const elapsedSeconds = currentUnixTime - schedule.anchorTime;
+        
+        // Determine the remainder position within the overall looping block
+        let currentLoopPosition = elapsedSeconds % schedule.totalDuration;
+        if (currentLoopPosition < 0) currentLoopPosition += schedule.totalDuration;
 
-      // Setup GUI (Press 'H' to hide/show)
-      var gui = new dat.GUI();
-      gui.add(settings, 'totalClips').name("Total # of clips");
-      gui.add(settings, 'mode', [ 'linear', 'random', 'non-repeating-rand', 'random-playthrough' ] ).name("Playback Mode");
-      gui.add(settings, 'pathToClips').name("Clips Base URL");
-
-      // Storage
-      var video1 = $('#video1');
-      var video2 = $('#video2');
-      var v1d, v1ct, v2d, v2ct;
-      var linearTracker = 1;
-      var gate1 = true;
-      var gate2 = false;
-
-      // Check loop to switch clips seamlessly
-      setInterval(function(){ 
-        var v1_el = video1.get(0);
-        var v2_el = video2.get(0);
-
-        v1_el.playbackRate = settings.pbRate;
-        v2_el.playbackRate = settings.pbRate;
-
-        v1d = v1_el.duration || 0;
-        v1ct = v1_el.currentTime || 0;
-        v2d = v2_el.duration || 0;
-        v2ct = v2_el.currentTime || 0;
-
-        if(v1d > 0 && v1ct >= v1d - settings.changeThresh){
-          if(gate1){
-            toggle(video2, video1);
-            gate1 = false;
-            gate2 = true;
+        let accumulatedTime = 0;
+        for (let i = 0; i < schedule.playlist.length; i++) {
+          const clip = schedule.playlist[i];
+          if (currentLoopPosition >= accumulatedTime && currentLoopPosition < (accumulatedTime + clip.duration)) {
+            return {
+              index: i,
+              file: clip.file,
+              seekTo: currentLoopPosition - accumulatedTime,
+              remaining: (accumulatedTime + clip.duration) - currentLoopPosition
+            };
           }
+          accumulatedTime += clip.duration;
         }
-
-        if(v2d > 0 && v2ct >= v2d - settings.changeThresh){
-          if(gate2){
-            toggle(video1, video2);
-            gate2 = false;
-            gate1 = true;
-          }
-        }
-      }, 100); 
-
-      function toggle(element, pElement){
-        var el = element.get(0);
-        var pel = pElement.get(0);
-
-        // Pre-play background video to minimize gap delay
-        el.play().catch(function(e){ console.log("Playback error: ", e); });
-
-        setTimeout(function(){
-          element.css('z-index', '500');
-          pElement.css('z-index', '0');
-
-          if(settings.mode === 'random'){
-            getRand = Math.floor(Math.random() * settings.totalClips + 1);
-          }
-
-          if(settings.mode === 'linear'){
-            if(linearTracker >= settings.totalClips){
-              linearTracker = 1;
-            } else {
-              linearTracker++;
-            }
-            getRand = linearTracker;
-          }
-
-          if(settings.mode === 'non-repeating-rand'){
-            getRand = Math.floor(Math.random() * settings.totalClips + 1);
-            while(getRand == pGetRand){ 
-              getRand = Math.floor(Math.random() * settings.totalClips + 1);
-            }
-            pGetRand = getRand;
-          }
-
-          if(settings.mode === 'random-playthrough'){
-            rptTracker++;
-            if(rptTracker >= rpt.length){
-              let lastNum = rpt[rpt.length - 1];
-              while (rpt[0] === lastNum){
-                shuffle(rpt);
-              }
-              rptTracker = 0;
-            }
-            getRand = rpt[rptTracker];
-          }
-
-          // FIXED: Creates proper formatting, resulting in e.g., ".../v1/song11.mp4"
-          pel.src = settings.pathToClips + getRand + '.mp4';
-          pel.pause();
-        }, 150);
-
-        $('.dg').css('z-index', '99999');
+        return null;
       }
 
-      function shuffle(a) {
-        var j, x, i;
-        for (i = a.length - 1; i > 0; i--) {
-          j = Math.floor(Math.random() * (i + 1));
-          x = a[i];
-          a[i] = a[j];
-          a[j] = x;
+      function syncPlayer(isFirstLoad) {
+        if (!schedule) return;
+        
+        const broadcast = calculateCurrentBroadcast();
+        if (!broadcast) return;
+
+        const currentEl = activeVideo.get(0);
+        const expectedSrc = basePath + broadcast.file;
+
+        // If the current video source doesn't match the timeline or the player has drifted
+        if (isFirstLoad || currentEl.src !== expectedSrc || Math.abs(currentEl.currentTime - broadcast.seekTo) > 2) {
+          console.log(`Syncing channel: Loading ${broadcast.file} jumping to ${broadcast.seekTo.toFixed(2)}s`);
+          
+          currentEl.src = expectedSrc;
+          currentEl.currentTime = broadcast.seekTo;
+          currentEl.play().catch(err => console.log("Playback interaction deferred:", err));
+          
+          setupSeamlessTransition(broadcast.remaining);
         }
-        return a;
       }
+
+      function setupSeamlessTransition(timeRemaining) {
+        clearTimeout(switchTimeout);
+        
+        // Queue the next source transition to execute precisely 0.5 seconds before the video ends
+        const triggerDelay = (timeRemaining - 0.5) * 1000;
+        if (triggerDelay <= 0) return;
+
+        switchTimeout = setTimeout(() => {
+          // Identify the upcoming scheduled item in sequence loop
+          const currentUnixTime = Math.floor(Date.now() / 1000) + 1; 
+          const elapsedSeconds = currentUnixTime - schedule.anchorTime;
+          let currentLoopPosition = elapsedSeconds % schedule.totalDuration;
+          
+          let nextClipFile = schedule.playlist[0].file;
+          let accum = 0;
+          for (let i = 0; i < schedule.playlist.length; i++) {
+            if (currentLoopPosition >= accum && currentLoopPosition < (accum + schedule.playlist[i].duration)) {
+              nextClipFile = schedule.playlist[i].file;
+              break;
+            }
+            accum += schedule.playlist[i].duration;
+          }
+
+          // Prime the background element buffer layer
+          const bufferEl = bufferVideo.get(0);
+          bufferEl.src = basePath + nextClipFile;
+          bufferEl.currentTime = 0;
+          bufferEl.play().catch(() => {});
+
+          // Transition the display visibility layers
+          setTimeout(() => {
+            bufferVideo.css('z-index', '500');
+            activeVideo.css('z-index', '0');
+            activeVideo.get(0).pause();
+
+            // Swap player identities for continuous execution rotation
+            const temp = activeVideo;
+            activeVideo = bufferVideo;
+            bufferVideo = temp;
+            
+            // Re-arm synchronization loops
+            syncPlayer(false);
+          }, 500);
+
+        }, triggerDelay);
+      }
+
+      $(document).ready(initLiveSync);
     </script>
   </body>
 </html>

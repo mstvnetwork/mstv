@@ -13,14 +13,30 @@
         font-family: sans-serif;
       }
       
-      /* Seamless Dual Video Buffers */
+      /* 16:9 Letterboxed Universal Container Matrix */
+      .player-container {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 100vw;
+        height: 56.25vw; /* 16:9 ratio aspect based on width */
+        max-height: 100vh;
+        max-width: 177.78vh; /* 16:9 ratio aspect based on height */
+        transform: translate(-50%, -50%);
+        background: #000;
+        overflow: hidden;
+      }
+
+      /* Seamless Dual Video Layer Displays */
       video { 
-        position: fixed; 
+        position: absolute; 
         top: 0; 
         left: 0; 
-        min-width: 100%; 
-        min-height: 100%; 
-        object-fit: cover; 
+        width: 100%; 
+        height: 100%; 
+        object-fit: contain; /* Prevents visual cropping, preserves 16:9 frame geometry */
+        background-color: #000;
+        transition: opacity 0.4s ease-in-out; /* Smooth alpha cross-fade transition layout */
       }
 
       /* Master UI Overlay Layer */
@@ -95,9 +111,12 @@
   </head>
   <body>
 
-    <!-- Seamless Dual Player Buffer Components -->
-    <video id="video1" playsinline></video>
-    <video id="video2" playsinline></video>
+    <!-- Unified Geometric Viewing Box -->
+    <div class="player-container">
+      <!-- Opacity-managed physical buffers to eradicate raw display asset blinking -->
+      <video id="video1" playsinline style="z-index: 2; opacity: 1;"></video>
+      <video id="video2" playsinline style="z-index: 1; opacity: 0;"></video>
+    </div>
 
     <!-- Master Interactive UI Layer Container -->
     <div id="ui-layer">
@@ -138,7 +157,6 @@
       let switchTimeout = null;
       let isGlobalMuted = true;
 
-      // HLS Engine instances tracked per video component layer
       let hlsInstances = { 'video1': null, 'video2': null };
 
       async function initLiveSync() {
@@ -184,7 +202,7 @@
         return null;
       }
 
-      function loadMediaSource(videoContainer, sourceUrl) {
+      function loadMediaSource(videoContainer, sourceUrl, isBufferPlayer = false) {
         const videoEl = videoContainer.get(0);
         if (!videoEl) return;
         
@@ -197,7 +215,11 @@
 
         if (sourceUrl.includes('.m3u8')) {
           if (Hls.isSupported()) {
-            const hls = new Hls({ maxMaxBufferLength: 10 });
+            const hls = new Hls({ 
+              maxMaxBufferLength: 10,
+              enableWorker: true,
+              lowLatencyMode: true
+            });
             hls.loadSource(sourceUrl);
             hls.attachMedia(videoEl);
             hlsInstances[elementId] = hls;
@@ -222,7 +244,7 @@
         if (isFirstLoad || !currentTrackingSrc.includes(broadcast.file) || Math.abs(currentEl.currentTime - broadcast.seekTo) > 4) {
           console.log(`Live Channel Match: Loading ${broadcast.file} jumping forward to ${broadcast.seekTo.toFixed(2)}s`);
           
-          loadMediaSource(activeVideo, expectedSrc);
+          loadMediaSource(activeVideo, expectedSrc, false);
           currentEl.currentTime = broadcast.seekTo;
           currentEl.muted = isGlobalMuted;
           
@@ -234,7 +256,8 @@
       function setupSeamlessTransition(timeRemaining) {
         clearTimeout(switchTimeout);
         
-        const triggerDelay = (timeRemaining - 1.5) * 1000;
+        // HLS network handshake safety barrier overhead buffer allocation
+        const triggerDelay = (timeRemaining - 2.5) * 1000;
         if (triggerDelay <= 0) return;
 
         switchTimeout = setTimeout(() => {
@@ -246,33 +269,53 @@
 
           const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
 
-          loadMediaSource(bufferVideo, nextSrc);
+          // Silent background layer hydration execution
+          loadMediaSource(bufferVideo, nextSrc, true);
           bufferEl.currentTime = 0;
           bufferEl.muted = isGlobalMuted;
           
+          // Force internal pipeline decoding execution silently
           bufferEl.play().catch(() => {});
 
-          setTimeout(() => {
-            bufferVideo.css('z-index', '500');
-            activeVideo.css('z-index', '0');
-            
-            const oldActiveEl = activeVideo.get(0);
-            if (oldActiveEl) oldActiveEl.pause();
+          // Track HLS internal buffer synchronization statuses prior to flipping active layers
+          let hasSwitched = false;
+          const executeSeamlessSwap = () => {
+            if (hasSwitched) return;
+            hasSwitched = true;
 
-            const temp = activeVideo;
-            activeVideo = bufferVideo;
-            bufferVideo = temp;
+            // Opacity cross-fade transitions completely mask underlying player layer initialization black blinking frames
+            bufferVideo.css({'z-index': '2', 'opacity': '1'});
+            activeVideo.css({'z-index': '1', 'opacity': '0'});
             
-            syncPlayer(false);
-          }, 1500);
+            setTimeout(() => {
+              const oldActiveEl = activeVideo.get(0);
+              if (oldActiveEl) oldActiveEl.pause();
+
+              const temp = activeVideo;
+              activeVideo = bufferVideo;
+              bufferVideo = temp;
+              
+              syncPlayer(false);
+            }, 400); // Wait for transition fade duration to finish
+          };
+
+          // If the incoming stream is HLS, wait for actual frames to decode instead of guessing time rules
+          const activeHlsInstance = hlsInstances[bufferVideo.attr('id')];
+          if (activeHlsInstance) {
+            activeHlsInstance.once(Hls.Events.FRAG_BUFFERED, () => {
+              // Extra safety delay to ensure decoding loop pipeline is flushed cleanly
+              setTimeout(executeSeamlessSwap, 600);
+            });
+            // Fallback timeout boundary constraint
+            setTimeout(executeSeamlessSwap, 2200);
+          } else {
+            // Standard static MP4 handling transitions
+            setTimeout(executeSeamlessSwap, 2000);
+          }
 
         }, triggerDelay);
       }
 
-      // ==========================================
-      // UI BUTTON INTERACTION HANDLERS
-      // ==========================================
-      
       // Handle Sound Button Clicks
       $('#mute-btn').on('click', function() {
         isGlobalMuted = !isGlobalMuted;

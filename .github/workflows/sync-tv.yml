@@ -1,0 +1,43 @@
+name: Generate Live TV Schedule
+on:
+  push:
+    paths:
+      - 'playlist.json'
+  schedule:
+    - cron: '0 0 * * *' # Regenerates daily to prevent timestamp bloating
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Bake Timeline Schedule
+        run: |
+          node -e "
+          const fs = require('fs');
+          const playlist = JSON.parse(fs.readFileSync('playlist.json'));
+          
+          // Anchor the entire live station loop to a fixed point in time (Unix Timestamp)
+          const anchorTime = 1767225600; // Fixed starting point (e.g., Jan 1, 2026)
+          
+          let totalDuration = 0;
+          playlist.forEach(item => totalDuration += item.duration);
+          
+          const scheduleData = {
+            anchorTime: anchorTime,
+            totalDuration: totalDuration,
+            playlist: playlist
+          };
+          
+          fs.writeFileSync('schedule.json', JSON.stringify(scheduleData, null, 2));
+          "
+          
+      - name: Commit and Push Baked Schedule
+        run: |
+          git config --global user.name 'LiveTV-Bot'
+          git config --global user.email 'bot@livetv.internal'
+          git add schedule.json
+          git commit -m "Automated update: Synchronized schedule timeline" || exit 0
+          git push

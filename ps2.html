@@ -95,13 +95,16 @@
   </head>
   <body>
 
-  
+    <!-- Seamless Dual Player Buffer Components -->
+    <video id="video1" playsinline></video>
+    <video id="video2" playsinline></video>
+
     <!-- Master Interactive UI Layer Container -->
     <div id="ui-layer">
       
       <!-- Top Right: Station Logo Layout -->
       <div class="logo-container">
-        <img id="tv-logo" src="https://githubusercontent.com" alt="TV Logo">
+        <img id="tv-logo" src="https://raw.githubusercontent.com/mstvnetwork/test1/main/logo.png" alt="TV Logo">
       </div>
 
       <!-- Bottom Right: Dynamic Interactive Control Widgets -->
@@ -122,12 +125,8 @@
     </div>
 
     <!-- Required Dependency Components -->
-    <!-- FIXED: Loading resources via CDNs to bypass Cloudflare Pages MIME errors -->
-<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.4.0/dist/hls.min.js"></script>
-
-
-    
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
     
     <script>
       const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
@@ -185,18 +184,17 @@
         return null;
       }
 
-      // Safe video loader abstraction handling native streams vs HLS streams
       function loadMediaSource(videoContainer, sourceUrl) {
         const videoEl = videoContainer.get(0);
+        if (!videoEl) return;
+        
         const elementId = videoContainer.attr('id');
 
-        // Destroy existing HLS wrapper instances attached to this layout node to free up memory
         if (hlsInstances[elementId]) {
           hlsInstances[elementId].destroy();
           hlsInstances[elementId] = null;
         }
 
-        // Detect if file target string is an HLS live manifest stream
         if (sourceUrl.includes('.m3u8')) {
           if (Hls.isSupported()) {
             const hls = new Hls({ maxMaxBufferLength: 10 });
@@ -204,11 +202,9 @@
             hls.attachMedia(videoEl);
             hlsInstances[elementId] = hls;
           } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            // Native Safari browser fallbacks support HLS directly natively
             videoEl.src = sourceUrl;
           }
         } else {
-          // Standard MP4 processing pipelines
           videoEl.src = sourceUrl;
         }
       }
@@ -218,10 +214,11 @@
         if (!broadcast) return;
 
         const currentEl = activeVideo.get(0);
-        const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
+        if (!currentEl) return;
 
-        // Verify if stream targets or mathematical sync tracking bounds have broken rules
+        const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
         const currentTrackingSrc = currentEl.src || "";
+        
         if (isFirstLoad || !currentTrackingSrc.includes(broadcast.file) || Math.abs(currentEl.currentTime - broadcast.seekTo) > 4) {
           console.log(`Live Channel Match: Loading ${broadcast.file} jumping forward to ${broadcast.seekTo.toFixed(2)}s`);
           
@@ -237,7 +234,6 @@
       function setupSeamlessTransition(timeRemaining) {
         clearTimeout(switchTimeout);
         
-        // Prepare the background swap buffer 1.5 seconds early to accommodate network handshake rules on HLS
         const triggerDelay = (timeRemaining - 1.5) * 1000;
         if (triggerDelay <= 0) return;
 
@@ -246,6 +242,8 @@
           if (!upcomingBroadcast) return;
 
           const bufferEl = bufferVideo.get(0);
+          if (!bufferEl) return;
+
           const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
 
           loadMediaSource(bufferVideo, nextSrc);
@@ -257,7 +255,9 @@
           setTimeout(() => {
             bufferVideo.css('z-index', '500');
             activeVideo.css('z-index', '0');
-            activeVideo.get(0).pause();
+            
+            const oldActiveEl = activeVideo.get(0);
+            if (oldActiveEl) oldActiveEl.pause();
 
             const temp = activeVideo;
             activeVideo = bufferVideo;
@@ -269,57 +269,33 @@
         }, triggerDelay);
       }
 
-      // Handle Sound Button Clicks
-      $('#mute-btn').on('click', function() {
-        isGlobalMuted = !isGlobalMuted;
-        $('#video1').get(0).muted = isGlobalMuted;
-        $('#video2').get(0).muted = isGlobalMuted;
-
-        if (isGlobalMuted) {
-          $('#icon-muted').show();
-          $('#icon-unmuted').hide();
-        } else {
-          $('#icon-muted').hide();
-          $('#icon-unmuted').show();
-        }
-      });
-
-      // ... (Previous loadMediaSource, syncPlayer, and setupSeamlessTransition functions run above here)
       // ==========================================
       // UI BUTTON INTERACTION HANDLERS
       // ==========================================
       
       // Handle Sound Button Clicks
       $('#mute-btn').on('click', function() {
-        // Toggle our global tracker state
         isGlobalMuted = !isGlobalMuted;
+        
+        const v1 = document.getElementById('video1');
+        const v2 = document.getElementById('video2');
 
-        const v1 = $('#video1').get(0);
-        const v2 = $('#video2').get(0);
+        if (v1) v1.muted = isGlobalMuted;
+        if (v2) v2.muted = isGlobalMuted;
 
-        // Explicitly apply state onto browser element properties
-        v1.muted = isGlobalMuted;
-        v2.muted = isGlobalMuted;
-
-        // Force volume values to 100% explicitly to clear internal library overrides
         if (!isGlobalMuted) {
-          v1.volume = 1.0;
-          v2.volume = 1.0;
-          
-          // Re-trigger playback immediately to bypass browser security context freezes
-          v1.play().catch(() => {});
-          v2.play().catch(() => {});
+          if (v1) v1.volume = 1.0;
+          if (v2) v2.volume = 1.0;
+          if (v1) v1.play().catch(() => {});
+          if (v2) v2.play().catch(() => {});
         }
 
-        // Switch the SVG display indicators layout based on current state
         if (isGlobalMuted) {
           $('#icon-muted').show();
           $('#icon-unmuted').hide();
-          console.log("Global State Changed: Muted");
         } else {
           $('#icon-muted').hide();
           $('#icon-unmuted').show();
-          console.log("Global State Changed: Unmuted");
         }
       });
 
@@ -336,17 +312,19 @@
 
       // Boot Layer Setup Hook
       function bootPlayerSetup() {
-        // Enforce safe initial muted properties in JavaScript to satisfy browser Autoplay Rules
-        $('#video1').get(0).muted = true;
-        $('#video2').get(0).muted = true;
-        $('#video1').get(0).volume = 0.0;
-        $('#video2').get(0).volume = 0.0;
+        const v1 = document.getElementById('video1');
+        const v2 = document.getElementById('video2');
+
+        if (v1 && v2) {
+          v1.muted = true;
+          v2.muted = true;
+          v1.volume = 0.0;
+          v2.volume = 0.0;
+        }
         
-        // Fire synchronization logic
         initLiveSync();
       }
 
-      // Start the Engine on Document Ready via our explicit boot script
       $(document).ready(bootPlayerSetup);
     </script>
   </body>

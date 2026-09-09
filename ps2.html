@@ -101,13 +101,12 @@
         // State Machine Tracking
         let playlist = [];
         let isMuted = true; // Modern browsers force initial autoplay muted
-        let expectedTime = 0; 
         let globalLoopTimer = null;
 
         // Maintain structures for P1 and P2
         const managers = {
-            p1: { domId: 'p1', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1 },
-            p2: { domId: 'p2', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1 }
+            p1: { domId: 'p1', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1, expectedTime: 0 },
+            p2: { domId: 'p2', activeType: null, videoEl: null, hlsInstance: null, iframeEl: null, currentIndex: -1, expectedTime: 0 }
         };
 
         let activePlayerKey = 'p1';
@@ -133,7 +132,7 @@
                 }
                 cumulativeTime += item.duration;
             }
-            return { index: 0, seekTo: 0, remaining: playlist.duration };
+            return { index: 0, seekTo: 0, remaining: playlist[0].duration };
         }
 
         // --- ENGINE CONTROLLERS ---
@@ -212,6 +211,8 @@
                 video.setAttribute('preload', 'auto');
                 mgr.videoEl = video;
 
+                mgr.expectedTime = startTime;
+
                 if (media.type === 'mp4') {
                     video.src = media.url;
                 } else if (media.type === 'hls') {
@@ -225,22 +226,31 @@
                     }
                 }
 
-                // Strict Anti-Scrubbing Implementations
-                expectedTime = startTime;
-                video.currentTime = startTime;
+                // Wait for metadata to load before forcing the seek position
+                video.addEventListener('loadedmetadata', () => {
+                    video.currentTime = mgr.expectedTime;
+                });
 
+                // Extra safety: force currentTime if it tries to autoplay from 0
+                video.addEventListener('play', () => {
+                    if (Math.abs(video.currentTime - mgr.expectedTime) > 2) {
+                        video.currentTime = mgr.expectedTime;
+                    }
+                });
+
+                // Strict Anti-Scrubbing Implementations
                 video.addEventListener('timeupdate', () => {
                     // Check if time jumped out of a logical step (1.5s tolerance window)
-                    if (Math.abs(video.currentTime - expectedTime) > 1.5) {
-                        video.currentTime = expectedTime; // Hard reset to timeline target
+                    if (Math.abs(video.currentTime - mgr.expectedTime) > 1.5) {
+                        video.currentTime = mgr.expectedTime; // Hard reset to timeline target
                     } else {
-                        expectedTime = video.currentTime;
+                        mgr.expectedTime = video.currentTime;
                     }
                 });
 
                 video.addEventListener('seeking', () => {
-                    if (Math.abs(video.currentTime - expectedTime) > 1.5) {
-                        video.currentTime = expectedTime; // Anti-Scrub blocking verification
+                    if (Math.abs(video.currentTime - mgr.expectedTime) > 1.5) {
+                        video.currentTime = mgr.expectedTime; // Anti-Scrub blocking verification
                     }
                 });
 
@@ -263,7 +273,7 @@
         function playInstance(playerKey) {
             const mgr = managers[playerKey];
             if (mgr.videoEl) {
-                expectedTime = mgr.videoEl.currentTime;
+                mgr.expectedTime = mgr.videoEl.currentTime;
                 mgr.videoEl.play().catch(e => console.log("Playback interaction catch:", e));
             }
         }
@@ -281,6 +291,7 @@
                 mgr.videoEl = null;
             }
             mgr.iframeEl = null;
+            mgr.expectedTime = 0;
             document.getElementById(mgr.domId).innerHTML = '';
         }
 

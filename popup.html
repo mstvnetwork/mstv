@@ -12,7 +12,7 @@
     <style>
         :root { 
             --primary: #00ffA0;
-            /* Default alignment values - override these with saved values */
+            /* Default alignment values - paste saved CSS values here */
             --frame-height: 100%;
             --frame-top: 0px;
             --frame-left: 0%;
@@ -26,9 +26,9 @@
             display: flex; align-items: center; justify-content: center;
             overflow: hidden;
             font-family: sans-serif;
+            touch-action: none;
         }
 
-        /* Updated: Expands naturally to full screen instead of 16:9 ratio */
         .viewport {
             width: 100vw; 
             height: 100vh;
@@ -125,7 +125,7 @@
             display: none; text-align: center; color: #fff;
         }
 
-        /* --- Private Mode Alignment Toolbar --- */
+        /* --- Floating Alignment Toolbox --- */
         #alignmentToolbox {
             display: none;
             position: fixed;
@@ -133,13 +133,14 @@
             left: 20px;
             background: rgba(18, 18, 18, 0.95);
             border: 1px solid var(--primary);
-            box-shadow: 0 4px 20px rgba(0,255,160,0.2);
+            box-shadow: 0 4px 20px rgba(0,255,160,0.3);
             border-radius: 8px;
             padding: 15px;
             z-index: 20000;
             color: #fff;
-            width: 260px;
+            width: 270px;
             backdrop-filter: blur(8px);
+            user-select: none;
         }
 
         #alignmentToolbox.visible {
@@ -155,7 +156,8 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 6px;
+            padding-bottom: 8px;
+            touch-action: none;
         }
 
         .control-group {
@@ -190,15 +192,34 @@
         .toolbox-btn:hover {
             opacity: 0.9;
         }
+
+        /* Text Area for Hardcode Copying */
+        #codeExportBox {
+            display: none;
+            margin-top: 10px;
+        }
+
+        #codeExportBox textarea {
+            width: 93%;
+            height: 70px;
+            background: #000;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            padding: 6px;
+            resize: none;
+        }
     </style>
 </head>
 <body>
 
-    <!-- Private Alignment Toolbar -->
+    <!-- Private Floating Alignment Toolbar -->
     <div id="alignmentToolbox">
         <div class="toolbox-header" id="toolboxDragHandle">
-            <span>Alignment Controls</span>
-            <span style="font-size: 10px; opacity:0.7;">[Private Mode]</span>
+            <span>✋ Drag Toolbox</span>
+            <span style="font-size: 10px; opacity:0.7;">[Private]</span>
         </div>
         <div class="control-group">
             <label>Top Offset:</label>
@@ -217,9 +238,16 @@
             <input type="range" id="scaleInput" min="0.5" max="2" step="0.05" value="1">
         </div>
         <button class="toolbox-btn" id="saveAlignBtn">Save Alignment</button>
+
+        <!-- Copy Text Box Output -->
+        <div id="codeExportBox">
+            <div style="font-size:11px; margin-bottom:4px; color:#aaa;">Copy & paste into :root { }</div>
+            <textarea id="codeText" readonly></textarea>
+            <button class="toolbox-btn" id="copyTextBtn" style="background:#333; color:#fff; margin-top:4px;">Copy to Clipboard</button>
+        </div>
     </div>
 
-    <!-- Mobile Viewer (Full Screen Viewport) -->
+    <!-- Mobile Viewer -->
     <div class="viewport" id="playerWrapper">
         <div id="lockLayer"></div>
 
@@ -229,7 +257,7 @@
         <div id="status" class="click-hint"></div>
         <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
-        <!-- Full Height Frame Window -->
+        <!-- Full Page Frame Container -->
         <div id="frameMover">
             <iframe id="captureFrame" 
                     is="x-frame-bypass"
@@ -272,6 +300,8 @@
         const heightInput = document.getElementById('heightInput');
         const scaleInput = document.getElementById('scaleInput');
         const toolbox = document.getElementById('alignmentToolbox');
+        const codeExportBox = document.getElementById('codeExportBox');
+        const codeText = document.getElementById('codeText');
 
         // Apply alignment variables
         function applyAlignment(top, left, height, scale) {
@@ -305,6 +335,7 @@
             heightInput.addEventListener('input', updateFromSliders);
             scaleInput.addEventListener('input', updateFromSliders);
 
+            // Save and Generate Copyable CSS Text
             document.getElementById('saveAlignBtn').addEventListener('click', function() {
                 const config = {
                     top: topInput.value,
@@ -314,32 +345,53 @@
                 };
                 localStorage.setItem('streamAlignmentConfig', JSON.stringify(config));
                 
-                // Output CSS snippet to console for permanent code hardcoding
-                console.log("=== HARDCODE THIS CSS INTO YOUR ROOT CONFIG ===");
-                console.log(`--frame-top: ${config.top}px;\n--frame-left: ${config.left}%;\n--frame-height: ${config.height}%;\n--frame-scale: ${config.scale};`);
+                const generatedCss = `--frame-top: ${config.top}px;\n--frame-left: ${config.left}%;\n--frame-height: ${config.height}%;\n--frame-scale: ${config.scale};`;
                 
-                alert('Alignment saved! It will now reflect in public mode on this browser.');
+                codeText.value = generatedCss;
+                codeExportBox.style.display = 'block';
             });
 
-            // Make Toolbox Draggable
+            // Copy Button Handler
+            document.getElementById('copyTextBtn').addEventListener('click', function() {
+                codeText.select();
+                navigator.clipboard.writeText(codeText.value);
+                this.innerText = "Copied!";
+                setTimeout(() => { this.innerText = "Copy to Clipboard"; }, 2000);
+            });
+
+            // Touch & Mouse Dragging for Floating Toolbox
             const handle = document.getElementById('toolboxDragHandle');
             let isDragging = false, startX, startY, initialLeft, initialTop;
 
-            handle.addEventListener('mousedown', (e) => {
+            function onDragStart(e) {
                 isDragging = true;
-                startX = e.clientX;
-                startY = e.clientY;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                startX = clientX;
+                startY = clientY;
                 initialLeft = toolbox.offsetLeft;
                 initialTop = toolbox.offsetTop;
-            });
+            }
 
-            document.addEventListener('mousemove', (e) => {
+            function onDragMove(e) {
                 if (!isDragging) return;
-                toolbox.style.left = (initialLeft + e.clientX - startX) + 'px';
-                toolbox.style.top = (initialTop + e.clientY - startY) + 'px';
-            });
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                toolbox.style.left = (initialLeft + clientX - startX) + 'px';
+                toolbox.style.top = (initialTop + clientY - startY) + 'px';
+            }
 
-            document.addEventListener('mouseup', () => isDragging = false);
+            function onDragEnd() {
+                isDragging = false;
+            }
+
+            handle.addEventListener('mousedown', onDragStart);
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+
+            handle.addEventListener('touchstart', onDragStart, { passive: true });
+            document.addEventListener('touchmove', onDragMove, { passive: true });
+            document.addEventListener('touchend', onDragEnd);
         }
 
         // --- 2. Player Lock Logic ---

@@ -2,14 +2,13 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Sony TV HD - Stream Player</title>
 
     <script src="https://unpkg.com/@unpkg/x-frame-bypass"></script>
     <script type="module" src="https://unpkg.com/@unpkg/x-frame-bypass"></script>
 
     <style id="dynamicCrop">
-        /* Default fallback CSS values */
         :root {
             --crop-top: -120px;
             --crop-left: -10px;
@@ -19,9 +18,21 @@
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body, html { width: 100%; height: 100%; background: #000; overflow: hidden; font-family: system-ui, sans-serif; }
+        
+        /* Fixed position locks the body so mobile browser address bars don't trigger layout shifts */
+        html, body { 
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            width: 100%; height: 100%; 
+            background: #000; overflow: hidden; 
+            font-family: system-ui, sans-serif; 
+        }
 
-        .viewport { width: 100vw; height: 100vh; position: relative; overflow: hidden; background: #000; }
+        .viewport { 
+            position: absolute; 
+            top: 0; left: 0; width: 100%; height: 100%; 
+            overflow: hidden; background: #000; 
+        }
 
         #frameMover {
             position: absolute;
@@ -35,7 +46,7 @@
 
         #captureFrame { width: 100%; height: 100%; border: none; }
 
-        /* --- PRIVATE ALIGNMENT CONTROLS (Hidden by default) --- */
+        /* --- PRIVATE ALIGNMENT CONTROLS --- */
         #alignerPanel {
             display: none;
             position: fixed;
@@ -73,6 +84,7 @@
             position: fixed; top: 10px; right: 10px; z-index: 99999;
             background: rgba(255,0,0,0.8); color: #fff; font-size: 10px;
             padding: 4px 8px; border-radius: 4px; font-weight: bold;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -107,27 +119,32 @@
     </div>
 
 <script>
-    // Reads mode from URL search parameters (defaults to 'public' if omitted)
     const urlParams = new URLSearchParams(window.location.search);
     const mode = urlParams.get('mode')?.toLowerCase() || 'public';
 
+    // HARDCODED DEFAULTS (Update these when copying from Private mode)
     let topVal = -120;
     let leftVal = -10;
     let zoomVal = 1.6;
-
-    if (mode === 'private') {
-        document.getElementById('alignerPanel').classList.add('active');
-        document.getElementById('modeBadge').style.display = 'block';
-    }
 
     function applyStyles() {
         document.documentElement.style.setProperty('--crop-top', topVal + 'px');
         document.documentElement.style.setProperty('--crop-left', leftVal + 'px');
         document.documentElement.style.setProperty('--crop-zoom', zoomVal);
 
-        document.getElementById('lblTop').textContent = topVal;
-        document.getElementById('lblLeft').textContent = leftVal;
-        document.getElementById('lblZoom').textContent = zoomVal.toFixed(1);
+        if (mode === 'private') {
+            document.getElementById('lblTop').textContent = topVal;
+            document.getElementById('lblLeft').textContent = leftVal;
+            document.getElementById('lblZoom').textContent = zoomVal.toFixed(1);
+        }
+    }
+
+    // Force style application immediately on load for both Public & Private modes
+    applyStyles();
+
+    if (mode === 'private') {
+        document.getElementById('alignerPanel').classList.add('active');
+        document.getElementById('modeBadge').style.display = 'block';
     }
 
     function moveTop(delta) { topVal += delta; applyStyles(); }
@@ -138,7 +155,7 @@
     function copyCSS() {
         const cssCode = `:root {\n  --crop-top: ${topVal}px;\n  --crop-left: ${leftVal}px;\n  --crop-zoom: ${zoomVal};\n}`;
         navigator.clipboard.writeText(cssCode);
-        alert('CSS copied! Replace the default values inside <style id="dynamicCrop"> with this snippet for public deployment.');
+        alert('CSS copied! Update both the <style id="dynamicCrop"> variables AND the let topVal/leftVal/zoomVal variables in JS.');
     }
 </script>
 </body>

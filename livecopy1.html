@@ -809,10 +809,12 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
+  // Read new frame alignment variables with standard defaults
   const frameTop = ch.frameTop || '-181px';
-const frameLeft = ch.frameLeft || '0%';
-const frameHeight = ch.frameHeight || '100%';
-const frameScale = ch.frameScale || '1';
+  const frameLeft = ch.frameLeft || '0%';
+  const frameHeight = ch.frameHeight || '100%';
+  const frameScale = ch.frameScale || '1';
+
   const title = esc(ch.name);
   const safeTargetUrl = esc(targetUrl);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
@@ -847,26 +849,29 @@ const frameScale = ch.frameScale || '1';
     .ticker-wrap { height: 24px; background: #000; border-bottom: 1px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; flex-shrink: 0; }
     .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee 22s linear infinite; font-size: 11px; font-weight: 600; color: #3df2ff; }
     @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+    
     .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
     .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    .crop-viewport iframe {
-  position: absolute;
-  top: ${frameTop};
-  left: ${frameLeft};
-  width: 100%;
-  height: ${frameHeight};
-  transform: scale(${frameScale});
-  transform-origin: top left;
-  border: 0;
-}
     
-    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
+    /* Frame positioning using scale transform */
+    .crop-viewport iframe { 
+      position: absolute; 
+      top: ${frameTop}; 
+      left: ${frameLeft}; 
+      width: 100%; 
+      height: ${frameHeight}; 
+      transform: scale(${frameScale});
+      transform-origin: top left;
+      border: 0; 
+    }
+    
+    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 230px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
     #alignerPanel.active { display: block; }
     .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .align-grid button:hover, .zoom-controls button:hover { background: #3df2ff; color: #000; }
-    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 4px; }
+    .align-grid button, .control-row button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 4px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .align-grid button:hover, .control-row button:hover { background: #3df2ff; color: #000; }
+    .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 6px; }
     .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
@@ -883,23 +888,34 @@ const frameScale = ch.frameScale || '1';
     
     ${isPrivate ? `
     <div id="alignerPanel">
-      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
+      <div style="font-weight:bold; color:#3df2ff; margin-bottom:6px; display:flex; justify-content:space-between;">
         <span>Stream Aligner</span>
         <span id="closeAligner" style="cursor:pointer; color:#8790ac;">✕</span>
       </div>
-      <div class="zoom-controls">
-        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
+      
+      <div class="control-row">
+        <span>Scale: <strong id="valScale">${frameScale}</strong></span>
         <div>
-          <button id="btnZoomOut">-</button>
-          <button id="btnZoomIn">+</button>
+          <button id="btnScaleOut">-</button>
+          <button id="btnScaleIn">+</button>
         </div>
       </div>
+
+      <div class="control-row">
+        <span>Height: <strong id="valHeight">${frameHeight}</strong></span>
+        <div>
+          <button id="btnHeightOut">-</button>
+          <button id="btnHeightIn">+</button>
+        </div>
+      </div>
+
       <div class="align-grid">
         <div></div><button id="btnUp">▲</button><div></div>
         <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
         <div></div><button id="btnDown">▼</button><div></div>
       </div>
-      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
+
+      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${frameTop}</span> | Left: <span id="valLeft">${frameLeft}</span></div>
       <button class="copy-btn" id="btnCopyJson">📋 Copy JSON</button>
     </div>` : ''}
   </div>
@@ -914,39 +930,48 @@ const frameScale = ch.frameScale || '1';
       const toggleBtn = document.getElementById('toggleAligner');
       const closeBtn = document.getElementById('closeAligner');
 
-      let topVal = parseInt("${topShift}") || 0;
-      let leftVal = parseInt("${leftShift}") || 0;
-      let zoomVal = parseInt("${zoomLevel}") || 100;
+      let topVal = parseInt("${frameTop}", 10) || -181;
+      let leftVal = parseInt("${frameLeft}", 10) || 0;
+      let heightVal = parseInt("${frameHeight}", 10) || 100;
+      let scaleVal = parseFloat("${frameScale}") || 1.0;
 
       function updateStyles() {
         iframe.style.top = topVal + 'px';
-        iframe.style.left = leftVal + 'px';
-        iframe.style.width = zoomVal + '%';
-        iframe.style.height = zoomVal + '%';
+        iframe.style.left = leftVal + '%';
+        iframe.style.height = heightVal + '%';
+        iframe.style.transform = 'scale(' + scaleVal + ')';
 
         document.getElementById('valTop').textContent = topVal + 'px';
-        document.getElementById('valLeft').textContent = leftVal + 'px';
-        document.getElementById('valZoom').textContent = zoomVal + '%';
+        document.getElementById('valLeft').textContent = leftVal + '%';
+        document.getElementById('valHeight').textContent = heightVal + '%';
+        document.getElementById('valScale').textContent = scaleVal.toFixed(2);
       }
 
-      if (toggleBtn) {
-        toggleBtn.onclick = () => panel.classList.toggle('active');
-      }
-      if (closeBtn) {
-        closeBtn.onclick = () => panel.classList.remove('active');
-      }
+      if (toggleBtn) toggleBtn.onclick = () => panel.classList.toggle('active');
+      if (closeBtn) closeBtn.onclick = () => panel.classList.remove('active');
 
       document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
       document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
-      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
-      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
-      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
+      document.getElementById('btnLeft').onclick = () => { leftVal -= 1; updateStyles(); };
+      document.getElementById('btnRight').onclick = () => { leftVal += 1; updateStyles(); };
+      
+      document.getElementById('btnReset').onclick = () => { 
+        topVal = -181; leftVal = 0; heightVal = 100; scaleVal = 1.0; 
+        updateStyles(); 
+      };
 
-      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
-      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
+      document.getElementById('btnScaleIn').onclick = () => { scaleVal = +(scaleVal + 0.05).toFixed(2); updateStyles(); };
+      document.getElementById('btnScaleOut').onclick = () => { scaleVal = Math.max(0.1, +(scaleVal - 0.05).toFixed(2)); updateStyles(); };
+
+      document.getElementById('btnHeightIn').onclick = () => { heightVal += 10; updateStyles(); };
+      document.getElementById('btnHeightOut').onclick = () => { heightVal = Math.max(10, heightVal - 10); updateStyles(); };
 
       document.getElementById('btnCopyJson').onclick = () => {
-        const jsonSnippet = '"cropTop": "' + topVal + 'px",\\n"cropLeft": "' + leftVal + 'px",\\n"cropZoom": "' + zoomVal + '%"';
+        const jsonSnippet = '"frameTop": "' + topVal + 'px",\\n' +
+                            '"frameLeft": "' + leftVal + '%",\\n' +
+                            '"frameHeight": "' + heightVal + '%",\\n' +
+                            '"frameScale": "' + scaleVal.toFixed(2) + '"';
+
         navigator.clipboard.writeText(jsonSnippet).then(() => {
           const btn = document.getElementById('btnCopyJson');
           btn.textContent = '✅ Copied!';
@@ -961,8 +986,7 @@ const frameScale = ch.frameScale || '1';
   mstvPopupWindow.document.open();
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
-      }
-
+}
 async function playChannel(ch) {
   if (!ch) return;
   
@@ -1203,4 +1227,4 @@ document.addEventListener('DOMContentLoaded', init);
   </script>
                             
 </body>
-    </html>
+  </html>

@@ -1,226 +1,197 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MSTV Pop-Up Stream Tester</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background: #0a0c14; color: #f2f4fb; padding: 24px; }
-    .container { max-width: 800px; margin: 0 auto; background: #0f1220; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px; padding: 20px; }
-    h1 { font-size: 20px; color: #3df2ff; margin-bottom: 16px; }
-    .form-group { margin-bottom: 14px; }
-    label { display: block; font-size: 12px; color: #8790ac; margin-bottom: 6px; font-weight: 600; }
-    input[type="text"], select { width: 100%; background: #06070b; border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 10px; border-radius: 6px; font-size: 13px; outline: none; }
-    input[type="text"]:focus { border-color: #3df2ff; }
-    .row { display: flex; gap: 12px; }
-    .row .form-group { flex: 1; }
-    button.btn-launch { width: 100%; background: #3df2ff; color: #000; border: none; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 14px; cursor: pointer; transition: 0.2s; }
-    button.btn-launch:hover { background: #28cb7a; }
-    .status-box { margin-top: 16px; padding: 12px; background: rgba(0,0,0,0.4); border-radius: 6px; font-size: 12px; color: #a0aabf; line-height: 1.5; }
-    code { background: rgba(255,255,255,0.1); padding: 2px 5px; border-radius: 4px; color: #3df2ff; }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sony TV HD - Mobile Stream</title>
+    
+    <!-- Required Libraries for Iframe Capture -->
+    <script src="https://unpkg.com/@unpkg/x-frame-bypass"></script>
+    <script type="module" src="https://unpkg.com/@unpkg/x-frame-bypass"></script>
+
+    <style>
+        :root { --primary: #00ffA0; }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+
+        .viewport {
+            width: 100vw; height: 100vh;
+            overflow: hidden; position: relative;
+            background: #000;
+        }
+
+        /* Matches JSON: cropTop: "-50px", cropLeft: "47px", cropZoom: "72%" */
+        #frameMover {
+            position: absolute;
+            top: -50px;
+            left: 47px;
+            width: 72%;
+            height: 72%;
+        }
+
+        #captureFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        #lockLayer {
+            position: absolute;
+            top: 0; left: 0; 
+            width: 100%; height: 100%;
+            z-index: 9999; 
+            background: rgba(0,0,0,0.01); 
+            pointer-events: none; 
+            cursor: pointer;
+        }
+
+        #lockLayer.active {
+            pointer-events: all !important;
+            cursor: default;
+        }
+
+        .click-hint {
+            position: absolute; bottom: 60px; right: 15px;
+            color: var(--primary);
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        #resetBtn {
+            position: fixed; bottom: 12px; right: 12px;
+            padding: 8px 15px;
+            background: rgba(0, 255, 160, 0.15);
+            color: #00ffa0;
+            border: 1px solid rgba(0, 255, 160, 0.6);
+            border-radius: 30px;
+            font-family: sans-serif;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            z-index: 10002;
+        }
+
+        #ticker {
+            position: absolute; 
+            top: 0px; 
+            left: 0;
+            width: 100%; 
+            background: transparent;
+            overflow: hidden; 
+            white-space: nowrap;
+            z-index: 10000; 
+            padding: 11px 0;
+        }
+
+        #ticker span {
+            display: inline-block; 
+            padding-left: 100%;
+            animation: scroll 30s linear infinite;
+            font-family: sans-serif; 
+            font-size: 14px;
+            color: #FFFF00;
+            font-weight: bold;
+            text-shadow: 
+                -2px -2px 0 #000,  
+                 2px -2px 0 #000,
+                -2px  2px 0 #000,
+                 2px  2px 0 #000;
+        }
+
+        @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        #fallback {
+            display: none; text-align: center; color: #fff; font-family: sans-serif;
+        }
+    </style>
 </head>
 <body>
 
-<div class="container">
-  <h1>📺 MSTV Pop-Up URL Tester</h1>
-  
-  <div class="form-group">
-    <label>Stream / Embed Target URL</label>
-    <input type="text" id="targetUrl" placeholder="https://bhoomtv.me/live/sony-tv-hd/" value="https://bhoomtv.me/live/sony-tv-hd/">
-  </div>
+    <!-- Mobile Viewer -->
+    <div class="viewport" id="playerWrapper">
+        <div id="lockLayer"></div>
 
-  <div class="form-group">
-    <label>Channel Name</label>
-    <input type="text" id="channelName" value="Sony TV HD Test">
-  </div>
+        <!-- Ticker -->
+        <div id="ticker"><span>🔴 LIVE | Welcome to MSTV Network! Click on the button below Enjoy high-speed HD streaming uninterrupted.</span></div>
 
-  <div class="row">
-    <div class="form-group">
-      <label>Crop Top Shift</label>
-      <input type="text" id="cropTop" value="-50px">
-    </div>
-    <div class="form-group">
-      <label>Crop Left Shift</label>
-      <input type="text" id="cropLeft" value="47px">
-    </div>
-    <div class="form-group">
-      <label>Crop Zoom</label>
-      <input type="text" id="cropZoom" value="72%">
-    </div>
-  </div>
+        <div id="status" class="click-hint"></div>
+        <button id="resetBtn" onclick="location.reload()">Refresh</button>
 
-  <div class="row">
-    <div class="form-group">
-      <label>Access Mode (Controls)</label>
-      <select id="accessMode">
-        <option value="private" selected>private (Show Aligner Controls)</option>
-        <option value="public">public (Hide Controls)</option>
-      </select>
+        <!-- The Fixed Capture Window aligned to JSON coordinates -->
+        <div id="frameMover">
+            <iframe id="captureFrame" 
+                    is="x-frame-bypass"
+                    src="https://bhoomtv.org/live/sony-tv-hd/" 
+                    scrolling="no">
+            </iframe>
+        </div>
     </div>
-    <div class="form-group">
-      <label>Referrer Policy</label>
-      <select id="referrerPolicy">
-        <option value="no-referrer" selected>no-referrer (Bypasses Hotlinking)</option>
-        <option value="no-referrer-when-downgrade">no-referrer-when-downgrade</option>
-        <option value="origin">origin</option>
-        <option value="unsafe-url">unsafe-url</option>
-      </select>
+
+    <!-- Non-Mobile Fallback -->
+    <div id="fallback">
+        <h2>Mobile Device Required</h2>
+        <p>Please open this page on Android or iOS to view the stream.</p>
     </div>
-  </div>
-
-  <button class="btn-launch" onclick="testPopUp()">🚀 Launch Stream Pop-Up</button>
-
-  <div class="status-box">
-    <strong>Testing Tips:</strong>
-    <ul>
-      <li>If the frame remains blank or says <code>Refused to display...</code> in the Developer Console (F12), the server sets an <code>X-Frame-Options: SAMEORIGIN</code> or <code>Content-Security-Policy</code> block.</li>
-      <li>If the stream stops loading halfway through, try switching the <strong>Referrer Policy</strong> to <code>no-referrer</code>.</li>
-    </ul>
-  </div>
-</div>
 
 <script>
-let mstvPopupWindow = null;
+(function() {
+    function isAllowedDevice() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
+        return /iPhone|iPad|iPod|Android/i.test(ua);
+    }
 
-function esc(str) {
-  return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function testPopUp() {
-  const targetUrl = document.getElementById('targetUrl').value.trim();
-  const title = esc(document.getElementById('channelName').value.trim());
-  const topShift = document.getElementById('cropTop').value.trim() || '0px';
-  const leftShift = document.getElementById('cropLeft').value.trim() || '0px';
-  const zoomLevel = document.getElementById('cropZoom').value.trim() || '100%';
-  const isPrivate = document.getElementById('accessMode').value === 'private';
-  const refPolicy = document.getElementById('referrerPolicy').value;
-
-  if (!targetUrl) {
-    alert('Please enter a target URL.');
-    return;
-  }
-
-  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
-
-  if (mstvPopupWindow && !mstvPopupWindow.closed) {
-    mstvPopupWindow.close();
-  }
-
-  mstvPopupWindow = window.open('about:blank', 'MSTVPopUpTester', windowFeatures);
-
-  if (!mstvPopupWindow) {
-    alert('Pop-up was blocked! Allow pop-ups for this tester file.');
-    return;
-  }
-
-  const popupHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>${title} - Tester</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html { margin: 0; padding: 0; background: #06070b; color: #f2f4fb; font-family: system-ui, sans-serif; overflow: hidden; width: 100%; height: 100vh; display: flex; flex-direction: column; }
-    .popup-header { height: 38px; background: #0f1220; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
-    .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
-    .align-btn { background: rgba(61, 242, 255, 0.15); color: #3df2ff; border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto; }
-    .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
-    .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    .crop-viewport iframe { position: absolute; top: ${topShift}; left: ${leftShift}; width: ${zoomLevel}; height: ${zoomLevel}; border: 0; }
-    
-    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 220px; font-size: 11px; color: #fff; }
-    #alignerPanel.active { display: block; }
-    .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .zoom-controls button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 5px; border-radius: 4px; cursor: pointer; font-weight: bold; }
-    .zoom-controls { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 4px; }
-  </style>
-</head>
-<body>
-  <header class="popup-header">
-    <span class="title">📺 ${title}</span>
-    ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
-  </header>
-  <div class="crop-viewport-wrapper">
-    <div class="crop-viewport">
-      <iframe id="popFrame" src="${esc(targetUrl)}" referrerpolicy="${refPolicy}" scrolling="no" allowfullscreen></iframe>
-    </div>
-    ${isPrivate ? `
-    <div id="alignerPanel">
-      <div style="font-weight:bold; color:#3df2ff; margin-bottom:4px; display:flex; justify-content:space-between;">
-        <span>Stream Aligner</span>
-        <span id="closeAligner" style="cursor:pointer;">✕</span>
-      </div>
-      <div class="zoom-controls">
-        <span>Zoom: <strong id="valZoom">${zoomLevel}</strong></span>
-        <div><button id="btnZoomOut">-</button><button id="btnZoomIn">+</button></div>
-      </div>
-      <div class="align-grid">
-        <div></div><button id="btnUp">▲</button><div></div>
-        <button id="btnLeft">◄</button><button id="btnReset">R</button><button id="btnRight">►</button>
-        <div></div><button id="btnDown">▼</button><div></div>
-      </div>
-      <div style="font-size:9px; color:#8790ac; margin-bottom:4px;">Top: <span id="valTop">${topShift}</span> | Left: <span id="valLeft">${leftShift}</span></div>
-      <button class="copy-btn" id="btnCopyJson">📋 Copy Generated JSON</button>
-    </div>` : ''}
-  </div>
-
-  <script>
-    (function() {
-      const isPrivate = ${isPrivate};
-      if (!isPrivate) return;
-
-      const iframe = document.getElementById('popFrame');
-      const panel = document.getElementById('alignerPanel');
-      const toggleBtn = document.getElementById('toggleAligner');
-      const closeBtn = document.getElementById('closeAligner');
-
-      let topVal = parseInt("${topShift}") || 0;
-      let leftVal = parseInt("${leftShift}") || 0;
-      let zoomVal = parseInt("${zoomLevel}") || 100;
-
-      function updateStyles() {
-        iframe.style.top = topVal + 'px';
-        iframe.style.left = leftVal + 'px';
-        iframe.style.width = zoomVal + '%';
-        iframe.style.height = zoomVal + '%';
-        document.getElementById('valTop').textContent = topVal + 'px';
-        document.getElementById('valLeft').textContent = leftVal + 'px';
-        document.getElementById('valZoom').textContent = zoomVal + '%';
-      }
-
-      if (toggleBtn) toggleBtn.onclick = () => panel.classList.toggle('active');
-      if (closeBtn) closeBtn.onclick = () => panel.classList.remove('active');
-
-      document.getElementById('btnUp').onclick = () => { topVal -= 5; updateStyles(); };
-      document.getElementById('btnDown').onclick = () => { topVal += 5; updateStyles(); };
-      document.getElementById('btnLeft').onclick = () => { leftVal -= 5; updateStyles(); };
-      document.getElementById('btnRight').onclick = () => { leftVal += 5; updateStyles(); };
-      document.getElementById('btnReset').onclick = () => { topVal = 0; leftVal = 0; zoomVal = 100; updateStyles(); };
-
-      document.getElementById('btnZoomIn').onclick = () => { zoomVal += 2; updateStyles(); };
-      document.getElementById('btnZoomOut').onclick = () => { zoomVal = Math.max(10, zoomVal - 2); updateStyles(); };
-
-      document.getElementById('btnCopyJson').onclick = () => {
-        const jsonSnippet = '"cropTop": "' + topVal + 'px",\\n"cropLeft": "' + leftVal + 'px",\\n"cropZoom": "' + zoomVal + '%"';
-        navigator.clipboard.writeText(jsonSnippet).then(() => {
-          const btn = document.getElementById('btnCopyJson');
-          btn.textContent = '✅ Copied!';
-          setTimeout(() => btn.textContent = '📋 Copy Generated JSON', 1500);
+    if (!isAllowedDevice()) {
+        document.addEventListener("DOMContentLoaded", function() {
+            const wrapper = document.getElementById('playerWrapper');
+            const fallback = document.getElementById('fallback');
+            if (wrapper) wrapper.remove();
+            if (fallback) fallback.style.display = 'block';
         });
-      };
-    })();
-  <\/script>
-</body>
-</html>`;
+        return;
+    }
 
-  mstvPopupWindow.document.open();
-  mstvPopupWindow.document.write(popupHtml);
-  mstvPopupWindow.document.close();
-}
+    document.addEventListener("DOMContentLoaded", function() {
+        const wrapper = document.getElementById('playerWrapper');
+        const shield = document.getElementById('lockLayer');
+        const status = document.getElementById('status');
+        
+        let clickCount = 0;
+        const maxClicks = 35;
+        let locked = false;
+
+        function lockPlayer() {
+            shield.classList.add('active');
+            status.innerText = "CONTROLS LOCKED";
+            locked = true;
+            setTimeout(() => { status.style.opacity = "0"; }, 500000);
+        }
+
+        wrapper.addEventListener('click', function() {
+            if (locked) return;
+            clickCount++;
+            let remaining = maxClicks - clickCount;
+            if (remaining > 0) {
+                status.innerText = `Setup Mode: ${remaining} clicks left`;
+            }
+            if (clickCount >= maxClicks) {
+                lockPlayer();
+            }
+        });
+
+        setTimeout(lockPlayer, 6000000);
+    });
+})();
 </script>
-
 </body>
 </html>

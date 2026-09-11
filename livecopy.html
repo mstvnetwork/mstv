@@ -858,6 +858,21 @@ function logo(ch) {
 function openPopUpStream(ch, targetUrl) {
   const esc = (str) => String(str || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
+  // Device check: Allow mobile phones and tablets, block Windows / Desktop PCs
+  const ua = navigator.userAgent || '';
+  const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|PlayBook/i.test(ua) || 
+                           ((navigator.platform === 'MacIntel' || navigator.platform === 'Macintosh') && navigator.maxTouchPoints > 0);
+
+  const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
+  const fallbackMessage = ch.popupFallbackMsg || 
+    "📱 Mobile & Tablet Access Only: This stream is optimized for mobile and tablet viewing and cannot be played on Windows or desktop devices. Please open this link on your mobile phone or tablet to watch live.";
+
+  if (popupRestriction === 'restricted' && !isMobileOrTablet) {
+    showError(fallbackMessage);
+    updateNowPlaying(ch);
+    return;
+  }
+
   const frameTop = ch.frameTop || '-181px';
   const frameLeft = ch.frameLeft || '0%';
   const frameHeight = ch.frameHeight || '100%';
@@ -1005,7 +1020,7 @@ function openPopUpStream(ch, targetUrl) {
       outline: none;
     }
 
-    /* Chrome Interactive Filler Container */
+    /* Interactive Filler Container */
     #headerCoverOverlay {
       display: none; 
       position: absolute;
@@ -1102,7 +1117,7 @@ function openPopUpStream(ch, targetUrl) {
       transform: scale(0.96);
     }
 
-    /* Landscape Restriction Overlay for Chrome Mobile */
+    /* Landscape Overlay for Small Mobile Devices */
     #landscapeBlockOverlay {
       display: none;
       position: fixed;
@@ -1116,8 +1131,8 @@ function openPopUpStream(ch, targetUrl) {
       padding: 20px;
       color: #3df2ff;
     }
-    
-    @media (orientation: landscape) and (max-width: 900px) {
+
+    @media (orientation: landscape) and (max-width: 767px) {
       #landscapeBlockOverlay {
         display: flex !important;
       }
@@ -1190,7 +1205,7 @@ function openPopUpStream(ch, targetUrl) {
       </iframe>
     </div>
 
-    <!-- Chrome Interactive Filler Container -->
+    <!-- Interactive Chrome Filler Container -->
     <div id="headerCoverOverlay">
       <div class="filler-content">
         <div class="filler-badge">
@@ -1267,9 +1282,8 @@ function openPopUpStream(ch, targetUrl) {
       // Detect Chrome specifically
       const ua = navigator.userAgent;
       const isChrome = /Chrome/i.test(ua) && !/SamsungBrowser/i.test(ua) && !/Kiwi/i.test(ua);
-      const isChromeMobile = isChrome && /Mobile/i.test(ua);
+      const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(ua);
 
-      // Explicitly lock orientation to Portrait on Chrome
       function enforcePortraitLock() {
         if (isChrome && screen.orientation && screen.orientation.lock) {
           screen.orientation.lock('portrait').catch(function(err) {
@@ -1278,10 +1292,9 @@ function openPopUpStream(ch, targetUrl) {
         }
       }
 
-      // Try initial lock on script load
       enforcePortraitLock();
 
-      if (mask && isChromeMobile) {
+      if (mask && isChrome && isMobileOrTablet) {
         mask.style.display = 'block';
       }
 
@@ -1289,7 +1302,6 @@ function openPopUpStream(ch, targetUrl) {
         if (mask) {
           mask.classList.add('hidden-player-active');
         }
-        // Trigger orientation lock on gesture engagement
         enforcePortraitLock();
       }
 

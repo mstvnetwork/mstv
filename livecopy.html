@@ -855,23 +855,27 @@ function logo(ch) {
        <div class="row-logo-fallback" style="display:none">📺</div>`
     : `<div class="row-logo-fallback">📺</div>`;
 }
-function openPopUpStream(ch, targetUrl) {
+ function openPopUpStream(ch, targetUrl) {
   const esc = (str) => String(str || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
   // Device check: Allow mobile phones and tablets, block Windows / Desktop PCs
   const ua = navigator.userAgent || '';
-  const isMobileOrTablet = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|PlayBook/i.test(ua) || 
-                           ((navigator.platform === 'MacIntel' || navigator.platform === 'Macintosh') && navigator.maxTouchPoints > 0);
+  
+  // 1. Standard Mobile / Tablet User Agents
+  const isStandardMobile = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|PlayBook/i.test(ua);
 
-  const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-  const fallbackMessage = ch.popupFallbackMsg || 
-    "📱 Mobile & Tablet Access Only: This stream is optimized for mobile and tablet viewing and cannot be played on Windows or desktop devices. Please open this link on your mobile phone or tablet to watch live.";
+  // 2. iPads running iPadOS (which report as Macintosh with Touch support)
+  const isIPadOS = (navigator.platform === 'MacIntel' || /Macintosh/i.test(ua)) && 
+                   navigator.maxTouchPoints && 
+                   navigator.maxTouchPoints > 1;
 
-  if (popupRestriction === 'restricted' && !isMobileOrTablet) {
-    showError(fallbackMessage);
-    updateNowPlaying(ch);
-    return;
-  }
+  // 3. Android / Other Non-Windows Touch Tablets
+  const isTouchTablet = navigator.maxTouchPoints && 
+                        navigator.maxTouchPoints > 1 && 
+                        !/Windows NT/i.test(ua);
+
+  const isMobileOrTablet = isStandardMobile || isIPadOS || isTouchTablet;
+
 
   const frameTop = ch.frameTop || '-181px';
   const frameLeft = ch.frameLeft || '0%';

@@ -863,9 +863,8 @@ function openPopUpStream(ch, targetUrl) {
   const frameHeight = ch.frameHeight || '100%';
   const frameScale = ch.frameScale || '1';
   
-  // Default values for mask & filler positioning
-  const maskTop = ch.maskTop || '150px';
-  const maskHeight = ch.maskHeight || '90px';
+  const maskTop = ch.maskTop || '0px';
+  const maskHeight = ch.maskHeight || '320px';
 
   const title = esc(ch.name);
   const safeTargetUrl = esc(targetUrl);
@@ -1006,35 +1005,22 @@ function openPopUpStream(ch, targetUrl) {
       outline: none;
     }
 
-    /* 1. Permanent Plain Black Overlay (Always stays behind filler on Chrome) */
+    /* Interactive Chrome Filler Container */
     #headerCoverOverlay {
-      display: none; /* Revealed by JS on Chrome Mobile */
+      display: none; /* Controlled strictly by JS for Chrome Mobile */
       position: absolute;
       top: ${maskTop};
       left: 0;
       width: 100%;
       height: ${maskHeight};
-      background: #000;
-      z-index: 50;
-      pointer-events: none;
-    }
-
-    /* 2. Interactive Outer Filler Widget (Sits on top of the black mask) */
-    #interactiveFiller {
-      display: none; /* Revealed by JS on Chrome Mobile */
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 320px;
       background: linear-gradient(180deg, #05070e 0%, #0c101d 100%);
-      z-index: 60; /* Above black mask */
+      z-index: 50;
       pointer-events: auto;
       border-bottom: 1px solid rgba(61, 242, 255, 0.2);
       transition: opacity 0.3s ease, visibility 0.3s ease;
     }
 
-    #interactiveFiller.hidden-filler {
+    #headerCoverOverlay.hidden-player-active {
       opacity: 0 !important;
       visibility: hidden !important;
       pointer-events: none !important;
@@ -1176,11 +1162,8 @@ function openPopUpStream(ch, targetUrl) {
       </iframe>
     </div>
 
-    <!-- Permanent Black Mask to obscure the embedded header (bhoomtv) -->
-    <div id="headerCoverOverlay"></div>
-
-    <!-- Interactive Chrome Filler Container -->
-    <div id="interactiveFiller">
+    <!-- Chrome Interactive Filler Container -->
+    <div id="headerCoverOverlay">
       <div class="filler-content">
         <div class="filler-badge">
           <span class="pulse-dot"></span> STREAM READY & ONLINE
@@ -1194,7 +1177,7 @@ function openPopUpStream(ch, targetUrl) {
         </div>
 
         <button class="quick-start-btn" id="fillerActionBtn">
-          ⬇️⬇️⬇️ Click On Sony Tv Text 
+          ▶ CLICK HERE TO LOAD PLAYER
         </button>
       </div>
     </div>
@@ -1230,12 +1213,12 @@ function openPopUpStream(ch, targetUrl) {
 
       <div class="control-row">
         <label>Mask Top (px):</label>
-        <input type="range" id="maskTopInput" min="0" max="500" value="${parseInt(maskTop, 10) || 150}">
+        <input type="range" id="maskTopInput" min="0" max="500" value="${parseInt(maskTop, 10) || 0}">
       </div>
 
       <div class="control-row">
         <label>Mask Height (px):</label>
-        <input type="range" id="maskHeightInput" min="0" max="300" value="${parseInt(maskHeight, 10) || 90}">
+        <input type="range" id="maskHeightInput" min="0" max="400" value="${parseInt(maskHeight, 10) || 320}">
       </div>
 
       <button class="action-btn" id="saveAlignBtn">Save All Settings</button>
@@ -1251,7 +1234,6 @@ function openPopUpStream(ch, targetUrl) {
   <script>
     (function() {
       const mask = document.getElementById('headerCoverOverlay');
-      const filler = document.getElementById('interactiveFiller');
       const actionBtn = document.getElementById('fillerActionBtn');
 
       // Detect Chrome Mobile strictly (exclude Samsung Internet & Kiwi)
@@ -1261,27 +1243,32 @@ function openPopUpStream(ch, targetUrl) {
                              !/SamsungBrowser/i.test(ua) && 
                              !/Kiwi/i.test(ua);
 
-      // Display both black overlay and filler exclusively on Chrome Mobile
-      if (isChromeMobile) {
-        if (mask) mask.style.display = 'block';
-        if (filler) filler.style.display = 'block';
+      // Display filler exclusively on Chrome Mobile
+      if (mask && isChromeMobile) {
+        mask.style.display = 'block';
       }
 
-      function hideFillerOnly() {
-        if (filler) {
-          filler.classList.add('hidden-filler');
+      function hideFillerAndFocus() {
+        if (mask) {
+          mask.classList.add('hidden-player-active');
         }
       }
 
       if (actionBtn) {
-        actionBtn.addEventListener('click', hideFillerOnly);
+        actionBtn.addEventListener('click', hideFillerAndFocus);
       }
+
+      // Auto-hide filler when user interacts anywhere on screen after stream click
+      document.addEventListener('click', function(e) {
+        if (e.target.id === 'fillerActionBtn' || e.target.classList.contains('quick-start-btn')) {
+          hideFillerAndFocus();
+        }
+      });
 
       const isPrivate = ${isPrivate};
       if (!isPrivate) return;
 
       if (mask) mask.style.display = 'block';
-      if (filler) filler.style.display = 'block';
 
       const iframe = document.getElementById('popFrame');
       const toolbox = document.getElementById('draggableToolbox');
@@ -1405,6 +1392,7 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
 }
+
 async function playChannel(ch) {
   if (!ch) return;
   

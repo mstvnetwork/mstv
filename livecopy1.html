@@ -809,25 +809,25 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
-  
-  console.log("Channel Object:", ch);
-  console.log("Access value:", ch ? ch.access : "No object passed");
-  
-  // Robust check (ignores accidental spaces and case differences)
-  const isPrivate = ch && String(ch.access).trim().toLowerCase() === 'private';
-  
-  
-  const frameTop = ch.frameTop || '28px';
-  const frameLeft = ch.frameLeft || '-7%';
-  const frameHeight = ch.frameHeight || '209%';
-  const frameScale = ch.frameScale || '1.1';
+  // Helper esc function (fallback if not defined globally)
+  const esc = (str) => String(str || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
-
+  const frameTop = ch.frameTop || '-181px';
+  const frameLeft = ch.frameLeft || '0%';
+  const frameHeight = ch.frameHeight || '100%';
+  const frameScale = ch.frameScale || '1';
+  
+  // Overlay Mask Defaults
+  const maskTop = ch.maskTop || '150px';
+  const maskHeight = ch.maskHeight || '90px';
 
   const title = esc(ch.name);
   const safeTargetUrl = esc(targetUrl);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
+  // Robust check for private access mode
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPrivate = (ch && String(ch.access || '').trim().toLowerCase() === 'private') || urlParams.get('mode') === 'private';
   
   const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
@@ -848,7 +848,7 @@ function openPopUpStream(ch, targetUrl) {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${title} - MSTV Stream</title>
-<style>
+  <style>
     * { 
       box-sizing: border-box; 
       margin: 0; 
@@ -862,7 +862,7 @@ function openPopUpStream(ch, targetUrl) {
       padding: 0; 
       width: 100vw; 
       height: 100vh; 
-      height: 100dvh; /* Dynamic viewport height fix for Samsung/Kiwi address bars */
+      height: 100dvh; 
       background: #000; 
       color: #f2f4fb; 
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
@@ -966,10 +966,22 @@ function openPopUpStream(ch, targetUrl) {
       -webkit-transform: scale(${frameScale});
       
       transform-origin: 0 0 !important; 
-      -webkit-transform-origin: 0 0 !important;
+      -webkit-transform-origin: 0 0 !important; 
       
       border: 0; 
       outline: none;
+    }
+
+    /* Black Cover Mask to Hide Header (bhoomtv) Across Browsers */
+    #headerCoverOverlay {
+      position: absolute;
+      top: ${maskTop};
+      left: 0;
+      width: 100%;
+      height: ${maskHeight};
+      background: #000;
+      z-index: 50;
+      pointer-events: none;
     }
     
     /* Private Draggable ToolBox */
@@ -983,7 +995,7 @@ function openPopUpStream(ch, targetUrl) {
       border: 1px solid #3df2ff; 
       border-radius: 8px; 
       padding: 12px; 
-      width: 260px; 
+      width: 270px; 
       box-shadow: 0 4px 20px rgba(61, 242, 255, 0.2); 
       font-size: 11px; 
       color: #fff; 
@@ -1015,10 +1027,10 @@ function openPopUpStream(ch, targetUrl) {
       margin-bottom: 8px; 
     }
     .control-row label { 
-      width: 80px; 
+      width: 95px; 
     }
     .control-row input { 
-      width: 130px; 
+      width: 125px; 
       accent-color: #3df2ff; 
     }
     
@@ -1043,7 +1055,7 @@ function openPopUpStream(ch, targetUrl) {
     }
     #codeExportBox textarea { 
       width: 100%; 
-      height: 60px; 
+      height: 75px; 
       background: #000; 
       color: #3df2ff; 
       border: 1px solid #3df2ff; 
@@ -1073,6 +1085,9 @@ function openPopUpStream(ch, targetUrl) {
               allowfullscreen="true">
       </iframe>
     </div>
+
+    <!-- Black Cover Mask to conceal unwanted page elements across Chrome -->
+    <div id="headerCoverOverlay"></div>
     
     ${isPrivate ? `
     <div id="draggableToolbox">
@@ -1101,7 +1116,19 @@ function openPopUpStream(ch, targetUrl) {
         <input type="range" id="scaleInput" min="0.5" max="2.5" step="0.05" value="${parseFloat(frameScale) || 1.0}">
       </div>
 
-      <button class="action-btn" id="saveAlignBtn">Save Alignment Settings</button>
+      <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin: 6px 0;">
+
+      <div class="control-row">
+        <label>Mask Top (px):</label>
+        <input type="range" id="maskTopInput" min="0" max="500" value="${parseInt(maskTop, 10) || 150}">
+      </div>
+
+      <div class="control-row">
+        <label>Mask Height (px):</label>
+        <input type="range" id="maskHeightInput" min="0" max="300" value="${parseInt(maskHeight, 10) || 90}">
+      </div>
+
+      <button class="action-btn" id="saveAlignBtn">Save All Settings</button>
 
       <div id="codeExportBox">
         <div style="font-size:10px; margin-bottom:3px; color:#aaa;">JSON Object Config:</div>
@@ -1117,6 +1144,7 @@ function openPopUpStream(ch, targetUrl) {
       if (!isPrivate) return;
 
       const iframe = document.getElementById('popFrame');
+      const mask = document.getElementById('headerCoverOverlay');
       const toolbox = document.getElementById('draggableToolbox');
       const toggleBtn = document.getElementById('toggleAligner');
       const closeBtn = document.getElementById('closeAligner');
@@ -1126,54 +1154,74 @@ function openPopUpStream(ch, targetUrl) {
       const leftInput = document.getElementById('leftInput');
       const heightInput = document.getElementById('heightInput');
       const scaleInput = document.getElementById('scaleInput');
+      
+      const maskTopInput = document.getElementById('maskTopInput');
+      const maskHeightInput = document.getElementById('maskHeightInput');
+
       const codeExportBox = document.getElementById('codeExportBox');
       const codeText = document.getElementById('codeText');
 
-      // 1. Load saved config from local storage if available
+      // 1. Restore persistent config from local storage if available
       const streamId = "${title}".replace(/\s+/g, '_').toLowerCase();
       const savedConfig = localStorage.getItem('popupAlign_' + streamId);
       if (savedConfig) {
-        const config = JSON.parse(savedConfig);
-        topInput.value = parseInt(config.frameTop, 10);
-        leftInput.value = parseInt(config.frameLeft, 10);
-        heightInput.value = parseInt(config.frameHeight, 10);
-        scaleInput.value = parseFloat(config.frameScale);
-        applyStyles();
+        try {
+          const config = JSON.parse(savedConfig);
+          if (config.frameTop) topInput.value = parseInt(config.frameTop, 10);
+          if (config.frameLeft) leftInput.value = parseInt(config.frameLeft, 10);
+          if (config.frameHeight) heightInput.value = parseInt(config.frameHeight, 10);
+          if (config.frameScale) scaleInput.value = parseFloat(config.frameScale);
+          if (config.maskTop) maskTopInput.value = parseInt(config.maskTop, 10);
+          if (config.maskHeight) maskHeightInput.value = parseInt(config.maskHeight, 10);
+        } catch(e) {}
+        applyAllStyles();
       }
 
-      function applyStyles() {
+      function applyAllStyles() {
         iframe.style.top = topInput.value + 'px';
         iframe.style.left = leftInput.value + '%';
         iframe.style.height = heightInput.value + '%';
         iframe.style.transform = 'scale(' + scaleInput.value + ')';
+        iframe.style.webkitTransform = 'scale(' + scaleInput.value + ')';
+
+        if (mask) {
+          mask.style.top = maskTopInput.value + 'px';
+          mask.style.height = maskHeightInput.value + 'px';
+        }
       }
 
-      // Input change listeners
-      topInput.addEventListener('input', applyStyles);
-      leftInput.addEventListener('input', applyStyles);
-      heightInput.addEventListener('input', applyStyles);
-      scaleInput.addEventListener('input', applyStyles);
+      // Live Slider Event Listeners
+      topInput.addEventListener('input', applyAllStyles);
+      leftInput.addEventListener('input', applyAllStyles);
+      heightInput.addEventListener('input', applyAllStyles);
+      scaleInput.addEventListener('input', applyAllStyles);
+      maskTopInput.addEventListener('input', applyAllStyles);
+      maskHeightInput.addEventListener('input', applyAllStyles);
 
-      // Save and Generate JSON
+      // Save & Export Snippet
       document.getElementById('saveAlignBtn').addEventListener('click', function() {
         const config = {
           frameTop: topInput.value + 'px',
           frameLeft: leftInput.value + '%',
           frameHeight: heightInput.value + '%',
-          frameScale: scaleInput.value
+          frameScale: scaleInput.value,
+          maskTop: maskTopInput.value + 'px',
+          maskHeight: maskHeightInput.value + 'px'
         };
         localStorage.setItem('popupAlign_' + streamId, JSON.stringify(config));
 
         const jsonSnippet = '"frameTop": "' + config.frameTop + '",\\n' +
                             '"frameLeft": "' + config.frameLeft + '",\\n' +
                             '"frameHeight": "' + config.frameHeight + '",\\n' +
-                            '"frameScale": "' + config.frameScale + '"';
+                            '"frameScale": "' + config.frameScale + '",\\n' +
+                            '"maskTop": "' + config.maskTop + '",\\n' +
+                            '"maskHeight": "' + config.maskHeight + '"';
 
         codeText.value = jsonSnippet;
         codeExportBox.style.display = 'block';
       });
 
-      // Copy Button
+      // Copy Config JSON Button
       document.getElementById('copyTextBtn').addEventListener('click', function() {
         codeText.select();
         navigator.clipboard.writeText(codeText.value);
@@ -1181,11 +1229,11 @@ function openPopUpStream(ch, targetUrl) {
         setTimeout(() => { this.innerText = "Copy Config JSON"; }, 2000);
       });
 
-      // Toggle Display
+      // Toggle UI visibility
       if (toggleBtn) toggleBtn.onclick = () => toolbox.classList.toggle('active');
       if (closeBtn) closeBtn.onclick = () => toolbox.classList.remove('active');
 
-      // 2. Touch and Mouse Dragging Logic
+      // 2. Touch and Mouse Dragging Engine
       let isDragging = false, startX, startY, initialLeft, initialTop;
 
       function onDragStart(e) {

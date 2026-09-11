@@ -809,8 +809,8 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
-  // Read frame alignment variables with neutral defaults
-  const frameTop = ch.frameTop || '0px';
+  // Pull default values from object (or standard alignment defaults)
+  const frameTop = ch.frameTop || '-181px';
   const frameLeft = ch.frameLeft || '0%';
   const frameHeight = ch.frameHeight || '100%';
   const frameScale = ch.frameScale || '1';
@@ -820,9 +820,7 @@ function openPopUpStream(ch, targetUrl) {
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
   const isPrivate = ch.access === 'private';
-  
-  // Standard 16:9 window proportions (e.g., 960x540 + header/ticker offset)
-  const windowFeatures = 'width=960,height=604,resizable=yes,scrollbars=no,status=no';
+  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
 
   if (typeof mstvPopupWindow !== 'undefined' && mstvPopupWindow && !mstvPopupWindow.closed) {
     mstvPopupWindow.close();
@@ -842,7 +840,6 @@ function openPopUpStream(ch, targetUrl) {
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${title} - MSTV Stream</title>
   <style>
-    /* 1. Reset layout and hide scrollbars across all rendering engines */
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { 
       margin: 0; 
@@ -855,13 +852,8 @@ function openPopUpStream(ch, targetUrl) {
       height: 100vh; 
       display: flex; 
       flex-direction: column; 
-      -webkit-text-size-adjust: 100%;
-      -ms-overflow-style: none;
-      scrollbar-width: none;
     }
-    ::-webkit-scrollbar { display: none; }
 
-    /* Header & Ticker elements with fixed structural heights */
     .popup-header { 
       height: 38px; 
       background: #0f1220; 
@@ -906,30 +898,27 @@ function openPopUpStream(ch, targetUrl) {
     }
     @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
 
-    /* 2. Responsive 16:9 Aspect Ratio Container */
+    /* Fill 100% of remaining screen real estate */
     .crop-viewport-wrapper { 
       flex: 1; 
       width: 100%; 
-      display: flex; 
-      justify-content: center; 
-      align-items: center; 
-      background: #000; 
+      height: 100%;
       position: relative; 
       overflow: hidden; 
+      background: #000; 
     }
 
     .crop-viewport { 
-      position: relative; 
+      position: absolute; 
+      top: 0; 
+      left: 0; 
       width: 100%; 
-      max-width: 100%; 
-      height: auto; 
-      /* Enforces precise 16:9 ratio regardless of device/OS window borders */
-      aspect-ratio: 16 / 9; 
+      height: 100%; 
       overflow: hidden; 
       background: #000; 
     }
 
-    /* 3. Standardized iframe positioning */
+    /* Target positioning and alignment scaling */
     .crop-viewport iframe { 
       position: absolute; 
       top: ${frameTop}; 
@@ -937,51 +926,17 @@ function openPopUpStream(ch, targetUrl) {
       width: 100%; 
       height: ${frameHeight}; 
       transform: scale(${frameScale});
-      transform-origin: 0 0;
+      transform-origin: top left;
       border: 0; 
     }
-
-    /* Floating Alignment Control Panel */
-    #alignerPanel { 
-      display: none; 
-      position: absolute; 
-      bottom: 10px; 
-      right: 10px; 
-      z-index: 9999; 
-      background: rgba(15,18,32,0.95); 
-      border: 1px solid #3df2ff; 
-      border-radius: 8px; 
-      padding: 10px; 
-      width: 230px; 
-      box-shadow: 0 4px 15px rgba(0,0,0,0.8); 
-      font-size: 11px; 
-      color: #fff; 
-    }
+    
+    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 230px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
     #alignerPanel.active { display: block; }
     .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .control-row button { 
-      background: #151933; 
-      color: #3df2ff; 
-      border: 1px solid rgba(255,255,255,0.1); 
-      padding: 4px; 
-      border-radius: 4px; 
-      cursor: pointer; 
-      font-weight: bold; 
-    }
+    .align-grid button, .control-row button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 4px; border-radius: 4px; cursor: pointer; font-weight: bold; }
     .align-grid button:hover, .control-row button:hover { background: #3df2ff; color: #000; }
     .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .copy-btn { 
-      width: 100%; 
-      background: #33ff9b; 
-      color: #000; 
-      border: none; 
-      padding: 6px; 
-      border-radius: 4px; 
-      font-weight: bold; 
-      cursor: pointer; 
-      text-align: center; 
-      margin-top: 6px; 
-    }
+    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 6px; }
     .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
@@ -991,7 +946,6 @@ function openPopUpStream(ch, targetUrl) {
     ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
   </header>
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
-  
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
       <iframe id="popFrame" 
@@ -1047,7 +1001,7 @@ function openPopUpStream(ch, targetUrl) {
       const toggleBtn = document.getElementById('toggleAligner');
       const closeBtn = document.getElementById('closeAligner');
 
-      let topVal = parseInt("${frameTop}", 10) || 0;
+      let topVal = parseInt("${frameTop}", 10) || -181;
       let leftVal = parseInt("${frameLeft}", 10) || 0;
       let heightVal = parseInt("${frameHeight}", 10) || 100;
       let scaleVal = parseFloat("${frameScale}") || 1.0;
@@ -1073,7 +1027,7 @@ function openPopUpStream(ch, targetUrl) {
       document.getElementById('btnRight').onclick = () => { leftVal += 1; updateStyles(); };
       
       document.getElementById('btnReset').onclick = () => { 
-        topVal = 0; leftVal = 0; heightVal = 100; scaleVal = 1.0; 
+        topVal = -181; leftVal = 0; heightVal = 100; scaleVal = 1.0; 
         updateStyles(); 
       };
 
@@ -1103,101 +1057,6 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.open();
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
-}
-async function playChannel(ch) {
-  if (!ch) return;
-  
-  // Clear local cache on user click to ensure fresh link fetch
-  const key = ch.id || ch.name;
-  delete streamCache[key];
-
-  if (!currentChannel || (ch.id !== currentChannel.id)) {
-    streamRetryCount = 0; 
-  }
-  
-  currentChannel = ch;
-  renderList();
-
-  $playerPlaceholder.classList.add('hidden');
-  $playerError.classList.remove('show');
-  $httpNotice.classList.remove('show');
-  $dashNotice.classList.remove('show');
-  showLoader(true);
-
-  await teardown();
-
-  const type = (ch.type || '').toLowerCase();
-
-  if (type === 'popup' || ch.popup === true) {
-    const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
-    const fallbackMessage = ch.popupFallbackMsg || 
-      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
-
-    if (popupRestriction === 'restricted' && !isStrictMobile()) {
-      showError(fallbackMessage);
-      updateNowPlaying(ch);
-      return;
-    }
-  }
-
-  const streamUrl = await getStreamUrl(ch);
-  if (!streamUrl) {
-    showError("Failed to fetch stream URL from worker");
-    return;
-  }
-
-  if (type === 'popup' || ch.popup === true) {
-    showLoader(false);
-    $videoEl.style.display = $iframeEl.style.display = 'none';
-    openPopUpStream(ch, streamUrl);
-    updateNowPlaying(ch);
-    return;
-  }
-
-  if (isHttp(streamUrl)) {
-    showLoader(false);
-    $videoEl.style.display = $iframeEl.style.display = 'none';
-    $httpDesc.textContent = `"${ch.name}" is HTTP. HTTPS pages block this media.`;
-    $httpOpenBtn.onclick = () => window.open(streamUrl, '_blank');
-    $httpNotice.classList.add('show');
-    updateNowPlaying(ch);
-    return;
-  }
-
-  if (isIOS && isDashStream(type, streamUrl)) {
-    showLoader(false);
-    $videoEl.style.display = $iframeEl.style.display = 'none';
-    $dashChName.textContent = ch.name;
-    $dashFallbackBlock.style.display = 'none';
-    $dashNotice.classList.add('show');
-    updateNowPlaying(ch);
-
-    const revealFallback = () => { $dashFallbackBlock.style.display = 'block'; };
-    $dashRetryBtn.onclick = () => attemptOpenInApp(streamUrl, revealFallback);
-    $dashCopyBtn.onclick = () => navigator.clipboard.writeText(streamUrl);
-    attemptOpenInApp(streamUrl, revealFallback);
-    return;
-  }
-
-  if (type === 'iframe') {
-    $videoEl.style.display = 'none';
-    $iframeEl.style.display = 'block';
-    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
-    else $iframeEl.removeAttribute('sandbox');
-    $iframeEl.src = streamUrl;
-    $iframeEl.onload = () => showLoader(false);
-    $iframeEl.onerror = () => showError('iFrame error');
-  } else if (isDashStream(type, streamUrl)) {
-    $iframeEl.style.display = 'none';
-    $videoEl.style.display = 'block';
-    await playDASH(streamUrl);
-  } else {
-    $iframeEl.style.display = 'none';
-    $videoEl.style.display = 'block';
-    await playHLS(streamUrl);
-  }
-
-  updateNowPlaying(ch);
 }
 
 /**

@@ -815,8 +815,8 @@ function openPopUpStream(ch, targetUrl) {
   const frameHeight = ch.frameHeight || '100%';
   const frameScale = ch.frameScale || '1';
   
-  const maskTop = ch.maskTop || '150px';
-  const maskHeight = ch.maskHeight || '90px';
+  const maskTop = ch.maskTop || '0px';
+  const maskHeight = ch.maskHeight || '320px';
 
   const title = esc(ch.name);
   const safeTargetUrl = esc(targetUrl);
@@ -898,10 +898,6 @@ function openPopUpStream(ch, targetUrl) {
       margin-left: auto; 
       flex-shrink: 0;
     }
-    .align-btn:hover { 
-      background: #3df2ff; 
-      color: #000; 
-    }
     
     .ticker-wrap { 
       height: 24px; 
@@ -923,8 +919,8 @@ function openPopUpStream(ch, targetUrl) {
       color: #3df2ff; 
     }
     @keyframes marquee { 
-      0% { transform: translate3d(0, 0, 0); -webkit-transform: translate3d(0, 0, 0); } 
-      100% { transform: translate3d(-100%, 0, 0); -webkit-transform: translate3d(-100%, 0, 0); } 
+      0% { transform: translate3d(0, 0, 0); } 
+      100% { transform: translate3d(-100%, 0, 0); } 
     }
 
     .crop-viewport-wrapper { 
@@ -953,30 +949,112 @@ function openPopUpStream(ch, targetUrl) {
       left: ${frameLeft}; 
       width: 100%; 
       height: ${frameHeight}; 
-      
       transform: scale(${frameScale}); 
       -webkit-transform: scale(${frameScale});
-      
       transform-origin: 0 0 !important; 
       -webkit-transform-origin: 0 0 !important; 
-      
       border: 0; 
       outline: none;
     }
 
-    /* Mask hidden by default — activated strictly for Chrome via JS */
+    /* Interactive Chrome Filler Container */
     #headerCoverOverlay {
-      display: none; 
+      display: none; /* Controlled strictly by JS for Chrome Mobile */
       position: absolute;
       top: ${maskTop};
       left: 0;
       width: 100%;
       height: ${maskHeight};
-      background: #000;
+      background: linear-gradient(180deg, #05070e 0%, #0c101d 100%);
       z-index: 50;
-      pointer-events: none;
+      pointer-events: auto;
+      border-bottom: 1px solid rgba(61, 242, 255, 0.2);
+      transition: opacity 0.3s ease, visibility 0.3s ease;
     }
-    
+
+    #headerCoverOverlay.hidden-player-active {
+      opacity: 0 !important;
+      visibility: hidden !important;
+      pointer-events: none !important;
+    }
+
+    .filler-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 15px;
+      text-align: center;
+      gap: 12px;
+    }
+
+    .filler-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(61, 242, 255, 0.1);
+      border: 1px solid rgba(61, 242, 255, 0.3);
+      color: #3df2ff;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      background-color: #00ff88;
+      border-radius: 50%;
+      box-shadow: 0 0 8px #00ff88;
+      animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      50% { transform: scale(1.2); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.8; }
+    }
+
+    .equalizer {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      height: 20px;
+    }
+    .eq-bar {
+      width: 3px;
+      background: #3df2ff;
+      border-radius: 2px;
+      animation: eq 1s ease-in-out infinite alternate;
+    }
+    .eq-bar:nth-child(1) { height: 60%; animation-delay: 0.1s; }
+    .eq-bar:nth-child(2) { height: 100%; animation-delay: 0.3s; }
+    .eq-bar:nth-child(3) { height: 40%; animation-delay: 0.2s; }
+    .eq-bar:nth-child(4) { height: 80%; animation-delay: 0.4s; }
+    @keyframes eq {
+      0% { height: 20%; }
+      100% { height: 100%; }
+    }
+
+    .quick-start-btn {
+      background: linear-gradient(135deg, #3df2ff 0%, #0077ff 100%);
+      color: #000;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 15px rgba(61, 242, 255, 0.3);
+      transition: transform 0.1s ease;
+    }
+    .quick-start-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* Private Draggable ToolBox */
     #draggableToolbox { 
       display: none; 
       position: fixed; 
@@ -996,10 +1074,7 @@ function openPopUpStream(ch, targetUrl) {
       user-select: none; 
       -webkit-user-select: none;
     }
-    #draggableToolbox.active { 
-      display: block; 
-    }
-
+    #draggableToolbox.active { display: block; }
     .toolbox-header { 
       font-weight: bold; 
       color: #3df2ff; 
@@ -1012,51 +1087,12 @@ function openPopUpStream(ch, targetUrl) {
       padding-bottom: 6px; 
       touch-action: none; 
     }
-    .control-row { 
-      display: flex; 
-      justify-content: space-between; 
-      align-items: center; 
-      margin-bottom: 8px; 
-    }
-    .control-row label { 
-      width: 95px; 
-    }
-    .control-row input { 
-      width: 125px; 
-      accent-color: #3df2ff; 
-    }
-    
-    .action-btn { 
-      width: 100%; 
-      padding: 6px; 
-      margin-top: 6px; 
-      background: #3df2ff; 
-      color: #000; 
-      border: none; 
-      border-radius: 4px; 
-      font-weight: bold; 
-      cursor: pointer; 
-    }
-    .action-btn:hover { 
-      opacity: 0.9; 
-    }
-
-    #codeExportBox { 
-      display: none; 
-      margin-top: 8px; 
-    }
-    #codeExportBox textarea { 
-      width: 100%; 
-      height: 75px; 
-      background: #000; 
-      color: #3df2ff; 
-      border: 1px solid #3df2ff; 
-      border-radius: 4px; 
-      font-family: monospace; 
-      font-size: 10px; 
-      padding: 4px; 
-      resize: none; 
-    }
+    .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+    .control-row label { width: 95px; }
+    .control-row input { width: 125px; accent-color: #3df2ff; }
+    .action-btn { width: 100%; padding: 6px; margin-top: 6px; background: #3df2ff; color: #000; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    #codeExportBox { display: none; margin-top: 8px; }
+    #codeExportBox textarea { width: 100%; height: 75px; background: #000; color: #3df2ff; border: 1px solid #3df2ff; border-radius: 4px; font-family: monospace; font-size: 10px; padding: 4px; resize: none; }
   </style>
 </head>
 <body>
@@ -1078,8 +1114,25 @@ function openPopUpStream(ch, targetUrl) {
       </iframe>
     </div>
 
-    <!-- Black Cover Mask -->
-    <div id="headerCoverOverlay"></div>
+    <!-- Chrome Interactive Filler Container -->
+    <div id="headerCoverOverlay">
+      <div class="filler-content">
+        <div class="filler-badge">
+          <span class="pulse-dot"></span> STREAM READY & ONLINE
+        </div>
+        
+        <div class="equalizer">
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+          <div class="eq-bar"></div>
+        </div>
+
+        <button class="quick-start-btn" id="fillerActionBtn">
+          ▶ CLICK HERE TO LOAD PLAYER
+        </button>
+      </div>
+    </div>
     
     ${isPrivate ? `
     <div id="draggableToolbox">
@@ -1112,12 +1165,12 @@ function openPopUpStream(ch, targetUrl) {
 
       <div class="control-row">
         <label>Mask Top (px):</label>
-        <input type="range" id="maskTopInput" min="0" max="500" value="${parseInt(maskTop, 10) || 150}">
+        <input type="range" id="maskTopInput" min="0" max="500" value="${parseInt(maskTop, 10) || 0}">
       </div>
 
       <div class="control-row">
         <label>Mask Height (px):</label>
-        <input type="range" id="maskHeightInput" min="0" max="300" value="${parseInt(maskHeight, 10) || 90}">
+        <input type="range" id="maskHeightInput" min="0" max="400" value="${parseInt(maskHeight, 10) || 320}">
       </div>
 
       <button class="action-btn" id="saveAlignBtn">Save All Settings</button>
@@ -1133,23 +1186,40 @@ function openPopUpStream(ch, targetUrl) {
   <script>
     (function() {
       const mask = document.getElementById('headerCoverOverlay');
+      const actionBtn = document.getElementById('fillerActionBtn');
 
-      // Detect Chrome Mobile (exclude Samsung Internet & Kiwi)
+      // Detect Chrome Mobile strictly (exclude Samsung Internet & Kiwi)
       const ua = navigator.userAgent;
       const isChromeMobile = /Chrome/i.test(ua) && 
                              /Mobile/i.test(ua) && 
                              !/SamsungBrowser/i.test(ua) && 
                              !/Kiwi/i.test(ua);
 
-      // Unhide overlay ONLY on Chrome Mobile
+      // Display filler exclusively on Chrome Mobile
       if (mask && isChromeMobile) {
         mask.style.display = 'block';
       }
 
+      function hideFillerAndFocus() {
+        if (mask) {
+          mask.classList.add('hidden-player-active');
+        }
+      }
+
+      if (actionBtn) {
+        actionBtn.addEventListener('click', hideFillerAndFocus);
+      }
+
+      // Auto-hide filler when user interacts anywhere on screen after stream click
+      document.addEventListener('click', function(e) {
+        if (e.target.id === 'fillerActionBtn' || e.target.classList.contains('quick-start-btn')) {
+          hideFillerAndFocus();
+        }
+      });
+
       const isPrivate = ${isPrivate};
       if (!isPrivate) return;
 
-      // In Private mode, force the mask to display so you can align it
       if (mask) mask.style.display = 'block';
 
       const iframe = document.getElementById('popFrame');

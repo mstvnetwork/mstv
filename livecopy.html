@@ -527,7 +527,15 @@ const JSON_URL      = './streamdata2.json';
 const POLL_INTERVAL = 30000; 
 const SANDBOX_VALUE = 'allow-scripts allow-same-origin allow-presentation allow-forms';
 
-const CATEGORY_CONFIG = [];
+// Populated Category Configuration Fallback
+const CATEGORY_CONFIG = [
+  { id: 'All', icon: '📺' },
+  { id: 'Sports', icon: '⚽' },
+  { id: 'News', icon: '📰' },
+  { id: 'Entertainment', icon: '🎬' },
+  { id: 'Religious', icon: '🕊️' }
+];
+
 let streamRetryCount = 0;
 const MAX_STREAM_RETRIES = 3; 
 
@@ -645,7 +653,9 @@ async function getStreamUrl(channel, forceFresh = false) {
   if (racePool.length) {
     try {
       return await Promise.any(racePool.map(idx => fetchOne(idx)));
-    } catch (e) {}
+    } catch (e) {
+      console.warn("Race pool worker resolution failed, stepping through fallback workers.", e);
+    }
   }
 
   let lastError = null;
@@ -1409,8 +1419,7 @@ function openPopUpStream(ch, targetUrl) {
       handle.addEventListener('touchstart', onDragStart, { passive: true });
       document.addEventListener('touchmove', onDragMove, { passive: true });
       document.addEventListener('touchend', onDragEnd);
-    })();
-  '</' + 'script>'
+    <\/script>
 </body>
 </html>`;
 
@@ -1530,19 +1539,19 @@ async function playHLS(streamUrl) {
             console.warn("[Stream Recovery] Fatal network error detected. Fetching fresh URL...");
             if (streamRetryCount >= MAX_STREAM_RETRIES) {
               showError("Stream is currently offline. Please try again later.");
-              teardown();
-              break;
+              await teardown();
+              return; // Stop execution to prevent illegal method calls on destroyed player
             }
             streamRetryCount++;
             
             // Force-fetch fresh URL bypassing all caches
             const updatedUrl = await getStreamUrl(currentChannel, true);
-            if (updatedUrl && updatedUrl !== streamUrl) {
+            if (updatedUrl && updatedUrl !== streamUrl && hlsInstance) {
               console.log("[Stream Recovery] Hot-swapping to new stream URL:", updatedUrl);
               hlsInstance.loadSource(updatedUrl);
               hlsInstance.startLoad();
               $videoEl.play().catch(() => {});
-            } else {
+            } else if (hlsInstance) {
               hlsInstance.startLoad();
             }
             break;
@@ -1554,8 +1563,8 @@ async function playHLS(streamUrl) {
           default:
             if (streamRetryCount >= MAX_STREAM_RETRIES) {
               showError("Stream is currently offline.");
-              teardown();
-              break;
+              await teardown();
+              return;
             }
             streamRetryCount++;
             if (currentChannel) playChannel(currentChannel);
@@ -1647,11 +1656,15 @@ function bindEvents() {
   });
 }
 
+// Window Open Guard Override
 const _nativeOpen = window.open.bind(window);
 (function() {
   window.open = (url, target, f) => {
+    if (target === '_blank' || target === 'MSTVPopUpWindow') {
+      return _nativeOpen(url, target, f);
+    }
     if (target === '_top' || target === '_parent') return null;
-    return _nativeOpen(url, target, f);
+    return _nativeOpen(url, '_self', f);
   };
 })();
 

@@ -1234,7 +1234,7 @@ function openPopUpStream(ch, targetUrl) {
     </div>` : ''}
   </div>
 
-  <script>
+<script>
     (function() {
       const mask = document.getElementById('headerCoverOverlay');
       const actionBtn = document.getElementById('fillerActionBtn');
@@ -1251,20 +1251,43 @@ function openPopUpStream(ch, targetUrl) {
         mask.style.display = 'block';
       }
 
+      // Explicitly revoke landscape orientation on Chrome
+      async function forcePortraitOrientation() {
+        try {
+          if (isChromeMobile && screen.orientation && screen.orientation.lock) {
+            // Screen orientation lock requires full screen in Chrome
+            if (document.documentElement.requestFullscreen) {
+              await document.documentElement.requestFullscreen().catch(() => {});
+            }
+            await screen.orientation.lock('portrait-primary');
+          }
+        } catch (err) {
+          console.warn('Orientation lock failed or not supported:', err);
+        }
+      }
+
       function hideFillerAndFocus() {
         if (mask) {
           mask.classList.add('hidden-player-active');
         }
+        forcePortraitOrientation();
       }
 
       if (actionBtn) {
         actionBtn.addEventListener('click', hideFillerAndFocus);
       }
 
-      // Auto-hide filler when user interacts anywhere on screen after stream click
+      // Auto-hide filler & enforce portrait when user clicks player load
       document.addEventListener('click', function(e) {
         if (e.target.id === 'fillerActionBtn' || e.target.classList.contains('quick-start-btn')) {
           hideFillerAndFocus();
+        }
+      });
+
+      // Prevent landscape fallback on dynamic orientation changes for Chrome
+      window.addEventListener('orientationchange', function() {
+        if (isChromeMobile && window.orientation !== 0) {
+          forcePortraitOrientation();
         }
       });
 

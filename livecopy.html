@@ -465,7 +465,7 @@
 </div>
 
 <script>
-const CURRENT_VERSION = "v2.8.0"; 
+const CURRENT_VERSION = "v2.8.1";
 
 // ── WORKER CONFIGURATION ──────────────────────────────────────────────────
 // Primary and Backup Workers for Load Balancing & Multi-Account Failover
@@ -577,13 +577,36 @@ const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replac
 const isHttp = u => /^http:\/\//i.test((u||'').trim());
 const catOf = ch => (ch.category || 'General').trim();
 
-const isStrictMobile = () => {
+/**
+ * SHARED DEVICE DETECTION (fix)
+ * ------------------------------------------------------------------
+ * Single source of truth for "is this a phone or tablet" used by both
+ * the popup-restriction gate in playChannel() and openPopUpStream().
+ * Previously playChannel() used isStrictMobile() (which explicitly
+ * EXCLUDES iPad/tablets), while openPopUpStream() had its own newer
+ * iPad-aware check that never actually ran because playChannel()
+ * already blocked iPads before openPopUpStream() was ever called.
+ * Now both paths use this one function, so the iPad fix actually
+ * takes effect, and Windows/desktop/laptop devices remain blocked.
+ */
+const isMobileOrTabletDevice = () => {
   const ua = navigator.userAgent || '';
-  const isMobileUA = /Android|iPhone|iPod/i.test(ua);
-  const isTabletUA = /iPad|Android(?!.*Mobile)|Silk|PlayBook|Tablet/i.test(ua);
-  const maxDimension = Math.max(window.screen.width, window.screen.height);
 
-  return isMobileUA && !isTabletUA && maxDimension < 1024;
+  // 1. Standard mobile / tablet user agents (phones, iPads, Android tablets, Kindles, etc.)
+  const isStandardMobile = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|PlayBook/i.test(ua);
+
+  // 2. iPads running iPadOS 13+ (report as "Macintosh" but have touch support)
+  const isIPadOS = (navigator.platform === 'MacIntel' || /Macintosh/i.test(ua)) &&
+                    !!navigator.maxTouchPoints &&
+                    navigator.maxTouchPoints > 1;
+
+  // 3. Other touch-capable tablets that aren't Windows machines
+  //    (Windows touch laptops/2-in-1s carry "Windows NT" in the UA and are excluded)
+  const isTouchTablet = !!navigator.maxTouchPoints &&
+                         navigator.maxTouchPoints > 1 &&
+                         !/Windows NT/i.test(ua);
+
+  return isStandardMobile || isIPadOS || isTouchTablet;
 };
 
 const isIOS = (() => {
@@ -858,24 +881,10 @@ function logo(ch) {
  function openPopUpStream(ch, targetUrl) {
   const esc = (str) => String(str || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
-  // Device check: Allow mobile phones and tablets, block Windows / Desktop PCs
-  const ua = navigator.userAgent || '';
-  
-  // 1. Standard Mobile / Tablet User Agents
-  const isStandardMobile = /Android|iPhone|iPad|iPod|Mobile|Tablet|Silk|PlayBook/i.test(ua);
-
-  // 2. iPads running iPadOS (which report as Macintosh with Touch support)
-  const isIPadOS = (navigator.platform === 'MacIntel' || /Macintosh/i.test(ua)) && 
-                   navigator.maxTouchPoints && 
-                   navigator.maxTouchPoints > 1;
-
-  // 3. Android / Other Non-Windows Touch Tablets
-  const isTouchTablet = navigator.maxTouchPoints && 
-                        navigator.maxTouchPoints > 1 && 
-                        !/Windows NT/i.test(ua);
-
-  const isMobileOrTablet = isStandardMobile || isIPadOS || isTouchTablet;
-
+  // Device check reuses the single shared detector (isMobileOrTabletDevice)
+  // so this stays in sync with the gate in playChannel(). Kept here only
+  // in case callers ever invoke this function directly.
+  const isMobileOrTablet = isMobileOrTabletDevice();
 
   const frameTop = ch.frameTop || '-181px';
   const frameLeft = ch.frameLeft || '0%';
@@ -1477,7 +1486,9 @@ async function playChannel(ch) {
     const fallbackMessage = ch.popupFallbackMsg || 
       "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
 
-    if (popupRestriction === 'restricted' && !isStrictMobile()) {
+    // FIX: use the shared isMobileOrTabletDevice() (phones + tablets/iPads)
+    // instead of the old isStrictMobile() which excluded iPad entirely.
+    if (popupRestriction === 'restricted' && !isMobileOrTabletDevice()) {
       showError(fallbackMessage);
       updateNowPlaying(ch);
       return;
@@ -1688,6 +1699,4 @@ document.addEventListener('DOMContentLoaded', init);
   </script>
                             
 </body>
-  </html>      
-                      
-        
+  </html>

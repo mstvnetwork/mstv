@@ -1005,9 +1005,9 @@ function openPopUpStream(ch, targetUrl) {
       outline: none;
     }
 
-    /* Interactive Chrome Filler Container */
+    /* Chrome Interactive Filler Container */
     #headerCoverOverlay {
-      display: none; /* Controlled strictly by JS for Chrome Mobile */
+      display: none; 
       position: absolute;
       top: ${maskTop};
       left: 0;
@@ -1102,6 +1102,27 @@ function openPopUpStream(ch, targetUrl) {
       transform: scale(0.96);
     }
 
+    /* Landscape Restriction Overlay for Chrome Mobile */
+    #landscapeBlockOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #06070b;
+      z-index: 99999;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      color: #3df2ff;
+    }
+    
+    @media (orientation: landscape) and (max-width: 900px) {
+      #landscapeBlockOverlay {
+        display: flex !important;
+      }
+    }
+
     /* Private Draggable ToolBox */
     #draggableToolbox { 
       display: none; 
@@ -1144,6 +1165,13 @@ function openPopUpStream(ch, targetUrl) {
   </style>
 </head>
 <body>
+  <!-- Landscape Warning Block -->
+  <div id="landscapeBlockOverlay">
+    <div style="font-size: 32px; margin-bottom: 10px;">📱🔄</div>
+    <div style="font-weight: 700; font-size: 14px; margin-bottom: 6px;">Landscape View Disabled</div>
+    <div style="font-size: 11px; color: #8790ac;">Please rotate your device back to portrait mode to continue streaming.</div>
+  </div>
+
   <header class="popup-header">
     <span class="title">📺 ${title}</span>
     ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
@@ -1236,14 +1264,23 @@ function openPopUpStream(ch, targetUrl) {
       const mask = document.getElementById('headerCoverOverlay');
       const actionBtn = document.getElementById('fillerActionBtn');
 
-      // Detect Chrome Mobile strictly (exclude Samsung Internet & Kiwi)
+      // Detect Chrome specifically
       const ua = navigator.userAgent;
-      const isChromeMobile = /Chrome/i.test(ua) && 
-                             /Mobile/i.test(ua) && 
-                             !/SamsungBrowser/i.test(ua) && 
-                             !/Kiwi/i.test(ua);
+      const isChrome = /Chrome/i.test(ua) && !/SamsungBrowser/i.test(ua) && !/Kiwi/i.test(ua);
+      const isChromeMobile = isChrome && /Mobile/i.test(ua);
 
-      // Display filler exclusively on Chrome Mobile
+      // Explicitly lock orientation to Portrait on Chrome
+      function enforcePortraitLock() {
+        if (isChrome && screen.orientation && screen.orientation.lock) {
+          screen.orientation.lock('portrait').catch(function(err) {
+            console.warn('Orientation lock notice:', err.message);
+          });
+        }
+      }
+
+      // Try initial lock on script load
+      enforcePortraitLock();
+
       if (mask && isChromeMobile) {
         mask.style.display = 'block';
       }
@@ -1252,16 +1289,19 @@ function openPopUpStream(ch, targetUrl) {
         if (mask) {
           mask.classList.add('hidden-player-active');
         }
+        // Trigger orientation lock on gesture engagement
+        enforcePortraitLock();
       }
 
       if (actionBtn) {
         actionBtn.addEventListener('click', hideFillerAndFocus);
       }
 
-      // Auto-hide filler when user interacts anywhere on screen after stream click
       document.addEventListener('click', function(e) {
         if (e.target.id === 'fillerActionBtn' || e.target.classList.contains('quick-start-btn')) {
           hideFillerAndFocus();
+        } else {
+          enforcePortraitLock();
         }
       });
 
@@ -1287,7 +1327,7 @@ function openPopUpStream(ch, targetUrl) {
       const codeExportBox = document.getElementById('codeExportBox');
       const codeText = document.getElementById('codeText');
 
-      const streamId = "${title}".replace(/\s+/g, '_').toLowerCase();
+      const streamId = "${title}".replace(/\\s+/g, '_').toLowerCase();
       const savedConfig = localStorage.getItem('popupAlign_' + streamId);
       if (savedConfig) {
         try {
@@ -1392,7 +1432,6 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
 }
-
 async function playChannel(ch) {
   if (!ch) return;
   

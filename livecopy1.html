@@ -807,9 +807,7 @@ function logo(ch) {
        <div class="row-logo-fallback" style="display:none">📺</div>`
     : `<div class="row-logo-fallback">📺</div>`;
 }
-
 function openPopUpStream(ch, targetUrl) {
-  // Helper esc function (fallback if not defined globally)
   const esc = (str) => String(str || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 
   const frameTop = ch.frameTop || '-181px';
@@ -817,7 +815,6 @@ function openPopUpStream(ch, targetUrl) {
   const frameHeight = ch.frameHeight || '100%';
   const frameScale = ch.frameScale || '1';
   
-  // Overlay Mask Defaults
   const maskTop = ch.maskTop || '150px';
   const maskHeight = ch.maskHeight || '90px';
 
@@ -825,7 +822,6 @@ function openPopUpStream(ch, targetUrl) {
   const safeTargetUrl = esc(targetUrl);
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
-  // Robust check for private access mode
   const urlParams = new URLSearchParams(window.location.search);
   const isPrivate = (ch && String(ch.access || '').trim().toLowerCase() === 'private') || urlParams.get('mode') === 'private';
   
@@ -871,7 +867,6 @@ function openPopUpStream(ch, targetUrl) {
       flex-direction: column; 
     }
 
-    /* Fixed Top Navigation Bar */
     .popup-header { 
       height: 38px; 
       background: #0f1220; 
@@ -908,7 +903,6 @@ function openPopUpStream(ch, targetUrl) {
       color: #000; 
     }
     
-    /* Fixed Ticker Wrapper */
     .ticker-wrap { 
       height: 24px; 
       background: #000; 
@@ -933,7 +927,6 @@ function openPopUpStream(ch, targetUrl) {
       100% { transform: translate3d(-100%, 0, 0); -webkit-transform: translate3d(-100%, 0, 0); } 
     }
 
-    /* Strict Bounding Viewport Container */
     .crop-viewport-wrapper { 
       flex: 1; 
       width: 100%; 
@@ -954,7 +947,6 @@ function openPopUpStream(ch, targetUrl) {
       background: #000; 
     }
 
-    /* Cross-Browser Normalized Iframe Scaling */
     .crop-viewport iframe { 
       position: absolute; 
       top: ${frameTop}; 
@@ -972,8 +964,9 @@ function openPopUpStream(ch, targetUrl) {
       outline: none;
     }
 
-    /* Black Cover Mask to Hide Header (bhoomtv) Across Browsers */
+    /* Mask hidden by default — activated strictly for Chrome via JS */
     #headerCoverOverlay {
+      display: none; 
       position: absolute;
       top: ${maskTop};
       left: 0;
@@ -984,7 +977,6 @@ function openPopUpStream(ch, targetUrl) {
       pointer-events: none;
     }
     
-    /* Private Draggable ToolBox */
     #draggableToolbox { 
       display: none; 
       position: fixed; 
@@ -1086,7 +1078,7 @@ function openPopUpStream(ch, targetUrl) {
       </iframe>
     </div>
 
-    <!-- Black Cover Mask to conceal unwanted page elements across Chrome -->
+    <!-- Black Cover Mask -->
     <div id="headerCoverOverlay"></div>
     
     ${isPrivate ? `
@@ -1140,11 +1132,27 @@ function openPopUpStream(ch, targetUrl) {
 
   <script>
     (function() {
+      const mask = document.getElementById('headerCoverOverlay');
+
+      // Detect Chrome Mobile (exclude Samsung Internet & Kiwi)
+      const ua = navigator.userAgent;
+      const isChromeMobile = /Chrome/i.test(ua) && 
+                             /Mobile/i.test(ua) && 
+                             !/SamsungBrowser/i.test(ua) && 
+                             !/Kiwi/i.test(ua);
+
+      // Unhide overlay ONLY on Chrome Mobile
+      if (mask && isChromeMobile) {
+        mask.style.display = 'block';
+      }
+
       const isPrivate = ${isPrivate};
       if (!isPrivate) return;
 
+      // In Private mode, force the mask to display so you can align it
+      if (mask) mask.style.display = 'block';
+
       const iframe = document.getElementById('popFrame');
-      const mask = document.getElementById('headerCoverOverlay');
       const toolbox = document.getElementById('draggableToolbox');
       const toggleBtn = document.getElementById('toggleAligner');
       const closeBtn = document.getElementById('closeAligner');
@@ -1161,7 +1169,6 @@ function openPopUpStream(ch, targetUrl) {
       const codeExportBox = document.getElementById('codeExportBox');
       const codeText = document.getElementById('codeText');
 
-      // 1. Restore persistent config from local storage if available
       const streamId = "${title}".replace(/\s+/g, '_').toLowerCase();
       const savedConfig = localStorage.getItem('popupAlign_' + streamId);
       if (savedConfig) {
@@ -1190,7 +1197,6 @@ function openPopUpStream(ch, targetUrl) {
         }
       }
 
-      // Live Slider Event Listeners
       topInput.addEventListener('input', applyAllStyles);
       leftInput.addEventListener('input', applyAllStyles);
       heightInput.addEventListener('input', applyAllStyles);
@@ -1198,7 +1204,6 @@ function openPopUpStream(ch, targetUrl) {
       maskTopInput.addEventListener('input', applyAllStyles);
       maskHeightInput.addEventListener('input', applyAllStyles);
 
-      // Save & Export Snippet
       document.getElementById('saveAlignBtn').addEventListener('click', function() {
         const config = {
           frameTop: topInput.value + 'px',
@@ -1221,7 +1226,6 @@ function openPopUpStream(ch, targetUrl) {
         codeExportBox.style.display = 'block';
       });
 
-      // Copy Config JSON Button
       document.getElementById('copyTextBtn').addEventListener('click', function() {
         codeText.select();
         navigator.clipboard.writeText(codeText.value);
@@ -1229,11 +1233,9 @@ function openPopUpStream(ch, targetUrl) {
         setTimeout(() => { this.innerText = "Copy Config JSON"; }, 2000);
       });
 
-      // Toggle UI visibility
       if (toggleBtn) toggleBtn.onclick = () => toolbox.classList.toggle('active');
       if (closeBtn) closeBtn.onclick = () => toolbox.classList.remove('active');
 
-      // 2. Touch and Mouse Dragging Engine
       let isDragging = false, startX, startY, initialLeft, initialTop;
 
       function onDragStart(e) {

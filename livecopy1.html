@@ -1058,6 +1058,101 @@ function openPopUpStream(ch, targetUrl) {
   mstvPopupWindow.document.write(popupHtml);
   mstvPopupWindow.document.close();
 }
+async function playChannel(ch) {
+  if (!ch) return;
+  
+  // Clear local cache on user click to ensure fresh link fetch
+  const key = ch.id || ch.name;
+  delete streamCache[key];
+
+  if (!currentChannel || (ch.id !== currentChannel.id)) {
+    streamRetryCount = 0; 
+  }
+  
+  currentChannel = ch;
+  renderList();
+
+  $playerPlaceholder.classList.add('hidden');
+  $playerError.classList.remove('show');
+  $httpNotice.classList.remove('show');
+  $dashNotice.classList.remove('show');
+  showLoader(true);
+
+  await teardown();
+
+  const type = (ch.type || '').toLowerCase();
+
+  if (type === 'popup' || ch.popup === true) {
+    const popupRestriction = (ch.popupRestriction || 'restricted').toLowerCase();
+    const fallbackMessage = ch.popupFallbackMsg || 
+      "📱 Mobile Access Only: This stream is optimized for mobile viewing and cannot be played on desktop or tablet devices. Please open this link on your mobile phone to watch live.";
+
+    if (popupRestriction === 'restricted' && !isStrictMobile()) {
+      showError(fallbackMessage);
+      updateNowPlaying(ch);
+      return;
+    }
+  }
+
+  const streamUrl = await getStreamUrl(ch);
+  if (!streamUrl) {
+    showError("Failed to fetch stream URL from worker");
+    return;
+  }
+
+  if (type === 'popup' || ch.popup === true) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    openPopUpStream(ch, streamUrl);
+    updateNowPlaying(ch);
+    return;
+  }
+
+  if (isHttp(streamUrl)) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    $httpDesc.textContent = `"${ch.name}" is HTTP. HTTPS pages block this media.`;
+    $httpOpenBtn.onclick = () => window.open(streamUrl, '_blank');
+    $httpNotice.classList.add('show');
+    updateNowPlaying(ch);
+    return;
+  }
+
+  if (isIOS && isDashStream(type, streamUrl)) {
+    showLoader(false);
+    $videoEl.style.display = $iframeEl.style.display = 'none';
+    $dashChName.textContent = ch.name;
+    $dashFallbackBlock.style.display = 'none';
+    $dashNotice.classList.add('show');
+    updateNowPlaying(ch);
+
+    const revealFallback = () => { $dashFallbackBlock.style.display = 'block'; };
+    $dashRetryBtn.onclick = () => attemptOpenInApp(streamUrl, revealFallback);
+    $dashCopyBtn.onclick = () => navigator.clipboard.writeText(streamUrl);
+    attemptOpenInApp(streamUrl, revealFallback);
+    return;
+  }
+
+  if (type === 'iframe') {
+    $videoEl.style.display = 'none';
+    $iframeEl.style.display = 'block';
+    if (ch.sandboxed !== false) $iframeEl.setAttribute('sandbox', SANDBOX_VALUE);
+    else $iframeEl.removeAttribute('sandbox');
+    $iframeEl.src = streamUrl;
+    $iframeEl.onload = () => showLoader(false);
+    $iframeEl.onerror = () => showError('iFrame error');
+  } else if (isDashStream(type, streamUrl)) {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playDASH(streamUrl);
+  } else {
+    $iframeEl.style.display = 'none';
+    $videoEl.style.display = 'block';
+    await playHLS(streamUrl);
+  }
+
+  updateNowPlaying(ch);
+}
 
 /**
  * Enhanced HLS Playback with Real-Time Background Hot-Swapping

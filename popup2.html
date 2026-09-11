@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sony TV HD - Mobile Stream</title>
+    
+    <!-- Required Libraries for Iframe Capture -->
+    <script src="https://unpkg.com"></script>
+    <script type="module" src="https://unpkg.com"></script>
+
+    <style>
+        :root { 
+            --primary: #00ffA0;
+            /* Default alignment values - override these with saved values */
+            --frame-top: -181px;
+            --frame-left: 0%;
+            --frame-height: 100%;
+            --frame-scale: 1;
+        }
+
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+            font-family: sans-serif;
+            touch-action: none;
+        }
+
+        .viewport {
+            width: 100vw; 
+            height: 100vh;
+            overflow: hidden; 
+            position: relative;
+            background: #000;
+        }
+
+        #frameMover {
+            position: absolute; 
+            width: 100%; 
+            height: var(--frame-height); 
+            top: var(--frame-top); 
+            left: var(--frame-left);
+            transform: scale(var(--frame-scale));
+            transform-origin: top left;
+        }
+
+        #captureFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        #lockLayer {
+            position: absolute;
+            top: 0; left: 0; 
+            width: 100%; height: 100%;
+            z-index: 9999; 
+            background: rgba(0,0,0,0.01); 
+            pointer-events: none; 
+            cursor: pointer;
+        }
+
+        #lockLayer.active {
+            pointer-events: all !important;
+            cursor: default;
+        }
+
+        .click-hint {
+            position: absolute; bottom: 60px; right: 15px;
+            color: var(--primary);
+            font-size: 12px;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        #resetBtn {
+            position: fixed; bottom: 12px; right: 12px;
+            padding: 8px 15px;
+            background: rgba(0, 255, 160, 0.15);
+            color: #00ffa0;
+            border: 1px solid rgba(0, 255, 160, 0.6);
+            border-radius: 30px;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            z-index: 10002;
+        }
+
+        #ticker {
+            position: absolute; 
+            top: 0px; 
+            left: 0;
+            width: 100%; 
+            background: transparent;
+            overflow: hidden; 
+            white-space: nowrap;
+            z-index: 10000; 
+            padding: 11px 0;
+        }
+
+        #ticker span {
+            display: inline-block; 
+            padding-left: 100%;
+            animation: scroll 30s linear infinite;
+            font-size: 14px;
+            color: #FFFF00;
+            font-weight: bold;
+            text-shadow: 
+                -2px -2px 0 #000,  
+                 2px -2px 0 #000,
+                -2px  2px 0 #000,
+                 2px  2px 0 #000;
+        }
+
+        @keyframes scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-100%); }
+        }
+
+        #fallback {
+            display: none; text-align: center; color: #fff;
+        }
+
+        /* --- Landscape Adjustments --- */
+        @media screen and (orientation: landscape) {
+            #ticker {
+                display: none; /* Hide top ticker overlay in landscape to prevent obscuring player header */
+            }
+            #frameMover {
+                top: 0px !important; /* Reset rigid top off-set in landscape */
+                height: 100vh !important;
+            }
+            #resetBtn {
+                bottom: 5px;
+                right: 5px;
+                opacity: 0.5;
+            }
+        }
+
+        /* --- Floating Alignment Toolbox --- */
+        #alignmentToolbox {
+            display: none;
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(18, 18, 18, 0.95);
+            border: 1px solid var(--primary);
+            box-shadow: 0 4px 20px rgba(0,255,160,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            z-index: 20000;
+            color: #fff;
+            width: 270px;
+            backdrop-filter: blur(8px);
+            user-select: none;
+        }
+
+        #alignmentToolbox.visible {
+            display: block;
+        }
+
+        .toolbox-header {
+            font-weight: bold;
+            color: var(--primary);
+            margin-bottom: 12px;
+            cursor: move;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 8px;
+            touch-action: none;
+        }
+
+        .control-group {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .control-group label {
+            width: 80px;
+        }
+
+        .control-group input {
+            width: 140px;
+            accent-color: var(--primary);
+        }
+
+        .toolbox-btn {
+            width: 100%;
+            padding: 8px;
+            margin-top: 8px;
+            background: var(--primary);
+            color: #000;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .toolbox-btn:hover {
+            opacity: 0.9;
+        }
+
+        #codeExportBox {
+            display: none;
+            margin-top: 10px;
+        }
+
+        #codeExportBox textarea {
+            width: 93%;
+            height: 70px;
+            background: #000;
+            color: var(--primary);
+            border: 1px solid var(--primary);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            padding: 6px;
+            resize: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Private Floating Alignment Toolbar -->
+    <div id="alignmentToolbox">
+        <div class="toolbox-header" id="toolboxDragHandle">
+            <span>✋ Drag Toolbox</span>
+            <span style="font-size: 10px; opacity:0.7;">[Private]</span>
+        </div>
+        <div class="control-group">
+            <label>Top Offset:</label>
+            <input type="range" id="topInput" min="-600" max="200" value="0">
+        </div>
+        <div class="control-group">
+            <label>Left Offset:</label>
+            <input type="range" id="leftInput" min="-200" max="200" value="0">
+        </div>
+        <div class="control-group">
+            <label>Height (%):</label>
+            <input type="range" id="heightInput" min="100" max="500" value="100">
+        </div>
+        <div class="control-group">
+            <label>Scale:</label>
+            <input type="range" id="scaleInput" min="0.5" max="2" step="0.05" value="1">
+        </div>
+        <button class="toolbox-btn" id="saveAlignBtn">Save Alignment</button>
+
+        <!-- Copy Text Box Output -->
+        <div id="codeExportBox">
+            <div style="font-size:11px; margin-bottom:4px; color:#aaa;">Copy & paste into :root { }</div>
+            <textarea id="codeText" readonly></textarea>
+            <button class="toolbox-btn" id="copyTextBtn" style="background:#333; color:#fff; margin-top:4px;">Copy to Clipboard</button>
+        </div>
+    </div>
+
+    <!-- Mobile Viewer -->
+    <div class="viewport" id="playerWrapper">
+        <div id="lockLayer"></div>
+
+        <!-- Ticker -->
+        <div id="ticker"><span></span></div>
+
+        <div id="status" class="click-hint"></div>
+        <button id="resetBtn" onclick="location.reload()">Refresh</button>
+
+        <!-- Full Page Frame Container -->
+        <div id="frameMover">
+            <iframe id="captureFrame" 
+                    is="x-frame-bypass"
+                    src="" 
+                    scrolling="no"
+                    allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                    allowfullscreen="true">
+            </iframe>
+        </div>
+    </div>
+
+    <!-- Non-Mobile Fallback -->
+    <div id="fallback">
+        <h2>Mobile Device Required</h2>
+        <p>Please open this page on Android or iOS to view the stream.</p>
+    </div>
+
+<script>
+(function() {
+    // --- Stream Channel Dictionary ---
+    // Add your stream iframe URLs here mapped to your target hashes (#1, #2, #3, etc.)
+    const channels = {
+        "#1": "https://bhoomtv.org/live/sony-tv-hd/",
+        "#2": "https://bhoomtv.org/live/bollywood-plus/",
+        "#3": "https://bhoomtv.org/live/sony-sab-hd/",
+        "#4": "https://example.com/embed-4/",
+        "#5": "https://example.com/embed-5/"
+    };
+
+    function loadChannelFromHash() {
+        const hash = window.location.hash || "#1"; // Default to #1 if no hash supplied
+        const iframe = document.getElementById('captureFrame');
+        if (iframe) {
+            if (channels[hash]) {
+                iframe.src = channels[hash];
+            } else {
+                // Fallback to #1 if channel hash is invalid/unmapped
+                iframe.src = channels["#1"];
+            }
+        }
+    }
+
+    // Listen for Hash Changes in the URL (Allows switching live via URL # change)
+    window.addEventListener("hashchange", loadChannelFromHash);
+
+    function isAllowedDevice() {
+        const ua = navigator.userAgent || navigator.vendor || window.opera;
+        return /iPhone|iPad|iPod|Android/i.test(ua);
+    }
+
+    if (!isAllowedDevice()) {
+        document.addEventListener("DOMContentLoaded", function() {
+            const wrapper = document.getElementById('playerWrapper');
+            const fallback = document.getElementById('fallback');
+            if (wrapper) wrapper.remove();
+            if (fallback) fallback.style.display = 'block';
+        });
+        return;
+    }
+
+    document.addEventListener("DOMContentLoaded", function() {
+        // --- Load initial channel based on URL Hash ---
+        loadChannelFromHash();
+
+        // --- 1. Mode Handling & Alignment Logic ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const mode = urlParams.get('mode');
+
+        const topInput = document.getElementById('topInput');
+        const leftInput = document.getElementById('leftInput');
+        const heightInput = document.getElementById('heightInput');
+        const scaleInput = document.getElementById('scaleInput');
+        const toolbox = document.getElementById('alignmentToolbox');
+        const codeExportBox = document.getElementById('codeExportBox');
+        const codeText = document.getElementById('codeText');
+
+        // Apply alignment variables
+        function applyAlignment(top, left, height, scale) {
+            document.documentElement.style.setProperty('--frame-top', top + 'px');
+            document.documentElement.style.setProperty('--frame-left', left + '%');
+            document.documentElement.style.setProperty('--frame-height', height + '%');
+            document.documentElement.style.setProperty('--frame-scale', scale);
+        }
+
+        // Load configuration from local storage if available
+        const savedConfig = localStorage.getItem('streamAlignmentConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            applyAlignment(config.top, config.left, config.height, config.scale);
+            topInput.value = config.top;
+            leftInput.value = config.left;
+            heightInput.value = config.height;
+            scaleInput.value = config.scale;
+        }
+
+        // Setup Private Mode Controls
+        if (mode === 'private') {
+            toolbox.classList.add('visible');
+
+            function updateFromSliders() {
+                applyAlignment(topInput.value, leftInput.value, heightInput.value, scaleInput.value);
+            }
+
+            topInput.addEventListener('input', updateFromSliders);
+            leftInput.addEventListener('input', updateFromSliders);
+            heightInput.addEventListener('input', updateFromSliders);
+            scaleInput.addEventListener('input', updateFromSliders);
+
+            // Save and Generate Copyable CSS Text
+            document.getElementById('saveAlignBtn').addEventListener('click', function() {
+                const config = {
+                    top: topInput.value,
+                    left: leftInput.value,
+                    height: heightInput.value,
+                    scale: scaleInput.value
+                };
+                localStorage.setItem('streamAlignmentConfig', JSON.stringify(config));
+                
+                const generatedCss = `--frame-top: ${config.top}px;\n--frame-left: ${config.left}%;\n--frame-height: ${config.height}%;\n--frame-scale: ${config.scale};`;
+                
+                codeText.value = generatedCss;
+                codeExportBox.style.display = 'block';
+            });
+
+            // Copy Button Handler
+            document.getElementById('copyTextBtn').addEventListener('click', function() {
+                codeText.select();
+                navigator.clipboard.writeText(codeText.value);
+                this.innerText = "Copied!";
+                setTimeout(() => { this.innerText = "Copy to Clipboard"; }, 2000);
+            });
+
+            // Touch & Mouse Dragging for Floating Toolbox
+            const handle = document.getElementById('toolboxDragHandle');
+            let isDragging = false, startX, startY, initialLeft, initialTop;
+
+            function onDragStart(e) {
+                isDragging = true;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                startX = clientX;
+                startY = clientY;
+                initialLeft = toolbox.offsetLeft;
+                initialTop = toolbox.offsetTop;
+            }
+
+            function onDragMove(e) {
+                if (!isDragging) return;
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                toolbox.style.left = (initialLeft + clientX - startX) + 'px';
+                toolbox.style.top = (initialTop + clientY - startY) + 'px';
+            }
+
+            function onDragEnd() {
+                isDragging = false;
+            }
+
+            handle.addEventListener('mousedown', onDragStart);
+            document.addEventListener('mousemove', onDragMove);
+            document.addEventListener('mouseup', onDragEnd);
+
+            handle.addEventListener('touchstart', onDragStart, { passive: true });
+            document.addEventListener('touchmove', onDragMove, { passive: true });
+            document.addEventListener('touchend', onDragEnd);
+        }
+
+        // --- 2. Player Lock Logic ---
+        const wrapper = document.getElementById('playerWrapper');
+        const shield = document.getElementById('lockLayer');
+        const status = document.getElementById('status');
+        
+        let clickCount = 0;
+        const maxClicks = 35;
+        let locked = false;
+
+        function lockPlayer() {
+            shield.classList.add('active');
+            status.innerText = "CONTROLS LOCKED";
+            locked = true;
+            setTimeout(() => { status.style.opacity = "0"; }, 500000);
+        }
+
+        wrapper.addEventListener('click', function() {
+            if (locked) return;
+            clickCount++;
+            let remaining = maxClicks - clickCount;
+            if (remaining > 0) {
+                status.innerText = `Setup Mode: ${remaining} clicks left`;
+            }
+            if (clickCount >= maxClicks) {
+                lockPlayer();
+            }
+        });
+
+        // Auto-lock timer
+        setTimeout(lockPlayer, 6000000);
+    });
+})();
+</script>
+</body>
+</html>

@@ -809,10 +809,10 @@ function logo(ch) {
 }
 
 function openPopUpStream(ch, targetUrl) {
-  // Read new frame alignment variables with standard defaults
-  const frameTop = ch.frameTop || '35px';
+  // Read frame alignment variables with neutral defaults
+  const frameTop = ch.frameTop || '0px';
   const frameLeft = ch.frameLeft || '0%';
-  const frameHeight = ch.frameHeight || '140%';
+  const frameHeight = ch.frameHeight || '100%';
   const frameScale = ch.frameScale || '1';
 
   const title = esc(ch.name);
@@ -820,7 +820,9 @@ function openPopUpStream(ch, targetUrl) {
   const tickerText = esc(ch.tickerText || ch.instructions || ch.note || '🔴 MSTV LIVE NETWORK — Thank you for watching!');
 
   const isPrivate = ch.access === 'private';
-  const windowFeatures = 'width=920,height=580,resizable=yes,scrollbars=no,status=no';
+  
+  // Standard 16:9 window proportions (e.g., 960x540 + header/ticker offset)
+  const windowFeatures = 'width=960,height=604,resizable=yes,scrollbars=no,status=no';
 
   if (typeof mstvPopupWindow !== 'undefined' && mstvPopupWindow && !mstvPopupWindow.closed) {
     mstvPopupWindow.close();
@@ -837,23 +839,97 @@ function openPopUpStream(ch, targetUrl) {
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>${title} - MSTV Stream</title>
   <style>
+    /* 1. Reset layout and hide scrollbars across all rendering engines */
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body, html { margin: 0; padding: 0; background: #06070b; color: #f2f4fb; font-family: system-ui, -apple-system, sans-serif; overflow: hidden; width: 100%; height: 100vh; display: flex; flex-direction: column; }
-    .popup-header { height: 38px; background: #0f1220; border-bottom: 1px solid rgba(255,255,255,0.1); display: flex; align-items: center; padding: 0 12px; gap: 10px; flex-shrink: 0; }
+    html, body { 
+      margin: 0; 
+      padding: 0; 
+      background: #000; 
+      color: #f2f4fb; 
+      font-family: system-ui, -apple-system, sans-serif; 
+      overflow: hidden; 
+      width: 100vw; 
+      height: 100vh; 
+      display: flex; 
+      flex-direction: column; 
+      -webkit-text-size-adjust: 100%;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+    ::-webkit-scrollbar { display: none; }
+
+    /* Header & Ticker elements with fixed structural heights */
+    .popup-header { 
+      height: 38px; 
+      background: #0f1220; 
+      border-bottom: 1px solid rgba(255,255,255,0.1); 
+      display: flex; 
+      align-items: center; 
+      padding: 0 12px; 
+      gap: 10px; 
+      flex-shrink: 0; 
+    }
     .popup-header .title { font-size: 13px; font-weight: 700; color: #fff; }
-    .align-btn { background: rgba(61, 242, 255, 0.15); color: #3df2ff; border: 1px solid rgba(61, 242, 255, 0.4); border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: 700; cursor: pointer; margin-left: auto; }
+    .align-btn { 
+      background: rgba(61, 242, 255, 0.15); 
+      color: #3df2ff; 
+      border: 1px solid rgba(61, 242, 255, 0.4); 
+      border-radius: 4px; 
+      padding: 3px 8px; 
+      font-size: 11px; 
+      font-weight: 700; 
+      cursor: pointer; 
+      margin-left: auto; 
+    }
     .align-btn:hover { background: #3df2ff; color: #000; }
-    .ticker-wrap { height: 24px; background: #000; border-bottom: 1px solid rgba(255,255,255,0.1); overflow: hidden; display: flex; align-items: center; flex-shrink: 0; }
-    .ticker { display: inline-block; white-space: nowrap; padding-left: 100%; animation: marquee 22s linear infinite; font-size: 11px; font-weight: 600; color: #3df2ff; }
+    
+    .ticker-wrap { 
+      height: 24px; 
+      background: #000; 
+      border-bottom: 1px solid rgba(255,255,255,0.1); 
+      overflow: hidden; 
+      display: flex; 
+      align-items: center; 
+      flex-shrink: 0; 
+    }
+    .ticker { 
+      display: inline-block; 
+      white-space: nowrap; 
+      padding-left: 100%; 
+      animation: marquee 22s linear infinite; 
+      font-size: 11px; 
+      font-weight: 600; 
+      color: #3df2ff; 
+    }
     @keyframes marquee { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
-    
-    .crop-viewport-wrapper { flex: 1; width: 100%; display: flex; justify-content: center; align-items: center; background: #000; position: relative; }
-    .crop-viewport { position: relative; width: 100%; height: 100%; overflow: hidden; background: #000; }
-    
-    /* Frame positioning using scale transform */
+
+    /* 2. Responsive 16:9 Aspect Ratio Container */
+    .crop-viewport-wrapper { 
+      flex: 1; 
+      width: 100%; 
+      display: flex; 
+      justify-content: center; 
+      align-items: center; 
+      background: #000; 
+      position: relative; 
+      overflow: hidden; 
+    }
+
+    .crop-viewport { 
+      position: relative; 
+      width: 100%; 
+      max-width: 100%; 
+      height: auto; 
+      /* Enforces precise 16:9 ratio regardless of device/OS window borders */
+      aspect-ratio: 16 / 9; 
+      overflow: hidden; 
+      background: #000; 
+    }
+
+    /* 3. Standardized iframe positioning */
     .crop-viewport iframe { 
       position: absolute; 
       top: ${frameTop}; 
@@ -861,17 +937,51 @@ function openPopUpStream(ch, targetUrl) {
       width: 100%; 
       height: ${frameHeight}; 
       transform: scale(${frameScale});
-      transform-origin: top left;
+      transform-origin: 0 0;
       border: 0; 
     }
-    
-    #alignerPanel { display: none; position: absolute; bottom: 10px; right: 10px; z-index: 9999; background: rgba(15,18,32,0.95); border: 1px solid #3df2ff; border-radius: 8px; padding: 10px; width: 230px; box-shadow: 0 4px 15px rgba(0,0,0,0.8); font-size: 11px; color: #fff; }
+
+    /* Floating Alignment Control Panel */
+    #alignerPanel { 
+      display: none; 
+      position: absolute; 
+      bottom: 10px; 
+      right: 10px; 
+      z-index: 9999; 
+      background: rgba(15,18,32,0.95); 
+      border: 1px solid #3df2ff; 
+      border-radius: 8px; 
+      padding: 10px; 
+      width: 230px; 
+      box-shadow: 0 4px 15px rgba(0,0,0,0.8); 
+      font-size: 11px; 
+      color: #fff; 
+    }
     #alignerPanel.active { display: block; }
     .align-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin: 8px 0; text-align: center; }
-    .align-grid button, .control-row button { background: #151933; color: #3df2ff; border: 1px solid rgba(255,255,255,0.1); padding: 4px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    .align-grid button, .control-row button { 
+      background: #151933; 
+      color: #3df2ff; 
+      border: 1px solid rgba(255,255,255,0.1); 
+      padding: 4px; 
+      border-radius: 4px; 
+      cursor: pointer; 
+      font-weight: bold; 
+    }
     .align-grid button:hover, .control-row button:hover { background: #3df2ff; color: #000; }
     .control-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .copy-btn { width: 100%; background: #33ff9b; color: #000; border: none; padding: 6px; border-radius: 4px; font-weight: bold; cursor: pointer; text-align: center; margin-top: 6px; }
+    .copy-btn { 
+      width: 100%; 
+      background: #33ff9b; 
+      color: #000; 
+      border: none; 
+      padding: 6px; 
+      border-radius: 4px; 
+      font-weight: bold; 
+      cursor: pointer; 
+      text-align: center; 
+      margin-top: 6px; 
+    }
     .copy-btn:hover { background: #28cb7a; }
   </style>
 </head>
@@ -881,9 +991,16 @@ function openPopUpStream(ch, targetUrl) {
     ${isPrivate ? `<button class="align-btn" id="toggleAligner">🎯 Align Stream</button>` : ''}
   </header>
   <div class="ticker-wrap"><div class="ticker">${tickerText}</div></div>
+  
   <div class="crop-viewport-wrapper">
     <div class="crop-viewport">
-      <iframe id="popFrame" src="${safeTargetUrl}" referrerpolicy="no-referrer" scrolling="no" allowfullscreen></iframe>
+      <iframe id="popFrame" 
+              src="${safeTargetUrl}" 
+              referrerpolicy="no-referrer" 
+              scrolling="no" 
+              allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+              allowfullscreen="true">
+      </iframe>
     </div>
     
     ${isPrivate ? `
@@ -930,7 +1047,7 @@ function openPopUpStream(ch, targetUrl) {
       const toggleBtn = document.getElementById('toggleAligner');
       const closeBtn = document.getElementById('closeAligner');
 
-      let topVal = parseInt("${frameTop}", 10) || -181;
+      let topVal = parseInt("${frameTop}", 10) || 0;
       let leftVal = parseInt("${frameLeft}", 10) || 0;
       let heightVal = parseInt("${frameHeight}", 10) || 100;
       let scaleVal = parseFloat("${frameScale}") || 1.0;
@@ -956,7 +1073,7 @@ function openPopUpStream(ch, targetUrl) {
       document.getElementById('btnRight').onclick = () => { leftVal += 1; updateStyles(); };
       
       document.getElementById('btnReset').onclick = () => { 
-        topVal = -181; leftVal = 0; heightVal = 100; scaleVal = 1.0; 
+        topVal = 0; leftVal = 0; heightVal = 100; scaleVal = 1.0; 
         updateStyles(); 
       };
 

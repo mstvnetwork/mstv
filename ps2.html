@@ -3,6 +3,12 @@
   <head>
     <meta charset="utf-8">
     <title>Serverless Synced Hybrid Live TV</title>
+    
+    <!-- Prevent Edge & Browser Caching via HTML Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+
     <style>
       body, html { 
         background-color: #000; 
@@ -148,221 +154,251 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
     
     <script>
-       const basePath = "https://github.com/mstvnetwork/mstv/releases/v1.0.0/";
-
-let playlistData = [];
-let totalPlaylistDuration = 0;
-let activeVideo = $('#video1');
-let bufferVideo = $('#video2');
-let switchTimeout = null;
-let isGlobalMuted = true;
-
-let hlsInstances = { 'video1': null, 'video2': null };
-let loadedSourceMap = { 'video1': '', 'video2': '' };
-
-// 1. Setup SSE for sub-second backend event streaming
-function setupLiveStreamFeed() {
-  // Replace '/api/live-stream-events' with your real-time SSE endpoint URL
-  const eventSource = new EventSource('/api/live-stream-events');
-
-  eventSource.onmessage = function(event) {
-    try {
-      const newPlaylist = JSON.parse(event.data);
-      console.log("Real-time live update received via SSE:", newPlaylist);
+      const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
       
-      // Update data state instantly
-      playlistData = newPlaylist;
-      totalPlaylistDuration = playlistData.reduce((acc, item) => acc + item.duration, 0);
+      let playlistData = [];
+      let totalPlaylistDuration = 0;
+      let activeVideo = $('#video1');
+      let bufferVideo = $('#video2');
+      let switchTimeout = null;
+      let isGlobalMuted = true;
 
-      // Force instant resync evaluation
-      evaluateLiveState(true);
-    } catch (e) {
-      console.error("Error parsing real-time live payload:", e);
-    }
-  };
+      let hlsInstances = { 'video1': null, 'video2': null };
+      let loadedSourceMap = { 'video1': '', 'video2': '' };
 
-  eventSource.onerror = function(err) {
-    console.warn("SSE Connection issue, retrying...", err);
-  };
-}
+      // Aggressive Cache-Busted JSON Fetching
+      async function pollPlaylist() {
+        try {
+          // Bypasses browser, CDN, and git static file caches completely
+          const response = await fetch('playlist.json?t=' + Date.now(), {
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          });
 
-function calculateCurrentBroadcast() {
-  if (playlistData.length === 0 || totalPlaylistDuration === 0) return null;
+          if (!response.ok) throw new Error(`HTTP error ${response.status}`);
 
-  const currentUnixTime = Math.floor(Date.now() / 1000);
-  const baseAnchorTime = Math.floor(Date.now() / 86400000) * 86400; 
-  const elapsedSeconds = currentUnixTime - baseAnchorTime;
-  
-  let currentLoopPosition = elapsedSeconds % totalPlaylistDuration;
+          playlistData = await response.json();
+          totalPlaylistDuration = playlistData.reduce((acc, item) => acc + item.duration, 0);
+          
+          syncPlayer();
+        } catch (e) {
+          console.error("Failed to fetch playlist.json:", e);
+        }
+      }
 
-  let accumulatedTime = 0;
-  for (let i = 0; i < playlistData.length; i++) {
-    const clip = playlistData[i];
-    if (currentLoopPosition >= accumulatedTime && currentLoopPosition < (accumulatedTime + clip.duration)) {
-      return {
-        index: i,
-        file: clip.file,
-        isExternal: clip.isExternal || false,
-        seekTo: currentLoopPosition - accumulatedTime,
-        remaining: (accumulatedTime + clip.duration) - currentLoopPosition
-      };
-    }
-    accumulatedTime += clip.duration;
-  }
-  return null;
-}
+      function calculateCurrentBroadcast() {
+        if (playlistData.length === 0 || totalPlaylistDuration === 0) return null;
 
-function loadMediaSource(videoContainer, sourceUrl) {
-  const videoEl = videoContainer.get(0);
-  if (!videoEl) return;
-  
-  const elementId = videoContainer.attr('id');
+        const currentUnixTime = Math.floor(Date.now() / 1000);
+        const baseAnchorTime = Math.floor(Date.now() / 86400000) * 86400; 
+        const elapsedSeconds = currentUnixTime - baseAnchorTime;
+        let currentLoopPosition = elapsedSeconds % totalPlaylistDuration;
 
-  if (hlsInstances[elementId]) {
-    hlsInstances[elementId].destroy();
-    hlsInstances[elementId] = null;
-  }
+        let accumulatedTime = 0;
+        for (let i = 0; i < playlistData.length; i++) {
+          const clip = playlistData[i];
+          if (currentLoopPosition >= accumulatedTime && currentLoopPosition < (accumulatedTime + clip.duration)) {
+            return {
+              index: i,
+              file: clip.file,
+              isExternal: clip.isExternal || false,
+              seekTo: currentLoopPosition - accumulatedTime,
+              remaining: (accumulatedTime + clip.duration) - currentLoopPosition
+            };
+          }
+          accumulatedTime += clip.duration;
+        }
+        return null;
+      }
 
-  loadedSourceMap[elementId] = sourceUrl;
-
-  if (sourceUrl.includes('.m3u8')) {
-    if (Hls.isSupported()) {
-      const hls = new Hls({ 
-        maxMaxBufferLength: 10,
-        enableWorker: true,
-        lowLatencyMode: true
-      });
-      hls.loadSource(sourceUrl);
-      hls.attachMedia(videoEl);
-      hlsInstances[elementId] = hls;
-    } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-      videoEl.src = sourceUrl;
-    }
-  } else {
-    videoEl.src = sourceUrl;
-  }
-}
-
-// 2. Evaluates state and performs immediate stream swap if playlist changed
-function evaluateLiveState(isLivePush = false) {
-  const broadcast = calculateCurrentBroadcast();
-  
-  // If playlist became empty or invalid, halt playback immediately
-  if (!broadcast) {
-    activeVideo.get(0).pause();
-    bufferVideo.get(0).pause();
-    activeVideo.css('opacity', '0');
-    return;
-  }
-
-  const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
-  const activeId = activeVideo.attr('id');
-  const currentTrackingSrc = loadedSourceMap[activeId] || "";
-  const sameFile = currentTrackingSrc.includes(broadcast.file);
-
-  if (!sameFile) {
-    // Immediate cut/fade if the active video is no longer the target stream
-    console.log(`Live playlist changed. Instantly swapping to: ${broadcast.file}`);
-    
-    // Clear scheduled seamless swaps
-    clearTimeout(switchTimeout);
-
-    const bufferEl = bufferVideo.get(0);
-    loadMediaSource(bufferVideo, expectedSrc);
-    bufferEl.currentTime = broadcast.seekTo;
-    bufferEl.muted = isGlobalMuted;
-
-    bufferEl.play().then(() => {
-      // Instant transition swap
-      bufferVideo.css({'z-index': '2', 'opacity': '1'});
-      activeVideo.css({'z-index': '1', 'opacity': '0'});
-
-      setTimeout(() => {
-        activeVideo.get(0).pause();
-        const temp = activeVideo;
-        activeVideo = bufferVideo;
-        bufferVideo = temp;
-
-        setupSeamlessTransition(broadcast.remaining);
-      }, 400);
-    }).catch(err => console.log("Immediate swap play deferred:", err));
-
-  } else if (Math.abs(activeVideo.get(0).currentTime - broadcast.seekTo) > 2) {
-    // Nudge currentTime if minor synchronization drift occurs
-    activeVideo.get(0).currentTime = broadcast.seekTo;
-  }
-}
-
-function setupSeamlessTransition(timeRemaining) {
-  clearTimeout(switchTimeout);
-  
-  const triggerDelay = (timeRemaining - 2.5) * 1000;
-  if (triggerDelay <= 0) return;
-
-  switchTimeout = setTimeout(() => {
-    const upcomingBroadcast = calculateCurrentBroadcast();
-    if (!upcomingBroadcast) return;
-
-    const bufferEl = bufferVideo.get(0);
-    if (!bufferEl) return;
-
-    const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
-
-    loadMediaSource(bufferVideo, nextSrc);
-    bufferEl.currentTime = 0;
-    bufferEl.muted = isGlobalMuted;
-    bufferEl.play().catch(() => {});
-
-    let hasSwitched = false;
-    const executeSeamlessSwap = () => {
-      if (hasSwitched) return;
-      hasSwitched = true;
-
-      bufferVideo.css({'z-index': '2', 'opacity': '1'});
-      activeVideo.css({'z-index': '1', 'opacity': '0'});
-      
-      setTimeout(() => {
-        const oldActiveEl = activeVideo.get(0);
-        if (oldActiveEl) oldActiveEl.pause();
-
-        const temp = activeVideo;
-        activeVideo = bufferVideo;
-        bufferVideo = temp;
+      function loadMediaSource(videoContainer, sourceUrl) {
+        const videoEl = videoContainer.get(0);
+        if (!videoEl) return;
         
-        evaluateLiveState(false);
-      }, 400);
-    };
+        const elementId = videoContainer.attr('id');
 
-    const activeHlsInstance = hlsInstances[bufferVideo.attr('id')];
-    if (activeHlsInstance) {
-      activeHlsInstance.once(Hls.Events.FRAG_BUFFERED, () => {
-        setTimeout(executeSeamlessSwap, 600);
+        if (hlsInstances[elementId]) {
+          hlsInstances[elementId].destroy();
+          hlsInstances[elementId] = null;
+        }
+
+        loadedSourceMap[elementId] = sourceUrl;
+
+        if (sourceUrl.includes('.m3u8')) {
+          if (Hls.isSupported()) {
+            const hls = new Hls({ 
+              maxMaxBufferLength: 10,
+              enableWorker: true,
+              lowLatencyMode: true
+            });
+            hls.loadSource(sourceUrl);
+            hls.attachMedia(videoEl);
+            hlsInstances[elementId] = hls;
+          } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
+            videoEl.src = sourceUrl;
+          }
+        } else {
+          videoEl.src = sourceUrl;
+        }
+      }
+
+      function syncPlayer() {
+        const broadcast = calculateCurrentBroadcast();
+        
+        // If playlist is empty, stop playback immediately
+        if (!broadcast) {
+          activeVideo.get(0).pause();
+          bufferVideo.get(0).pause();
+          activeVideo.css('opacity', '0');
+          return;
+        }
+
+        const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
+        const activeId = activeVideo.attr('id');
+        const currentTrackingSrc = loadedSourceMap[activeId] || "";
+        const sameFile = currentTrackingSrc.includes(broadcast.file);
+
+        if (!sameFile) {
+          // Instant cut & cross-fade if playlist entry was modified, replaced, or removed
+          console.log(`Live playlist change detected. Cross-fading to: ${broadcast.file}`);
+          clearTimeout(switchTimeout);
+          
+          const bufferEl = bufferVideo.get(0);
+          loadMediaSource(bufferVideo, expectedSrc);
+          bufferEl.currentTime = broadcast.seekTo;
+          bufferEl.muted = isGlobalMuted;
+
+          bufferEl.play().then(() => {
+            bufferVideo.css({'z-index': '2', 'opacity': '1'});
+            activeVideo.css({'z-index': '1', 'opacity': '0'});
+
+            setTimeout(() => {
+              activeVideo.get(0).pause();
+              const temp = activeVideo;
+              activeVideo = bufferVideo;
+              bufferVideo = temp;
+
+              setupSeamlessTransition(broadcast.remaining);
+            }, 400);
+          }).catch(err => console.log("Play deferred:", err));
+
+        } else if (Math.abs(activeVideo.get(0).currentTime - broadcast.seekTo) > 4) {
+          // Keep current stream playing cleanly without reloading HLS when aligning drift
+          activeVideo.get(0).currentTime = broadcast.seekTo;
+        }
+      }
+
+      function setupSeamlessTransition(timeRemaining) {
+        clearTimeout(switchTimeout);
+        
+        const triggerDelay = (timeRemaining - 2.5) * 1000;
+        if (triggerDelay <= 0) return;
+
+        switchTimeout = setTimeout(() => {
+          const upcomingBroadcast = calculateCurrentBroadcast();
+          if (!upcomingBroadcast) return;
+
+          const bufferEl = bufferVideo.get(0);
+          if (!bufferEl) return;
+
+          const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
+
+          loadMediaSource(bufferVideo, nextSrc);
+          bufferEl.currentTime = 0;
+          bufferEl.muted = isGlobalMuted;
+          bufferEl.play().catch(() => {});
+
+          let hasSwitched = false;
+          const executeSeamlessSwap = () => {
+            if (hasSwitched) return;
+            hasSwitched = true;
+
+            bufferVideo.css({'z-index': '2', 'opacity': '1'});
+            activeVideo.css({'z-index': '1', 'opacity': '0'});
+            
+            setTimeout(() => {
+              const oldActiveEl = activeVideo.get(0);
+              if (oldActiveEl) oldActiveEl.pause();
+
+              const temp = activeVideo;
+              activeVideo = bufferVideo;
+              bufferVideo = temp;
+              
+              pollPlaylist();
+            }, 400);
+          };
+
+          const activeHlsInstance = hlsInstances[bufferVideo.attr('id')];
+          if (activeHlsInstance) {
+            activeHlsInstance.once(Hls.Events.FRAG_BUFFERED, () => {
+              setTimeout(executeSeamlessSwap, 600);
+            });
+            setTimeout(executeSeamlessSwap, 2200);
+          } else {
+            setTimeout(executeSeamlessSwap, 2000);
+          }
+
+        }, triggerDelay);
+      }
+
+      // Handle Sound Button Clicks
+      $('#mute-btn').on('click', function() {
+        isGlobalMuted = !isGlobalMuted;
+        
+        const v1 = document.getElementById('video1');
+        const v2 = document.getElementById('video2');
+
+        if (v1) v1.muted = isGlobalMuted;
+        if (v2) v2.muted = isGlobalMuted;
+
+        if (!isGlobalMuted) {
+          if (v1) v1.volume = 1.0;
+          if (v2) v2.volume = 1.0;
+          if (v1) v1.play().catch(() => {});
+          if (v2) v2.play().catch(() => {});
+        }
+
+        if (isGlobalMuted) {
+          $('#icon-muted').show();
+          $('#icon-unmuted').hide();
+        } else {
+          $('#icon-muted').hide();
+          $('#icon-unmuted').show();
+        }
       });
-      setTimeout(executeSeamlessSwap, 2200);
-    } else {
-      setTimeout(executeSeamlessSwap, 2000);
-    }
 
-  }, triggerDelay);
-}
+      // Handle Fullscreen Button Clicks
+      $('#fullscreen-btn').on('click', function() {
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(err => {
+            console.error(`Fullscreen missing: ${err.message}`);
+          });
+        } else {
+          document.exitFullscreen();
+        }
+      });
 
-// 3. Boot setup hook
-function bootPlayerSetup() {
-  const v1 = document.getElementById('video1');
-  const v2 = document.getElementById('video2');
+      // Boot Initialization Sequence
+      function bootPlayerSetup() {
+        const v1 = document.getElementById('video1');
+        const v2 = document.getElementById('video2');
 
-  if (v1 && v2) {
-    v1.muted = true;
-    v2.muted = true;
-    v1.volume = 0.0;
-    v2.volume = 0.0;
-  }
-  
-  // Connect to SSE stream
-  setupLiveStreamFeed();
-}
+        if (v1 && v2) {
+          v1.muted = true;
+          v2.muted = true;
+          v1.volume = 0.0;
+          v2.volume = 0.0;
+        }
+        
+        pollPlaylist();
+        setInterval(pollPlaylist, 3000); // Check for live playlist changes every 3 seconds
+      }
 
-$(document).ready(bootPlayerSetup);                       
+      $(document).ready(bootPlayerSetup);
     </script>
   </body>
 </html>

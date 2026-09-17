@@ -9,19 +9,16 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; display: flex; align-items: center; justify-content: center; }
   #stage { position: relative; width: 100%; max-width: 100vw; aspect-ratio: 16/9; max-height: 100vh; background: #000; }
-  /* NO native controls = no OS/Samsung video assistant scrubber bars */
   video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
   #live-badge { position: absolute; top: 16px; left: 16px; z-index: 10; background: rgba(255,59,48,0.85); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
   #controls { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; gap: 8px; }
   button { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
-  #overlay-blocker { position: absolute; inset: 0; z-index: 5; }
 </style>
 </head>
 <body>
   <div id="stage">
     <div id="live-badge">● LIVE SYNC</div>
     <video id="vid" playsinline muted crossorigin="anonymous"></video>
-    <div id="overlay-blocker" title="Scrubbing disabled"></div>
     <div id="controls">
       <button id="mute-btn">🔇</button>
       <button id="fs-btn">⛶</button>
@@ -29,11 +26,10 @@
   </div>
 
   <script>
-    // External third-party catalog (must support CORS)
     const PLAYLIST = [
-  { file: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", type: "hls", duration: 30 },
-  { file: "https://demo.unified-streaming.com/kiosk/video/tears-of-steel/tears-of-steel.ism/.m3u8", type: "hls", duration: 30 }
-];
+      { file: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", type: "hls", duration: 30 },
+      { file: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8", type: "hls", duration: 30 }
+    ];
     const ANCHOR = 1767225600000; // 2026-01-01T00:00:00Z global baseline
     const TOTAL_DURATION = PLAYLIST.reduce((acc, i) => acc + i.duration, 0);
 
@@ -65,17 +61,19 @@
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         
         if (item.type === "hls" && Hls.isSupported()) {
-          hlsInstance = new Hls({ startPosition: offset });
+          hlsInstance = new Hls({ startPosition: offset, liveSyncDurationCount: 3 });
           hlsInstance.loadSource(item.file);
           hlsInstance.attachMedia(video);
+          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
         } else {
           video.src = item.file;
           await video.load();
           video.currentTime = offset;
+          video.play().catch(() => {});
         }
-        video.play().catch(() => {});
-      } else if (item.type === "mp4") {
-        if (Math.abs(video.currentTime - offset) > 1.5) {
+      } else if (item.type === "hls" && hlsInstance) {
+        // Enforce tight live edge tracking without forcing destroy/recreate loops
+        if (Math.abs(video.currentTime - offset) > 3.0) {
           video.currentTime = offset;
         }
       }

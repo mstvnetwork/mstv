@@ -1,404 +1,98 @@
 <!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <title>Serverless Synced Hybrid Live TV</title>
-    
-    <!-- Prevent Edge & Browser Caching via HTML Meta Tags -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-
-    <style>
-      body, html { 
-        background-color: #000; 
-        height: 100%; 
-        width: 100%; 
-        margin: 0; 
-        overflow: hidden; 
-        font-family: sans-serif;
-      }
-      
-      /* 16:9 Letterboxed Universal Container Matrix */
-      .player-container {
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 100vw;
-        height: 56.25vw; /* 16:9 ratio aspect based on width */
-        max-height: 100vh;
-        max-width: 177.78vh; /* 16:9 ratio aspect based on height */
-        transform: translate(-50%, -50%);
-        background: #000;
-        overflow: hidden;
-      }
-
-      /* Seamless Dual Video Layer Displays */
-      video { 
-        position: absolute; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%; 
-        object-fit: contain; /* Prevents visual cropping, preserves 16:9 frame geometry */
-        background-color: #000;
-        transition: opacity 0.4s ease-in-out; /* Smooth alpha cross-fade transition layout */
-      }
-
-      /* Master UI Overlay Layer */
-      #ui-layer {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: 9999;
-        pointer-events: none;
-      }
-
-      /* Top Right Logo Box Container */
-      .logo-container {
-        position: absolute;
-        top: 10px;
-        right: 25px;
-        pointer-events: auto;
-      }
-      
-      .logo-container img {
-        max-width: 180px;
-        max-height: 90px;
-        object-fit: contain;
-        filter: drop-shadow(0px 2px 8px rgba(0, 0, 0, 0.5));
-      }
-
-      /* Bottom Right Sleek Controls Container */
-      .controls-container {
-        position: absolute;
-        bottom: 20px;
-        right: 20px;
-        display: flex;
-        gap: 10px;
-        pointer-events: auto;
-      }
-
-      /* Sleek Round Icon Buttons */
-      .control-btn {
-        background: rgba(25, 25, 25, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: rgba(255, 255, 255, 0.85);
-        width: 38px;
-        height: 38px;
-        border-radius: 50%;
-        cursor: pointer;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
-        transition: background 0.2s, transform 0.1s;
-        outline: none;
-      }
-
-      .control-btn svg {
-        width: 17px;
-        height: 17px;
-        fill: rgba(255, 255, 255, 0.9);
-      }
-
-      .control-btn:active {
-        transform: scale(0.9);
-        background: rgba(50, 50, 50, 0.75);
-      }
-      
-      .control-btn:hover {
-        background: rgba(40, 40, 40, 0.70);
-      }
-    </style>
-  </head>
-  <body>
-
-    <!-- Unified Geometric Viewing Box -->
-    <div class="player-container">
-      <!-- Opacity-managed physical buffers to eradicate raw display asset blinking -->
-      <video id="video1" playsinline style="z-index: 2; opacity: 1;"></video>
-      <video id="video2" playsinline style="z-index: 1; opacity: 0;"></video>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>MSTV Global Linear Stream</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; display: flex; align-items: center; justify-content: center; }
+  #stage { position: relative; width: 100%; max-width: 100vw; aspect-ratio: 16/9; max-height: 100vh; background: #000; }
+  /* NO native controls = no OS/Samsung video assistant scrubber bars */
+  video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+  #live-badge { position: absolute; top: 16px; left: 16px; z-index: 10; background: rgba(255,59,48,0.85); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
+  #controls { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; gap: 8px; }
+  button { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
+  #overlay-blocker { position: absolute; inset: 0; z-index: 5; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="live-badge">● LIVE SYNC</div>
+    <video id="vid" playsinline muted crossorigin="anonymous"></video>
+    <div id="overlay-blocker" title="Scrubbing disabled"></div>
+    <div id="controls">
+      <button id="mute-btn">🔇</button>
+      <button id="fs-btn">⛶</button>
     </div>
+  </div>
 
-    <!-- Master Interactive UI Layer Container -->
-    <div id="ui-layer">
-      
-      <!-- Top Right: Station Logo Layout -->
-      <div class="logo-container">
-        <img id="tv-logo" src="https://crickethd.pages.dev/apna3.webp" alt="TV Logo">
-      </div>
+  <script>
+    // External third-party catalog (must support CORS)
+    const PLAYLIST = [
+      { file: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", type: "hls", duration: 30 },
+      { file: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4", type: "mp4", duration: 15 }
+    ];
+    const ANCHOR = 1767225600000; // 2026-01-01T00:00:00Z global baseline
+    const TOTAL_DURATION = PLAYLIST.reduce((acc, i) => acc + i.duration, 0);
 
-      <!-- Bottom Right: Dynamic Interactive Control Widgets -->
-      <div class="controls-container">
-        
-        <!-- Toggle Audio Mute Switch -->
-        <button id="mute-btn" class="control-btn" title="Toggle Mute">
-          <svg id="icon-muted" viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.21.05-.42.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
-          <svg id="icon-unmuted" viewBox="0 0 24 24" style="display:none;"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-        </button>
+    const video = document.getElementById("vid");
+    const muteBtn = document.getElementById("mute-btn");
+    const fsBtn = document.getElementById("fs-btn");
+    let hlsInstance = null;
+    let currentIdx = -1;
 
-        <!-- Toggle Screen Display Mode -->
-        <button id="fullscreen-btn" class="control-btn" title="Toggle Fullscreen">
-          <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
-        </button>
-
-      </div>
-    </div>
-
-    <!-- Required Dependency Components -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"></script>
-    
-    <script>
-      const basePath = "https://github.com/mstvnetwork/test1/releases/download/v1/";
-      
-      let playlistData = [];
-      let totalPlaylistDuration = 0;
-      let activeVideo = $('#video1');
-      let bufferVideo = $('#video2');
-      let switchTimeout = null;
-      let isGlobalMuted = true;
-
-      let hlsInstances = { 'video1': null, 'video2': null };
-      let loadedSourceMap = { 'video1': '', 'video2': '' };
-
-      // Aggressive Cache-Busted JSON Fetching
-      async function pollPlaylist() {
-        try {
-          // Bypasses browser, CDN, and git static file caches completely
-          const response = await fetch('playlist.json?t=' + Date.now(), {
-            cache: 'no-store',
-            headers: {
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0'
-            }
-          });
-
-          if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-
-          playlistData = await response.json();
-          totalPlaylistDuration = playlistData.reduce((acc, item) => acc + item.duration, 0);
-          
-          syncPlayer();
-        } catch (e) {
-          console.error("Failed to fetch playlist.json:", e);
+    function getGlobalPosition() {
+      const elapsed = ((Date.now() - ANCHOR) % TOTAL_DURATION + TOTAL_DURATION) % TOTAL_DURATION;
+      let acc = 0;
+      for (let i = 0; i < PLAYLIST.length; i++) {
+        if (elapsed < acc + PLAYLIST[i].duration) {
+          return { index: i, offset: elapsed - acc };
         }
+        acc += PLAYLIST[i].duration;
       }
+      return { index: 0, offset: 0 };
+    }
 
-      function calculateCurrentBroadcast() {
-        if (playlistData.length === 0 || totalPlaylistDuration === 0) return null;
+    async function syncPlayback() {
+      const { index, offset } = getGlobalPosition();
+      const item = PLAYLIST[index];
+      if (!item) return;
 
-        const currentUnixTime = Math.floor(Date.now() / 1000);
-        const baseAnchorTime = Math.floor(Date.now() / 86400000) * 86400; 
-        const elapsedSeconds = currentUnixTime - baseAnchorTime;
-        let currentLoopPosition = elapsedSeconds % totalPlaylistDuration;
-
-        let accumulatedTime = 0;
-        for (let i = 0; i < playlistData.length; i++) {
-          const clip = playlistData[i];
-          if (currentLoopPosition >= accumulatedTime && currentLoopPosition < (accumulatedTime + clip.duration)) {
-            return {
-              index: i,
-              file: clip.file,
-              isExternal: clip.isExternal || false,
-              seekTo: currentLoopPosition - accumulatedTime,
-              remaining: (accumulatedTime + clip.duration) - currentLoopPosition
-            };
-          }
-          accumulatedTime += clip.duration;
-        }
-        return null;
-      }
-
-      function loadMediaSource(videoContainer, sourceUrl) {
-        const videoEl = videoContainer.get(0);
-        if (!videoEl) return;
+      if (index !== currentIdx) {
+        currentIdx = index;
+        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         
-        const elementId = videoContainer.attr('id');
-
-        if (hlsInstances[elementId]) {
-          hlsInstances[elementId].destroy();
-          hlsInstances[elementId] = null;
-        }
-
-        loadedSourceMap[elementId] = sourceUrl;
-
-        if (sourceUrl.includes('.m3u8')) {
-          if (Hls.isSupported()) {
-            const hls = new Hls({ 
-              maxMaxBufferLength: 10,
-              enableWorker: true,
-              lowLatencyMode: true
-            });
-            hls.loadSource(sourceUrl);
-            hls.attachMedia(videoEl);
-            hlsInstances[elementId] = hls;
-          } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-            videoEl.src = sourceUrl;
-          }
+        if (item.type === "hls" && Hls.isSupported()) {
+          hlsInstance = new Hls({ startPosition: offset });
+          hlsInstance.loadSource(item.file);
+          hlsInstance.attachMedia(video);
         } else {
-          videoEl.src = sourceUrl;
+          video.src = item.file;
+          await video.load();
+          video.currentTime = offset;
+        }
+        video.play().catch(() => {});
+      } else if (item.type === "mp4") {
+        if (Math.abs(video.currentTime - offset) > 1.5) {
+          video.currentTime = offset;
         }
       }
+    }
 
-      function syncPlayer() {
-        const broadcast = calculateCurrentBroadcast();
-        
-        // If playlist is empty, stop playback immediately
-        if (!broadcast) {
-          activeVideo.get(0).pause();
-          bufferVideo.get(0).pause();
-          activeVideo.css('opacity', '0');
-          return;
-        }
+    setInterval(syncPlayback, 1000);
+    syncPlayback();
 
-        const expectedSrc = broadcast.isExternal ? broadcast.file : basePath + broadcast.file;
-        const activeId = activeVideo.attr('id');
-        const currentTrackingSrc = loadedSourceMap[activeId] || "";
-        const sameFile = currentTrackingSrc.includes(broadcast.file);
+    muteBtn.addEventListener("click", () => {
+      video.muted = !video.muted;
+      muteBtn.textContent = video.muted ? "🔇" : "🔊";
+    });
 
-        if (!sameFile) {
-          // Instant cut & cross-fade if playlist entry was modified, replaced, or removed
-          console.log(`Live playlist change detected. Cross-fading to: ${broadcast.file}`);
-          clearTimeout(switchTimeout);
-          
-          const bufferEl = bufferVideo.get(0);
-          loadMediaSource(bufferVideo, expectedSrc);
-          bufferEl.currentTime = broadcast.seekTo;
-          bufferEl.muted = isGlobalMuted;
-
-          bufferEl.play().then(() => {
-            bufferVideo.css({'z-index': '2', 'opacity': '1'});
-            activeVideo.css({'z-index': '1', 'opacity': '0'});
-
-            setTimeout(() => {
-              activeVideo.get(0).pause();
-              const temp = activeVideo;
-              activeVideo = bufferVideo;
-              bufferVideo = temp;
-
-              setupSeamlessTransition(broadcast.remaining);
-            }, 400);
-          }).catch(err => console.log("Play deferred:", err));
-
-        } else if (Math.abs(activeVideo.get(0).currentTime - broadcast.seekTo) > 4) {
-          // Keep current stream playing cleanly without reloading HLS when aligning drift
-          activeVideo.get(0).currentTime = broadcast.seekTo;
-        }
-      }
-
-      function setupSeamlessTransition(timeRemaining) {
-        clearTimeout(switchTimeout);
-        
-        const triggerDelay = (timeRemaining - 2.5) * 1000;
-        if (triggerDelay <= 0) return;
-
-        switchTimeout = setTimeout(() => {
-          const upcomingBroadcast = calculateCurrentBroadcast();
-          if (!upcomingBroadcast) return;
-
-          const bufferEl = bufferVideo.get(0);
-          if (!bufferEl) return;
-
-          const nextSrc = upcomingBroadcast.isExternal ? upcomingBroadcast.file : basePath + upcomingBroadcast.file;
-
-          loadMediaSource(bufferVideo, nextSrc);
-          bufferEl.currentTime = 0;
-          bufferEl.muted = isGlobalMuted;
-          bufferEl.play().catch(() => {});
-
-          let hasSwitched = false;
-          const executeSeamlessSwap = () => {
-            if (hasSwitched) return;
-            hasSwitched = true;
-
-            bufferVideo.css({'z-index': '2', 'opacity': '1'});
-            activeVideo.css({'z-index': '1', 'opacity': '0'});
-            
-            setTimeout(() => {
-              const oldActiveEl = activeVideo.get(0);
-              if (oldActiveEl) oldActiveEl.pause();
-
-              const temp = activeVideo;
-              activeVideo = bufferVideo;
-              bufferVideo = temp;
-              
-              pollPlaylist();
-            }, 400);
-          };
-
-          const activeHlsInstance = hlsInstances[bufferVideo.attr('id')];
-          if (activeHlsInstance) {
-            activeHlsInstance.once(Hls.Events.FRAG_BUFFERED, () => {
-              setTimeout(executeSeamlessSwap, 600);
-            });
-            setTimeout(executeSeamlessSwap, 2200);
-          } else {
-            setTimeout(executeSeamlessSwap, 2000);
-          }
-
-        }, triggerDelay);
-      }
-
-      // Handle Sound Button Clicks
-      $('#mute-btn').on('click', function() {
-        isGlobalMuted = !isGlobalMuted;
-        
-        const v1 = document.getElementById('video1');
-        const v2 = document.getElementById('video2');
-
-        if (v1) v1.muted = isGlobalMuted;
-        if (v2) v2.muted = isGlobalMuted;
-
-        if (!isGlobalMuted) {
-          if (v1) v1.volume = 1.0;
-          if (v2) v2.volume = 1.0;
-          if (v1) v1.play().catch(() => {});
-          if (v2) v2.play().catch(() => {});
-        }
-
-        if (isGlobalMuted) {
-          $('#icon-muted').show();
-          $('#icon-unmuted').hide();
-        } else {
-          $('#icon-muted').hide();
-          $('#icon-unmuted').show();
-        }
-      });
-
-      // Handle Fullscreen Button Clicks
-      $('#fullscreen-btn').on('click', function() {
-        if (!document.fullscreenElement) {
-          document.documentElement.requestFullscreen().catch(err => {
-            console.error(`Fullscreen missing: ${err.message}`);
-          });
-        } else {
-          document.exitFullscreen();
-        }
-      });
-
-      // Boot Initialization Sequence
-      function bootPlayerSetup() {
-        const v1 = document.getElementById('video1');
-        const v2 = document.getElementById('video2');
-
-        if (v1 && v2) {
-          v1.muted = true;
-          v2.muted = true;
-          v1.volume = 0.0;
-          v2.volume = 0.0;
-        }
-        
-        pollPlaylist();
-        setInterval(pollPlaylist, 3000); // Check for live playlist changes every 3 seconds
-      }
-
-      $(document).ready(bootPlayerSetup);
-    </script>
-  </body>
+    fsBtn.addEventListener("click", () => {
+      if (!document.fullscreenElement) document.getElementById("stage").requestFullscreen?.();
+      else document.exitFullscreen?.();
+    });
+  </script>
+</body>
 </html>

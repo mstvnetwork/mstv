@@ -57,6 +57,7 @@
     }
 
     async function syncPlayback() {
+      if (document.visibilityState !== "visible") return;
       const { index, offset } = getGlobalPosition();
       const item = PLAYLIST[index];
       if (!item) return;
@@ -65,32 +66,28 @@
         currentIdx = index;
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         
-        if (item.type === "proxy-hls" || (item.type === "hls" && video.canPlayType('application/vnd.apple.mpegurl'))) {
-          // Native playback handles proxied/tokenized m3u8 streams best on Safari/supported browsers
-          video.src = item.file;
-          await video.load();
-          video.currentTime = offset;
-          video.play().catch(() => {});
-        } else if (item.type === "hls" && Hls.isSupported()) {
-          hlsInstance = new Hls({ startPosition: offset, liveSyncDurationCount: 3 });
-          hlsInstance.loadSource(item.file);
-          hlsInstance.attachMedia(video);
-          hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
-        } else {
-          video.src = item.file;
-          await video.load();
-          video.currentTime = offset;
-          video.play().catch(() => {});
-        }
+        video.src = item.file;
+        await video.load();
+        video.currentTime = offset;
+        video.play().catch(() => {});
       } else {
-        if (Math.abs(video.currentTime - offset) > 3.0) {
+        // Relaxed threshold (>6s) prevents micro-stutter loops
+        if (Math.abs(video.currentTime - offset) > 6.0) {
           video.currentTime = offset;
         }
       }
     }
 
-    setInterval(syncPlayback, 1000);
+    setInterval(syncPlayback, 2000);
     syncPlayback();
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        syncPlayback();
+      } else {
+        try { video.pause(); } catch(e){}
+      }
+    });
 
     muteBtn.addEventListener("click", () => {
       video.muted = !video.muted;

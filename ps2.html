@@ -18,7 +18,7 @@
 <body>
   <div id="stage">
     <div id="live-badge">● LIVE SYNC</div>
-    <video id="vid" playsinline muted crossorigin="anonymous"></video>
+    <video id="vid" playsinline muted></video>
     <div id="controls">
       <button id="mute-btn">🔇</button>
       <button id="fs-btn">⛶</button>
@@ -27,10 +27,15 @@
 
   <script>
     const PLAYLIST = [
-      { file: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8", type: "hls", duration: 219 },
-      { file: "https://demo.unified-streaming.com/k8s/features/stable/video/tears-of-steel/tears-of-steel.ism/.m3u8", type: "hls", duration: 60 }
+      { 
+        file: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8", 
+        type: "proxy-hls", 
+        duration: 219 
+      },
+      { file: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", type: "hls", duration: 30 }
     ];
-    const ANCHOR = 1767225600000; // 2026-01-01T00:00:00Z global baseline
+    
+    const ANCHOR = 1767225600000;
     const TOTAL_DURATION = PLAYLIST.reduce((acc, i) => acc + i.duration, 0);
 
     const video = document.getElementById("vid");
@@ -60,7 +65,13 @@
         currentIdx = index;
         if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
         
-        if (item.type === "hls" && Hls.isSupported()) {
+        if (item.type === "proxy-hls" || (item.type === "hls" && video.canPlayType('application/vnd.apple.mpegurl'))) {
+          // Native playback handles proxied/tokenized m3u8 streams best on Safari/supported browsers
+          video.src = item.file;
+          await video.load();
+          video.currentTime = offset;
+          video.play().catch(() => {});
+        } else if (item.type === "hls" && Hls.isSupported()) {
           hlsInstance = new Hls({ startPosition: offset, liveSyncDurationCount: 3 });
           hlsInstance.loadSource(item.file);
           hlsInstance.attachMedia(video);
@@ -71,8 +82,7 @@
           video.currentTime = offset;
           video.play().catch(() => {});
         }
-      } else if (item.type === "hls" && hlsInstance) {
-        // Enforce tight live edge tracking without forcing destroy/recreate loops
+      } else {
         if (Math.abs(video.currentTime - offset) > 3.0) {
           video.currentTime = offset;
         }

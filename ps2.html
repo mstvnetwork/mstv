@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>MSTV Global Linear Stream</title>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<title>MSTV Global Linear Stream (GitHub Releases)</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; display: flex; align-items: center; justify-content: center; }
   #stage { position: relative; width: 100%; max-width: 100vw; aspect-ratio: 16/9; max-height: 100vh; background: #000; }
+  /* No native controls = blocked Samsung Video Assistant / mobile swipe scrubbing */
   video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
   #live-badge { position: absolute; top: 16px; left: 16px; z-index: 10; background: rgba(255,59,48,0.85); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
   #controls { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; gap: 8px; }
@@ -26,22 +26,18 @@
   </div>
 
   <script>
+    // Replace with your actual GitHub Release MP4 direct download URLs and exact file durations in seconds
     const PLAYLIST = [
-      { 
-        file: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8", 
-        type: "proxy-hls", 
-        duration: 219 
-      },
-      { file: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", type: "hls", duration: 30 }
+      { file: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/wwe-1.compressed.mp4", duration: 149 },
+      { file: "https://github.com/mstvnetwork/mstv/releases/download/v1/video2.mp4", duration: 180 }
     ];
     
-    const ANCHOR = 1767225600000;
+    const ANCHOR = 1767225600000; // 2026-01-01T00:00:00Z global baseline
     const TOTAL_DURATION = PLAYLIST.reduce((acc, i) => acc + i.duration, 0);
 
     const video = document.getElementById("vid");
     const muteBtn = document.getElementById("mute-btn");
     const fsBtn = document.getElementById("fs-btn");
-    let hlsInstance = null;
     let currentIdx = -1;
 
     function getGlobalPosition() {
@@ -64,15 +60,13 @@
 
       if (index !== currentIdx) {
         currentIdx = index;
-        if (hlsInstance) { hlsInstance.destroy(); hlsInstance = null; }
-        
         video.src = item.file;
         await video.load();
         video.currentTime = offset;
         video.play().catch(() => {});
       } else {
-        // Relaxed threshold (>6s) prevents micro-stutter loops
-        if (Math.abs(video.currentTime - offset) > 6.0) {
+        // Enforce drift correction if > 4s off
+        if (Math.abs(video.currentTime - offset) > 4.0) {
           video.currentTime = offset;
         }
       }

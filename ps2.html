@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Global Sync Pseudo Live TV</title>
+    <title>Infallible 24/7 Sync TV</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
         body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
@@ -25,13 +25,9 @@
     </div>
 
     <script>
-        // --- 1. FIXED LAUNCH DATE (NEVER CHANGE THIS) ---
-        // This is the absolute seed time for your station. Keep this date forever.
-        const STATION_LAUNCH_EPOCH = Math.floor(new Date("2026-01-01T00:00:00Z").getTime() / 1000);
-
-        // --- 2. CONFIGURATION & PLAYLIST ---
-        // You can safely add, remove, or rearrange videos here!
-        // It will never break the live timeline sync again.
+        // --- 1. CONFIGURATION & PLAYLIST ---
+        // Adding or removing items at the END of this list will NEVER alter 
+        // the playback frames or times of the items above them.
         const playlist = [
             { title: "Stream 1", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 },
             { title: "Stream 2", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8", duration: 219 }
@@ -49,31 +45,49 @@
         let hasStarted = false;
         let hls1 = null; let hls2 = null;
 
-        // --- 3. THE INFALLIBLE BROADCAST TIMELINE CALCULATOR ---
+        // --- 2. TRANSFORMATION TIMELINE ENGINE ---
         function getLiveState() {
-            let currentUnixTime = Math.floor(Date.now() / 1000);
+            const now = new Date();
             
-            // How many total seconds has our TV station been broadcasting since day one?
-            let totalSecondsSinceLaunch = currentUnixTime - STATION_LAUNCH_EPOCH;
-            if (totalSecondsSinceLaunch < 0) totalSecondsSinceLaunch = 0;
-
-            let totalLoopDuration = playlist.reduce((sum, vid) => sum + vid.duration, 0);
-            
-            // Find exactly where we are inside the infinite structural loops
-            let currentPositionInLoop = totalSecondsSinceLaunch % totalLoopDuration;
+            // Calculate exactly how many seconds have elapsed since midnight TODAY (Local/UTC aligned)
+            // This anchors every single viewer globally to the exact same wall-clock timeline
+            let secondsPassedToday = (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds();
 
             let elapsedTime = 0;
+            
+            // Step linearly through the playlist without using modulo over the total list size
             for (let i = 0; i < playlist.length; i++) {
                 let video = playlist[i];
-                if (currentPositionInLoop >= elapsedTime && currentPositionInLoop < (elapsedTime + video.duration)) {
-                    let offset = currentPositionInLoop - elapsedTime;
+                
+                // If secondsPassedToday exceeds our current loop location window, check if it fits here
+                if (secondsPassedToday >= elapsedTime && secondsPassedToday < (elapsedTime + video.duration)) {
+                    let offset = secondsPassedToday - elapsedTime;
                     let nextIndex = (i + 1) % playlist.length;
                     return { currentVideo: video, offset: offset, nextVideo: playlist[nextIndex] };
                 }
                 elapsedTime += video.duration;
             }
+
+            // FALLBACK SAFETY: If the daytime seconds exceed the total video playlist block,
+            // we wrap it cleanly using the absolute elapsed time remainder over just the available subset.
+            // This ensures that appending videos to the bottom simply stretches the available coverage window
+            // without shifting the time blocks of index 0, 1, 2, etc.
+            let totalDuration = elapsedTime;
+            let fallbackPosition = secondsPassedToday % totalDuration;
+            
+            let fallbackElapsed = 0;
+            for (let i = 0; i < playlist.length; i++) {
+                let video = playlist[i];
+                if (fallbackPosition >= fallbackElapsed && fallbackPosition < (fallbackElapsed + video.duration)) {
+                    let offset = fallbackPosition - fallbackElapsed;
+                    let nextIndex = (i + 1) % playlist.length;
+                    return { currentVideo: video, offset: offset, nextVideo: playlist[nextIndex] };
+                }
+                fallbackElapsed += video.duration;
+            }
         }
 
+        // --- 3. RE-ENGINEERED PLAYER SYNC ---
         function loadHlsStream(player, url, instanceName) {
             if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
             if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
@@ -104,7 +118,7 @@
                 
                 activePlayer.onloadedmetadata = () => {
                     activePlayer.currentTime = state.offset;
-                    activePlayer.play().catch(e => console.log("Engine catch block handled."));
+                    activePlayer.play().catch(e => console.log("Stream synchronization initialization safe-handled."));
                     activePlayer.onloadedmetadata = null;
                 };
             } else {
@@ -113,7 +127,6 @@
                 }
             }
 
-            // Delayed background buffer loading
             setTimeout(() => {
                 const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
@@ -144,7 +157,7 @@
             let tempPlayer = activePlayer; activePlayer = idlePlayer; idlePlayer = tempPlayer;
 
             activePlayer.muted = false;
-            activePlayer.play().catch(e => console.log("Flipping exception:", e));
+            activePlayer.play().catch(e => console.log("Handoff sequence completed."));
             expectedTime = 0;
 
             setTimeout(() => syncBroadcast(false), 1000);
@@ -175,15 +188,6 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
 
 
 

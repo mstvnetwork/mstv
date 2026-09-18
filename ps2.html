@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Global Live TV - 219s Test Channel</title>
+    <title>24/7 Global Live TV Channel</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
         body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
@@ -18,7 +18,7 @@
 <body>
 
     <div class="video-container">
-        <div class="badge">🔴 GLOBAL SYNC • 219S TEST LOOP</div>
+        <div class="badge">🔴 GLOBAL UTC SYNC LIVE</div>
         <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
             <button class="gatekeeper-btn">📺 JOIN LIVE TV BROADCAST</button>
         </div>
@@ -27,12 +27,20 @@
     </div>
 
     <script>
-        // --- 1. GLOBAL 219-SECOND TEST SCHEDULE ---
-        const TOTAL_DURATION = 469; // Exact test window in seconds
-        const schedule = [
-            { duration: 219, startOffset: 0, url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8" },
-            { duration: 250, startOffset: 219, url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fsgdg1p%2Fvi%2Fconverted%2F88%2F5b%2F10178108%2Fhls-hi%2Fs10178108.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fsgdg1p%2Fvi%2Fconverted%2F88%2F5b%2F10178108%2Fs10178108.m3u8" }
+        // --- EDIT YOUR CHANNEL SCHEDULE HERE ---
+        // Provide duration in seconds and your HLS (.m3u8) URL.
+        const rawSlots = [
+            { duration: 50, url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+            { duration: 50, url: "https://demo.unified-streaming.com/kiosk/video/tears-of-steel/tears-of-steel.ism/.m3u8" }
         ];
+
+        let runningOffset = 0;
+        const schedule = rawSlots.map(slot => {
+            const item = { ...slot, startOffset: runningOffset };
+            runningOffset += slot.duration;
+            return item;
+        });
+        const TOTAL_DURATION = runningOffset;
 
         const p1 = document.getElementById('player1');
         const p2 = document.getElementById('player2');
@@ -44,7 +52,7 @@
         let hls1 = null;
         let hls2 = null;
 
-        // --- 2. GLOBAL UNIVERSE TIME CALCULATOR (Modulo 219s UTC lock) ---
+        // --- GLOBAL UTC TIME CALCULATOR ---
         function getLiveState() {
             const globalEpochSec = Math.floor(Date.now() / 1000);
             const loopOffset = globalEpochSec % TOTAL_DURATION;
@@ -66,7 +74,7 @@
             return { currentVideo: currentSlot, offset: videoTimeOffset, nextVideo: nextSlot };
         }
 
-        // --- 3. HARDWARE CORE DRIVER ---
+        // --- HLS CORE & LIFECYCLE MANAGEMENT ---
         function loadHlsStream(player, url, instanceRefSetter) {
             if (Hls.isSupported()) {
                 const hls = new Hls({ maxBufferLength: 30, liveSyncDuration: 3, enableWorker: true });
@@ -105,7 +113,7 @@
                 };
             }
 
-            // Preload next slot in background
+            // Silently preload upcoming slot in idle player
             setTimeout(() => {
                 const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
@@ -131,7 +139,7 @@
             syncBroadcast(true);
         }
 
-        // --- 4. TICK ENGINE WITH HARD FLIP SAFEGUARD ---
+        // --- TICK ENGINE & BOUNDARY FLIP ---
         let lastFlippedUrl = "";
         setInterval(() => {
             if (!hasStarted || activePlayer.paused) return;
@@ -155,7 +163,6 @@
                 
                 syncBroadcast(false);
             } else {
-                // Drift correction if > 2.5s off global epoch
                 if (Math.abs(activePlayer.currentTime - state.offset) > 2.5) {
                     try { activePlayer.currentTime = state.offset; } catch(e){}
                 }

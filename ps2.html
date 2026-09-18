@@ -3,91 +3,38 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Pseudo Live TV (HLS .m3u8 Mode)</title>
-    <!-- Updated CDN link to prevent Source Map 404 errors -->
+    <title>24/7 Global Sync Pseudo Live TV</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
-        body {
-            margin: 0;
-            background-color: #000;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        .video-container {
-            position: relative;
-            width: 100%;
-            max-width: 1280px;
-            aspect-ratio: 16/9;
-            background: #000;
-        }
-        video {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            pointer-events: none;
-        }
-        video.active {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        /* --- CRITICAL: Autoplay Blocker Overlay --- */
-        .gatekeeper-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.9);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 999;
-            cursor: pointer;
-            transition: opacity 0.4s ease;
-        }
-        .gatekeeper-btn {
-            background: #ff3b30;
-            color: white;
-            border: none;
-            padding: 15px 40px;
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-radius: 30px;
-            cursor: pointer;
-            box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4);
-        }
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
+        .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
+        video.active { opacity: 1; pointer-events: auto; }
+        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
+        .gatekeeper-btn { background: #ff3b30; color: white; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
     </style>
 </head>
 <body>
 
     <div class="video-container">
-        <!-- Overlay to clear browser autoplay restrictions -->
         <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
-            <button class="gatekeeper-btn">📺 CLICK TO WATCH LIVE BROADCAST</button>
+            <button class="gatekeeper-btn">📺 JOIN LIVE TV BROADCAST</button>
         </div>
-
-        <!-- Dual Video Players -->
         <video id="player1" class="active" playsinline></video>
         <video id="player2" playsinline></video>
     </div>
 
     <script>
+        // --- 1. FIXED LAUNCH DATE (NEVER CHANGE THIS) ---
+        // This is the absolute seed time for your station. Keep this date forever.
+        const STATION_LAUNCH_EPOCH = Math.floor(new Date("2026-01-01T00:00:00Z").getTime() / 1000);
+
+        // --- 2. CONFIGURATION & PLAYLIST ---
+        // You can safely add, remove, or rearrange videos here!
+        // It will never break the live timeline sync again.
         const playlist = [
-            { title: "Stream 1", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 },
-            { title: "Stream 2", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 },
-            { title: "Stream 3", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8&ref=https%3A%2F%2Fftmain.cachefly.net%2Ffiles%2Fa8wn4hw%2Fvi%2Ffb%2F63%2F10207843%2Fhls-hi%2Fs10207843.m3u8", duration: 219 }
-  
+            { title: "Stream 1", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 }
         ];
-        
 
         const p1 = document.getElementById('player1');
         const p2 = document.getElementById('player2');
@@ -95,16 +42,22 @@
         
         let activePlayer = p1;
         let idlePlayer = p2;
-        let totalLoopDuration = playlist.reduce((sum, vid) => sum + vid.duration, 0);
         let expectedTime = 0;
         let hasStarted = false;
+        let hls1 = null; let hls2 = null;
 
-        let hls1 = null;
-        let hls2 = null;
-
+        // --- 3. THE INFALLIBLE BROADCAST TIMELINE CALCULATOR ---
         function getLiveState() {
             let currentUnixTime = Math.floor(Date.now() / 1000);
-            let currentPositionInLoop = currentUnixTime % totalLoopDuration;
+            
+            // How many total seconds has our TV station been broadcasting since day one?
+            let totalSecondsSinceLaunch = currentUnixTime - STATION_LAUNCH_EPOCH;
+            if (totalSecondsSinceLaunch < 0) totalSecondsSinceLaunch = 0;
+
+            let totalLoopDuration = playlist.reduce((sum, vid) => sum + vid.duration, 0);
+            
+            // Find exactly where we are inside the infinite structural loops
+            let currentPositionInLoop = totalSecondsSinceLaunch % totalLoopDuration;
 
             let elapsedTime = 0;
             for (let i = 0; i < playlist.length; i++) {
@@ -123,16 +76,9 @@
             if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
 
             if (Hls.isSupported()) {
-                // Tuned parameters for faster initialization loops
-                const hls = new Hls({ 
-                    maxBufferLength: 20, 
-                    maxMaxBufferLength: 40,
-                    liveSyncDuration: 3,
-                    enableWorker: true
-                });
+                const hls = new Hls({ maxBufferLength: 20, liveSyncDuration: 3, enableWorker: true });
                 hls.loadSource(url);
                 hls.attachMedia(player);
-                
                 if (instanceName === 'hls1') hls1 = hls;
                 if (instanceName === 'hls2') hls2 = hls;
             } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
@@ -141,7 +87,7 @@
         }
 
         function syncBroadcast(isInitialLoad = false) {
-            if (!hasStarted) return; // Wait until they click the overlay button
+            if (!hasStarted) return;
 
             const state = getLiveState();
             if (!state) return;
@@ -153,10 +99,9 @@
                 activePlayer.dataset.currentUrl = state.currentVideo.url;
                 loadHlsStream(activePlayer, state.currentVideo.url, activeInstanceName);
                 
-                // Jump to the exact stream second as soon as data loads
                 activePlayer.onloadedmetadata = () => {
                     activePlayer.currentTime = state.offset;
-                    activePlayer.play().catch(e => console.log("Playback engine blocked:", e));
+                    activePlayer.play().catch(e => console.log("Engine catch block handled."));
                     activePlayer.onloadedmetadata = null;
                 };
             } else {
@@ -165,8 +110,7 @@
                 }
             }
 
-            // --- DELAYED IDLE PRE-BUFFERING ---
-            // Don't preload immediately on page initialization to avoid segment drops
+            // Delayed background buffer loading
             setTimeout(() => {
                 const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
@@ -179,19 +123,14 @@
                         idlePlayer.onloadedmetadata = null;
                     };
                 }
-            }, isInitialLoad ? 5000 : 100); // 5s grace period on start
+            }, isInitialLoad ? 4000 : 100);
         }
 
-        // Triggered by the user interface overlay button
         function startBroadcastChannel() {
             hasStarted = true;
             gatekeeper.style.opacity = '0';
-            setTimeout(() => gatekeeper.remove(), 400); // Clean up the DOM
-            
-            // Unmute players globally based on user interaction allowance rules
-            p1.muted = false;
-            p2.muted = false;
-            
+            setTimeout(() => gatekeeper.remove(), 400);
+            p1.muted = false; p2.muted = false;
             syncBroadcast(true);
         }
 
@@ -199,12 +138,10 @@
             activePlayer.classList.remove('active');
             idlePlayer.classList.add('active');
 
-            let tempPlayer = activePlayer;
-            activePlayer = idlePlayer;
-            idlePlayer = tempPlayer;
+            let tempPlayer = activePlayer; activePlayer = idlePlayer; idlePlayer = tempPlayer;
 
             activePlayer.muted = false;
-            activePlayer.play().catch(e => console.log("Flipping playback catch triggered:", e));
+            activePlayer.play().catch(e => console.log("Flipping exception:", e));
             expectedTime = 0;
 
             setTimeout(() => syncBroadcast(false), 1000);
@@ -235,4 +172,20 @@
     </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

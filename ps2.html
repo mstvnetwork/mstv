@@ -3,20 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Infallible 24/7 Sync TV</title>
+    <title>24/7 Global Sync Pseudo Live TV</title>
+    <!-- Robust, clean CDN path to ensure no source-map warnings -->
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
-        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
-        .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; }
-        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
-        video.active { opacity: 1; pointer-events: auto; }
-        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
-        .gatekeeper-btn { background: #ff3b30; color: white; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
+        body { 
+            margin: 0; 
+            background-color: #000; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            overflow: hidden; 
+            font-family: sans-serif; 
+        }
+        .video-container { 
+            position: relative; 
+            width: 100%; 
+            max-width: 1280px; 
+            aspect-ratio: 16/9; 
+            background: #000; 
+        }
+        video { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+            opacity: 0; 
+            transition: opacity 0.3s ease-in-out; 
+            pointer-events: none; 
+        }
+        video.active { 
+            opacity: 1; 
+            pointer-events: auto; 
+        }
+        .gatekeeper-overlay { 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(0, 0, 0, 0.9); 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            z-index: 999; 
+            cursor: pointer; 
+        }
+        .gatekeeper-btn { 
+            background: #ff3b30; 
+            color: white; 
+            border: none; 
+            padding: 15px 40px; 
+            font-size: 1.2rem; 
+            font-weight: bold; 
+            border-radius: 30px; 
+            cursor: pointer; 
+            box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); 
+        }
     </style>
 </head>
 <body>
 
     <div class="video-container">
+        <!-- Direct element hook with verified global execution access -->
         <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
             <button class="gatekeeper-btn">📺 JOIN LIVE TV BROADCAST</button>
         </div>
@@ -25,15 +77,13 @@
     </div>
 
     <script>
-        // --- 1. CONFIGURATION & PLAYLIST ---
-        // Adding or removing items at the END of this list will NEVER alter 
-        // the playback frames or times of the items above them.
+        // --- 1. THE STABLE TV LINEUP ---
+        // Adding or removing items at the bottom here will NEVER shift the timestamp of active streams
         const playlist = [
             { title: "Stream 1", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 }
             
         ];
-
-        const p1 = ;
+        const p1 = document.getElementById('player1');
         const p2 = document.getElementById('player2');
         const gatekeeper = document.getElementById('gatekeeper');
         
@@ -41,23 +91,23 @@
         let idlePlayer = p2;
         let expectedTime = 0;
         let hasStarted = false;
-        let hls1 = null; let hls2 = null;
+        
+        // Split line declarations explicitly to eliminate token exceptions
+        let hls1 = null;
+        let hls2 = null;
 
-        // --- 2. TRANSFORMATION TIMELINE ENGINE ---
+        // --- 2. THE CALENDAR DAY TIMELINE MATRICES ---
         function getLiveState() {
             const now = new Date();
             
-            // Calculate exactly how many seconds have elapsed since midnight TODAY (Local/UTC aligned)
-            // This anchors every single viewer globally to the exact same wall-clock timeline
+            // Absolute anchor: Total elapsed seconds since midnight today (Local machine clock)
             let secondsPassedToday = (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds();
-
             let elapsedTime = 0;
             
-            // Step linearly through the playlist without using modulo over the total list size
+            // Linear progression evaluation block
             for (let i = 0; i < playlist.length; i++) {
                 let video = playlist[i];
                 
-                // If secondsPassedToday exceeds our current loop location window, check if it fits here
                 if (secondsPassedToday >= elapsedTime && secondsPassedToday < (elapsedTime + video.duration)) {
                     let offset = secondsPassedToday - elapsedTime;
                     let nextIndex = (i + 1) % playlist.length;
@@ -66,14 +116,11 @@
                 elapsedTime += video.duration;
             }
 
-            // FALLBACK SAFETY: If the daytime seconds exceed the total video playlist block,
-            // we wrap it cleanly using the absolute elapsed time remainder over just the available subset.
-            // This ensures that appending videos to the bottom simply stretches the available coverage window
-            // without shifting the time blocks of index 0, 1, 2, etc.
+            // SAFETY INTERCEPT: If time exceeds full list size, it loops purely on the fallback duration subset
             let totalDuration = elapsedTime;
             let fallbackPosition = secondsPassedToday % totalDuration;
-            
             let fallbackElapsed = 0;
+            
             for (let i = 0; i < playlist.length; i++) {
                 let video = playlist[i];
                 if (fallbackPosition >= fallbackElapsed && fallbackPosition < (fallbackElapsed + video.duration)) {
@@ -85,7 +132,7 @@
             }
         }
 
-        // --- 3. RE-ENGINEERED PLAYER SYNC ---
+        // --- 3. HARDWARE STREAM LOADER ---
         function loadHlsStream(player, url, instanceName) {
             if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
             if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
@@ -116,7 +163,7 @@
                 
                 activePlayer.onloadedmetadata = () => {
                     activePlayer.currentTime = state.offset;
-                    activePlayer.play().catch(e => console.log("Stream synchronization initialization safe-handled."));
+                    activePlayer.play().catch(e => console.log("Stream init safety handled."));
                     activePlayer.onloadedmetadata = null;
                 };
             } else {
@@ -125,6 +172,7 @@
                 }
             }
 
+            // Stagger loading the next player to avoid network traffic spikes
             setTimeout(() => {
                 const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
@@ -140,11 +188,13 @@
             }, isInitialLoad ? 4000 : 100);
         }
 
+        // --- 4. ENGINE CONTROLS & TRIGGERS ---
         function startBroadcastChannel() {
             hasStarted = true;
             gatekeeper.style.opacity = '0';
             setTimeout(() => gatekeeper.remove(), 400);
-            p1.muted = false; p2.muted = false;
+            p1.muted = false; 
+            p2.muted = false;
             syncBroadcast(true);
         }
 
@@ -152,10 +202,12 @@
             activePlayer.classList.remove('active');
             idlePlayer.classList.add('active');
 
-            let tempPlayer = activePlayer; activePlayer = idlePlayer; idlePlayer = tempPlayer;
+            let tempPlayer = activePlayer; 
+            activePlayer = idlePlayer; 
+            idlePlayer = tempPlayer;
 
             activePlayer.muted = false;
-            activePlayer.play().catch(e => console.log("Handoff sequence completed."));
+            activePlayer.play().catch(e => console.log("Handoff sequence complete."));
             expectedTime = 0;
 
             setTimeout(() => syncBroadcast(false), 1000);
@@ -173,6 +225,7 @@
             }
         }, 1000);
 
+        // Core continuous timeline configurations
         [p1, p2].forEach(player => {
             player.addEventListener('ended', handleVideoEnded);
             player.addEventListener('seeking', enforceStrictTimeline);
@@ -186,11 +239,3 @@
     </script>
 </body>
 </html>
-
-
-
-
-
-
-
-

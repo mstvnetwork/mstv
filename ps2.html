@@ -3,72 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>24/7 Global Sync Pseudo Live TV</title>
-    <!-- Robust, clean CDN path to ensure no source-map warnings -->
+    <title>24/7 Global Live TV - 219s Test Channel</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
     <style>
-        body { 
-            margin: 0; 
-            background-color: #000; 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            height: 100vh; 
-            overflow: hidden; 
-            font-family: sans-serif; 
-        }
-        .video-container { 
-            position: relative; 
-            width: 100%; 
-            max-width: 1280px; 
-            aspect-ratio: 16/9; 
-            background: #000; 
-        }
-        video { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            object-fit: contain; 
-            opacity: 0; 
-            transition: opacity 0.3s ease-in-out; 
-            pointer-events: none; 
-        }
-        video.active { 
-            opacity: 1; 
-            pointer-events: auto; 
-        }
-        .gatekeeper-overlay { 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            background: rgba(0, 0, 0, 0.9); 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
-            z-index: 999; 
-            cursor: pointer; 
-        }
-        .gatekeeper-btn { 
-            background: #ff3b30; 
-            color: white; 
-            border: none; 
-            padding: 15px 40px; 
-            font-size: 1.2rem; 
-            font-weight: bold; 
-            border-radius: 30px; 
-            cursor: pointer; 
-            box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); 
-        }
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
+        .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
+        video.active { opacity: 1; pointer-events: auto; }
+        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
+        .gatekeeper-btn { background: #ff3b30; color: white; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
+        .badge { position: absolute; top: 15px; left: 15px; background: rgba(255,0,0,0.8); color: white; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; z-index: 10; pointer-events: none; }
     </style>
 </head>
 <body>
 
     <div class="video-container">
-        <!-- Direct element hook with verified global execution access -->
+        <div class="badge">🔴 GLOBAL SYNC • 219S TEST LOOP</div>
         <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
             <button class="gatekeeper-btn">📺 JOIN LIVE TV BROADCAST</button>
         </div>
@@ -77,163 +27,140 @@
     </div>
 
     <script>
-        // --- 1. THE STABLE TV LINEUP ---
-        // Adding or removing items at the bottom here will NEVER shift the timestamp of active streams
-        const playlist = [
-            { title: "Stream 1", url: "https://xtremplay.com/api/proxy?url=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8&ref=https%3A%2F%2Fsi.videoapne.to%2Fhls%2Fbdohxjxe7bboxuzvta274tanrc4emxhgot33hl6b4djoaxt3s5t4wbi7kkfq%2Findex-v1-a1.m3u8", duration: 3166 }
-        
-            
-
-
-            
+        // --- 1. GLOBAL 219-SECOND TEST SCHEDULE ---
+        const TOTAL_DURATION = 219; // Exact test window in seconds
+        const schedule = [
+            { duration: 110, startOffset: 0, url: "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" },
+            { duration: 109, startOffset: 110, url: "https://demo.unified-streaming.com/kiosk/video/tears-of-steel/tears-of-steel.ism/.m3u8" }
         ];
+
         const p1 = document.getElementById('player1');
         const p2 = document.getElementById('player2');
         const gatekeeper = document.getElementById('gatekeeper');
         
         let activePlayer = p1;
         let idlePlayer = p2;
-        let expectedTime = 0;
         let hasStarted = false;
-        
-        // Split line declarations explicitly to eliminate token exceptions
         let hls1 = null;
         let hls2 = null;
 
-        // --- 2. THE CALENDAR DAY TIMELINE MATRICES ---
+        // --- 2. GLOBAL UNIVERSE TIME CALCULATOR (Modulo 219s UTC lock) ---
         function getLiveState() {
-            const now = new Date();
+            const globalEpochSec = Math.floor(Date.now() / 1000);
+            const loopOffset = globalEpochSec % TOTAL_DURATION;
             
-            // Absolute anchor: Total elapsed seconds since midnight today (Local machine clock)
-            let secondsPassedToday = (now.getHours() * 3600) + (now.getMinutes() * 60) + now.getSeconds();
-            let elapsedTime = 0;
+            let currentSlot = schedule[0];
+            let videoTimeOffset = 0;
             
-            // Linear progression evaluation block
-            for (let i = 0; i < playlist.length; i++) {
-                let video = playlist[i];
-                
-                if (secondsPassedToday >= elapsedTime && secondsPassedToday < (elapsedTime + video.duration)) {
-                    let offset = secondsPassedToday - elapsedTime;
-                    let nextIndex = (i + 1) % playlist.length;
-                    return { currentVideo: video, offset: offset, nextVideo: playlist[nextIndex] };
+            for (let slot of schedule) {
+                if (loopOffset >= slot.startOffset && loopOffset < slot.startOffset + slot.duration) {
+                    currentSlot = slot;
+                    videoTimeOffset = loopOffset - slot.startOffset;
+                    break;
                 }
-                elapsedTime += video.duration;
             }
-
-            // SAFETY INTERCEPT: If time exceeds full list size, it loops purely on the fallback duration subset
-            let totalDuration = elapsedTime;
-            let fallbackPosition = secondsPassedToday % totalDuration;
-            let fallbackElapsed = 0;
             
-            for (let i = 0; i < playlist.length; i++) {
-                let video = playlist[i];
-                if (fallbackPosition >= fallbackElapsed && fallbackPosition < (fallbackElapsed + video.duration)) {
-                    let offset = fallbackPosition - fallbackElapsed;
-                    let nextIndex = (i + 1) % playlist.length;
-                    return { currentVideo: video, offset: offset, nextVideo: playlist[nextIndex] };
-                }
-                fallbackElapsed += video.duration;
-            }
+            const currentIndex = schedule.indexOf(currentSlot);
+            const nextSlot = schedule[(currentIndex + 1) % schedule.length];
+            
+            return { currentVideo: currentSlot, offset: videoTimeOffset, nextVideo: nextSlot };
         }
 
-        // --- 3. HARDWARE STREAM LOADER ---
-        function loadHlsStream(player, url, instanceName) {
-            if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
-            if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
-
+        // --- 3. HARDWARE CORE DRIVER ---
+        function loadHlsStream(player, url, instanceRefSetter) {
             if (Hls.isSupported()) {
-                const hls = new Hls({ maxBufferLength: 20, liveSyncDuration: 3, enableWorker: true });
+                const hls = new Hls({ maxBufferLength: 30, liveSyncDuration: 3, enableWorker: true });
                 hls.loadSource(url);
                 hls.attachMedia(player);
-                if (instanceName === 'hls1') hls1 = hls;
-                if (instanceName === 'hls2') hls2 = hls;
+                instanceRefSetter(hls);
             } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
                 player.src = url;
             }
         }
 
+        function destroyHls(instanceName) {
+            if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
+            if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
+        }
+
         function syncBroadcast(isInitialLoad = false) {
             if (!hasStarted) return;
-
             const state = getLiveState();
             if (!state) return;
 
-            expectedTime = state.offset;
             const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
 
             if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                destroyHls(activeInstanceName);
                 activePlayer.dataset.currentUrl = state.currentVideo.url;
-                loadHlsStream(activePlayer, state.currentVideo.url, activeInstanceName);
+                
+                loadHlsStream(activePlayer, state.currentVideo.url, (hls) => {
+                    if (activePlayer === p1) hls1 = hls; else hls2 = hls;
+                });
                 
                 activePlayer.onloadedmetadata = () => {
-                    activePlayer.currentTime = state.offset;
-                    activePlayer.play().catch(e => console.log("Stream init safety handled."));
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                    activePlayer.play().catch(() => {});
                     activePlayer.onloadedmetadata = null;
                 };
-            } else {
-                if (Math.abs(activePlayer.currentTime - expectedTime) > 2) {
-                    activePlayer.currentTime = expectedTime;
-                }
             }
 
-            // Stagger loading the next player to avoid network traffic spikes
+            // Preload next slot in background
             setTimeout(() => {
                 const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
+                    destroyHls(idleInstanceName);
                     idlePlayer.dataset.currentUrl = state.nextVideo.url;
-                    loadHlsStream(idlePlayer, state.nextVideo.url, idleInstanceName);
-                    
+                    loadHlsStream(idlePlayer, state.nextVideo.url, (hls) => {
+                        if (idlePlayer === p1) hls1 = hls; else hls2 = hls;
+                    });
                     idlePlayer.onloadedmetadata = () => {
                         idlePlayer.muted = true;
                         idlePlayer.pause();
                         idlePlayer.onloadedmetadata = null;
                     };
                 }
-            }, isInitialLoad ? 4000 : 100);
+            }, isInitialLoad ? 3000 : 200);
         }
 
-        // --- 4. ENGINE CONTROLS & TRIGGERS ---
         function startBroadcastChannel() {
             hasStarted = true;
             gatekeeper.style.opacity = '0';
             setTimeout(() => gatekeeper.remove(), 400);
-            p1.muted = false; 
-            p2.muted = false;
+            p1.muted = false; p2.muted = false;
             syncBroadcast(true);
         }
 
-        function handleVideoEnded() {
-            activePlayer.classList.remove('active');
-            idlePlayer.classList.add('active');
-
-            let tempPlayer = activePlayer; 
-            activePlayer = idlePlayer; 
-            idlePlayer = tempPlayer;
-
-            activePlayer.muted = false;
-            activePlayer.play().catch(e => console.log("Handoff sequence complete."));
-            expectedTime = 0;
-
-            setTimeout(() => syncBroadcast(false), 1000);
-        }
-
-        function enforceStrictTimeline() {
-            if (Math.abs(activePlayer.currentTime - expectedTime) > 1.5) {
-                activePlayer.currentTime = expectedTime;
-            }
-        }
-
+        // --- 4. TICK ENGINE WITH HARD FLIP SAFEGUARD ---
+        let lastFlippedUrl = "";
         setInterval(() => {
-            if (hasStarted && !activePlayer.paused) {
-                expectedTime += 1;
+            if (!hasStarted || activePlayer.paused) return;
+            
+            const state = getLiveState();
+            if (!state) return;
+
+            if (activePlayer.dataset.currentUrl !== state.currentVideo.url && lastFlippedUrl !== state.currentVideo.url) {
+                lastFlippedUrl = state.currentVideo.url;
+                
+                activePlayer.classList.remove('active');
+                idlePlayer.classList.add('active');
+                
+                let temp = activePlayer;
+                activePlayer = idlePlayer;
+                idlePlayer = temp;
+                
+                activePlayer.muted = false;
+                try { activePlayer.currentTime = state.offset; } catch(e){}
+                activePlayer.play().catch(() => {});
+                
+                syncBroadcast(false);
+            } else {
+                // Drift correction if > 2.5s off global epoch
+                if (Math.abs(activePlayer.currentTime - state.offset) > 2.5) {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                }
             }
         }, 1000);
-
-        // Core continuous timeline configurations
-        [p1, p2].forEach(player => {
-            player.addEventListener('ended', handleVideoEnded);
-            player.addEventListener('seeking', enforceStrictTimeline);
-        });
 
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden && hasStarted) {

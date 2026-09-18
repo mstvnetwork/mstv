@@ -1,97 +1,215 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>MSTV Global Linear Stream (GitHub Releases)</title>
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #fff; overflow: hidden; font-family: sans-serif; display: flex; align-items: center; justify-content: center; }
-  #stage { position: relative; width: 100%; max-width: 100vw; aspect-ratio: 16/9; max-height: 100vh; background: #000; }
-  /* No native controls = blocked Samsung Video Assistant / mobile swipe scrubbing */
-  video { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
-  #live-badge { position: absolute; top: 16px; left: 16px; z-index: 10; background: rgba(255,59,48,0.85); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; }
-  #controls { position: absolute; bottom: 16px; right: 16px; z-index: 10; display: flex; gap: 8px; }
-  button { width: 40px; height: 40px; border-radius: 50%; border: none; background: rgba(0,0,0,0.6); color: #fff; cursor: pointer; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>24/7 Pseudo Live TV (HLS .m3u8 Mode)</title>
+    <!-- Include the Hls.js Library via standard CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            aspect-ratio: 16/9;
+            background: #000;
+        }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+            pointer-events: none;
+        }
+        video.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    </style>
 </head>
 <body>
-  <div id="stage">
-    <div id="live-badge">● LIVE SYNC</div>
-    <video id="vid" playsinline muted></video>
-    <div id="controls">
-      <button id="mute-btn">🔇</button>
-      <button id="fs-btn">⛶</button>
+
+    <div class="video-container">
+        <!-- Dual Video Players -->
+        <video id="player1" class="active" autoplay playsinline></video>
+        <video id="player2" autoplay playsinline></video>
     </div>
-  </div>
 
-  <script>
-    // Replace with your actual GitHub Release MP4 direct download URLs and exact file durations in seconds
-    const PLAYLIST = [
-      { file: "https://github.com/mstvnetwork/mstv/releases/download/v1.0.0/wwe-1.compressed.mp4", duration: 149 },
-      { file: "https://github.com/mstvnetwork/mstv/releases/download/v1/video2.mp4", duration: 180 }
-    ];
-    
-    const ANCHOR = 1767225600000; // 2026-01-01T00:00:00Z global baseline
-    const TOTAL_DURATION = PLAYLIST.reduce((acc, i) => acc + i.duration, 0);
+    <script>
+        // --- 1. PLAYLIST WITH EXTERNAL M3U8 LINKS ---
+        // Note: For live streams, durations must match the length of the looped loop segments
+        const playlist = [
+            { title: "Stream 1", url: "https://mux.dev", duration: 600 },
+            { title: "Stream 2", url: "https://unified-streaming.com", duration: 734 }
+        ];
 
-    const video = document.getElementById("vid");
-    const muteBtn = document.getElementById("mute-btn");
-    const fsBtn = document.getElementById("fs-btn");
-    let currentIdx = -1;
+        const p1 = document.getElementById('player1');
+        const p2 = document.getElementById('player2');
+        
+        let activePlayer = p1;
+        let idlePlayer = p2;
+        let totalLoopDuration = playlist.reduce((sum, vid) => sum + vid.duration, 0);
+        let expectedTime = 0;
 
-    function getGlobalPosition() {
-      const elapsed = ((Date.now() - ANCHOR) % TOTAL_DURATION + TOTAL_DURATION) % TOTAL_DURATION;
-      let acc = 0;
-      for (let i = 0; i < PLAYLIST.length; i++) {
-        if (elapsed < acc + PLAYLIST[i].duration) {
-          return { index: i, offset: elapsed - acc };
+        // Keep track of active Hls instances for each player to prevent memory leaks
+        let hls1 = null;
+        let hls2 = null;
+        let activeHls = null;
+        let idleHls = null;
+
+        // --- 2. MASTER TIMELINE CALCULATOR ---
+        function getLiveState() {
+            let currentUnixTime = Math.floor(Date.now() / 1000);
+            let currentPositionInLoop = currentUnixTime % totalLoopDuration;
+
+            let elapsedTime = 0;
+            for (let i = 0; i < playlist.length; i++) {
+                let video = playlist[i];
+                if (currentPositionInLoop >= elapsedTime && currentPositionInLoop < (elapsedTime + video.duration)) {
+                    let offset = currentPositionInLoop - elapsedTime;
+                    let nextIndex = (i + 1) % playlist.length;
+                    return {
+                        currentVideo: video,
+                        offset: offset,
+                        nextVideo: playlist[nextIndex]
+                    };
+                }
+                elapsedTime += video.duration;
+            }
         }
-        acc += PLAYLIST[i].duration;
-      }
-      return { index: 0, offset: 0 };
-    }
 
-    async function syncPlayback() {
-      if (document.visibilityState !== "visible") return;
-      const { index, offset } = getGlobalPosition();
-      const item = PLAYLIST[index];
-      if (!item) return;
+        // Helper to load HLS media source into a specific player element
+        function loadHlsStream(player, url, hlsInstanceVarName) {
+            // Destroy existing instance if any
+            if (hlsInstanceVarName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
+            if (hlsInstanceVarName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
 
-      if (index !== currentIdx) {
-        currentIdx = index;
-        video.src = item.file;
-        await video.load();
-        video.currentTime = offset;
-        video.play().catch(() => {});
-      } else {
-        // Enforce drift correction if > 4s off
-        if (Math.abs(video.currentTime - offset) > 4.0) {
-          video.currentTime = offset;
+            // Modern Browsers require Hls.js
+            if (Hls.isSupported()) {
+                const hls = new Hls({ maxBufferLength: 10, lowLatencyMode: true });
+                hls.loadSource(url);
+                hls.attachMedia(player);
+                
+                if (hlsInstanceVarName === 'hls1') hls1 = hls;
+                if (hlsInstanceVarName === 'hls2') hls2 = hls;
+            } 
+            // Native HLS support (Safari/iOS)
+            else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                player.src = url;
+            }
         }
-      }
-    }
 
-    setInterval(syncPlayback, 2000);
-    syncPlayback();
+        // --- 3. SEAMLESS PLAYER CONTROLLER ---
+        function syncBroadcast(isInitialLoad = false) {
+            const state = getLiveState();
+            if (!state) return;
 
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") {
-        syncPlayback();
-      } else {
-        try { video.pause(); } catch(e){}
-      }
-    });
+            expectedTime = state.offset;
+            
+            // Map global instances based on who is playing
+            activeHls = (activePlayer === p1) ? hls1 : hls2;
+            idleHls = (idlePlayer === p1) ? hls1 : hls2;
 
-    muteBtn.addEventListener("click", () => {
-      video.muted = !video.muted;
-      muteBtn.textContent = video.muted ? "🔇" : "🔊";
-    });
+            // Handle Active Stream
+            const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
+            if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                activePlayer.dataset.currentUrl = state.currentVideo.url;
+                loadHlsStream(activePlayer, state.currentVideo.url, activeInstanceName);
+                
+                // Set timestamp once loaded
+                activePlayer.onloadedmetadata = () => {
+                    activePlayer.currentTime = state.offset;
+                    activePlayer.play().catch(e => console.log("Autoplay restriction wrapper activated."));
+                    activePlayer.onloadedmetadata = null;
+                };
+            } else {
+                if (Math.abs(activePlayer.currentTime - expectedTime) > 2) {
+                    activePlayer.currentTime = expectedTime;
+                }
+            }
 
-    fsBtn.addEventListener("click", () => {
-      if (!document.fullscreenElement) document.getElementById("stage").requestFullscreen?.();
-      else document.exitFullscreen?.();
-    });
-  </script>
+            // --- PRE-BUFFER FLIPPING LOGIC ---
+            const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
+            if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
+                idlePlayer.dataset.currentUrl = state.nextVideo.url;
+                loadHlsStream(idlePlayer, state.nextVideo.url, idleInstanceName);
+                
+                // Mute and pause the background player so it buffers silently
+                idlePlayer.onloadedmetadata = () => {
+                    idlePlayer.muted = true;
+                    idlePlayer.pause();
+                    idlePlayer.onloadedmetadata = null;
+                };
+            }
+        }
+
+        // --- 4. FLIPPING MECHANISM ---
+        function handleVideoEnded() {
+            activePlayer.classList.remove('active');
+            idlePlayer.classList.add('active');
+
+            // Swap players
+            let tempPlayer = activePlayer;
+            activePlayer = idlePlayer;
+            idlePlayer = tempPlayer;
+
+            // Unmute the new active player and start playback
+            activePlayer.muted = false;
+            activePlayer.play();
+            expectedTime = 0;
+
+            // Instantly sync background variables and map the new next video
+            setTimeout(() => syncBroadcast(false), 1000);
+        }
+
+        // --- 5. ANTI-SCRUBBING & ENFORCEMENT ---
+        function enforceStrictTimeline() {
+            if (Math.abs(activePlayer.currentTime - expectedTime) > 1.5) {
+                activePlayer.currentTime = expectedTime;
+            }
+        }
+
+        setInterval(() => {
+            if (!activePlayer.paused) {
+                expectedTime += 1;
+            }
+        }, 1000);
+
+        // --- 6. INITIALIZATION & BROWSER LISTENERS ---
+        [p1, p2].forEach(player => {
+            player.addEventListener('ended', handleVideoEnded);
+            player.addEventListener('seeking', enforceStrictTimeline);
+            
+            player.addEventListener('play', () => {
+                const state = getLiveState();
+                player.currentTime = state.offset;
+                expectedTime = state.offset;
+            });
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                syncBroadcast(true);
+            }
+        });
+
+        // Initialize Live Feed
+        syncBroadcast(true);
+    </script>
 </body>
 </html>

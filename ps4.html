@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>24/7 Global Live TV Channel</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <style>
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: sans-serif; }
+        .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
+        video.active { opacity: 1; pointer-events: auto; }
+        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.9); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
+        .gatekeeper-btn { background: #ff3b30; color: white; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
+        .badge { position: absolute; top: 15px; left: 15px; background: rgba(255,0,0,0.8); color: white; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; z-index: 10; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div class="video-container">
+        <div class="badge">🔴 GLOBAL UTC SYNC LIVE</div>
+        <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
+            <button class="gatekeeper-btn">📺 JOIN LIVE TV BROADCAST</button>
+        </div>
+        <video id="player1" class="active" playsinline></video>
+        <video id="player2" playsinline></video>
+    </div>
+
+    <script>
+        // --- EDIT YOUR CHANNEL SCHEDULE HERE ---
+        // Provide duration in seconds and your jsDelivr GitHub URL.
+        const rawSlots = [
+            { duration: 250, url: "https://jsdelivr.net" },
+            { duration: 219, url: "https://jsdelivr.net" }
+        ];
+
+        let runningOffset = 0;
+        const schedule = rawSlots.map(slot => {
+            const item = { ...slot, startOffset: runningOffset };
+            runningOffset += slot.duration;
+            return item;
+        });
+        const TOTAL_DURATION = runningOffset;
+
+        const p1 = document.getElementById('player1');
+        const p2 = document.getElementById('player2');
+        const gatekeeper = document.getElementById('gatekeeper');
+        
+        let activePlayer = p1;
+        let idlePlayer = p2;
+        let hasStarted = false;
+        let hls1 = null;
+        let hls2 = null;
+
+        // --- GLOBAL UTC TIME CALCULATOR ---
+        function getLiveState() {
+            const globalEpochSec = Math.floor(Date.now() / 1000);
+            const loopOffset = globalEpochSec % TOTAL_DURATION;
+            
+            let currentSlot = schedule[0];
+            let videoTimeOffset = 0;
+            
+            for (let slot of schedule) {
+                if (loopOffset >= slot.startOffset && loopOffset < slot.startOffset + slot.duration) {
+                    currentSlot = slot;
+                    videoTimeOffset = loopOffset - slot.startOffset;
+                    break;
+                }
+            }
+            
+            const currentIndex = schedule.indexOf(currentSlot);
+            const nextSlot = schedule[(currentIndex + 1) % schedule.length];
+            
+            return { currentVideo: currentSlot, offset: videoTimeOffset, nextVideo: nextSlot };
+        }
+
+        // --- HLS CORE & LIFECYCLE MANAGEMENT ---
+        function loadHlsStream(player, url, instanceRefSetter) {
+            // Safe fallback integration: Check if URL is an MP4 asset
+            if (url.includes('.mp4')) {
+                player.src = url;
+                return;
+            }
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({ maxBufferLength: 30, liveSyncDuration: 3, enableWorker: true });
+                hls.loadSource(url);
+                hls.attachMedia(player);
+                instanceRefSetter(hls);
+            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                player.src = url;
+            }
+        }
+
+        // Safe cleanup handler for instances
+        function destroyHls(instanceName) {
+            if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
+            if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
+        }
+
+        function syncBroadcast(isInitialLoad = false) {
+            if (!hasStarted) return;
+            const state = getLiveState();
+            if (!state) return;
+
+            const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
+
+            if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                destroyHls(activeInstanceName);
+                activePlayer.dataset.currentUrl = state.currentVideo.url;
+                
+                loadHlsStream(activePlayer, state.currentVideo.url, (hls) => {
+                    if (activePlayer === p1) hls1 = hls; else hls2 = hls;
+                });
+                
+                activePlayer.onloadedmetadata = () => {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                    activePlayer.play().catch(() => {});
+                    activePlayer.onloadedmetadata = null;
+                };
+            }
+
+            // Silently preload upcoming slot in idle player
+            setTimeout(() => {
+                const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
+                if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
+                    destroyHls(idleInstanceName);
+                    idlePlayer.dataset.currentUrl = state.nextVideo.url;
+                    loadHlsStream(idlePlayer, state.nextVideo.url, (hls) => {
+                        if (idlePlayer === p1) hls1 = hls; else hls2 = hls;
+                    });
+                    idlePlayer.onloadedmetadata = () => {
+                        idlePlayer.muted = true;
+                        idlePlayer.pause();
+                        idlePlayer.onloadedmetadata = null;
+                    };
+                }
+            }, isInitialLoad ? 3000 : 200);
+        }
+
+        function startBroadcastChannel() {
+            hasStarted = true;
+            gatekeeper.style.opacity = '0';
+            setTimeout(() => gatekeeper.remove(), 400);
+            p1.muted = false; p2.muted = false;
+            syncBroadcast(true);
+        }
+
+        // --- TICK ENGINE & BOUNDARY FLIP ---
+        let lastFlippedUrl = "";
+        setInterval(() => {
+            if (!hasStarted || activePlayer.paused) return;
+            
+            const state = getLiveState();
+            if (!state) return;
+
+            if (activePlayer.dataset.currentUrl !== state.currentVideo.url && lastFlippedUrl !== state.currentVideo.url) {
+                lastFlippedUrl = state.currentVideo.url;
+                
+                activePlayer.classList.remove('active');
+                idlePlayer.classList.add('active');
+                
+                let temp = activePlayer;
+                activePlayer = idlePlayer;
+                idlePlayer = temp;
+                
+                activePlayer.muted = false;
+                try { activePlayer.currentTime = state.offset; } catch(e){}
+                activePlayer.play().catch(() => {});
+                
+                syncBroadcast(false);
+            } else {
+                if (Math.abs(activePlayer.currentTime - state.offset) > 2.5) {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                }
+            }
+        }, 1000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && hasStarted) {
+                syncBroadcast(true);
+            }
+        });
+    </script>
+</body>
+</html>

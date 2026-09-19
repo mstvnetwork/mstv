@@ -11,17 +11,52 @@
         .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; }
         video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
         video.active { opacity: 1; pointer-events: auto; }
-        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba; display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
-        .gatekeeper-btn { color: white; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
-        .badge { position: absolute; top: 15px; left: 15px; background: ; color: white; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; z-index: 10; pointer-events: none; }
+        .gatekeeper-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
+        .gatekeeper-btn { color: white; background: #ff3b30; border: none; padding: 15px 40px; font-size: 1.2rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 59, 48, 0.4); }
+        .badge { position: absolute; top: 15px; left: 15px; background: rgba(0,0,0,0.6); color: white; padding: 6px 12px; font-size: 0.75rem; font-weight: bold; border-radius: 4px; z-index: 10; pointer-events: none; }
+
+        /* Added UI Elements */
+        .loading-spinner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            color: white; font-weight: bold; font-size: 0.9rem; z-index: 100;
+            pointer-events: none; transition: opacity 0.3s ease;
+        }
+        .loading-spinner.hidden { opacity: 0; pointer-events: none; }
+        .spinner-ring {
+            width: 48px; height: 48px; border: 4px solid rgba(255, 255, 255, 0.2);
+            border-top-color: #ff3b30; border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .player-controls {
+            position: absolute; bottom: 15px; right: 15px; display: flex; gap: 10px;
+            z-index: 20; opacity: 0.85; transition: opacity 0.3s;
+        }
+        .player-controls:hover { opacity: 1; }
+        .control-btn {
+            background: rgba(0, 0, 0, 0.6); color: white; border: 1px solid rgba(255, 255, 255, 0.3);
+            border-radius: 6px; padding: 8px 12px; cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-size: 1rem; backdrop-filter: blur(4px);
+        }
+        .control-btn:hover { background: rgba(255, 59, 48, 0.8); border-color: #ff3b30; }
     </style>
 </head>
 <body>
 
     <div class="video-container">
         <div class="badge">🔴 Apna Tv</div>
+        <div id="loadingSpinner" class="loading-spinner hidden">
+            <div class="spinner-ring"></div>
+            <span>please wait</span>
+        </div>
         <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
             <button class="gatekeeper-btn">Click ▶️</button>
+        </div>
+        <div class="player-controls">
+            <button id="muteBtn" class="control-btn" title="Unmute/Mute" onclick="toggleMute()">🔊</button>
+            <button id="fsBtn" class="control-btn" title="Fullscreen" onclick="toggleFullscreen()">⛶</button>
         </div>
         <video id="player1" class="active" playsinline></video>
         <video id="player2" playsinline></video>
@@ -46,12 +81,43 @@
         const p1 = document.getElementById('player1');
         const p2 = document.getElementById('player2');
         const gatekeeper = document.getElementById('gatekeeper');
+        const spinner = document.getElementById('loadingSpinner');
+        const muteBtn = document.getElementById('muteBtn');
+        const container = document.querySelector('.video-container');
         
         let activePlayer = p1;
         let idlePlayer = p2;
         let hasStarted = false;
         let hls1 = null;
         let hls2 = null;
+
+        // --- ADDED UI FUNCTIONS ---
+        function showSpinner() { spinner.classList.remove('hidden'); }
+        function hideSpinner() { spinner.classList.add('hidden'); }
+        
+        function updatePlayerListeners(videoEl) {
+            videoEl.addEventListener('waiting', showSpinner);
+            videoEl.addEventListener('stalled', showSpinner);
+            videoEl.addEventListener('playing', hideSpinner);
+            videoEl.addEventListener('canplay', hideSpinner);
+            videoEl.addEventListener('loadeddata', hideSpinner);
+        }
+        updatePlayerListeners(p1);
+        updatePlayerListeners(p2);
+
+        function toggleMute() {
+            activePlayer.muted = !activePlayer.muted;
+            idlePlayer.muted = true;
+            muteBtn.textContent = activePlayer.muted ? '🔇' : '🔊';
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+            }
+        }
 
         // --- GLOBAL UTC TIME CALCULATOR ---
         function getLiveState() {
@@ -107,6 +173,7 @@
             const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
 
             if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                showSpinner();
                 destroyHls(activeInstanceName);
                 activePlayer.dataset.currentUrl = state.currentVideo.url;
                 
@@ -116,7 +183,7 @@
                 
                 activePlayer.onloadedmetadata = () => {
                     try { activePlayer.currentTime = state.offset; } catch(e){}
-                    activePlayer.play().catch(() => {});
+                    activePlayer.play().then(() => hideSpinner()).catch(() => {});
                     activePlayer.onloadedmetadata = null;
                 };
             }
@@ -144,6 +211,7 @@
             gatekeeper.style.opacity = '0';
             setTimeout(() => gatekeeper.remove(), 400);
             p1.muted = false; p2.muted = false;
+            muteBtn.textContent = '🔊';
             syncBroadcast(true);
         }
 
@@ -157,6 +225,7 @@
 
             if (activePlayer.dataset.currentUrl !== state.currentVideo.url && lastFlippedUrl !== state.currentVideo.url) {
                 lastFlippedUrl = state.currentVideo.url;
+                showSpinner();
                 
                 activePlayer.classList.remove('active');
                 idlePlayer.classList.add('active');
@@ -166,8 +235,9 @@
                 idlePlayer = temp;
                 
                 activePlayer.muted = false;
+                muteBtn.textContent = activePlayer.muted ? '🔇' : '🔊';
                 try { activePlayer.currentTime = state.offset; } catch(e){}
-                activePlayer.play().catch(() => {});
+                activePlayer.play().then(() => hideSpinner()).catch(() => {});
                 
                 syncBroadcast(false);
             } else {

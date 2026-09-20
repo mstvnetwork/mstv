@@ -2,6 +2,8 @@
 <html>
   <head>
     <meta charset="utf-8">
+    <!-- [EXT] Mobile viewport so the 16:9 layout scales correctly on phones -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>Serverless Synced Hybrid Live TV</title>
     <style>
       body, html { 
@@ -108,6 +110,174 @@
         background: rgba(40, 40, 40, 0.70);
       }
     </style>
+
+    <!-- =====================================================================
+         [EXT] EXTENSION STYLES - additive only, nothing above is modified.
+         ===================================================================== -->
+    <style id="ext-style">
+      /* ---- Auto-hide behaviour for mute + fullscreen (typical m3u8 player UX) ---- */
+      .controls-container {
+        transition: opacity 0.35s ease, transform 0.35s ease;
+      }
+      body.ui-idle .controls-container {
+        opacity: 0;
+        transform: translateY(8px);
+        pointer-events: none;          /* taps on the hidden area reach the video and reveal the UI */
+      }
+      body.ui-idle .player-container { cursor: none; }
+
+      /* ---- Shared layer setup ---- */
+      #ext-layer, #ext-slate {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        pointer-events: none;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      #ext-layer { z-index: 10000; }
+
+      /* ---- Top-left: LIVE badge, clock, now/next ---- */
+      .ext-info {
+        position: absolute;
+        top: 12px;
+        left: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        max-width: calc(100% - 240px);
+        transition: opacity 0.35s ease;
+      }
+      body.ui-idle:not(.info-flash) .ext-info { opacity: 0; }
+
+      .ext-row { display: flex; align-items: center; gap: 8px; }
+
+      .live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 9px 3px 8px;
+        border-radius: 4px;
+        background: #d81f26;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+      }
+      .live-dot {
+        width: 7px; height: 7px;
+        border-radius: 50%;
+        background: #fff;
+        animation: ext-pulse 1.6s ease-in-out infinite;
+      }
+      .ext-clock {
+        padding: 3px 8px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.5);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+      .ext-now {
+        max-width: 100%;
+        padding: 6px 12px;
+        border-left: 3px solid #d81f26;
+        border-radius: 0 6px 6px 0;
+        background: rgba(0, 0, 0, 0.55);
+        -webkit-backdrop-filter: blur(6px);
+        backdrop-filter: blur(6px);
+        font-size: 13px;
+        line-height: 1.4;
+      }
+      .ext-now .line {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ext-now .lbl { margin-right: 6px; font-size: 11px; opacity: 0.6; }
+      .ext-now .ttl { font-weight: 600; }
+      .ext-now .nxt { font-size: 12px; opacity: 0.8; }
+
+      /* ---- Buffering spinner ---- */
+      .ext-spinner {
+        position: absolute;
+        top: 50%; left: 50%;
+        width: 46px; height: 46px;
+        margin: -23px 0 0 -23px;
+        border: 3px solid rgba(255, 255, 255, 0.2);
+        border-top-color: #fff;
+        border-radius: 50%;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        animation: ext-spin 0.9s linear infinite;
+      }
+      .ext-spinner.show { opacity: 1; }
+
+      /* ---- "Tap to unmute" nudge, sits just left of the controls ---- */
+      .sound-hint {
+        position: absolute;
+        bottom: 24px;
+        right: 116px;
+        padding: 7px 13px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        background: rgba(25, 25, 25, 0.65);
+        -webkit-backdrop-filter: blur(8px);
+        backdrop-filter: blur(8px);
+        font-size: 12px;
+        cursor: pointer;
+        pointer-events: auto;
+        transition: opacity 0.35s ease;
+      }
+      .sound-hint.gone { display: none; }
+      body.ui-idle .sound-hint { opacity: 0; pointer-events: none; }
+
+      /* ---- Stand-by slate (sits above video, below logo/controls) ---- */
+      #ext-slate {
+        z-index: 5000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        background: radial-gradient(ellipse at center, #17202e 0%, #06080c 70%);
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.5s ease, visibility 0.5s;
+      }
+      #ext-slate.show { opacity: 1; visibility: visible; }
+      .slate-title { font-size: clamp(20px, 4vw, 36px); font-weight: 700; letter-spacing: 0.02em; }
+      .slate-sub { margin-top: 8px; font-size: clamp(12px, 1.6vw, 16px); opacity: 0.7; }
+      .slate-bar {
+        position: relative;
+        width: clamp(120px, 20vw, 220px);
+        height: 3px;
+        margin: 22px auto 0;
+        overflow: hidden;
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .slate-bar::after {
+        content: "";
+        position: absolute;
+        top: 0; left: 0;
+        width: 40%; height: 100%;
+        background: #d81f26;
+        animation: ext-slide 1.4s ease-in-out infinite;
+      }
+
+      @keyframes ext-spin  { to { transform: rotate(360deg); } }
+      @keyframes ext-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+      @keyframes ext-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+
+      @media (prefers-reduced-motion: reduce) {
+        .live-dot, .slate-bar::after, .ext-spinner { animation-duration: 3s; }
+      }
+      @media (max-width: 520px) {
+        .ext-info { max-width: calc(100% - 120px); }
+        .sound-hint { right: 108px; font-size: 11px; padding: 6px 10px; }
+      }
+    </style>
   </head>
   <body>
 
@@ -141,6 +311,34 @@
         </button>
 
       </div>
+    </div>
+
+    <!-- =====================================================================
+         [EXT] EXTENSION MARKUP - separate layers, #ui-layer above is untouched.
+         ===================================================================== -->
+    <!-- Stand-by slate ("Please stand by") -->
+    <div id="ext-slate" role="status" aria-live="polite">
+      <div>
+        <div class="slate-title" id="slate-title">Please stand by</div>
+        <div class="slate-sub" id="slate-sub">We'll be right back</div>
+        <div class="slate-bar"></div>
+      </div>
+    </div>
+
+    <!-- On-air info, spinner, unmute nudge -->
+    <div id="ext-layer">
+      <div class="ext-info">
+        <div class="ext-row">
+          <span class="live-badge"><i class="live-dot"></i>LIVE</span>
+          <span class="ext-clock" id="ext-clock"></span>
+        </div>
+        <div class="ext-now" id="ext-now-wrap" style="display:none;">
+          <div class="line"><span class="lbl">Now</span><span class="ttl" id="ext-now"></span></div>
+          <div class="line nxt"><span class="lbl">Next</span><span id="ext-next"></span> <span>&middot; in <span id="ext-nextin"></span></span></div>
+        </div>
+      </div>
+      <div class="ext-spinner" id="ext-spinner"></div>
+      <div class="sound-hint" id="sound-hint">Tap to unmute</div>
     </div>
 
     <!-- Required Dependency Components -->
@@ -392,6 +590,403 @@
       }
 
       $(document).ready(bootPlayerSetup);
+    </script>
+
+    <!-- =====================================================================
+         [EXT] BROADCAST EXTENSION LAYER
+         Loaded AFTER the original script. It only *reads* the original globals
+         (playlistData, activeVideo, hlsInstances, ...) and calls its functions;
+         no original line is edited, wrapped or overridden.
+         ===================================================================== -->
+    <script>
+    (function () {
+      'use strict';
+
+      var $id = function (id) { return document.getElementById(id); };
+      var body = document.body;
+      var v1 = $id('video1'), v2 = $id('video2');
+      var muteBtn = $id('mute-btn'), fsBtn = $id('fullscreen-btn');
+      var controls = document.querySelector('.controls-container');
+      var playerBox = document.querySelector('.player-container');
+      var bootTime = Date.now();
+
+      function isActive(v) { return activeVideo && activeVideo.get(0) === v; }
+
+      /* ------------------------------------------------------------------
+         1. AUTO-HIDE CONTROLS
+            Visible on load -> fade out after a few idle seconds -> reappear on
+            mouse move / click / tap / key press. Stays visible while a mouse
+            hovers the buttons. Cursor hides with the controls.
+         ------------------------------------------------------------------ */
+      var IDLE_MS = 3000, INITIAL_MS = 4500;
+      var idleTimer = null, overControls = false;
+
+      function hideUI() { if (!overControls) body.classList.add('ui-idle'); }
+      function armIdle(ms) { clearTimeout(idleTimer); idleTimer = setTimeout(hideUI, ms || IDLE_MS); }
+      function showUI() { body.classList.remove('ui-idle'); armIdle(); }
+
+      ['mousemove', 'mousedown', 'keydown'].forEach(function (evt) {
+        document.addEventListener(evt, showUI, { passive: true });
+      });
+      document.addEventListener('touchstart', showUI, { passive: true });
+
+      // Only a real mouse "hovering" pins the controls. Touch emulates mouseenter and would
+      // otherwise keep them stuck on screen.
+      controls.addEventListener('pointerenter', function (e) {
+        if (e.pointerType === 'mouse') { overControls = true; clearTimeout(idleTimer); }
+      });
+      controls.addEventListener('pointerleave', function (e) {
+        if (e.pointerType === 'mouse') { overControls = false; armIdle(); }
+      });
+      // Pointer leaves the player (e.g. embedded in an iframe) -> hide quickly
+      document.documentElement.addEventListener('mouseleave', function () {
+        if (!overControls) armIdle(600);
+      });
+      armIdle(INITIAL_MS);
+
+      /* ------------------------------------------------------------------
+         2. SOUND NUDGE  (hidden as soon as the viewer unmutes)
+         ------------------------------------------------------------------ */
+      var hint = $id('sound-hint');
+      function updateHint() { hint.classList.toggle('gone', !isGlobalMuted); }
+      hint.addEventListener('click', function () { muteBtn.click(); });
+      $('#mute-btn').on('click', updateHint);   // runs after the original handler
+      updateHint();
+
+      /* ------------------------------------------------------------------
+         3. FULLSCREEN POLISH: icon swap, double-click, iOS fallback
+         ------------------------------------------------------------------ */
+      var fsPath = fsBtn.querySelector('path');
+      var FS_ENTER = fsPath.getAttribute('d');
+      var FS_EXIT  = 'M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z';
+      function onFsChange() {
+        var inFs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+        fsPath.setAttribute('d', inFs ? FS_EXIT : FS_ENTER);
+        fsBtn.title = inFs ? 'Exit Fullscreen' : 'Toggle Fullscreen';
+        showUI();
+      }
+      document.addEventListener('fullscreenchange', onFsChange);
+      document.addEventListener('webkitfullscreenchange', onFsChange);
+
+      playerBox.addEventListener('dblclick', function () { fsBtn.click(); });
+
+      // iPhone Safari cannot fullscreen a <div>; use the video element's native mode instead.
+      document.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest ? e.target.closest('#fullscreen-btn') : null;
+        if (!t || document.documentElement.requestFullscreen) return;
+        var el = activeVideo.get(0);
+        if (el && el.webkitEnterFullscreen) {
+          e.stopPropagation();
+          try { el.webkitEnterFullscreen(); } catch (_) {}
+        }
+      }, true);
+
+      /* ------------------------------------------------------------------
+         4. KEYBOARD  (M = mute, F = fullscreen; no pause/seek, it's live TV)
+         ------------------------------------------------------------------ */
+      document.addEventListener('keydown', function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        var k = (e.key || '').toLowerCase();
+        if (k === 'm') muteBtn.click();
+        else if (k === 'f') fsBtn.click();
+      });
+
+      // First user gesture: make sure the live feed is actually playing
+      document.addEventListener('pointerdown', function () {
+        var el = activeVideo.get(0);
+        if (el && el.paused) el.play().catch(function () {});
+      }, { passive: true });
+
+      /* ------------------------------------------------------------------
+         5. ON-AIR INFO: LIVE badge, clock, Now / Next with countdown
+         ------------------------------------------------------------------ */
+      var clockEl = $id('ext-clock'), nowWrap = $id('ext-now-wrap');
+      var nowEl = $id('ext-now'), nextEl = $id('ext-next'), nextInEl = $id('ext-nextin');
+      var lastKey = null, flashTimer = null;
+
+      function titleOf(item) {
+        if (!item) return '';
+        if (item.title) return String(item.title);
+        if (item.name) return String(item.name);
+        var f = String(item.file || '');
+        try { f = decodeURIComponent(f.split('?')[0]); } catch (_) { f = f.split('?')[0]; }
+        var last = (f.split('/').filter(Boolean).pop() || '').replace(/\.[a-z0-9]+$/i, '');
+        if (/^(index|master|playlist|chunklist|stream|live|manifest)$/i.test(last)) {
+          return item.isExternal ? 'Live Feed' : 'Programme';
+        }
+        return last.replace(/[_\-.]+/g, ' ').replace(/\s+/g, ' ').trim() || 'Programme';
+      }
+      function pad(n) { return String(n).padStart(2, '0'); }
+      function fmt(s) {
+        s = Math.max(0, Math.round(s));
+        var h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = s % 60;
+        return (h ? h + ':' + pad(m) : m) + ':' + pad(x);
+      }
+      // Briefly reveal the info strap when the programme changes (TV-style lower third)
+      function flashInfo() {
+        body.classList.add('info-flash');
+        clearTimeout(flashTimer);
+        flashTimer = setTimeout(function () { body.classList.remove('info-flash'); }, 7000);
+      }
+
+      function tickInfo() {
+        clockEl.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        var b = null;
+        try { b = calculateCurrentBroadcast(); } catch (_) {}
+        if (!b) { nowWrap.style.display = 'none'; return; }
+        nowWrap.style.display = '';
+        var now  = titleOf(playlistData[b.index]);
+        var next = titleOf(playlistData[(b.index + 1) % playlistData.length]);
+        nowEl.textContent = now;
+        nextEl.textContent = next;
+        nextInEl.textContent = fmt(b.remaining);
+        var key = b.index + '|' + b.file;
+        if (key !== lastKey) {
+          if (lastKey !== null) flashInfo();
+          lastKey = key;
+          syncMediaSession(now);
+        }
+      }
+      setInterval(tickInfo, 1000);
+      tickInfo();
+
+      /* ------------------------------------------------------------------
+         6. MEDIA SESSION  (lock-screen / notification metadata, no pause/seek)
+         ------------------------------------------------------------------ */
+      function syncMediaSession(title) {
+        if (!('mediaSession' in navigator)) return;
+        try {
+          var logo = $id('tv-logo');
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: title || 'Live',
+            artist: 'Live',
+            album: document.title,
+            artwork: logo && logo.src ? [{ src: logo.src }] : []
+          });
+          navigator.mediaSession.playbackState = 'playing';
+          ['seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack'].forEach(function (a) {
+            try { navigator.mediaSession.setActionHandler(a, function () {}); } catch (_) {}
+          });
+          navigator.mediaSession.setActionHandler('pause', function () {
+            var el = activeVideo.get(0); if (el) el.play().catch(function () {});
+          });
+          navigator.mediaSession.setActionHandler('play', function () {
+            var el = activeVideo.get(0); if (el) el.play().catch(function () {});
+          });
+        } catch (_) {}
+      }
+
+      /* ------------------------------------------------------------------
+         7. STAND-BY SLATE + BUFFERING SPINNER
+         ------------------------------------------------------------------ */
+      var slate = $id('ext-slate'), slateTitle = $id('slate-title'), slateSub = $id('slate-sub');
+      var spinnerEl = $id('ext-spinner');
+      var reasons = new Map(), spinning = false;
+
+      function renderSlate() {
+        if (reasons.size) {
+          var last = Array.from(reasons.values()).pop();
+          slateTitle.textContent = last[0];
+          slateSub.textContent = last[1];
+          slate.classList.add('show');
+        } else {
+          slate.classList.remove('show');
+        }
+      }
+      function setReason(key, msg) {
+        if (msg) reasons.set(key, msg); else reasons.delete(key);
+        renderSlate();
+      }
+      function spin(on) {
+        if (spinning === on) return;
+        spinning = on;
+        spinnerEl.classList.toggle('show', on);
+      }
+
+      // Playlist never arrived -> stand-by card instead of a black screen
+      setInterval(function () {
+        var missing = playlistData.length === 0 && (Date.now() - bootTime) > 6000;
+        setReason('noplaylist', missing ? ['Please stand by', 'Waiting for the broadcast schedule\u2026'] : null);
+      }, 1000);
+
+      /* ------------------------------------------------------------------
+         8. VIDEO EVENT WIRING (spinner, error retry, keep-playing, start-position guard)
+         ------------------------------------------------------------------ */
+      var needsTap = false, errRetries = 0;
+
+      function hardReload(id) {
+        if (!activeVideo || activeVideo.attr('id') !== id) return;
+        loadedSourceMap[id] = '';            // forces syncPlayer to treat it as a new source
+        try { syncPlayer(true); } catch (_) {}
+      }
+      function softRecover(id) {
+        var h = hlsInstances[id];
+        if (!h) return;
+        try { h.recoverMediaError(); h.startLoad(); } catch (_) {}
+      }
+
+      [v1, v2].forEach(function (v) {
+        v.addEventListener('waiting', function () { if (isActive(v)) spin(true); });
+        v.addEventListener('playing', function () {
+          if (!isActive(v)) return;
+          spin(false); needsTap = false; errRetries = 0;
+          setReason('error', null);
+        });
+        v.addEventListener('timeupdate', function () { if (isActive(v) && !v.paused) spin(false); });
+
+        v.addEventListener('error', function () {
+          if (!isActive(v)) return;
+          setReason('error', ['Please stand by', 'We hit a snag and are reconnecting\u2026']);
+          var delay = Math.min(3000 * Math.pow(2, errRetries++), 30000);
+          setTimeout(function () { hardReload(v.id); }, delay);
+        });
+
+        // Live TV cannot be paused: resume immediately if something pauses the visible feed
+        v.addEventListener('pause', function () {
+          if (!isActive(v) || v.ended || document.hidden) return;
+          setTimeout(function () {
+            if (isActive(v) && v.paused && !document.hidden) v.play().catch(function () {});
+          }, 250);
+        });
+
+        // The original seeks *before* metadata exists, which browsers may ignore. Once metadata
+        // is in, land on the true live position (finite-duration files only; live HLS untouched).
+        v.addEventListener('loadedmetadata', function () {
+          try {
+            if (!isActive(v) || !isFinite(v.duration) || !playlistData.length) return;
+            var b = calculateCurrentBroadcast();
+            if (!b) return;
+            var src = loadedSourceMap[v.id] || '';
+            if (src.indexOf(b.file) !== -1 && b.seekTo < v.duration && Math.abs(v.currentTime - b.seekTo) > 1.5) {
+              v.currentTime = b.seekTo;
+            }
+          } catch (_) {}
+        });
+      });
+
+      /* ------------------------------------------------------------------
+         9. WATCHDOG  (freeze detection -> soft recover -> hard reload)
+         ------------------------------------------------------------------ */
+      var lastT = -1, lastId = '', stuck = 0;
+      setInterval(function () {
+        if (!playlistData.length) return;
+        if (document.hidden) { stuck = 0; return; }
+        var el = activeVideo.get(0);
+        if (!el) return;
+        if (el.id !== lastId) { lastId = el.id; lastT = -1; stuck = 0; }
+
+        if (el.paused) {
+          el.play().catch(function (err) { if (err && err.name === 'NotAllowedError') needsTap = true; });
+        }
+        var t = el.currentTime;
+        var advancing = Math.abs(t - lastT) > 0.05 && !el.paused;
+        lastT = t;
+
+        if (advancing) {
+          stuck = 0; spin(false); setReason('stall', null);
+          return;
+        }
+        stuck++;
+        if (stuck >= 2) spin(true);
+        if (stuck === 4) softRecover(el.id);                         // ~8s
+        if (stuck >= 5) {                                            // ~10s
+          setReason('stall', needsTap
+            ? ['Tap to watch', 'Your browser needs a tap to start playback']
+            : ['Please stand by', "We're reconnecting to the live broadcast\u2026"]);
+        }
+        if (stuck >= 6 && stuck % 3 === 0) hardReload(el.id);        // ~12s, then every ~6s
+      }, 2000);
+
+      /* ------------------------------------------------------------------
+         10. HLS ERROR RECOVERY  (attaches to instances the original creates)
+         ------------------------------------------------------------------ */
+      var wired = (typeof WeakSet !== 'undefined') ? new WeakSet() : null;
+      setInterval(function () {
+        if (!wired || typeof Hls === 'undefined') return;
+        ['video1', 'video2'].forEach(function (id) {
+          var h = hlsInstances[id];
+          if (!h || wired.has(h)) return;
+          wired.add(h);
+          h.on(Hls.Events.ERROR, function (_ev, data) {
+            if (!data || !data.fatal) return;
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              setTimeout(function () { try { h.startLoad(); } catch (_) {} }, 2000);
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              try { h.recoverMediaError(); } catch (_) {}
+            } else {
+              hardReload(id);
+            }
+          });
+        });
+      }, 500);
+
+      /* ------------------------------------------------------------------
+         11. NETWORK + TAB LIFECYCLE
+         ------------------------------------------------------------------ */
+      function offlineCard() { setReason('offline', ['Connection lost', 'Waiting for your network to return\u2026']); }
+      window.addEventListener('offline', offlineCard);
+      window.addEventListener('online', function () {
+        setReason('offline', null);
+        var el = activeVideo.get(0);
+        if (el) hardReload(el.id);
+        monitorPlaylist();
+      });
+      if (navigator.onLine === false) offlineCard();
+
+      // Background tabs throttle timers; jump back to the live edge when the viewer returns
+      document.addEventListener('visibilitychange', function () {
+        if (document.hidden) return;
+        try { syncPlayer(false); } catch (_) {}
+        var el = activeVideo.get(0);
+        if (el && el.paused) el.play().catch(function () {});
+      });
+
+      /* ------------------------------------------------------------------
+         12. PLAYLIST HOT-RELOAD + LOAD RETRY
+             - Schedule edits go live within ~60s without viewers refreshing.
+             - If the first load failed, retry every 10s.
+             - Malformed playlists are ignored, so a bad edit cannot take the channel off air.
+         ------------------------------------------------------------------ */
+      var checking = false;
+      function validPlaylist(d) {
+        return Array.isArray(d) && d.length > 0 && d.every(function (i) {
+          return i && typeof i.file === 'string' && typeof i.duration === 'number' && i.duration > 0;
+        });
+      }
+      async function monitorPlaylist() {
+        if (checking) return;
+        checking = true;
+        try {
+          if (playlistData.length === 0) {
+            if (Date.now() - bootTime < 8000) return;   // let the original loader finish first
+            await initLiveSync();
+            return;
+          }
+          var r = await fetch('playlist.json?t=' + Date.now(), { cache: 'no-store' });
+          if (!r.ok) return;
+          var data = await r.json();
+          if (!validPlaylist(data)) return;
+          if (JSON.stringify(data) === JSON.stringify(playlistData)) return;
+
+          playlistData = data;
+          totalPlaylistDuration = 0;
+          playlistData.forEach(function (i) { totalPlaylistDuration += i.duration; });
+          console.log('Playlist updated live. New loop length:', totalPlaylistDuration, 'seconds.');
+
+          syncPlayer(false);
+          var b = calculateCurrentBroadcast();
+          if (b) setupSeamlessTransition(b.remaining);
+          tickInfo();
+        } catch (e) {
+          console.warn('Playlist check failed:', e);
+        } finally {
+          checking = false;
+        }
+      }
+      setInterval(monitorPlaylist, 60000);
+      setInterval(function () { if (playlistData.length === 0) monitorPlaylist(); }, 10000);
+
+    })();
     </script>
   </body>
 </html>

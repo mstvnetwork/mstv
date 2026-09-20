@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>24/7 Global Live TV Channel</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+    <style>
+        body { margin: 0; background-color: #000; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        .video-container { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 16/9; background: #000; overflow: hidden; cursor: default; }
+        .video-container.cursor-hidden { cursor: none; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; opacity: 0; transition: opacity 0.3s ease-in-out; pointer-events: none; }
+        video.active { opacity: 1; pointer-events: auto; }
+        
+        .gatekeeper-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 999; cursor: pointer; }
+        .gatekeeper-btn { color: white; background: #ff3b30; border: none; padding: 16px 42px; font-size: 1.15rem; font-weight: bold; border-radius: 30px; cursor: pointer; box-shadow: 0 4px 20px rgba(255, 59, 48, 0.5); transition: transform 0.2s; }
+        .gatekeeper-btn:hover { transform: scale(1.05); }
+
+        .top-scrim { position: absolute; top: 0; left: 0; right: 0; height: 80px; background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent); pointer-events: none; z-index: 10; }
+        .badge { position: absolute; top: 16px; left: 16px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.65); color: white; padding: 6px 14px; font-size: 0.75rem; font-weight: bold; border-radius: 20px; z-index: 15; backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.15); }
+        .live-dot { width: 8px; height: 8px; background-color: #ff3b30; border-radius: 50%; box-shadow: 0 0 8px #ff3b30; animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.8; } }
+
+        .loading-spinner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 10px; color: white; font-weight: bold; font-size: 0.85rem; z-index: 100; pointer-events: none; transition: opacity 0.3s ease; }
+        .loading-spinner.hidden { opacity: 0; pointer-events: none; }
+        .spinner-ring { width: 44px; height: 44px; border: 3px solid rgba(255, 255, 255, 0.2); border-top-color: #ff3b30; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .bottom-scrim { position: absolute; bottom: 0; left: 0; right: 0; height: 90px; background: linear-gradient(to top, rgba(0,0,0,0.8), transparent); pointer-events: none; z-index: 15; opacity: 1; transition: opacity 0.35s ease; }
+        .player-controls { position: absolute; bottom: 16px; right: 16px; display: flex; gap: 8px; z-index: 20; opacity: 1; transition: opacity 0.35s ease; }
+        .player-controls.fade-out { opacity: 0; pointer-events: none; }
+        .bottom-scrim.fade-out { opacity: 0; pointer-events: none; }
+
+        .control-btn { background: rgba(0, 0, 0, 0.65); color: white; border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 8px; width: 40px; height: 40px; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(6px); transition: background 0.2s, border-color 0.2s; }
+        .control-btn:hover { background: rgba(255, 59, 48, 0.85); border-color: #ff3b30; }
+        .control-btn svg { width: 18px; height: 18px; fill: currentColor; }
+    </style>
+</head>
+<body>
+
+    <div class="video-container" id="videoContainer">
+        <div class="top-scrim"></div>
+        <div class="badge"><div class="live-dot"></div>APNA TV</div>
+        
+        <div id="loadingSpinner" class="loading-spinner hidden">
+            <div class="spinner-ring"></div>
+            <span>Buffering...</span>
+        </div>
+        
+        <div id="gatekeeper" class="gatekeeper-overlay" onclick="startBroadcastChannel()">
+            <button class="gatekeeper-btn">Click to Watch 24/7 Live ▶️</button>
+        </div>
+
+        <div class="bottom-scrim" id="uiScrim"></div>
+        <div class="player-controls" id="uiControls">
+            <button id="playPauseBtn" class="control-btn" title="Play/Pause (Space)" onclick="togglePlayPause()">
+                <svg id="iconPause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                <svg id="iconPlay" viewBox="0 0 24 24" style="display:none;"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            <button id="muteBtn" class="control-btn" title="Mute/Unmute (M)" onclick="toggleMute()">
+                <svg id="iconVolumeHigh" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                <svg id="iconVolumeMuted" viewBox="0 0 24 24" style="display:none;"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73 4.27 3z"/></svg>
+            </button>
+            <button id="fsBtn" class="control-btn" title="Fullscreen (F)" onclick="toggleFullscreen()">
+                <svg id="iconFsExpand" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                <svg id="iconFsCompress" viewBox="0 0 24 24" style="display:none;"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+            </button>
+        </div>
+
+        <video id="player1" class="active" playsinline></video>
+        <video id="player2" playsinline></video>
+    </div>
+
+    <script>
+        const rawSlots = [
+            { duration: 109, url: "https://videotourl.com/videos/1789791764088-afa10e78-5eea-4b18-ad5c-0c717ea5308d.mp4" },
+            { duration: 110, url: "https://test.gitrelease-videos.workers.dev/v1.0.0/Screen_Recording_20260919_201037_Mask.Browser_360p_360p.mp4" }
+        ];
+
+        let runningOffset = 0;
+        const schedule = rawSlots.map(slot => {
+            const item = { ...slot, startOffset: runningOffset };
+            runningOffset += slot.duration;
+            return item;
+        });
+        const TOTAL_DURATION = runningOffset;
+
+        const p1 = document.getElementById('player1');
+        const p2 = document.getElementById('player2');
+        const gatekeeper = document.getElementById('gatekeeper');
+        const spinner = document.getElementById('loadingSpinner');
+        const muteBtn = document.getElementById('muteBtn');
+        const container = document.getElementById('videoContainer');
+        const controlsEl = document.getElementById('uiControls');
+        const scrimEl = document.getElementById('uiScrim');
+
+        let activePlayer = p1;
+        let idlePlayer = p2;
+        let hasStarted = false;
+        let hls1 = null;
+        let hls2 = null;
+        let hideControlsTimer = null;
+
+        function showSpinner() { spinner.classList.remove('hidden'); }
+        function hideSpinner() { spinner.classList.add('hidden'); }
+
+        function showUI() {
+            controlsEl.classList.remove('fade-out');
+            scrimEl.classList.remove('fade-out');
+            container.classList.remove('cursor-hidden');
+            clearTimeout(hideControlsTimer);
+            if (hasStarted && !activePlayer.paused) {
+                hideControlsTimer = setTimeout(() => {
+                    controlsEl.classList.add('fade-out');
+                    scrimEl.classList.add('fade-out');
+                    if (document.fullscreenElement) container.classList.add('cursor-hidden');
+                }, 3000);
+            }
+        }
+        container.addEventListener('mousemove', showUI);
+        container.addEventListener('touchstart', showUI);
+
+        function updatePlayerListeners(videoEl) {
+            videoEl.addEventListener('waiting', showSpinner);
+            videoEl.addEventListener('stalled', showSpinner);
+            videoEl.addEventListener('playing', hideSpinner);
+            videoEl.addEventListener('canplay', hideSpinner);
+            videoEl.addEventListener('loadeddata', hideSpinner);
+        }
+        updatePlayerListeners(p1);
+        updatePlayerListeners(p2);
+
+        function togglePlayPause() {
+            if (!hasStarted) return;
+            if (activePlayer.paused) {
+                activePlayer.play();
+                document.getElementById('iconPause').style.display = 'block';
+                document.getElementById('iconPlay').style.display = 'none';
+            } else {
+                activePlayer.pause();
+                document.getElementById('iconPause').style.display = 'none';
+                document.getElementById('iconPlay').style.display = 'block';
+            }
+            showUI();
+        }
+
+        function toggleMute() {
+            activePlayer.muted = !activePlayer.muted;
+            idlePlayer.muted = true;
+            document.getElementById('iconVolumeHigh').style.display = activePlayer.muted ? 'none' : 'block';
+            document.getElementById('iconVolumeMuted').style.display = activePlayer.muted ? 'block' : 'none';
+            showUI();
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => console.log(err));
+            } else {
+                document.exitFullscreen();
+            }
+            showUI();
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            const isFs = !!document.fullscreenElement;
+            document.getElementById('iconFsExpand').style.display = isFs ? 'none' : 'block';
+            document.getElementById('iconFsCompress').style.display = isFs ? 'block' : 'none';
+            showUI();
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') { e.preventDefault(); togglePlayPause(); }
+            else if (e.key === 'm' || e.key === 'M') { toggleMute(); }
+            else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+        });
+
+        function getLiveState() {
+            const globalEpochSec = Math.floor(Date.now() / 1000);
+            const loopOffset = globalEpochSec % TOTAL_DURATION;
+            let currentSlot = schedule[0];
+            let videoTimeOffset = 0;
+            for (let slot of schedule) {
+                if (loopOffset >= slot.startOffset && loopOffset < slot.startOffset + slot.duration) {
+                    currentSlot = slot;
+                    videoTimeOffset = loopOffset - slot.startOffset;
+                    break;
+                }
+            }
+            const currentIndex = schedule.indexOf(currentSlot);
+            const nextSlot = schedule[(currentIndex + 1) % schedule.length];
+            return { currentVideo: currentSlot, offset: videoTimeOffset, nextVideo: nextSlot };
+        }
+
+        function loadHlsStream(player, url, instanceRefSetter) {
+            if (url.includes('.mp4')) { player.src = url; return; }
+            if (Hls.isSupported()) {
+                const hls = new Hls({ maxBufferLength: 30, liveSyncDuration: 3, enableWorker: true });
+                hls.loadSource(url);
+                hls.attachMedia(player);
+                instanceRefSetter(hls);
+            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+                player.src = url;
+            }
+        }
+
+        function destroyHls(instanceName) {
+            if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
+            if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
+        }
+
+        function syncBroadcast(isInitialLoad = false) {
+            if (!hasStarted) return;
+            const state = getLiveState();
+            if (!state) return;
+            const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
+
+            if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                showSpinner();
+                destroyHls(activeInstanceName);
+                activePlayer.dataset.currentUrl = state.currentVideo.url;
+                loadHlsStream(activePlayer, state.currentVideo.url, (hls) => {
+                    if (activePlayer === p1) hls1 = hls; else hls2 = hls;
+                });
+                activePlayer.onloadedmetadata = () => {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                    activePlayer.play().then(() => hideSpinner()).catch(() => {});
+                    activePlayer.onloadedmetadata = null;
+                };
+            }
+
+            setTimeout(() => {
+                const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
+                if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
+                    destroyHls(idleInstanceName);
+                    idlePlayer.dataset.currentUrl = state.nextVideo.url;
+                    loadHlsStream(idlePlayer, state.nextVideo.url, (hls) => {
+                        if (idlePlayer === p1) hls1 = hls; else hls2 = hls;
+                    });
+                    idlePlayer.onloadedmetadata = () => {
+                        idlePlayer.muted = true;
+                        idlePlayer.pause();
+                        idlePlayer.onloadedmetadata = null;
+                    };
+                }
+            }, isInitialLoad ? 3000 : 200);
+        }
+
+        function startBroadcastChannel() {
+            hasStarted = true;
+            gatekeeper.style.opacity = '0';
+            setTimeout(() => gatekeeper.remove(), 400);
+            p1.muted = false; p2.muted = false;
+            document.getElementById('iconVolumeHigh').style.display = 'block';
+            document.getElementById('iconVolumeMuted').style.display = 'none';
+            syncBroadcast(true);
+            showUI();
+        }
+
+        let lastFlippedUrl = "";
+        setInterval(() => {
+            if (!hasStarted || activePlayer.paused) return;
+            const state = getLiveState();
+            if (!state) return;
+
+            if (activePlayer.dataset.currentUrl !== state.currentVideo.url && lastFlippedUrl !== state.currentVideo.url) {
+                lastFlippedUrl = state.currentVideo.url;
+                showSpinner();
+                activePlayer.classList.remove('active');
+                idlePlayer.classList.add('active');
+                let temp = activePlayer;
+                activePlayer = idlePlayer;
+                idlePlayer = temp;
+                activePlayer.muted = false;
+                try { activePlayer.currentTime = state.offset; } catch(e){}
+                activePlayer.play().then(() => hideSpinner()).catch(() => {});
+                syncBroadcast(false);
+            } else {
+                if (Math.abs(activePlayer.currentTime - state.offset) > 2.5) {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                }
+            }
+        }, 1000);
+
+        // Smart visibility change: only sync/reload if slot changed while backgrounded
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && hasStarted) {
+                const state = getLiveState();
+                if (activePlayer.dataset.currentUrl !== state.currentVideo.url) {
+                    syncBroadcast(true);
+                } else {
+                    try { activePlayer.currentTime = state.offset; } catch(e){}
+                }
+            }
+        });
+    </script>
+</body>
+</html>

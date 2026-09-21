@@ -78,35 +78,34 @@
 
         async function fetchPlaylist() {
             try {
-                // Strict cache-buster appending unique query parameter
-                const cbUrl = `playlist.json?_cb=${Date.now()}_${Math.random().toString(36.substring(2, 9))}`;
+                const cbUrl = "playlist.json?_cb=" + Date.now() + "_" + Math.random().toString(36).substring(2, 9);
                 const response = await fetch(cbUrl, {
-                    cache: 'no-store',
-                    headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+                    cache: "no-store",
+                    headers: { "Cache-Control": "no-cache, no-store, must-revalidate" }
                 });
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+                if (!response.ok) throw new Error("HTTP error! status: " + response.status);
                 const rawSlots = await response.json();
                 
                 let runningOffset = 0;
-                schedule = rawSlots.map(slot => {
-                    const item = { ...slot, startOffset: runningOffset };
+                schedule = rawSlots.map(function(slot) {
+                    const item = Object.assign({}, slot, { startOffset: runningOffset });
                     runningOffset += slot.duration;
                     return item;
                 });
                 TOTAL_DURATION = runningOffset || 1;
             } catch (err) {
-                console.error("Failed to load playlist.json, checking fallback or retry...", err);
+                console.error("Failed to load playlist.json", err);
             }
         }
 
-        const p1 = document.getElementById('player1');
-        const p2 = document.getElementById('player2');
-        const gatekeeper = document.getElementById('gatekeeper');
-        const spinner = document.getElementById('loadingSpinner');
-        const muteBtn = document.getElementById('muteBtn');
-        const container = document.getElementById('videoContainer');
-        const controlsEl = document.getElementById('uiControls');
-        const scrimEl = document.getElementById('uiScrim');
+        const p1 = document.getElementById("player1");
+        const p2 = document.getElementById("player2");
+        const gatekeeper = document.getElementById("gatekeeper");
+        const spinner = document.getElementById("loadingSpinner");
+        const muteBtn = document.getElementById("muteBtn");
+        const container = document.getElementById("videoContainer");
+        const controlsEl = document.getElementById("uiControls");
+        const scrimEl = document.getElementById("uiScrim");
 
         let activePlayer = p1;
         let idlePlayer = p2;
@@ -115,31 +114,31 @@
         let hls2 = null;
         let hideControlsTimer = null;
 
-        function showSpinner() { spinner.classList.remove('hidden'); }
-        function hideSpinner() { spinner.classList.add('hidden'); }
+        function showSpinner() { spinner.classList.remove("hidden"); }
+        function hideSpinner() { spinner.classList.add("hidden"); }
 
         function showUI() {
-            controlsEl.classList.remove('fade-out');
-            scrimEl.classList.remove('fade-out');
-            container.classList.remove('cursor-hidden');
+            controlsEl.classList.remove("fade-out");
+            scrimEl.classList.remove("fade-out");
+            container.classList.remove("cursor-hidden");
             clearTimeout(hideControlsTimer);
             if (hasStarted && !activePlayer.paused) {
-                hideControlsTimer = setTimeout(() => {
-                    controlsEl.classList.add('fade-out');
-                    scrimEl.classList.add('fade-out');
-                    if (document.fullscreenElement) container.classList.add('cursor-hidden');
+                hideControlsTimer = setTimeout(function() {
+                    controlsEl.classList.add("fade-out");
+                    scrimEl.classList.add("fade-out");
+                    if (document.fullscreenElement) container.classList.add("cursor-hidden");
                 }, 3000);
             }
         }
-        container.addEventListener('mousemove', showUI);
-        container.addEventListener('touchstart', showUI);
+        container.addEventListener("mousemove", showUI);
+        container.addEventListener("touchstart", showUI);
 
         function updatePlayerListeners(videoEl) {
-            videoEl.addEventListener('waiting', showSpinner);
-            videoEl.addEventListener('stalled', showSpinner);
-            videoEl.addEventListener('playing', hideSpinner);
-            videoEl.addEventListener('canplay', hideSpinner);
-            videoEl.addEventListener('loadeddata', hideSpinner);
+            videoEl.addEventListener("waiting", showSpinner);
+            videoEl.addEventListener("stalled", showSpinner);
+            videoEl.addEventListener("playing", hideSpinner);
+            videoEl.addEventListener("canplay", hideSpinner);
+            videoEl.addEventListener("loadeddata", hideSpinner);
         }
         updatePlayerListeners(p1);
         updatePlayerListeners(p2);
@@ -148,12 +147,12 @@
             if (!hasStarted) return;
             if (activePlayer.paused) {
                 activePlayer.play();
-                document.getElementById('iconPause').style.display = 'block';
-                document.getElementById('iconPlay').style.display = 'none';
+                document.getElementById("iconPause").style.display = "block";
+                document.getElementById("iconPlay").style.display = "none";
             } else {
                 activePlayer.pause();
-                document.getElementById('iconPause').style.display = 'none';
-                document.getElementById('iconPlay').style.display = 'block';
+                document.getElementById("iconPause").style.display = "none";
+                document.getElementById("iconPlay").style.display = "block";
             }
             showUI();
         }
@@ -161,31 +160,31 @@
         function toggleMute() {
             activePlayer.muted = !activePlayer.muted;
             idlePlayer.muted = true;
-            document.getElementById('iconVolumeHigh').style.display = activePlayer.muted ? 'none' : 'block';
-            document.getElementById('iconVolumeMuted').style.display = activePlayer.muted ? 'block' : 'none';
+            document.getElementById("iconVolumeHigh").style.display = activePlayer.muted ? "none" : "block";
+            document.getElementById("iconVolumeMuted").style.display = activePlayer.muted ? "block" : "none";
             showUI();
         }
 
         function toggleFullscreen() {
             if (!document.fullscreenElement) {
-                container.requestFullscreen().catch(err => console.log(err));
+                container.requestFullscreen().catch(function(err){ console.log(err); });
             } else {
                 document.exitFullscreen();
             }
             showUI();
         }
 
-        document.addEventListener('fullscreenchange', () => {
+        document.addEventListener("fullscreenchange", function() {
             const isFs = !!document.fullscreenElement;
-            document.getElementById('iconFsExpand').style.display = isFs ? 'none' : 'block';
-            document.getElementById('iconFsCompress').style.display = isFs ? 'block' : 'none';
+            document.getElementById("iconFsExpand").style.display = isFs ? "none" : "block";
+            document.getElementById("iconFsCompress").style.display = isFs ? "block" : "none";
             showUI();
         });
 
-        window.addEventListener('keydown', (e) => {
-            if (e.code === 'Space') { e.preventDefault(); togglePlayPause(); }
-            else if (e.key === 'm' || e.key === 'M') { toggleMute(); }
-            else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+        window.addEventListener("keydown", function(e) {
+            if (e.code === "Space") { e.preventDefault(); togglePlayPause(); }
+            else if (e.key === "m" || e.key === "M") { toggleMute(); }
+            else if (e.key === "f" || e.key === "F") { toggleFullscreen(); }
         });
 
         function getLiveState() {
@@ -194,7 +193,8 @@
             const loopOffset = globalEpochSec % TOTAL_DURATION;
             let currentSlot = schedule[0];
             let videoTimeOffset = 0;
-            for (let slot of schedule) {
+            for (let i = 0; i < schedule.length; i++) {
+                let slot = schedule[i];
                 if (loopOffset >= slot.startOffset && loopOffset < slot.startOffset + slot.duration) {
                     currentSlot = slot;
                     videoTimeOffset = loopOffset - slot.startOffset;
@@ -207,51 +207,51 @@
         }
 
         function loadHlsStream(player, url, instanceRefSetter) {
-            if (url.includes('.mp4')) { player.src = url; return; }
-            if (Hls.isSupported()) {
+            if (url.indexOf(".mp4") !== -1) { player.src = url; return; }
+            if (typeof Hls !== "undefined" && Hls.isSupported()) {
                 const hls = new Hls({ maxBufferLength: 30, liveSyncDuration: 3, enableWorker: true });
                 hls.loadSource(url);
                 hls.attachMedia(player);
                 instanceRefSetter(hls);
-            } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+            } else if (player.canPlayType("application/vnd.apple.mpegurl")) {
                 player.src = url;
             }
         }
 
         function destroyHls(instanceName) {
-            if (instanceName === 'hls1' && hls1) { hls1.destroy(); hls1 = null; }
-            if (instanceName === 'hls2' && hls2) { hls2.destroy(); hls2 = null; }
+            if (instanceName === "hls1" && hls1) { hls1.destroy(); hls1 = null; }
+            if (instanceName === "hls2" && hls2) { hls2.destroy(); hls2 = null; }
         }
 
-        function syncBroadcast(isInitialLoad = false) {
+        function syncBroadcast(isInitialLoad) {
             if (!hasStarted) return;
             const state = getLiveState();
             if (!state) return;
-            const activeInstanceName = (activePlayer === p1) ? 'hls1' : 'hls2';
+            const activeInstanceName = (activePlayer === p1) ? "hls1" : "hls2";
 
             if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
                 showSpinner();
                 destroyHls(activeInstanceName);
                 activePlayer.dataset.currentUrl = state.currentVideo.url;
-                loadHlsStream(activePlayer, state.currentVideo.url, (hls) => {
+                loadHlsStream(activePlayer, state.currentVideo.url, function(hls) {
                     if (activePlayer === p1) hls1 = hls; else hls2 = hls;
                 });
-                activePlayer.onloadedmetadata = () => {
+                activePlayer.onloadedmetadata = function() {
                     try { activePlayer.currentTime = state.offset; } catch(e){}
-                    activePlayer.play().then(() => hideSpinner()).catch(() => {});
+                    activePlayer.play().then(function() { hideSpinner(); }).catch(function(){});
                     activePlayer.onloadedmetadata = null;
                 };
             }
 
-            setTimeout(() => {
-                const idleInstanceName = (idlePlayer === p1) ? 'hls1' : 'hls2';
+            setTimeout(function() {
+                const idleInstanceName = (idlePlayer === p1) ? "hls1" : "hls2";
                 if (idlePlayer.dataset.currentUrl !== state.nextVideo.url) {
                     destroyHls(idleInstanceName);
                     idlePlayer.dataset.currentUrl = state.nextVideo.url;
-                    loadHlsStream(idlePlayer, state.nextVideo.url, (hls) => {
+                    loadHlsStream(idlePlayer, state.nextVideo.url, function(hls) {
                         if (idlePlayer === p1) hls1 = hls; else hls2 = hls;
                     });
-                    idlePlayer.onloadedmetadata = () => {
+                    idlePlayer.onloadedmetadata = function() {
                         idlePlayer.muted = true;
                         idlePlayer.pause();
                         idlePlayer.onloadedmetadata = null;
@@ -260,37 +260,37 @@
             }, isInitialLoad ? 3000 : 200);
         }
 
-        async function initAndStartBroadcast() {
-            document.getElementById('gatekeeperBtn').textContent = 'Loading...';
+        window.initAndStartBroadcast = async function() {
+            const btn = document.getElementById("gatekeeperBtn");
+            if (btn) btn.textContent = "Loading...";
             await fetchPlaylist();
             hasStarted = true;
-            gatekeeper.style.opacity = '0';
-            setTimeout(() => gatekeeper.remove(), 400);
+            gatekeeper.style.opacity = "0";
+            setTimeout(function() { if (gatekeeper.parentNode) gatekeeper.remove(); }, 400);
             p1.muted = false; p2.muted = false;
-            document.getElementById('iconVolumeHigh').style.display = 'block';
-            document.getElementById('iconVolumeMuted').style.display = 'none';
+            document.getElementById("iconVolumeHigh").style.display = "block";
+            document.getElementById("iconVolumeMuted").style.display = "none";
             syncBroadcast(true);
             showUI();
-        }
+        };
 
         let lastFlippedUrl = "";
-        setInterval(async () => {
+        setInterval(function() {
             if (!hasStarted || activePlayer.paused) return;
-            // Optionally re-fetch playlist periodically or keep using dynamic schedule sync
             const state = getLiveState();
             if (!state) return;
 
             if (activePlayer.dataset.currentUrl !== state.currentVideo.url && lastFlippedUrl !== state.currentVideo.url) {
                 lastFlippedUrl = state.currentVideo.url;
                 showSpinner();
-                activePlayer.classList.remove('active');
-                idlePlayer.classList.add('active');
+                activePlayer.classList.remove("active");
+                idlePlayer.classList.add("active");
                 let temp = activePlayer;
                 activePlayer = idlePlayer;
                 idlePlayer = temp;
                 activePlayer.muted = false;
                 try { activePlayer.currentTime = state.offset; } catch(e){}
-                activePlayer.play().then(() => hideSpinner()).catch(() => {});
+                activePlayer.play().then(function() { hideSpinner(); }).catch(function(){});
                 syncBroadcast(false);
             } else {
                 if (Math.abs(activePlayer.currentTime - state.offset) > 2.5) {
@@ -299,9 +299,9 @@
             }
         }, 1000);
 
-        document.addEventListener('visibilitychange', async () => {
+        document.addEventListener("visibilitychange", async function() {
             if (!document.hidden && hasStarted) {
-                await fetchPlaylist(); // fresh real-time pull on resume
+                await fetchPlaylist();
                 const state = getLiveState();
                 if (state && activePlayer.dataset.currentUrl !== state.currentVideo.url) {
                     syncBroadcast(true);

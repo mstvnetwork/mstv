@@ -18,8 +18,13 @@
         .gatekeeper-btn:hover { transform: scale(1.05); }
 
         .top-scrim { position: absolute; top: 0; left: 0; right: 0; height: 80px; background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent); pointer-events: none; z-index: 10; }
-        .badge { position: absolute; top: 16px; left: 16px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.65); color: white; padding: 6px 14px; font-size: 0.75rem; font-weight: bold; border-radius: 20px; z-index: 15; backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.15); }
-        .live-dot { width: 8px; height: 8px; background-color: #ff3b30; border-radius: 50%; box-shadow: 0 0 8px #ff3b30; animation: pulse 1.5s infinite; }
+        
+        .badge { position: absolute; top: 16px; display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.65); color: white; padding: 6px 14px; font-size: 0.75rem; font-weight: bold; border-radius: 20px; z-index: 15; backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,0.15); max-width: 55%; box-sizing: border-box; }
+        .badge.left-corner { left: 16px; }
+        .badge.right-corner { right: 16px; }
+        .badge-text-truncate { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .live-dot { width: 8px; height: 8px; background-color: #ff3b30; border-radius: 50%; box-shadow: 0 0 8px #ff3b30; animation: pulse 1.5s infinite; flex-shrink: 0; }
         @keyframes pulse { 0% { transform: scale(0.95); opacity: 0.8; } 50% { transform: scale(1.15); opacity: 1; } 100% { transform: scale(0.95); opacity: 0.8; } }
 
         .loading-spinner { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 10px; color: white; font-weight: bold; font-size: 0.85rem; z-index: 100; pointer-events: none; transition: opacity 0.3s ease; }
@@ -41,7 +46,18 @@
 
     <div class="video-container" id="videoContainer">
         <div class="top-scrim"></div>
-        <div class="badge"><div class="live-dot"></div>APNA TV</div>
+        
+        <!-- Left Corner: Now Show Box -->
+        <div class="badge left-corner" id="nowBadge">
+            <span>Now:</span>
+            <span class="badge-text-truncate" id="nowShowTitle">Loading...</span>
+        </div>
+
+        <!-- Right Corner: APNA TV Logo Badge -->
+        <div class="badge right-corner">
+            <div class="live-dot"></div>
+            <span>APNA TV</span>
+        </div>
         
         <div id="loadingSpinner" class="loading-spinner hidden">
             <div class="spinner-ring"></div>
@@ -93,8 +109,17 @@
                     return item;
                 });
                 TOTAL_DURATION = runningOffset || 1;
+                updateNowBadge();
             } catch (err) {
                 console.error("Failed to load playlist.json", err);
+            }
+        }
+
+        function updateNowBadge() {
+            const state = getLiveState();
+            const titleEl = document.getElementById("nowShowTitle");
+            if (titleEl && state && state.currentVideo) {
+                titleEl.textContent = state.currentVideo.title || "Live Broadcast";
             }
         }
 
@@ -227,6 +252,7 @@
             if (!hasStarted) return;
             const state = getLiveState();
             if (!state) return;
+            updateNowBadge();
             const activeInstanceName = (activePlayer === p1) ? "hls1" : "hls2";
 
             if (isInitialLoad || activePlayer.dataset.currentUrl !== state.currentVideo.url) {
@@ -277,6 +303,7 @@
         let lastFlippedUrl = "";
         setInterval(function() {
             if (!hasStarted || activePlayer.paused) return;
+            updateNowBadge();
             const state = getLiveState();
             if (!state) return;
 

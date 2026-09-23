@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Global Linear TV</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: #000;
+    overflow: hidden; font-family: -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  #stage {
+    position: relative; width: 100vw; height: 100vh;
+    background: #000; display: flex; align-items: center; justify-content: center;
+  }
+  /* Strict 16:9 letterboxed viewport, centered on any screen shape */
+  #viewport {
+    position: relative;
+    width: 100%;
+    max-width: calc(100vh * 16 / 9);
+    aspect-ratio: 16 / 9;
+    background: #000;
+    overflow: hidden;
+  }
+  /* Every engine (mp4/hls video element, iframe embed) shares this layer contract */
+  .layer {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    border: 0; background: #000; object-fit: contain;
+    opacity: 0; pointer-events: none;           /* locked: no click-through scrubbing */
+    transition: opacity .4s ease;
+    z-index: 1;
+  }
+  .layer.active { opacity: 1; z-index: 2; }
+
+  /* --- Loading Spinner Overlay (Added) --- */
+  #loadingSpinner {
+    position: absolute; inset: 0; z-index: 25;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: none;
+    opacity: 0; transition: opacity .3s ease;
+  }
+  #loadingSpinner.visible { opacity: 1; }
+  .spinner-ring {
+    width: 48px; height: 48px; border: 4px solid rgba(255,255,255,0.2);
+    border-top: 4px solid #ff3b3b; border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* --- "Now:" title box — fully transparent, no box/background at all --- */
+  #nowPlaying {
+    position: absolute; top: 14px; left: 16px; z-index: 15;
+    max-width: 70%;
+    color: #fff; font-size: 15px; font-weight: 600; line-height: 1.3;
+    background: none; background-color: transparent;
+    text-shadow: 0 1px 3px rgba(0,0,0,.95), 0 0 14px rgba(0,0,0,.7);
+    pointer-events: none;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    opacity: 0; transition: opacity .5s ease;
+  }
+  #nowPlaying.visible { opacity: 1; }
+  #nowPlaying .np-prefix { color: #ff3b3b; font-weight: 800; letter-spacing: .02em; }
+
+  /* --- Animated transparent channel bug, top-right --- */
+  #channelLogo {
+    position: absolute; top: 7px; right: 16px; z-index: 15;
+    width: 54px; height: 54px;
+    opacity: .82; pointer-events: none;
+    filter: drop-shadow(0 1px 4px rgba(0,0,0,.6));
+  }
+  #channelLogo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #channelLogo .logo-ring {
+    fill: none; stroke: #ffd700; stroke-width: 2.5; opacity: .9;
+    stroke-dasharray: 8 6;
+    transform-origin: 50% 50%;
+    animation: logoSpin 12s linear infinite;
+  }
+  #channelLogo .logo-glow {
+    animation: logoPulse 2.6s ease-in-out infinite;
+    transform-origin: 50% 50%;
+  }
+  @keyframes logoSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes logoPulse {
+    0%, 100% { opacity: .75; transform: scale(1); }
+    50%      { opacity: 1;  transform: scale(1.06); }
+  }
+
+  /* --- Bottom-right control bar: unmute + fullscreen, standard player skin --- */
+  #controls {
+    position: absolute; bottom: 12px; right: 12px; z-index: 20;
+    display: flex; gap: 8px;
+    opacity: 0; pointer-events: none;
+    transition: opacity .25s ease;
+  }
+  #controls.visible { opacity: 1; pointer-events: auto; }
+  .ctrl-btn {
+    width: 38px; height: 38px; border-radius: 50%;
+    border: none; cursor: pointer;
+    background: rgba(20,20,20,.55); backdrop-filter: blur(3px);
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s ease, transform .1s ease;
+  }
+  .ctrl-btn:hover { background: rgba(20,20,20,.8); }
+  .ctrl-btn:active { transform: scale(.92); }
+  .ctrl-btn svg { width: 19px; height: 19px; fill: #fff; }
+  #hud {
+    position: fixed; top: 8px; left: 8px; z-index: 50;
+    color: #7CFC00; font: 11px/1.5 ui-monospace, Menlo, monospace;
+    background: rgba(0,0,0,.55); padding: 6px 9px; border-radius: 6px;
+    white-space: pre; pointer-events: none; display: none;
+  }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="viewport">
+    <video id="video1" class="layer" playsinline webkit-playsinline></video>
+    <video id="video2" class="layer" playsinline webkit-playsinline></video>
+    <iframe id="iframe1" class="layer" allow="autoplay; encrypted-media; fullscreen"></iframe>
+    <iframe id="iframe2" class="layer" allow="autoplay; encrypted-media; fullscreen"></iframe>
+
+    <!-- Loading Spinner Element -->
+    <div id="loadingSpinner"><div class="spinner-ring"></div></div>
+
+    <div id="nowPlaying"><span class="np-prefix">Now:</span> <span id="npTitle">—</span></div>
+
+    <!-- Default animated transparent logo. Replace CONFIG.LOGO_IMAGE_URL below
+         with your own transparent PNG/SVG to swap this out entirely. -->
+    <div id="channelLogo">
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <circle class="logo-ring" cx="50" cy="50" r="44"/>
+        <g class="logo-glow">
+          <image href="https://crickethd.pages.dev/mstv.webp" x="22" y="22" width="56" height="56" preserveAspectRatio="xMidYMid meet" />
+        </g>
+      </svg>
+    </div>
+
+    <div id="controls">
+      <button id="btnMute" class="ctrl-btn" aria-label="Mute or unmute"></button>
+      <button id="btnFullscreen" class="ctrl-btn" aria-label="Fullscreen"></button>
+    </div>
+  </div>
+</div>
+
+<div id="hud"></div>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+  <script>
+    const CONFIG = {
+      PLAYLIST_URL:        './playlist.json',
+      FALLBACK_URL:        './fallback.mp4',
+      GRID_SECONDS:        43200,
+      TICK_MS:             250,
+      PRELOAD_LEAD_S:      2.5,
+      DRIFT_THRESHOLD_S:   4,
+      DRIFT_CONFIRM_TICKS: 3,
+      STARTUP_GRACE_MS:    4000,
+      BOUNDARY_EPSILON_S:  0.15,
+      PLAYLIST_POLL_MS:    20000,
+      HARD_RESYNC_DRIFT_S: 15,
+      LOGO_IMAGE_URL:      '',
+      CONTROLS_HIDE_MS:    3000
+    };
+
+    let playlist = [];
+    let cumulative = [];
+    let totalDuration = 0;
+
+    function rebuildSchedule(rawPlaylist) {
+      const cleaned = (rawPlaylist || [])
+        .map(it => it && it.url ? { ...it, url: String(it.url).trim(), title: it.title ? String(it.title).trim() : it.title } : it)
+        .filter(it => it && it.url && Number(it.duration) > 0);
+      const cum = [];
+      let acc = 0;
+      for (const it of cleaned) { cum.push(acc); acc += Number(it.duration); }
+      playlist = cleaned;
+      cumulative = cum;
+      totalDuration = acc;
+    }
+
+    function gridElapsedSeconds() {
+      return Math.floor(Date.now() / 1000) % CONFIG.GRID_SECONDS;
+    }
+
+    function computeSchedulePosition() {
+      if (totalDuration <= 0) return null;
+      const pos = gridElapsedSeconds() % totalDuration;
+      let idx = playlist.length - 1;
+      for (let i = 0; i < playlist.length; i++) {
+        const start = cumulative[i];
+        const end = start + playlist[i].duration;
+        if (pos >= start && pos < end) { idx = i; break; }
+      }
+      const start = cumulative[idx];
+      const offset = pos - start;
+      const remaining = playlist[idx].duration - offset;
+      return { idx, offset, remaining, pos };
+    }
+
+    function detectEngine(url) {
+      const clean = url.split('?')[0].toLowerCase();
+      if (clean.endsWith('.m3u8') || url.toLowerCase().includes('.m3u8')) return 'hls';
+      if (['.mp4', '.webm', '.mov', '.ogg'].some(ext => clean.endsWith(ext))) return 'mp4';
+      return 'iframe';
+    }
+
+    function deriveTitle(item) {
+      if (item.title) return item.title;
+      try {
+        const clean = item.url.split('?')[0];
+        const file = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1));
+        const stripped = file.replace(/\.[a-zA-Z0-9]{2,4}$/, '').replace(/[_\-]+/g, ' ').trim();
+        return stripped || 'On Air';
+      } catch (e) { return 'On Air'; }
+    }
+
+    let lastShownTitle = null;
+    function updateNowPlaying(idx) {
+      const item = playlist[idx];
+      if (!item) return;
+      const title = deriveTitle(item);
+      if (title !== lastShownTitle) {
+        els.npTitle.textContent = title;
+        lastShownTitle = title;
+      }
+      els.nowPlaying.classList.add('visible');
+    }
+
+    const els = {
+      v: [document.getElementById('video1'), document.getElementById('video2')],
+      f: [document.getElementById('iframe1'), document.getElementById('iframe2')],
+      hud: document.getElementById('hud'),
+      viewport: document.getElementById('viewport'),
+      spinner: document.getElementById('loadingSpinner'),
+      nowPlaying: document.getElementById('nowPlaying'),
+      npTitle: document.getElementById('npTitle'),
+      channelLogo: document.getElementById('channelLogo'),
+      controls: document.getElementById('controls'),
+      btnMute: document.getElementById('btnMute'),
+      btnFullscreen: document.getElementById('btnFullscreen')
+    };
+
+    // Spinner helper logic tied to active/buffering state
+    function showSpinnerIfNeeded(bufIdx) {
+      if (bufIdx === activeBuf) els.spinner.classList.add('visible');
+    }
+    function hideSpinnerIfActive(bufIdx) {
+      if (bufIdx === activeBuf) els.spinner.classList.remove('visible');
+    }
+
+    const buffers = [
+      { video: els.v[0], iframe: els.f[0], hls: null, engine: null, itemIndex: -1, loadedAt: 0, driftStreak: 0, retryCount: 0 },
+      { video: els.v[1], iframe: els.f[1], hls: null, engine: null, itemIndex: -1, loadedAt: 0, driftStreak: 0, retryCount: 0 }
+    ];
+    let activeBuf = 0;
+    let preloadedNext = false;
+    let isMuted = true;
+
+    // Attach playback event bindings to video elements once
+    [0, 1].forEach((idx) => {
+      const v = els.v[idx];
+      v.addEventListener('playing', () => hideSpinnerIfActive(idx));
+      v.addEventListener('waiting', () => showSpinnerIfNeeded(idx));
+      v.addEventListener('stalled', () => showSpinnerIfNeeded(idx));
+    });
+
+    function teardownBuffer(b) {
+      if (b.hls) { try { b.hls.destroy(); } catch (e) {} b.hls = null; }
+      try { b.video.pause(); } catch (e) {}
+      b.video.removeAttribute('src');
+      try { b.video.load(); } catch (e) {}
+      b.iframe.src = 'about:blank';
+      b.engine = null;
+      b.itemIndex = -1;
+      b.retryCount = 0;
+    }
+
+    function safeSeek(video, t) {
+      try { if (isFinite(t) && t >= 0) video.currentTime = t; } catch (e) {}
+    }
+
+    function safePlay(video) {
+      const p = video.play();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+
+    function handleFatalError(bufIdx) {
+      const b = buffers[bufIdx];
+      console.warn('[MSTV] Playback error on buffer', bufIdx, '— failing over to fallback');
+      teardownBuffer(b);
+      b.engine = 'mp4';
+      b.loadedAt = performance.now();
+      const v = b.video;
+      v.muted = isMuted;
+      v.src = CONFIG.FALLBACK_URL;
+      v.addEventListener('loadedmetadata', function once() {
+        safePlay(v);
+        v.removeEventListener('loadedmetadata', once);
+      }, { once: true });
+      if (bufIdx === activeBuf) showBuffer(bufIdx, 'video');
+    }
+
+    function loadItemIntoBuffer(bufIdx, itemIdx, seekSeconds, opts = {}) {
+      const b = buffers[bufIdx];
+      const item = playlist[itemIdx];
+      if (!item) return;
+      teardownBuffer(b);
+      const engine = detectEngine(item.url);
+      b.engine = engine;
+      b.itemIndex = itemIdx;
+      b.loadedAt = performance.now();
+
+      if (opts.show && engine !== 'iframe') showSpinnerIfNeeded(bufIdx);
+
+      if (engine === 'iframe') {
+        b.iframe.src = item.url;
+        hideSpinnerIfActive(bufIdx);
+        if (opts.show) showBuffer(bufIdx, 'iframe'); else hideBuffer(bufIdx);
+        return;
+      }
+
+      const v = b.video;
+      v.crossOrigin = null;
+      v.muted = isMuted;
+      v.playsInline = true;
+
+      if (engine === 'hls') {
+        if (window.Hls && Hls.isSupported()) {
+          const hls = new Hls({ maxBufferLength: 30, backBufferLength: 30 });
+          b.hls = hls;
+          hls.on(Hls.Events.ERROR, (_evt, data) => {
+            if (data.fatal) {
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && b.retryCount < 2) {
+                b.retryCount++;
+                console.warn('[MSTV] Third-party HLS network drop, retrying...', b.retryCount);
+                hls.startLoad();
+              } else {
+                handleFatalError(bufIdx);
+              }
+            }
+          });
+          hls.on(Hls.Events.MANIFEST_PARSED, () => { safeSeek(v, seekSeconds); safePlay(v); });
+          hls.loadSource(item.url);
+          hls.attachMedia(v);
+        } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+          v.src = item.url;
+          v.addEventListener('loadedmetadata', function once() {
+            safeSeek(v, seekSeconds); safePlay(v); v.removeEventListener('loadedmetadata', once);
+          }, { once: true });
+          v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
+        } else {
+          handleFatalError(bufIdx);
+          return;
+        }
+      } else {
+        v.src = item.url;
+        v.addEventListener('loadedmetadata', function once() {
+          safeSeek(v, seekSeconds); safePlay(v); v.removeEventListener('loadedmetadata', once);
+        }, { once: true });
+        v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
+      }
+
+      if (opts.show) showBuffer(bufIdx, 'video'); else hideBuffer(bufIdx);
+    }
+
+    function showBuffer(bufIdx, kind) {
+      const otherIdx = 1 - bufIdx;
+      const b = buffers[bufIdx], ob = buffers[otherIdx];
+      b.video.classList.toggle('active', kind === 'video');
+      b.iframe.classList.toggle('active', kind === 'iframe');
+      ob.video.classList.remove('active');
+      ob.iframe.classList.remove('active');
+      if (kind === 'video') b.video.muted = isMuted;
+      ob.video.muted = true;
+      activeBuf = bufIdx;
+      if (kind === 'video' && b.video.readyState >= 3 && !b.video.paused) {
+        hideSpinnerIfActive(bufIdx);
+      } else if (kind !== 'iframe') {
+        showSpinnerIfNeeded(bufIdx);
+      }
+    }
+
+    function hideBuffer(bufIdx) {
+      const b = buffers[bufIdx];
+      b.video.classList.remove('active');
+      b.iframe.classList.remove('active');
+      b.video.muted = true;
+    }
+
+    function tick() {
+      const sched = computeSchedulePosition();
+      if (!sched) return;
+      const { idx, offset, remaining } = sched;
+      const active = buffers[activeBuf];
+      const inactive = buffers[1 - activeBuf];
+
+      if (active.itemIndex === -1 || active.itemIndex !== idx) {
+        loadItemIntoBuffer(activeBuf, idx, offset, { show: true });
+        preloadedNext = false;
+        updateNowPlaying(idx);
+        updateHud(sched);
+        return;
+      }
+
+      if (active.engine !== 'iframe') {
+        const withinGrace = (performance.now() - active.loadedAt) < CONFIG.STARTUP_GRACE_MS;
+        const v = active.video;
+        if (!withinGrace && v.readyState >= 2) {
+          const drift = Math.abs(v.currentTime - offset);
+          if (drift > CONFIG.HARD_RESYNC_DRIFT_S) {
+            safeSeek(v, offset);
+            active.driftStreak = 0;
+          } else if (drift > CONFIG.DRIFT_THRESHOLD_S) {
+            active.driftStreak++;
+            if (active.driftStreak >= CONFIG.DRIFT_CONFIRM_TICKS) {
+              safeSeek(v, offset);
+              active.driftStreak = 0;
+            }
+          } else {
+            active.driftStreak = 0;
+          }
+        }
+      }
+
+      const nextIdx = (idx + 1) % playlist.length;
+      if (!preloadedNext && remaining <= CONFIG.PRELOAD_LEAD_S) {
+        loadItemIntoBuffer(1 - activeBuf, nextIdx, 0, { show: false });
+        preloadedNext = true;
+      }
+
+      if (remaining <= CONFIG.BOUNDARY_EPSILON_S) {
+        if (inactive.itemIndex === nextIdx) {
+          const kind = inactive.engine === 'iframe' ? 'iframe' : 'video';
+          showBuffer(1 - activeBuf, kind);
+          if (kind === 'video') safePlay(inactive.video);
+        } else {
+          loadItemIntoBuffer(activeBuf, nextIdx, 0, { show: true });
+        }
+        preloadedNext = false;
+        updateNowPlaying(nextIdx);
+      } else {
+        updateNowPlaying(idx);
+      }
+      updateHud(sched);
+    }
+
+    let lastPlaylistRaw = null;
+    async function pollPlaylist() {
+      try {
+        const res = await fetch(CONFIG.PLAYLIST_URL + '?t=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        const raw = JSON.stringify(data);
+        if (raw !== lastPlaylistRaw) {
+          lastPlaylistRaw = raw;
+          rebuildSchedule(data);
+        }
+      } catch (e) {
+        console.warn('[MSTV] playlist.json poll failed:', e.message);
+      }
+    }
+
+    const debugMode = location.search.includes('debug');
+    if (debugMode) els.hud.style.display = 'block';
+
+    function updateHud(sched) {
+      if (!debugMode || !sched) return;
+      const item = playlist[sched.idx] || {};
+      els.hud.textContent = `grid: ${gridElapsedSeconds()}s | item #${sched.idx} (${sched.remaining.toFixed(1)}s left) | engine: ${buffers[activeBuf].engine}`;
+    }
+
+    const ICONS = {
+      muted:    '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.8L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
+      unmuted:  '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+      expand:   '<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
+      compress: '<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>'
+    };
+
+    function renderMuteIcon() { els.btnMute.innerHTML = isMuted ? ICONS.muted : ICONS.unmuted; }
+    function renderFullscreenIcon() { els.btnFullscreen.innerHTML = document.fullscreenElement ? ICONS.compress : ICONS.expand; }
+
+    function toggleMute() {
+      isMuted = !isMuted;
+      const b = buffers[activeBuf];
+      if (b.engine !== 'iframe') {
+        b.video.muted = isMuted;
+        if (!isMuted) safePlay(b.video);
+      }
+      renderMuteIcon();
+    }
+
+    function toggleFullscreen() {
+      const el = els.viewport;
+      if (!document.fullscreenElement) {
+        (el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen)?.call(el).catch(() => {});
+      } else {
+        (document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen)?.call(document);
+      }
+    }
+
+    let controlsHideTimer = null;
+    function showControls() {
+      els.controls.classList.add('visible');
+      clearTimeout(controlsHideTimer);
+      controlsHideTimer = setTimeout(() => els.controls.classList.remove('visible'), CONFIG.CONTROLS_HIDE_MS);
+    }
+
+    async function init() {
+      renderMuteIcon();
+      renderFullscreenIcon();
+      await pollPlaylist();
+      setInterval(pollPlaylist, CONFIG.PLAYLIST_POLL_MS);
+      setInterval(tick, CONFIG.TICK_MS);
+
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+      els.btnMute.addEventListener('click', toggleMute);
+      els.btnFullscreen.addEventListener('click', toggleFullscreen);
+      document.addEventListener('fullscreenchange', renderFullscreenIcon);
+      els.viewport.addEventListener('mousemove', showControls);
+      els.viewport.addEventListener('touchstart', showControls, { passive: true });
+      showControls();
+    }
+
+    init();
+  </script>
+</body>
+</html>

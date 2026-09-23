@@ -131,458 +131,256 @@
 
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <script>
-/* ============================================================================
-   GLOBAL LINEAR TV ENGINE
-   ----------------------------------------------------------------------------
-   Zero server, zero websocket, zero localStorage. Every viewer computes the
-   exact same "what should be on screen right now" answer purely from:
-      1) their system clock (synced globally via NTP → UTC)
-      2) the shared playlist.json file
-   That's what makes this behave like a real satellite/cable channel: joining
-   late, refreshing, or reopening the tab days later all land on the same
-   frame, because nothing about the position is stored anywhere — it's always
-   *recomputed*.
-============================================================================ */
+(function () {
+  'use strict';
 
-const CONFIG = {
-  PLAYLIST_URL:        './playlist.json',   // same folder as this file
-  FALLBACK_URL:        './fallback.mp4',    // put a short looping filler clip here
-  GRID_SECONDS:        43200,               // fixed 12-hour broadcast grid
-  TICK_MS:             250,                 // scheduler resolution
-  PRELOAD_LEAD_S:      2.5,                 // start buffering next item this many seconds early
-  DRIFT_THRESHOLD_S:   4,                   // seconds off before we even consider correcting
-  DRIFT_CONFIRM_TICKS: 3,                   // must persist this many ticks (debounce vs. buffering blips)
-  STARTUP_GRACE_MS:    4000,                // ignore drift checks right after a (re)load
-  BOUNDARY_EPSILON_S:  0.15,                // "close enough to zero" to trigger the swap
-  PLAYLIST_POLL_MS:    20000,               // how often to re-fetch playlist.json for appended items
-  HARD_RESYNC_DRIFT_S: 15,                  // beyond this, snap instantly instead of gradual correction
-  LOGO_IMAGE_URL:      '',                  // e.g. './logo.png' — a transparent PNG/SVG. Leave '' to use the built-in animated placeholder.
-  CONTROLS_HIDE_MS:    3000                 // auto-hide the unmute/fullscreen bar after this much inactivity
-};
+  // State Management
+  let playlist = [];
+  let playlistDuration = 0;
+  let activeBufferIdx = 0; // 0 or 1
+  let currentItemIdx = -1;
+  let isMuted = true;
+  let isClockRunning = false;
+  let clockInterval = null;
 
-/* ---------------------------------------------------------------------------
-   1. SCHEDULE MATH — the deterministic global clock
---------------------------------------------------------------------------- */
-let playlist = [];        // [{url, duration}]
-let cumulative = [];      // cumulative[i] = start offset (seconds) of playlist[i] within one loop
-let totalDuration = 0;    // sum of all durations (the "loop length" inside the 12h grid)
+  // Dual Buffer Containers (References HTML Elements)
+  const buffers = [
+    { container: document.getElementById('buffer-0'), video: document.getElementById('video-0'), hls: null, itemIdx: -1 },
+    { container: document.getElementById('buffer-1'), video: document.getElementById('video-1'), hls: null, itemIdx: -1 }
+  ];
 
-function rebuildSchedule(rawPlaylist) {
-  const cleaned = (rawPlaylist || [])
-    .map(it => it && it.url ? { ...it, url: String(it.url).trim(), title: it.title ? String(it.title).trim() : it.title } : it)
-    .filter(it => it && it.url && Number(it.duration) > 0);
-  const cum = [];
-  let acc = 0;
-  for (const it of cleaned) { cum.push(acc); acc += Number(it.duration); }
-  playlist = cleaned;
-  cumulative = cum;
-  totalDuration = acc;
-}
-
-// Bounded, globally-identical elapsed time within the fixed 12h grid.
-// This bound is what makes appending new items to the tail safe: every
-// existing item's cumulative start offset never changes.
-function gridElapsedSeconds() {
-  return Math.floor(Date.now() / 1000) % CONFIG.GRID_SECONDS;
-}
-
-function computeSchedulePosition() {
-  if (totalDuration <= 0) return null;
-  const pos = gridElapsedSeconds() % totalDuration;
-  // Linear scan is fine — playlists are short; swap for binary search if yours grows huge.
-  let idx = playlist.length - 1;
-  for (let i = 0; i < playlist.length; i++) {
-    const start = cumulative[i];
-    const end = start + playlist[i].duration;
-    if (pos >= start && pos < end) { idx = i; break; }
-  }
-  const start = cumulative[idx];
-  const offset = pos - start;
-  const remaining = playlist[idx].duration - offset;
-  return { idx, offset, remaining, pos };
-}
-
-/* ---------------------------------------------------------------------------
-   2. ENGINE DETECTION — hls / mp4 / iframe
---------------------------------------------------------------------------- */
-function detectEngine(url) {
-  const clean = url.split('?')[0].toLowerCase();
-  if (clean.endsWith('.m3u8')) return 'hls';
-  if (clean.endsWith('.mp4') || clean.endsWith('.webm') || clean.endsWith('.mov') || clean.endsWith('.ogg')) return 'mp4';
-  if (url.toLowerCase().includes('.m3u8')) return 'hls';   // proxied / query-string m3u8 links
-  return 'iframe';                                          // anything else = embed page
-}
-
-/* ---------------------------------------------------------------------------
-   2b. NOW-PLAYING TITLE — reads live from playlist.json (see pollPlaylist,
-       which already cache-busts every fetch), no separate network call needed.
---------------------------------------------------------------------------- */
-function deriveTitle(item) {
-  if (item.title) return item.title;
-  try {
-    const clean = item.url.split('?')[0];
-    const file = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1));
-    const stripped = file.replace(/\.[a-zA-Z0-9]{2,4}$/, '').replace(/[_\-]+/g, ' ').trim();
-    return stripped || 'On Air';
-  } catch (e) { return 'On Air'; }
-}
-
-let lastShownTitle = null;
-function updateNowPlaying(idx) {
-  const item = playlist[idx];
-  if (!item) return;
-  const title = deriveTitle(item);
-  if (title !== lastShownTitle) {
-    els.npTitle.textContent = title;
-    lastShownTitle = title;
-  }
-  els.nowPlaying.classList.add('visible');
-}
-
-/* ---------------------------------------------------------------------------
-   3. DUAL BUFFERS
---------------------------------------------------------------------------- */
-const els = {
-  v: [document.getElementById('video1'), document.getElementById('video2')],
-  f: [document.getElementById('iframe1'), document.getElementById('iframe2')],
-  hud: document.getElementById('hud'),
-  viewport: document.getElementById('viewport'),
-  nowPlaying: document.getElementById('nowPlaying'),
-  npTitle: document.getElementById('npTitle'),
-  channelLogo: document.getElementById('channelLogo'),
-  controls: document.getElementById('controls'),
-  btnMute: document.getElementById('btnMute'),
-  btnFullscreen: document.getElementById('btnFullscreen')
-};
-
-const buffers = [
-  { video: els.v[0], iframe: els.f[0], hls: null, engine: null, itemIndex: -1, loadedAt: 0, driftStreak: 0 },
-  { video: els.v[1], iframe: els.f[1], hls: null, engine: null, itemIndex: -1, loadedAt: 0, driftStreak: 0 }
-];
-let activeBuf = 0;
-let preloadedNext = false;
-let isMuted = true; // starts muted, like every native HLS/TV player — required for reliable autoplay
-
-function teardownBuffer(b) {
-  if (b.hls) { try { b.hls.destroy(); } catch (e) {} b.hls = null; }
-  try { b.video.pause(); } catch (e) {}
-  b.video.removeAttribute('src');
-  try { b.video.load(); } catch (e) {}
-  b.iframe.src = 'about:blank';
-  b.engine = null;
-  b.itemIndex = -1;
-}
-
-// Wrapped in try/catch — a failed/interrupted seek (e.g. stream not yet
-// seekable, live-only manifest) must never break the scheduler loop.
-function safeSeek(video, t) {
-  try {
-    if (!isFinite(t) || t < 0) return;
-    video.currentTime = t;
-  } catch (e) { /* silently ignored — anti-scrub safety net */ }
-}
-
-// Every .play() is an async promise that can reject (autoplay policy,
-// interrupted by a background schedule shift, etc). Never let that reject
-// propagate and kill the loop.
-function safePlay(video) {
-  const p = video.play();
-  if (p && typeof p.catch === 'function') p.catch(() => {});
-}
-
-function handleFatalError(bufIdx) {
-  const b = buffers[bufIdx];
-  console.warn('[LinearTV] playback error on buffer', bufIdx, '— failing over to fallback clip');
-  teardownBuffer(b);
-  b.engine = 'mp4';
-  b.loadedAt = performance.now();
-  const v = b.video;
-  v.muted = isMuted;
-  v.src = CONFIG.FALLBACK_URL;
-  v.addEventListener('loadedmetadata', function once() {
-    safePlay(v);
-    v.removeEventListener('loadedmetadata', once);
-  }, { once: true });
-  v.addEventListener('error', () => console.error('[LinearTV] fallback clip also failed to load'), { once: true });
-  if (bufIdx === activeBuf) showBuffer(bufIdx, 'video');
-  // NOTE: the schedule clock itself never stops — it keeps counting down
-  // `remaining` regardless of what actually renders, so sync is never lost.
-}
-
-function loadItemIntoBuffer(bufIdx, itemIdx, seekSeconds, opts = {}) {
-  const b = buffers[bufIdx];
-  const item = playlist[itemIdx];
-  if (!item) return;
-  teardownBuffer(b);
-  const engine = detectEngine(item.url);
-  b.engine = engine;
-  b.itemIndex = itemIdx;
-  b.loadedAt = performance.now();
-
-  if (engine === 'iframe') {
-    // Embed pages: no control over internal playhead/audio — best effort only.
-    b.iframe.src = item.url;
-    if (opts.show) showBuffer(bufIdx, 'iframe'); else hideBuffer(bufIdx);
-    return;
-  }
-
-  const v = b.video;
-  v.crossOrigin = null;              // no crossOrigin attr → native CORS-free playback path
-  v.muted = isMuted;
-  v.playsInline = true;
-
-  if (engine === 'hls') {
-    if (window.Hls && Hls.isSupported()) {
-      const hls = new Hls({ maxBufferLength: 30, backBufferLength: 30 });
-      b.hls = hls;
-      hls.on(Hls.Events.ERROR, (_evt, data) => { if (data.fatal) handleFatalError(bufIdx); });
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { safeSeek(v, seekSeconds); safePlay(v); });
-      hls.loadSource(item.url);
-      hls.attachMedia(v);
-    } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
-      // Native HLS (Safari / iOS)
-      v.src = item.url;
-      v.addEventListener('loadedmetadata', function once() {
-        safeSeek(v, seekSeconds); safePlay(v); v.removeEventListener('loadedmetadata', once);
-      }, { once: true });
-      v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
-    } else {
-      handleFatalError(bufIdx);
-      return;
+  // Helper: Detect if a URL is an external third-party stream
+  function isExternalUrl(url) {
+    try {
+      const origin = new URL(url, window.location.href).origin;
+      return !origin.includes('workers.dev') && origin !== window.location.origin;
+    } catch (e) {
+      return false;
     }
-  } else {
-    // plain mp4 / webm — standard native delivery, no CORS gymnastics needed
-    v.src = item.url;
-    v.addEventListener('loadedmetadata', function once() {
-      safeSeek(v, seekSeconds); safePlay(v); v.removeEventListener('loadedmetadata', once);
-    }, { once: true });
-    v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
   }
 
-  if (opts.show) showBuffer(bufIdx, 'video'); else hideBuffer(bufIdx);
-}
-
-// Cross-fade: CSS opacity transition on the layer classes handles the 0.4s fade.
-function showBuffer(bufIdx, kind) {
-  const otherIdx = 1 - bufIdx;
-  const b = buffers[bufIdx], ob = buffers[otherIdx];
-
-  b.video.classList.toggle('active', kind === 'video');
-  b.iframe.classList.toggle('active', kind === 'iframe');
-  ob.video.classList.remove('active');
-  ob.iframe.classList.remove('active');
-
-  if (kind === 'video') b.video.muted = isMuted;
-  ob.video.muted = true; // never two audio tracks at once
-
-  activeBuf = bufIdx;
-}
-
-function hideBuffer(bufIdx) {
-  const b = buffers[bufIdx];
-  b.video.classList.remove('active');
-  b.iframe.classList.remove('active');
-  b.video.muted = true;
-}
-
-/* ---------------------------------------------------------------------------
-   4. THE TICKER — drives switching, drift correction, preloading
---------------------------------------------------------------------------- */
-function tick() {
-  const sched = computeSchedulePosition();
-  if (!sched) { updateHud(null); return; }
-  const { idx, offset, remaining } = sched;
-  const active = buffers[activeBuf];
-  const inactive = buffers[1 - activeBuf];
-
-  // First run for this page load
-  if (active.itemIndex === -1) {
-    loadItemIntoBuffer(activeBuf, idx, offset, { show: true, playAudio: true });
-    preloadedNext = false;
-    updateNowPlaying(idx);
-    updateHud(sched);
-    return;
+  // Engine Detection (HLS vs Native MP4/WebM)
+  function detectEngine(url) {
+    if (!url) return 'native';
+    const cleanUrl = url.split('?')[0].toLowerCase();
+    if (cleanUrl.endsWith('.m3u8') || url.includes('.m3u8?')) return 'hls';
+    return 'native';
   }
 
-  // Catch-up: tab was throttled/backgrounded and we woke up past a boundary
-  // the preloader never got to handle. Jump straight there — no partial state.
-  if (active.itemIndex !== idx) {
-    loadItemIntoBuffer(activeBuf, idx, offset, { show: true, playAudio: true });
-    preloadedNext = false;
-    updateNowPlaying(idx);
-    updateHud(sched);
-    return;
+  // Global Timeline Offset Calculation
+  function getScheduleOffset() {
+    if (!playlistDuration || playlistDuration <= 0) return { itemIdx: 0, seekSeconds: 0 };
+    const nowSec = Math.floor(Date.now() / 1000);
+    let offsetSec = nowSec % playlistDuration;
+
+    for (let i = 0; i < playlist.length; i++) {
+      const itemDur = playlist[i].duration || 0;
+      if (offsetSec < itemDur) {
+        return { itemIdx: i, seekSeconds: offsetSec };
+      }
+      offsetSec -= itemDur;
+    }
+    return { itemIdx: 0, seekSeconds: 0 };
   }
 
-  // --- Drift correction (anti-scrub lock: reverts silent seeks/stalls) ---
-  if (active.engine !== 'iframe') {
-    const withinGrace = (performance.now() - active.loadedAt) < CONFIG.STARTUP_GRACE_MS;
-    const v = active.video;
-    if (!withinGrace && v.readyState >= 2) {
-      const drift = Math.abs(v.currentTime - offset);
-      if (drift > CONFIG.HARD_RESYNC_DRIFT_S) {
-        safeSeek(v, offset);
-        active.driftStreak = 0;
-      } else if (drift > CONFIG.DRIFT_THRESHOLD_S) {
-        active.driftStreak++;
-        if (active.driftStreak >= CONFIG.DRIFT_CONFIRM_TICKS) {
-          safeSeek(v, offset);
-          active.driftStreak = 0;
-        }
+  // Safe Playback Helpers
+  function safePlay(video) {
+    const p = video.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(err => console.warn('[LinearTV] Play inhibited:', err.message));
+    }
+  }
+
+  function safeSeek(video, seekTime) {
+    if (!video || !isFinite(seekTime)) return;
+    if (video.readyState >= 1) {
+      video.currentTime = seekTime;
+    } else {
+      video.addEventListener('loadedmetadata', function once() {
+        video.currentTime = seekTime;
+      }, { once: true });
+    }
+  }
+
+  // Clean up buffer resources
+  function destroyBuffer(bufIdx) {
+    const b = buffers[bufIdx];
+    if (b.hls) {
+      b.hls.destroy();
+      b.hls = null;
+    }
+    b.video.pause();
+    b.video.removeAttribute('src');
+    b.video.load();
+    b.itemIdx = -1;
+  }
+
+  // Handle fatal errors on specific buffer
+  function handleFatalError(bufIdx) {
+    console.error(`[LinearTV] Fatal error on Buffer ${bufIdx}. Skipping stream...`);
+    if (bufIdx === activeBufferIdx) {
+      advanceSchedule();
+    }
+  }
+
+  // Load an item into a specified buffer
+  function loadItemIntoBuffer(bufIdx, itemIdx, seekSeconds) {
+    const b = buffers[bufIdx];
+    const item = playlist[itemIdx];
+    if (!item) return;
+
+    // Clean up existing instance on this buffer
+    if (b.hls) {
+      b.hls.destroy();
+      b.hls = null;
+    }
+
+    b.itemIdx = itemIdx;
+    const engine = detectEngine(item.url);
+    const v = b.video;
+    const external = isExternalUrl(item.url);
+
+    // Adaptively handle CORS attribute for 3rd-party vs. Worker streams
+    if (external) {
+      v.removeAttribute('crossorigin');
+    } else {
+      v.crossOrigin = 'anonymous';
+    }
+
+    v.muted = isMuted;
+    v.playsInline = true;
+
+    if (engine === 'hls') {
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls({
+          maxBufferLength: 30,
+          backBufferLength: 30,
+          xhrSetup: function (xhr) {
+            xhr.withCredentials = false;
+          }
+        });
+        b.hls = hls;
+
+        // Auto-recovery for external stream network or media errors
+        hls.on(Hls.Events.ERROR, (_evt, data) => {
+          if (data.fatal) {
+            switch (data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.warn('[LinearTV] External HLS network error, attempting recovery...');
+                hls.startLoad();
+                break;
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.warn('[LinearTV] External HLS media error, attempting recovery...');
+                hls.recoverMediaError();
+                break;
+              default:
+                handleFatalError(bufIdx);
+                break;
+            }
+          }
+        });
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          safeSeek(v, seekSeconds);
+          safePlay(v);
+        });
+
+        hls.loadSource(item.url);
+        hls.attachMedia(v);
+      } else if (v.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari / Native iOS HLS support
+        v.src = item.url;
+        v.addEventListener('loadedmetadata', function once() {
+          safeSeek(v, seekSeconds);
+          safePlay(v);
+        }, { once: true });
+        v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
       } else {
-        active.driftStreak = 0;
+        handleFatalError(bufIdx);
+      }
+    } else {
+      // Direct MP4 / WebM fallback
+      v.src = item.url;
+      safeSeek(v, seekSeconds);
+      safePlay(v);
+      v.addEventListener('error', () => handleFatalError(bufIdx), { once: true });
+    }
+  }
+
+  // Switch display and audio between dual buffers
+  function switchActiveBuffer(newActiveIdx) {
+    activeBufferIdx = newActiveIdx;
+    const inactiveIdx = 1 - activeBufferIdx;
+
+    buffers[activeBufferIdx].container.classList.add('active');
+    buffers[inactiveIdx].container.classList.remove('active');
+
+    buffers[activeBufferIdx].video.muted = isMuted;
+    buffers[inactiveIdx].video.muted = true;
+  }
+
+  // Clock Execution and Synchronization
+  function advanceSchedule() {
+    const { itemIdx, seekSeconds } = getScheduleOffset();
+    const nextItemIdx = (itemIdx + 1) % playlist.length;
+
+    if (itemIdx !== currentItemIdx) {
+      currentItemIdx = itemIdx;
+
+      // Load active buffer
+      loadItemIntoBuffer(activeBufferIdx, itemIdx, seekSeconds);
+      switchActiveBuffer(activeBufferIdx);
+
+      // Preload inactive buffer with the upcoming item
+      const inactiveIdx = 1 - activeBufferIdx;
+      destroyBuffer(inactiveIdx);
+      loadItemIntoBuffer(inactiveIdx, nextItemIdx, 0);
+    } else {
+      // Handle drift (> 3s shift)
+      const activeVideo = buffers[activeBufferIdx].video;
+      if (activeVideo && activeVideo.readyState >= 1) {
+        if (Math.abs(activeVideo.currentTime - seekSeconds) > 3) {
+          console.warn('[LinearTV] Drift detected, resyncing playback position...');
+          safeSeek(activeVideo, seekSeconds);
+        }
       }
     }
   }
 
-  // --- Preload next item into the idle buffer, 2.5s ahead of the boundary ---
-  const nextIdx = (idx + 1) % playlist.length;
-  if (!preloadedNext && remaining <= CONFIG.PRELOAD_LEAD_S) {
-    loadItemIntoBuffer(1 - activeBuf, nextIdx, 0, { show: false, playAudio: true });
-    preloadedNext = true;
+  // Start Global Timeline Clock
+  function startClock() {
+    if (isClockRunning) return;
+    isClockRunning = true;
+    advanceSchedule();
+    clockInterval = setInterval(advanceSchedule, 1000);
   }
 
-  // --- Boundary crossed: cross-fade swap ---
-  if (remaining <= CONFIG.BOUNDARY_EPSILON_S) {
-    if (inactive.itemIndex === nextIdx) {
-      const kind = inactive.engine === 'iframe' ? 'iframe' : 'video';
-      showBuffer(1 - activeBuf, kind);
-      if (kind === 'video') safePlay(inactive.video);
-    } else {
-      // Preload didn't land in time (very short item, or the tab was
-      // throttled) — load directly rather than showing a stale frame.
-      loadItemIntoBuffer(activeBuf, nextIdx, 0, { show: true, playAudio: true });
+  // Initialize Player
+  async function initPlayer(playlistUrl = '/playlist.json') {
+    try {
+      const res = await fetch(playlistUrl);
+      if (!res.ok) throw new Error(`HTTP error ${res.status}`);
+      playlist = await res.json();
+
+      playlistDuration = playlist.reduce((acc, item) => acc + (item.duration || 0), 0);
+      if (playlistDuration <= 0) throw new Error('Playlist total duration is invalid.');
+
+      startClock();
+    } catch (err) {
+      console.error('[LinearTV] Failed to initialize playlist:', err.message);
     }
-    preloadedNext = false;
-    updateNowPlaying(nextIdx);
-  } else {
-    // Stays cheap: only writes to the DOM when the derived title actually changes
-    // (e.g. someone edits the currently-airing item's "title" in playlist.json).
-    updateNowPlaying(idx);
   }
 
-  updateHud(sched);
-}
+  // Global Unmute on User Interaction
+  document.addEventListener('click', function unlockAudio() {
+    isMuted = false;
+    buffers[activeBufferIdx].video.muted = false;
+    document.removeEventListener('click', unlockAudio);
+  }, { once: true });
 
-/* ---------------------------------------------------------------------------
-   5. PLAYLIST POLLING — picks up appended URLs without a reload,
-      without ever moving the currently on-air item.
---------------------------------------------------------------------------- */
-let lastPlaylistRaw = null;
-
-async function pollPlaylist() {
-  try {
-    const res = await fetch(CONFIG.PLAYLIST_URL + '?t=' + Date.now(), { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    const raw = JSON.stringify(data);
-    if (raw !== lastPlaylistRaw) {
-      lastPlaylistRaw = raw;
-      rebuildSchedule(data);
-      console.log('[LinearTV] playlist loaded/updated —', playlist.length, 'items,', totalDuration, 's total');
-    }
-  } catch (e) {
-    console.warn('[LinearTV] playlist.json fetch failed, keeping last known playlist:', e.message);
-  }
-}
-
-/* ---------------------------------------------------------------------------
-   6. DEBUG HUD (append ?debug to the URL to see it)
---------------------------------------------------------------------------- */
-const debugMode = location.search.includes('debug');
-if (debugMode) els.hud.style.display = 'block';
-
-function updateHud(sched) {
-  if (!debugMode) return;
-  if (!sched) { els.hud.textContent = 'waiting for playlist.json…'; return; }
-  const item = playlist[sched.idx] || {};
-  els.hud.textContent =
-    `grid: ${gridElapsedSeconds()}s / ${CONFIG.GRID_SECONDS}s\n` +
-    `item #${sched.idx}  offset ${sched.offset.toFixed(1)}s / ${item.duration}s  (remaining ${sched.remaining.toFixed(1)}s)\n` +
-    `engine: ${buffers[activeBuf].engine}   active buffer: ${activeBuf}\n` +
-    `url: ${(item.url || '').slice(0, 70)}`;
-}
-
-/* ---------------------------------------------------------------------------
-   7. PLAYER-STYLE CONTROLS — speaker (mute/unmute) + fullscreen,
-      bottom-right, auto-hiding like a standard HLS/video player skin.
---------------------------------------------------------------------------- */
-const ICONS = {
-  muted:    '<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.8L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>',
-  unmuted:  '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
-  expand:   '<svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
-  compress: '<svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>'
-};
-
-function renderMuteIcon() { els.btnMute.innerHTML = isMuted ? ICONS.muted : ICONS.unmuted; }
-function renderFullscreenIcon() { els.btnFullscreen.innerHTML = document.fullscreenElement ? ICONS.compress : ICONS.expand; }
-
-function toggleMute() {
-  isMuted = !isMuted;
-  const b = buffers[activeBuf];
-  if (b.engine !== 'iframe') {
-    b.video.muted = isMuted;
-    if (!isMuted) safePlay(b.video); // nudge playback in case the browser paused it
-  }
-  renderMuteIcon();
-}
-
-function toggleFullscreen() {
-  const el = els.viewport;
-  if (!document.fullscreenElement) {
-    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-    if (req) req.call(el).catch(() => {});
-  } else {
-    const exit = document.exitFullscreen || document.webkitExitFullscreen || document.msExitFullscreen;
-    if (exit) exit.call(document);
-  }
-}
-
-let controlsHideTimer = null;
-function showControls() {
-  els.controls.classList.add('visible');
-  clearTimeout(controlsHideTimer);
-  controlsHideTimer = setTimeout(() => els.controls.classList.remove('visible'), CONFIG.CONTROLS_HIDE_MS);
-}
-
-/* ---------------------------------------------------------------------------
-   8. CHANNEL LOGO — swap in a real transparent PNG/SVG via CONFIG.LOGO_IMAGE_URL,
-      otherwise keep the built-in animated placeholder badge.
---------------------------------------------------------------------------- */
-function initLogo() {
-  if (!CONFIG.LOGO_IMAGE_URL) return;
-  const img = new Image();
-  img.onload = () => { els.channelLogo.innerHTML = ''; els.channelLogo.appendChild(img); };
-  img.onerror = () => console.warn('[LinearTV] LOGO_IMAGE_URL failed to load, keeping default logo');
-  img.src = CONFIG.LOGO_IMAGE_URL;
-}
-
-/* ---------------------------------------------------------------------------
-   9. BOOTSTRAP
---------------------------------------------------------------------------- */
-async function init() {
-  renderMuteIcon();
-  renderFullscreenIcon();
-  initLogo();
-
-  await pollPlaylist();
-  setInterval(pollPlaylist, CONFIG.PLAYLIST_POLL_MS);
-  setInterval(tick, CONFIG.TICK_MS);
-
-  // Coming back from a throttled/backgrounded tab: resync immediately
-  // instead of waiting for the next tick.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
-
-  els.btnMute.addEventListener('click', toggleMute);
-  els.btnFullscreen.addEventListener('click', toggleFullscreen);
-  document.addEventListener('fullscreenchange', renderFullscreenIcon);
-
-  els.viewport.addEventListener('mousemove', showControls);
-  els.viewport.addEventListener('touchstart', showControls, { passive: true });
-  showControls();
-}
-
-init();
+  // Public API Initializer
+  window.LinearTV = { init: initPlayer };
+})();
 </script>
 </body>
 </html>

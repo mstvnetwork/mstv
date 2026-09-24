@@ -216,8 +216,7 @@
       HARD_RESYNC_DRIFT_S: 15,
       LOGO_IMAGE_URL:      '',
       CONTROLS_HIDE_MS:    3000,
-      GIF_DISPLAY_MS:      7000,  /* Duration on-screen lifespan */
-      GIF_INTERVAL_MS:     30000  /* Re-trigger frequency interval interval loop */
+      AUTOMATED_BUFFER_S:  5       /* Safe screen cushion delay space between custom graphics */
     };
 
     let playlist = [];
@@ -555,44 +554,63 @@
     }
 
     // Individual item timeline scheduler
-    function showTargetOverlayItem(item) {
-      if (!els.popup || !els.popupImg || !item.url) return;
+    function showTargetOverlayItem(url, text, durationSeconds) {
+      if (!els.popup || !els.popupImg || !url) return;
       
       const textContainer = els.popup.querySelector('span');
-      if (textContainer && item.text) {
-        textContainer.textContent = item.text; // Mount your distinct text string dynamically
+      if (textContainer) {
+        textContainer.textContent = text || ''; // Mount your distinct text string dynamically
       }
       
-      els.popupImg.src = item.url.trim() + '?t=' + Date.now(); // Cache buster re-renders animations cleanly
+      els.popupImg.src = url.trim() + '?t=' + Date.now(); // Cache buster re-renders animations cleanly
       els.popup.classList.add('visible-pop'); // Slide onto screen
       
-      const durationMs = (Number(item.showDurationSeconds) || 7) * 1000;
       setTimeout(() => {
         els.popup.classList.remove('visible-pop'); // Retract back down out of screen view
-      }, durationMs);
+        setTimeout(() => { els.popupImg.src = ''; }, 400); // Flush cache safely after animation slide ends
+      }, durationSeconds * 1000);
     }
 
     function initializeGifSchedules() {
       // Wipe away all active repeat intervals so updates don't stack up glitches
-      runningIntervals.forEach(clearInterval);
+      runningIntervals.forEach(clearTimeout);
       runningIntervals = [];
 
-      gifPlaylist.forEach((item) => {
-        const initialDelayMs = (Number(item.appearAfterSeconds) || 4) * 1000;
-        const repeatIntervalMs = (Number(item.repeatEverySeconds) || 30) * 1000;
+      if (!gifPlaylist || gifPlaylist.length === 0) {
+        if(els.popup) els.popup.classList.remove('visible-pop');
+        return;
+      }
 
-        // Schedule the initial slide up appearance
-        setTimeout(() => {
-          showTargetOverlayItem(item);
+      // Automatically construct the timeline engine sequence loop calculation
+      function runAutomatedTimeline() {
+        let accumulatedTime = CONFIG.AUTOMATED_BUFFER_S;
+        let totalCycleTime = 0;
 
-          // Configure subsequent infinite loop track intervals safely
-          const repeatTracker = setInterval(() => {
-            showTargetOverlayItem(item);
-          }, repeatIntervalMs);
+        // Auto calculate overall timeline loop dimensions
+        gifPlaylist.forEach(item => {
+          const dur = (Number(item.duration) || 20);
+          totalCycleTime += dur + CONFIG.AUTOMATED_BUFFER_S;
+        });
+        totalCycleTime += CONFIG.AUTOMATED_BUFFER_S;
+
+        gifPlaylist.forEach((item) => {
+          const itemDuration = (Number(item.duration) || 20);
+
+          // Queue item trigger entry window
+          const showTimer = setTimeout(() => {
+            showTargetOverlayItem(item.url, item.text, itemDuration);
+          }, accumulatedTime * 1000);
           
-          runningIntervals.push(repeatTracker);
-        }, initialDelayMs);
-      });
+          runningIntervals.push(showTimer);
+          accumulatedTime += itemDuration + CONFIG.AUTOMATED_BUFFER_S;
+        });
+
+        // Loop the entire master timeline cycle endlessly
+        const masterLoopTimer = setTimeout(runAutomatedTimeline, totalCycleTime * 1000);
+        runningIntervals.push(masterLoopTimer);
+      }
+
+      runAutomatedTimeline();
     }
 
     function updateHud(sched) {

@@ -32,7 +32,7 @@
   }
   .layer.active { opacity: 1; z-index: 2; }
 
-  /* --- Loading Spinner Overlay (Added) --- */
+  /* --- Loading Spinner Overlay --- */
   #loadingSpinner {
     position: absolute; inset: 0; z-index: 25;
     background: rgba(0,0,0,0.5);
@@ -117,7 +117,7 @@
     white-space: pre; pointer-events: none; display: none;
   }
 
-  /* --- FIXED: TRANSPARENT TV OVERLAY CODES ANCHORED AT BOTTOM-CENTER --- */
+  /* --- TRANSPARENT TV OVERLAY CODES ANCHORED AT BOTTOM-CENTER --- */
   .tv-announcement-overlay {
     position: absolute;
     bottom: 10px; /* Positions layout cleanly directly above player controller tracks */
@@ -174,21 +174,19 @@
 
     <div id="nowPlaying"><span class="np-prefix">Now:</span> <span id="npTitle">—</span></div>
 
-        <!-- Default animated transparent logo. Replace CONFIG.LOGO_IMAGE_URL below
-         with your own transparent PNG/SVG to swap this out entirely. -->
+    <!-- Default animated transparent logo -->
     <div id="channelLogo">
-  <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-    <g class="logo-glow">
-      <image href="https://crickethd.pages.dev/mstv.webp" x="5" y="5" width="90" height="90" preserveAspectRatio="xMidYMid meet" />
-    </g>
-  </svg>
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <g class="logo-glow">
+          <image href="https://crickethd.pages.dev/mstv.webp" x="5" y="5" width="90" height="90" preserveAspectRatio="xMidYMid meet" />
+        </g>
+      </svg>
     </div>
 
-    <!-- REFINED FLOATING BOTTOM CENTER CONTAINER GRAPHIC -->
+    <!-- FLOATING BOTTOM CENTER CONTAINER GRAPHIC -->
     <div id="popupAnnouncement" class="tv-announcement-overlay">
-      <!-- Media source links managed automatically by the dynamic JS pipeline in Chunk 2 & 3 -->
       <img id="popupGif" src="https://crickethd.pages.dev/ani.Stream" alt="Dynamic TV Alert">
-    <span></span>
+      <span></span>
     </div>
 
     <div id="controls">
@@ -203,27 +201,27 @@
   <script>
     const CONFIG = {
       PLAYLIST_URL:        './playlist.json',
-      GIF_PLAYLIST_URL:    './playlist.gifs', /* Real-time polling layout destination target */
+      GIF_PLAYLIST_URL:    './playlist.gifs', 
       FALLBACK_URL:        './fallback.mp4',
       GRID_SECONDS:        43200,
       TICK_MS:             250,
-      PRELOAD_LEAD_S:      2.5,
-      DRIFT_THRESHOLD_S:   4,
-      DRIFT_CONFIRM_TICKS: 3,
-      STARTUP_GRACE_MS:    4000,
-      BOUNDARY_EPSILON_S:  0.15,
+      PRELOAD_LEAD_S:      15.0,        /* Extended buffer fetch lead window for slower networks */
+      DRIFT_THRESHOLD_S:   6,           /* Relaxed tracking drift window preventing frame jumps */
+      DRIFT_CONFIRM_TICKS: 4,
+      STARTUP_GRACE_MS:    6000,        /* Increased grace allowance for slower hardware stream handshakes */
+      BOUNDARY_EPSILON_S:  0.25,
       PLAYLIST_POLL_MS:    20000,
-      HARD_RESYNC_DRIFT_S: 15,
+      HARD_RESYNC_DRIFT_S: 20,
       LOGO_IMAGE_URL:      '',
       CONTROLS_HIDE_MS:    3000,
-      AUTOMATED_BUFFER_S:  5       /* Safe screen cushion delay space between custom graphics */
+      AUTOMATED_BUFFER_S:  5       
     };
 
     let playlist = [];
     let cumulative = [];
     let totalDuration = 0;
     let debugMode = false;
-    let gifPlaylist = [];      /* Storage map array for parsed real-time gif URLs */
+    let gifPlaylist = [];      
 
     function rebuildSchedule(rawPlaylist) {
       const cleaned = (rawPlaylist || [])
@@ -301,7 +299,6 @@
       popupImg: document.getElementById('popupGif')
     };
 
-    // Spinner helper logic tied to active/buffering state
     function showSpinnerIfNeeded(bufIdx) {
       if (bufIdx === activeBuf) els.spinner.classList.add('visible');
     }
@@ -317,7 +314,6 @@
     let preloadedNext = false;
     let isMuted = true;
 
-    /* --- FIXED: THE RESTORED INITIALIZATION LOOPS PREVENTING THE SYNTAX ERROR --- */
     [0, 1].forEach((idx) => {
       const v = els.v[idx];
       v.addEventListener('playing', () => hideSpinnerIfActive(idx));
@@ -387,13 +383,32 @@
 
       if (engine === 'hls') {
         if (window.Hls && Hls.isSupported()) {
-          const hls = new Hls({ maxBufferLength: 30, backBufferLength: 30 });
+          /* --- INTEGRATED AGGRESSIVE LOW-BANDWIDTH ENHANCEMENT ENGINE CONFIG --- */
+          const hls = new Hls({ 
+            maxBufferLength: 45, 
+            maxMaxBufferLength: 90,
+            liveSyncDurationCount: 7, 
+            liveMaxLatencyDurationCount: 14,
+            enableSoftwareAES: true,
+            
+            // Assume an ultra-low starting bandwidth to force the lowest rendition instantly
+            abrEwmaDefaultEstimate: 350000, 
+            abrEwmaFastLive: 1.5,
+            
+            // Extreme fault handling parameters for flaky connections
+            manifestLoadingMaxRetry: 5,
+            manifestLoadingRetryDelay: 1500,
+            levelLoadingMaxRetry: 5,
+            levelLoadingRetryDelay: 1500,
+            fragLoadingMaxRetry: 6,
+            fragLoadingRetryDelay: 2000
+          });
           b.hls = hls;
           hls.on(Hls.Events.ERROR, (_evt, data) => {
             if (data.fatal) {
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR && b.retryCount < 2) {
+              if ((data.type === Hls.ErrorTypes.NETWORK_ERROR) && b.retryCount < 3) {
                 b.retryCount++;
-                console.warn('[MSTV] Third-party HLS network drop, retrying...', b.retryCount);
+                console.warn('[MSTV] HLS network drop encountered, executing protocol retry...', b.retryCount);
                 hls.startLoad();
               } else {
                 handleFatalError(bufIdx);
@@ -447,6 +462,7 @@
       b.iframe.classList.remove('active');
       b.video.muted = true;
     }
+    
     function tick() {
       const sched = computeSchedulePosition();
       if (!sched) return;
@@ -531,7 +547,7 @@
 
     /* --- REAL-TIME INTEL GRAPHIC SYNCHRONIZATION BACKEND --- */
     let lastGifPlaylistRaw = null;
-    let runningIntervals = []; // Keeps track of active repeat loops to clear old tracks safely
+    let runningIntervals = []; 
 
     async function pollGifPlaylist() {
       try {
@@ -544,8 +560,6 @@
           lastGifPlaylistRaw = raw;
           gifPlaylist = Array.isArray(data) ? data.filter(it => it && it.url) : [];
           console.log('[MSTV] Advanced dynamic overlays synchronized:', gifPlaylist.length);
-          
-          // Re-initialize schedules dynamically if data updates in real-time
           initializeGifSchedules();
         }
       } catch (e) {
@@ -553,26 +567,24 @@
       }
     }
 
-    // Individual item timeline scheduler
     function showTargetOverlayItem(url, text, durationSeconds) {
       if (!els.popup || !els.popupImg || !url) return;
       
       const textContainer = els.popup.querySelector('span');
       if (textContainer) {
-        textContainer.textContent = text || ''; // Mount your distinct text string dynamically
+        textContainer.textContent = text || ''; 
       }
       
-      els.popupImg.src = url.trim() + '?t=' + Date.now(); // Cache buster re-renders animations cleanly
-      els.popup.classList.add('visible-pop'); // Slide onto screen
+      els.popupImg.src = url.trim() + '?t=' + Date.now(); 
+      els.popup.classList.add('visible-pop'); 
       
       setTimeout(() => {
-        els.popup.classList.remove('visible-pop'); // Retract back down out of screen view
-        setTimeout(() => { els.popupImg.src = ''; }, 400); // Flush cache safely after animation slide ends
+        els.popup.classList.remove('visible-pop'); 
+        setTimeout(() => { els.popupImg.src = ''; }, 400); 
       }, durationSeconds * 1000);
     }
 
     function initializeGifSchedules() {
-      // Wipe away all active repeat intervals so updates don't stack up glitches
       runningIntervals.forEach(clearTimeout);
       runningIntervals = [];
 
@@ -581,12 +593,10 @@
         return;
       }
 
-      // Automatically construct the timeline engine sequence loop calculation
       function runAutomatedTimeline() {
         let accumulatedTime = CONFIG.AUTOMATED_BUFFER_S;
         let totalCycleTime = 0;
 
-        // Auto calculate overall timeline loop dimensions
         gifPlaylist.forEach(item => {
           const dur = (Number(item.duration) || 20);
           totalCycleTime += dur + CONFIG.AUTOMATED_BUFFER_S;
@@ -596,7 +606,6 @@
         gifPlaylist.forEach((item) => {
           const itemDuration = (Number(item.duration) || 20);
 
-          // Queue item trigger entry window
           const showTimer = setTimeout(() => {
             showTargetOverlayItem(item.url, item.text, itemDuration);
           }, accumulatedTime * 1000);
@@ -605,7 +614,6 @@
           accumulatedTime += itemDuration + CONFIG.AUTOMATED_BUFFER_S;
         });
 
-        // Loop the entire master timeline cycle endlessly
         const masterLoopTimer = setTimeout(runAutomatedTimeline, totalCycleTime * 1000);
         runningIntervals.push(masterLoopTimer);
       }

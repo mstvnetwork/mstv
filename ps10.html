@@ -336,6 +336,7 @@
       b.itemIndex = -1;
       b.retryCount = 0;
     }
+          
     function safeSeek(video, t) {
       try { if (isFinite(t) && t >= 0) video.currentTime = t; } catch (e) {}
     }
@@ -529,7 +530,10 @@
       }
     }
 
+    /* --- REAL-TIME INTEL GRAPHIC SYNCHRONIZATION BACKEND --- */
     let lastGifPlaylistRaw = null;
+    let runningIntervals = []; // Keeps track of active repeat loops to clear old tracks safely
+
     async function pollGifPlaylist() {
       try {
         const res = await fetch(CONFIG.GIF_PLAYLIST_URL + '?t=' + Date.now(), { cache: 'no-store' });
@@ -540,27 +544,55 @@
         if (raw !== lastGifPlaylistRaw) {
           lastGifPlaylistRaw = raw;
           gifPlaylist = Array.isArray(data) ? data.filter(it => it && it.url) : [];
-          console.log('[MSTV] Dynamic playlist.gifs synchronized. Items found:', gifPlaylist.length);
+          console.log('[MSTV] Advanced dynamic overlays synchronized:', gifPlaylist.length);
+          
+          // Re-initialize schedules dynamically if data updates in real-time
+          initializeGifSchedules();
         }
       } catch (e) {
-        console.warn('[MSTV] playlist.gifs background fetch track dropped:', e.message);
+        console.warn('[MSTV] playlist.gifs sync fetch dropped:', e.message);
       }
     }
 
-    function triggerNextOverlayCycle() {
-      if (!gifPlaylist || gifPlaylist.length === 0) return;
+    // Individual item timeline scheduler
+    function showTargetOverlayItem(item) {
+      if (!els.popup || !els.popupImg || !item.url) return;
       
-      const randomIndex = Math.floor(Math.random() * gifPlaylist.length);
-      const targetItem = gifPlaylist[randomIndex];
-      
-      if (els.popup && els.popupImg && targetItem.url) {
-        els.popupImg.src = targetItem.url.trim() + '?t=' + Date.now();
-        els.popup.classList.add('visible-pop');
-        
-        setTimeout(() => {
-          els.popup.classList.remove('visible-pop');
-        }, CONFIG.GIF_DISPLAY_MS);
+      const textContainer = els.popup.querySelector('span');
+      if (textContainer && item.text) {
+        textContainer.textContent = item.text; // Mount your distinct text string dynamically
       }
+      
+      els.popupImg.src = item.url.trim() + '?t=' + Date.now(); // Cache buster re-renders animations cleanly
+      els.popup.classList.add('visible-pop'); // Slide onto screen
+      
+      const durationMs = (Number(item.showDurationSeconds) || 7) * 1000;
+      setTimeout(() => {
+        els.popup.classList.remove('visible-pop'); // Retract back down out of screen view
+      }, durationMs);
+    }
+
+    function initializeGifSchedules() {
+      // Wipe away all active repeat intervals so updates don't stack up glitches
+      runningIntervals.forEach(clearInterval);
+      runningIntervals = [];
+
+      gifPlaylist.forEach((item) => {
+        const initialDelayMs = (Number(item.appearAfterSeconds) || 4) * 1000;
+        const repeatIntervalMs = (Number(item.repeatEverySeconds) || 30) * 1000;
+
+        // Schedule the initial slide up appearance
+        setTimeout(() => {
+          showTargetOverlayItem(item);
+
+          // Configure subsequent infinite loop track intervals safely
+          const repeatTracker = setInterval(() => {
+            showTargetOverlayItem(item);
+          }, repeatIntervalMs);
+          
+          runningIntervals.push(repeatTracker);
+        }, initialDelayMs);
+      });
     }
 
     function updateHud(sched) {
@@ -620,11 +652,6 @@
       els.viewport.addEventListener('mousemove', showControls);
       els.viewport.addEventListener('touchstart', showControls, { passive: true });
       showControls();
-
-      setTimeout(() => {
-        triggerNextOverlayCycle();
-        setInterval(triggerNextOverlayCycle, CONFIG.GIF_INTERVAL_MS);
-      }, 4500);
     }
 
     init();

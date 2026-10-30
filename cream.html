@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shaka IPTV Player</title>
-    <!-- Shaka Player compiled library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.4/shaka-player.compiled.js"></script>
     <style>
         body { font-family: sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; }
@@ -15,53 +14,49 @@
         button { padding: 12px; background: #1f1f1f; color: #fff; border: 1px solid #333; border-radius: 6px; text-align: left; cursor: pointer; font-size: 1rem; }
         button:hover { background: #333; }
         button.active { background: #e50914; border-color: #e50914; }
+        #log { background: #222; color: #00ff00; padding: 10px; margin-top: 10px; font-family: monospace; font-size: 0.8rem; border-radius: 4px; max-height: 100px; overflow-y: auto; }
     </style>
 </head>
 <body>
 <div class="container">
     <h1>Shaka DRM / IPTV Player</h1>
     <video id="video" controls autoplay></video>
+    <div id="log">Status: Ready</div>
     <div class="playlist" id="playlist"></div>
 </div>
 
 <script>
 const channels = [
-     {
-             "name": "Discovery Hindi",
-             "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoverychannel2/default/manifest.mpd", 
-              "clearkey": {
-                  "keyId": "b70a8cf9450c4d6484b4ac4d3c6761c0",
-                  "key":
-            "0908be844260409cbac180bf0181da40" 
-                  
-              }
-            },
-    
-  
-  {
-        "name": "Eurosport HD",
+    {
+        "name": "Discovery Hindi",
         "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoverychannel2/default/manifest.mpd",
-        "clearkey": { "b70a8cf9450c4d6484b4ac4d3c6761c0":"0908be844260409cbac180bf0181da40" }
-            
+        "clearkey": {
+            "b70a8cf9450c4d6484b4ac4d3c6761c0": "0908be844260409cbac180bf0181da40"
         },
-        "headers": { }
-    } 
+        "headers": {}
+    }
 ];
 
-
 let player = null;
+
+function log(msg) {
+    document.getElementById('log').innerText = "Status: " + msg;
+}
 
 async function initApp() {
     const video = document.getElementById('video');
     shaka.polyfill.installAll();
     
     if (!shaka.Player.isBrowserSupported()) {
-        alert('Browser not supported for Shaka Player!');
+        log('Browser not supported for Shaka Player!');
         return;
     }
 
     player = new shaka.Player(video);
-    player.addEventListener('error', (event) => console.error('Error code', event.detail));
+    player.addEventListener('error', (event) => {
+        console.error('Shaka Error:', event.detail);
+        log('Error Code ' + event.detail.code + ' - ' + event.detail.message);
+    });
 
     renderPlaylist();
     if (channels.length > 0) {
@@ -82,28 +77,22 @@ function renderPlaylist() {
 }
 
 async function loadChannel(index) {
-    // Highlight active button
     document.querySelectorAll('.playlist button').forEach(b => b.classList.remove('active'));
     document.getElementById('btn-' + index).classList.add('active');
 
     const ch = channels[index];
+    log('Loading ' + ch.name + '...');
 
-    // Configure DRM if available
-    if (ch.clearkey) {
-        player.configure({
-            drm: {
-                clearKeys: {
-                    [ch.clearkey.keyId]: ch.clearkey.key
-                }
-            }
-        });
-    } else {
-        player.configure({ drm: { clearKeys: {} } });
-    }
+    // Reset player configuration
+    player.configure({
+        drm: {
+            clearKeys: ch.clearkey ? ch.clearkey : {}
+        }
+    });
 
-    // Configure custom headers
+    // Configure headers if present
     player.getNetworkingEngine().clearAllRequestFilters();
-    if (Object.keys(ch.headers).length > 0) {
+    if (ch.headers && Object.keys(ch.headers).length > 0) {
         player.getNetworkingEngine().registerRequestFilter((type, request) => {
             if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST ||
                 type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
@@ -116,9 +105,9 @@ async function loadChannel(index) {
 
     try {
         await player.load(ch.url);
-        console.log('Loaded channel:', ch.name);
+        log('Playing: ' + ch.name);
     } catch (e) {
-        console.error('Error loading channel:', e);
+        log('Failed to load channel (Code: ' + e.code + ')');
     }
 }
 

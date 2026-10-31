@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sony TV HD - Mobile Stream</title>
+    
+    <!-- Required Libraries for Iframe Capture -->
+    <script src="https://unpkg.com"></script>
+    <script type="module" src="https://unpkg.com"></script>
+
+    <style>
+        :root { --primary: #00ffA0; }
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            background: #000;
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+
+        .viewport {
+            width: 100vw; max-width: 1000px; aspect-ratio: 16 / 9; 
+            overflow: hidden; position: relative;
+            border: 4px solid var(--primary); border-radius: 12px;
+            background: #000;
+        }
+
+        /* Dynamic Frame Mover Controlled by Sliders */
+        #frameMover {
+            position: absolute; 
+            width: 100%; 
+            height: 270%; 
+            top: -140px; 
+            left: 0px;
+            transform: scale(1);
+            transform-origin: top left;
+        }
+
+        #captureFrame {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        #lockLayer {
+            position: absolute;
+            top: 0; left: 0; 
+            width: 100%; height: 100%;
+            z-index: 9999; 
+            background: rgba(0,0,0,0.01); 
+            pointer-events: none; 
+            cursor: pointer;
+        }
+
+        #lockLayer.active {
+            pointer-events: all !important;
+            cursor: default;
+        }
+
+        .click-hint {
+            position: absolute; bottom: 60px; right: 15px;
+            color: var(--primary);
+            font-family: sans-serif;
+            font-size: 12px;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        #resetBtn {
+            position: fixed; bottom: 12px; right: 12px;
+            padding: 8px 15px;
+            background: rgba(0, 255, 160, 0.15);
+            color: #00ffa0;
+            border: 1px solid rgba(0, 255, 160, 0.6);
+            border-radius: 30px;
+            font-family: sans-serif;
+            font-size: 14px;
+            backdrop-filter: blur(10px);
+            cursor: pointer;
+            z-index: 10002;
+        }
+
+        /* Floating Alignment Toolbox Styles */
+        #alignToolbox {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 1px solid var(--primary);
+            border-radius: 8px;
+            padding: 12px;
+            z-index: 20000;
+            font-family: sans-serif;
+            color: #fff;
+            font-size: 12px;
+            width: 220px;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 4px 15px rgba(0,255,160,0.2);
+        }
+        #alignToolbox h4 {
+            margin: 0 0 8px 0;
+            color: var(--primary);
+            font-size: 13px;
+            text-align: center;
+        }
+        .control-group {
+            margin-bottom: 8px;
+        }
+        .control-group label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 2px;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+            accent-color: var(--primary);
+        }
+        #copyCssBtn {
+            width: 100%;
+            background: var(--primary);
+            color: #000;
+            border: none;
+            padding: 6px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 4px;
+        }
+        #copyCssBtn:active {
+            background: #00cc80;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Floating Alignment Toolbox -->
+    <div id="alignToolbox">
+        <h4>Stream Adjuster</h4>
+        <div class="control-group">
+            <label>Top / Crop: <span id="valTop">-140</span>px</label>
+            <input type="range" id="rangeTop" min="-500" max="500" value="-140" oninput="updateAlignment()">
+        </div>
+        <div class="control-group">
+            <label>Left / Right: <span id="valLeft">0</span>px</label>
+            <input type="range" id="rangeLeft" min="-500" max="500" value="0" oninput="updateAlignment()">
+        </div>
+        <div class="control-group">
+            <label>Height Scale: <span id="valHeight">270</span>%</label>
+            <input type="range" id="rangeHeight" min="50" max="500" value="270" oninput="updateAlignment()">
+        </div>
+        <div class="control-group">
+            <label>Zoom Scale: <span id="valZoom">1.0</span>x</label>
+            <input type="range" id="rangeZoom" min="0.5" max="3" step="0.05" value="1" oninput="updateAlignment()">
+        </div>
+        <button id="copyCssBtn" onclick="copyCSS()">Copy CSS Code</button>
+    </div>
+
+    <!-- Mobile Viewer -->
+    <div class="viewport" id="playerWrapper">
+        <div id="lockLayer"></div>
+
+        <div id="status" class="click-hint"></div>
+        <button id="resetBtn" onclick="location.reload()">Refresh</button>
+
+        <!-- The Fixed Capture Window -->
+        <div id="frameMover">
+            <iframe id="captureFrame" 
+                    is="x-frame-bypass"
+                    src="https://mstvnet.netlify.app/capture.html" 
+                    scrolling="no">
+            </iframe>
+        </div>
+    </div>
+
+<script>
+    function updateAlignment() {
+        const topVal = document.getElementById('rangeTop').value;
+        const leftVal = document.getElementById('rangeLeft').value;
+        const heightVal = document.getElementById('rangeHeight').value;
+        const zoomVal = document.getElementById('rangeZoom').value;
+
+        // Update text labels
+        document.getElementById('valTop').innerText = topVal;
+        document.getElementById('valLeft').innerText = leftVal;
+        document.getElementById('valHeight').innerText = heightVal;
+        document.getElementById('valZoom').innerText = parseFloat(zoomVal).toFixed(2);
+
+        // Apply styles live to frameMover
+        const mover = document.getElementById('frameMover');
+        mover.style.top = topVal + 'px';
+        mover.style.left = leftVal + 'px';
+        mover.style.height = heightVal + '%';
+        mover.style.transform = `scale(${zoomVal})`;
+    }
+
+    function copyCSS() {
+        const topVal = document.getElementById('rangeTop').value;
+        const leftVal = document.getElementById('rangeLeft').value;
+        const heightVal = document.getElementById('rangeHeight').value;
+        const zoomVal = document.getElementById('rangeZoom').value;
+
+        const cssSnippet = `#frameMover {\n    position: absolute;\n    width: 100%;\n    height: ${heightVal}%;\n    top: ${topVal}px;\n    left: ${leftVal}px;\n    transform: scale(${zoomVal});\n    transform-origin: top left;\n}`;
+
+        navigator.clipboard.writeText(cssSnippet).then(() => {
+            const btn = document.getElementById('copyCssBtn');
+            btn.innerText = "Copied to Clipboard!";
+            setTimeout(() => { btn.innerText = "Copy CSS Code"; }, 2000);
+        });
+    }
+
+    (function() {
+        function isAllowedDevice() {
+            const ua = navigator.userAgent || navigator.vendor || window.opera;
+            return /iPhone|iPad|iPod|Android/i.test(ua);
+        }
+
+        if (!isAllowedDevice()) {
+            return;
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            const wrapper = document.getElementById('playerWrapper');
+            const shield = document.getElementById('lockLayer');
+            const status = document.getElementById('status');
+            
+            let clickCount = 0;
+            const maxClicks = 35;
+            let locked = false;
+
+            function lockPlayer() {
+                shield.classList.add('active');
+                status.innerText = "CONTROLS LOCKED";
+                locked = true;
+            }
+
+            wrapper.addEventListener('click', function() {
+                if (locked) return;
+                clickCount++;
+                let remaining = maxClicks - clickCount;
+                if (remaining > 0) {
+                    status.innerText = `Setup Mode: ${remaining} clicks left`;
+                }
+                if (clickCount >= maxClicks) {
+                    lockPlayer();
+                }
+            });
+
+            setTimeout(lockPlayer, 6000000);
+        });
+    })();
+</script>
+</body>
+</html>

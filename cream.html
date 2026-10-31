@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shaka IPTV Player</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.4/shaka-player.compiled.js"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: #fff; margin: 0; padding: 20px; }
+        h1 { text-align: center; font-size: 1.5rem; }
+        .container { max-width: 800px; margin: auto; }
+        video { width: 100%; max-height: 450px; background: #000; border-radius: 8px; }
+        .playlist { margin-top: 15px; display: flex; flex-direction: column; gap: 8px; max-height: 250px; overflow-y: auto; }
+        button { padding: 12px; background: #1f1f1f; color: #fff; border: 1px solid #333; border-radius: 6px; text-align: left; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #333; }
+        button.active { background: #e50914; border-color: #e50914; }
+        #log { background: #222; color: #00ff00; padding: 10px; margin-top: 10px; font-family: monospace; font-size: 0.8rem; border-radius: 4px; max-height: 100px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Shaka DRM / IPTV Player</h1>
+    <video id="video" controls autoplay></video>
+    <div id="log">Status: Ready</div>
+    <div class="playlist" id="playlist"></div>
+</div>
+
+<script>
+const channels = [
+    {
+        "name": "&amp;TV HD",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/And_Tv_HD/dash/And_Tv_HD.mpd",
+        "clearkey": {
+            "115d9343e1cd44ef9a727d4464052c74": "d8f9f6b3f87ff0f80c6b822b866538cf"
+        },
+        "headers": {}
+    },
+    {
+        "name": "&amp;TV",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Andtv/default/main.mpd",
+        "clearkey": {
+            "26df86eeebb04d7fbc45c948f76e81fd": "5f3a23f1a73c4c96ababce5fffe7b06b"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee TV HD",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/ZEE_TV_HD/dash/ZEE_TV_HD.mpd",
+        "clearkey": {
+            "a2c366733ca64732aaa52e254435464f": "0250acf67b77584f54250c2bbc9f56b9"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee TV",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetv/default/main.mpd",
+        "clearkey": {
+            "ed068cf84f0640ccbc7c0e395c0a272e": "bb722190f2bb446391020411a7d0828b"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Anmol TV",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zee_Anmol/dash/Zee_Anmol.mpd",
+        "clearkey": {
+            "ea7f1391b58146b59bb26c085d350412": "4b8e8517a36b1296bba2371aab19ce7a"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Investigation Discovery",
+        "url": "https://wbd.skandha.tv/Investigation_Discovery_India_HD/Investigation_Discovery_India_HD.isml/.mpd",
+        "clearkey": {
+            "12ed56d780abcfebcd23aa27e4ac5010": "6784567890abcfebcd23aa27e4ac2809"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Sun Neo",
+        "url": "https://d1iwj24qiokrul.cloudfront.net/live/media/Sun_Neo_HD/hls_fta/Sun_Neo_HD.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "ZOOM",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zoom/dash/Zoom.mpd",
+        "clearkey": {
+            "9256c7bc8e7a4a21af4347587036b52a": "9b9f02e03af15abf9a61dfcdf2347a2b"
+        },
+        "headers": {}
+    },
+    {
+        "name": "DD National",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/DD_National/hls_fta/DD_National.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "DD Bharati",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/DD_Bharti/hls_fta/DD_Bharti.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "&amp;Pictures HD",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/And_Pictures_HD/dash/And_Pictures_HD.mpd",
+        "clearkey": {
+            "26ca37be75a54d2ca2252dea8ac3ee30": "98023bd9809b72c0a27516cd683f556d"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bollywood",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zee_Bollywood/dash/Zee_Bollywood.mpd",
+        "clearkey": {
+            "795bacfb62a6475f8ae90dab34db6f35": "bba4400eb2f0c47083caa602f301078f"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Action",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zee_Action/dash/Zee_Action.mpd",
+        "clearkey": {
+            "f75496a182404a428fca4edeec1e324f": "7037652ddefc44ca91f263c8fa35cb32"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Cinema HD",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zee_Cinema_HD/dash/Zee_Cinema_HD.mpd",
+        "clearkey": {
+            "d17e9dcf7b47441fb9270d5a43a55415": "d66f723840dc3f44da1f7e812ceb2e9f"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Anmol Cinema",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Zee_Anmol_Cinema/dash/Zee_Anmol_Cinema.mpd",
+        "clearkey": {
+            "1e86dc3bec8c4e4fb6bb6163a518e125": "228a5920ee98be6fefef1248db8cb777"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zing",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zing/default/manifest.mpd",
+        "clearkey": {
+            "f0fb14eebe474a6ab74c8301d55a7224": "f9f8b2e30704458b8db844a285ce32be"
+        },
+        "headers": {}
+    },
+    {
+        "name": "9XM",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/9XM/hls_fta/9XM.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "Music India",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Music_India/hls_fta/Music_India.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "Unite8 Sports 1 HD",
+        "url": "https://d2o8pibksxtln6.cloudfront.net/live/media/Unite8_Sports_1_HD/dash/Unite8_Sports_1_HD.mpd",
+        "clearkey": {
+            "1a6d0bf4fa174776b57d8aa7a283a029": "26c8c96f5b1f5d7faa7af1aef4bee3a4"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bharat",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeehindustan/default/manifest.mpd",
+        "clearkey": {
+            "10616d7c4bee41f1825bd805c6295172": "dc85f2112f63477fb39fc149493c49be"
+        },
+        "headers": {}
+    },
+    {
+        "name": "NDTV India",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Ndtvindia2/default/manifest.mpd",
+        "clearkey": {
+            "d78c01625c3f4ed98912609799298544": "b91bb882f9624872ada6125006fe5c73"
+        },
+        "headers": {}
+    },
+    {
+        "name": "News Nation",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Newsnation2/default/main.mpd",
+        "clearkey": {
+            "b1179148ecf241de8111f216f4540f2c": "bbca34aa96b04187b4e6854cb03a1cc5"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Sansad TV 1",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Sansadtvsd2/default/main.mpd?",
+        "clearkey": {
+            "db60a3bd01f4487c8a91affc5a22b11a": "70c61dfaaf2e4ffaac8ba79b8165db63"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Sansad TV 2 HD",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Sansadtvhd2/default/main.mpd",
+        "clearkey": {
+            "9bb7ff21dcc44952913612599676932d": "a0534a71d2e24d918d6a5ed662584f0f"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Business",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeebusiness/default/manifest.mpd",
+        "clearkey": {
+            "bef87892e58c446d893b16a848703b70": "51959fcbc8fe4091b570ba254bf749ae"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Discovery",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoverychannel2/default/manifest.mpd",
+        "clearkey": {
+            "b70a8cf9450c4d6484b4ac4d3c6761c0": "0908be844260409cbac180bf0181da40"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Animal Planet HD",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Animalplanethd2/default/index.mpd",
+        "clearkey": {
+            "df81f15150f74c799fdde64ef49dfb75": "05794a012ae74d77953f2b9fae6804c7"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Discovery Science",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoveryscience2/default/manifest.mpd",
+        "clearkey": {
+            "5458f45efedb4d6f8aa6ac76c85b621b": "dbf8a0a306a64525ba3012fd225370c0"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Discovery Turbo",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoveryturbo2/default/manifest.mpd",
+        "clearkey": {
+            "c011525969e44b99a86059dbb3cdf4e8": "6700a5d93203417b8585f7de7dd1a09b"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Epic TV",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Epictv2/default/main.mpd",
+        "clearkey": {
+            "f21752a2fa0a4fa3b49b973cf7a97a6d": "49305a9be6a4470ab0725e8dc0115296"
+        },
+        "headers": {}
+    },
+    {
+        "name": "TLC",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Tlc2/default/manifest.mpd",
+        "clearkey": {
+            "e48e7373d6be47ecab83a20849f6823e": "513ce07a2ee24ffdbe667eff5a9d46a8"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Discovery Kids",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Discoverykids2/default/manifest.mpd",
+        "clearkey": {
+            "601f58d4b7094d2baf78c85d1d9cb6c9": "609e0cc03198455fa36fd2cc3e7f940d"
+        },
+        "headers": {}
+    },
+    {
+        "name": "9X Tashan",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/9xtashan2/default/main.",
+        "clearkey": {
+            "5774f9c8093547ac8796445049163c00": "2716fd8f71974ffa82e68e198c8d91d6"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Marathi",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeemarathi/default/manifest.mpd",
+        "clearkey": {
+            "2a8d6c938ea647248f7a10eedc39f097": "7d81feb84ed84bd88fdc5ca9de3c16da"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Fakt Marathi",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Faktmarathi2/default/main.mpd",
+        "clearkey": {
+            "b2bce8d71c7545249c84099da4fb7d7c": "c710e4af595949d3bc8916d224a9fef4"
+        },
+        "headers": {}
+    },
+    {
+        "name": "9X Jhakkas",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/9xjhakaas2/default/main.mpd",
+        "clearkey": {
+            "5911de35875644f4a48ee9d426be297f": "4316b9b0a9814b4381425e1b01886dc5"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Sarthak",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeesarthak/default/main.mpd",
+        "clearkey": {
+            "ecad0b097b574078a4a1bde24bfdb2e5": "568bb13d04db4b738864f6c849474cd5"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bangla",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeebangla/default/manifest.mpd",
+        "clearkey": {
+            "1df83e058b864da896c9288eef63b113": "fc32f26239054b56aab48225305598fe"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bangla Sonar",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeebanglacinema/default/manifest.mpd",
+        "clearkey": {
+            "fbbfd9ce4bbe4d818b16df7dfe89f05b": "1e96d0f88ef740e982d6f6105721c8bc"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bangla Sonar",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/ColorsHD/default/ColorsHD.m3u8",
+        "clearkey": null,
+        "headers": {}
+    },
+    {
+        "name": "Sangeet Bangla",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Sangeetbangla2/default/main.mpd?",
+        "clearkey": {
+            "55ef53e7216640ea862b98c3864000f7": "11c2726ab75d4e6aaf54e0e09b5ae593"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Sangeet Bhojpuri",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Sangeetbhojpuri2/default/main.mpd",
+        "clearkey": {
+            "eeb0cd6768be49eeb8eac3df17638a4e": "3496163276404b46906865eadd195e67"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Bihar Jharkhand",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeebiharjharkhand/default/manifest.mpd",
+        "clearkey": {
+            "e1ec6098b5014ac7aae0b37f72d5e85e": "c04950f25d8e4107a96e828e7911e53b"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Telugu",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeetelgu/default/main.mpd",
+        "clearkey": {
+            "1ce5cd75a6ad44a38a7d1b8dbaf9c330": "657fc8e7d533456cb0644fe03458a4b2"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Cinemalu",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeecinemalu/default/main.mpd",
+        "clearkey": {
+            "d27bc072600d431faa7d0c8441a5fb43": "3b61f64edc79497d9da31d612a88f8ea"
+        },
+        "headers": {}
+    },
+    {
+        "name": "Zee Kannada",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/Zeekannada/default/main.mpd",
+        "clearkey": {
+            "50e714b65ead453cbfab9b20bed5c79d": "bc08e108b9ee4f65b99cb9dad9532f3f"
+        },
+        "headers": {}
+    },
+    {
+        "name": "9X Jalwa",
+        "url": "https://d1g8wgjurz8via.cloudfront.net/bpk-tv/9xjalwa2/default/main.mpd</textarea></div></div><div style=\"pointer-events: none;\"><div class=\"scrollContainerHidden__-2B3_K\" tabindex=\"0\"><div class=\"react-code-file-contents codeFileContents__8OkEdf\" data-isolate-layers=\"true\" role=\"presentation\" aria-hidden=\"true\" data-tab-size=\"4\" data-paste-markdown-skip=\"true\" data-hpc=\"true\" containertiming=\"hpc\" style=\"tab-size: 4; max-width: unset; width: 1309px;\"><div class=\"react-line-numbers-no-virtualization\" style=\"pointer-events: auto; position: relative; z-index: 2;\"><div class=\"reactNoVirtualizationWrapperLines__DG9JH-\"><div data-line-number=\"1\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">1</div><div data-line-number=\"2\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">2</div><div data-line-number=\"3\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">3</div><div data-line-number=\"4\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">4</div><div data-line-number=\"5\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">5</div><div data-line-number=\"6\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">6</div><div data-line-number=\"7\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">7</div><div data-line-number=\"8\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">8</div><div data-line-number=\"9\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">9</div><div data-line-number=\"10\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">10</div><div data-line-number=\"11\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">11</div><div data-line-number=\"12\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">12</div><div data-line-number=\"13\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">13</div><div data-line-number=\"14\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">14</div><div data-line-number=\"15\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">15</div><div data-line-number=\"16\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">16</div><div data-line-number=\"17\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">17</div><div data-line-number=\"18\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">18</div><div data-line-number=\"19\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">19</div><div data-line-number=\"20\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">20</div><div data-line-number=\"21\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">21</div><div data-line-number=\"22\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">22</div><div data-line-number=\"23\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">23</div><div data-line-number=\"24\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">24</div><div data-line-number=\"25\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">25</div><div data-line-number=\"26\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">26</div><div data-line-number=\"27\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">27</div><div data-line-number=\"28\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">28</div><div data-line-number=\"29\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">29</div><div data-line-number=\"30\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">30</div><div data-line-number=\"31\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">31</div><div data-line-number=\"32\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">32</div><div data-line-number=\"33\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">33</div><div data-line-number=\"34\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">34</div><div data-line-number=\"35\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">35</div><div data-line-number=\"36\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">36</div><div data-line-number=\"37\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">37</div><div data-line-number=\"38\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">38</div><div data-line-number=\"39\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">39</div><div data-line-number=\"40\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">40</div><div data-line-number=\"41\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">41</div><div data-line-number=\"42\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">42</div><div data-line-number=\"43\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">43</div><div data-line-number=\"44\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">44</div><div data-line-number=\"45\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">45</div><div data-line-number=\"46\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">46</div><div data-line-number=\"47\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">47</div><div data-line-number=\"48\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">48</div><div data-line-number=\"49\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">49</div><div data-line-number=\"50\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">50</div><div data-line-number=\"51\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">51</div><div data-line-number=\"52\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">52</div><div data-line-number=\"53\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">53</div><div data-line-number=\"54\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">54</div><div data-line-number=\"55\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">55</div><div data-line-number=\"56\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">56</div><div data-line-number=\"57\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">57</div><div data-line-number=\"58\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">58</div><div data-line-number=\"59\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">59</div><div data-line-number=\"60\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">60</div></div><div class=\"reactNoVirtualizationWrapperLines__DG9JH-\"><div data-line-number=\"61\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">61</div><div data-line-number=\"62\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">62</div><div data-line-number=\"63\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">63</div><div data-line-number=\"64\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">64</div><div data-line-number=\"65\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">65</div><div data-line-number=\"66\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">66</div><div data-line-number=\"67\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">67</div><div data-line-number=\"68\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">68</div><div data-line-number=\"69\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">69</div><div data-line-number=\"70\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">70</div><div data-line-number=\"71\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">71</div><div data-line-number=\"72\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">72</div><div data-line-number=\"73\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">73</div><div data-line-number=\"74\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">74</div><div data-line-number=\"75\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">75</div><div data-line-number=\"76\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">76</div><div data-line-number=\"77\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">77</div><div data-line-number=\"78\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">78</div><div data-line-number=\"79\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">79</div><div data-line-number=\"80\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">80</div><div data-line-number=\"81\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">81</div><div data-line-number=\"82\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">82</div><div data-line-number=\"83\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">83</div><div data-line-number=\"84\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">84</div><div data-line-number=\"85\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">85</div><div data-line-number=\"86\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">86</div><div data-line-number=\"87\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">87</div><div data-line-number=\"88\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">88</div><div data-line-number=\"89\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">89</div><div data-line-number=\"90\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">90</div><div data-line-number=\"91\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">91</div><div data-line-number=\"92\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">92</div><div data-line-number=\"93\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">93</div><div data-line-number=\"94\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">94</div><div data-line-number=\"95\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">95</div><div data-line-number=\"96\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">96</div><div data-line-number=\"97\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">97</div><div data-line-number=\"98\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">98</div><div data-line-number=\"99\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">99</div><div data-line-number=\"100\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">100</div><div data-line-number=\"101\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">101</div><div data-line-number=\"102\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">102</div><div data-line-number=\"103\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">103</div><div data-line-number=\"104\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">104</div><div data-line-number=\"105\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">105</div><div data-line-number=\"106\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">106</div><div data-line-number=\"107\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">107</div><div data-line-number=\"108\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">108</div><div data-line-number=\"109\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">109</div><div data-line-number=\"110\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">110</div><div data-line-number=\"111\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">111</div><div data-line-number=\"112\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">112</div><div data-line-number=\"113\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">113</div><div data-line-number=\"114\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">114</div><div data-line-number=\"115\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">115</div><div data-line-number=\"116\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">116</div><div data-line-number=\"117\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">117</div><div data-line-number=\"118\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">118</div><div data-line-number=\"119\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">119</div><div data-line-number=\"120\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">120</div></div><div class=\"reactNoVirtualizationWrapperLines__DG9JH-\"><div data-line-number=\"121\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">121</div><div data-line-number=\"122\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">122</div><div data-line-number=\"123\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">123</div><div data-line-number=\"124\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">124</div><div data-line-number=\"125\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">125</div><div data-line-number=\"126\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">126</div><div data-line-number=\"127\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">127</div><div data-line-number=\"128\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">128</div><div data-line-number=\"129\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">129</div><div data-line-number=\"130\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">130</div><div data-line-number=\"131\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">131</div><div data-line-number=\"132\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">132</div><div data-line-number=\"133\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">133</div><div data-line-number=\"134\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">134</div><div data-line-number=\"135\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">135</div><div data-line-number=\"136\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">136</div><div data-line-number=\"137\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">137</div><div data-line-number=\"138\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">138</div><div data-line-number=\"139\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">139</div><div data-line-number=\"140\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">140</div><div data-line-number=\"141\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">141</div><div data-line-number=\"142\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">142</div><div data-line-number=\"143\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">143</div><div data-line-number=\"144\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">144</div><div data-line-number=\"145\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">145</div><div data-line-number=\"146\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">146</div><div data-line-number=\"147\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">147</div><div data-line-number=\"148\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">148</div><div data-line-number=\"149\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">149</div><div data-line-number=\"150\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">150</div><div data-line-number=\"151\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">151</div><div data-line-number=\"152\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">152</div><div data-line-number=\"153\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">153</div><div data-line-number=\"154\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">154</div><div data-line-number=\"155\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">155</div><div data-line-number=\"156\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">156</div><div data-line-number=\"157\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">157</div><div data-line-number=\"158\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">158</div><div data-line-number=\"159\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">159</div><div data-line-number=\"160\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">160</div><div data-line-number=\"161\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">161</div><div data-line-number=\"162\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">162</div><div data-line-number=\"163\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">163</div><div data-line-number=\"164\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">164</div><div data-line-number=\"165\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">165</div><div data-line-number=\"166\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">166</div><div data-line-number=\"167\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">167</div><div data-line-number=\"168\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">168</div><div data-line-number=\"169\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">169</div><div data-line-number=\"170\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">170</div><div data-line-number=\"171\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">171</div><div data-line-number=\"172\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">172</div><div data-line-number=\"173\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">173</div><div data-line-number=\"174\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">174</div><div data-line-number=\"175\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">175</div><div data-line-number=\"176\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">176</div><div data-line-number=\"177\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">177</div><div data-line-number=\"178\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">178</div><div data-line-number=\"179\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">179</div><div data-line-number=\"180\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">180</div></div><div class=\"reactNoVirtualizationWrapperLines__DG9JH-\"><div data-line-number=\"181\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">181</div><div data-line-number=\"182\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">182</div><div data-line-number=\"183\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">183</div><div data-line-number=\"184\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">184</div><div data-line-number=\"185\" class=\"react-line-number react-code-text\" style=\"padding-right: 16px;\">185</div></div></div><div class=\"react-code-lines\"><div inert=\"\"><div class=\"react-no-virtualization-wrapper\"><div id=\"LC1\" class=\"react-code-text react-code-line-contents-no-virtualization react-file-line html-div \"><span class=\"pl-c\"><span class=\"pl-c\">#</span><span class=\"pl-k\">EXTM3U</span></span></div>",
+        "clearkey": {
+            "0538cf4c5ed546a9956aadab2fdf3366": "b0af534e1a5f459f9c751a0cb9d12d4c</span></div>"
+        },
+        "headers": {}
+    }
+];
+
+let player = null;
+
+function log(msg) {
+    document.getElementById('log').innerText = "Status: " + msg;
+}
+
+async function initApp() {
+    const video = document.getElementById('video');
+    shaka.polyfill.installAll();
+    
+    if (!shaka.Player.isBrowserSupported()) {
+        log('Browser not supported for Shaka Player!');
+        return;
+    }
+
+    player = new shaka.Player(video);
+    player.addEventListener('error', (event) => {
+        console.error('Shaka Error:', event.detail);
+        log('Error Code ' + event.detail.code + ' - ' + event.detail.message);
+    });
+
+    renderPlaylist();
+    if (channels.length > 0) {
+        loadChannel(0);
+    }
+}
+
+function renderPlaylist() {
+    const listDiv = document.getElementById('playlist');
+    listDiv.innerHTML = '';
+    channels.forEach((ch, index) => {
+        const btn = document.createElement('button');
+        btn.innerText = ch.name;
+        btn.onclick = () => loadChannel(index);
+        btn.id = 'btn-' + index;
+        listDiv.appendChild(btn);
+    });
+}
+
+async function loadChannel(index) {
+    document.querySelectorAll('.playlist button').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-' + index).classList.add('active');
+
+    const ch = channels[index];
+    log('Loading ' + ch.name + '...');
+
+    // Reset player configuration
+    player.configure({
+        drm: {
+            clearKeys: ch.clearkey ? ch.clearkey : {}
+        }
+    });
+
+    // Configure headers if present
+    player.getNetworkingEngine().clearAllRequestFilters();
+    if (ch.headers && Object.keys(ch.headers).length > 0) {
+        player.getNetworkingEngine().registerRequestFilter((type, request) => {
+            if (type === shaka.net.NetworkingEngine.RequestType.MANIFEST ||
+                type === shaka.net.NetworkingEngine.RequestType.SEGMENT) {
+                for (let [key, value] of Object.entries(ch.headers)) {
+                    request.headers[key] = value;
+                }
+            }
+        });
+    }
+
+    try {
+        await player.load(ch.url);
+        log('Playing: ' + ch.name);
+    } catch (e) {
+        log('Failed to load channel (Code: ' + e.code + ')');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', initApp);
+</script>
+</body>
+</html>
